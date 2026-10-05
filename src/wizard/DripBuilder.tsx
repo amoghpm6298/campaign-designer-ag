@@ -223,9 +223,28 @@ export function DripBuilder({
     onSubmit(buildPayload('PENDING_REVIEW'));
   }
 
+  const isStepComplete = (s: BuilderStepKind) => (s === 'basicDetails' ? !!name : s === 'goalDefinition' ? !!(goal && goal.eventType) : true);
+
   return (
     <div className="dcb-shell">
-      <WizardStepper current={step} onNavigate={setStep} />
+      <WizardStepper current={step} onNavigate={setStep} onBack={onBack} isStepComplete={isStepComplete}>
+        {step === 'builder' && (
+          <>
+            <button className="btn secondary small" disabled={!canUndo} onClick={() => setHistoryIndex((i) => Math.max(0, i - 1))} title="Undo">
+              ↶ Undo
+            </button>
+            <button className="btn secondary small" disabled={!canRedo} onClick={() => setHistoryIndex((i) => Math.min(history.length - 1, i + 1))} title="Redo">
+              ↷ Redo
+            </button>
+            <button className="btn secondary" onClick={() => onSaveDraft(buildPayload('DRAFT'))}>
+              Save as Draft
+            </button>
+            <button className="btn primary" onClick={handleSubmitClick}>
+              Submit for Approval
+            </button>
+          </>
+        )}
+      </WizardStepper>
 
       {step === 'basicDetails' && (
         <div className="dcb-step-body">
@@ -260,17 +279,7 @@ export function DripBuilder({
 
       {step === 'builder' && (
         <BuilderStep
-          name={name}
-          issuer={issuer}
-          goal={goal}
           graph={graph}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          onUndo={() => setHistoryIndex((i) => Math.max(0, i - 1))}
-          onRedo={() => setHistoryIndex((i) => Math.min(history.length - 1, i + 1))}
-          onBack={onBack}
-          onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
-          onSubmitClick={handleSubmitClick}
           validationMessage={validationMessage}
           onAddEntry={() => selectAddAt({ kind: 'root' })}
           onEditNode={openEditNode}

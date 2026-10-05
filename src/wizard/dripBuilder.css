@@ -30,7 +30,6 @@
   flex-wrap: wrap;
   flex-shrink: 0;
 }
-.dcb-header-name { font-size: 14px; font-weight: 700; color: var(--neutral-900); }
 .dcb-header-spacer { flex: 1; }
 .dcb-validation-banner {
   padding: 8px 20px;
@@ -45,17 +44,12 @@
 .dcb-mid-inner { max-width: 640px; margin: 0 auto; padding: 36px 24px 60px; }
 .dcb-hr { border: none; border-top: 1px solid var(--gray-200); margin: 14px 0; }
 
-/* Shared stepper — one consistent nav across all 3 steps, replacing both
-   the old per-step "Step X of 3" text and the Builder step's separate
-   "Edit Setup"/"Edit Goal" text links. */
-.dcb-stepper {
-  display: flex;
-  align-items: center;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--gray-200);
-  background: var(--gray-25);
-  flex-shrink: 0;
-}
+/* Shared stepper — lives inside .dcb-header itself (one row total,
+   alongside the back link and, on the Builder step, the action
+   buttons), not a second stacked bar. A step's own completion shows ON
+   its number (a thin amber ring when visited but still empty) instead
+   of restating it as separate header text elsewhere. */
+.dcb-stepper { display: flex; align-items: center; }
 .dcb-stepper-item-wrap { display: flex; align-items: center; }
 .dcb-stepper-item {
   display: flex;
@@ -84,4 +78,5 @@
 }
 .dcb-stepper-item.done .dcb-stepper-num { background: var(--success-bg); color: var(--success-text); }
 .dcb-stepper-item.current .dcb-stepper-num { background: var(--blue-cta); color: #fff; }
+.dcb-stepper-num.incomplete { box-shadow: 0 0 0 2px var(--warning-border); }
 .dcb-stepper-sep { width: 28px; height: 1px; background: var(--gray-300); margin: 0 10px; }
