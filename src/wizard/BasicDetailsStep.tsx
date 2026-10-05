@@ -47,7 +47,6 @@ export function BasicDetailsStep({
 }) {
   return (
     <div className="dcb-mid-inner">
-      <div className="dcb-step-indicator">Step 1 of 3 — Basic Details</div>
       <h1 className="wiz-heading">{isEditing ? 'Edit Drip Campaign' : 'New Drip Campaign'}</h1>
       <p className="wiz-sub">Set identity, scope, and launch settings — you'll define the goal and build the flow next.</p>
 

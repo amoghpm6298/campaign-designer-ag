@@ -1,12 +1,14 @@
 // Step 3 of 3 — the canvas itself, now full-width: the old `.dcb-rail`
 // (campaign summary, Goal button, guidance text, open-branch warning,
 // "steps so far" outline, Save/Submit — 320px, permanently visible) is
-// gone. Replaced with a slim top header bar (name, Edit Setup/Edit Goal,
+// gone. Replaced with a slim top header bar (name, goal summary,
 // Undo/Redo, Save/Submit) and an on-demand validation banner that only
 // appears after a blocked Submit attempt — checked directly against how
 // Braze/MoEngage/CleverTap's own canvas-builder screens work: where they
 // have a sidebar at all, it's a node palette or an on-demand errors
-// panel, never a permanent summary column.
+// panel, never a permanent summary column. Navigating back to Basic
+// Details/Goal Definition is the shared WizardStepper's job now, not a
+// pair of text links living here.
 import { dcGoalLabel } from '../reducer/labelMeta';
 import { DripCanvas } from '../canvas/DripCanvas';
 import type { DripGoal, DripGraph } from '../data/graphTypes';
@@ -21,8 +23,6 @@ export function BuilderStep({
   onUndo,
   onRedo,
   onBack,
-  onEditSetup,
-  onEditGoal,
   onSaveDraft,
   onSubmitClick,
   validationMessage,
@@ -44,8 +44,6 @@ export function BuilderStep({
   onUndo: () => void;
   onRedo: () => void;
   onBack: () => void;
-  onEditSetup: () => void;
-  onEditGoal: () => void;
   onSaveDraft: () => void;
   onSubmitClick: () => void;
   validationMessage: string | null;
@@ -66,13 +64,15 @@ export function BuilderStep({
         </div>
         <div className="dcb-header-name">{name || 'Untitled Campaign'}</div>
         {issuer && <span className="badge gray">{issuer}</span>}
-        <div className="add-link" onClick={onEditSetup}>
-          Edit Setup
-        </div>
-        <div className="add-link" onClick={onEditGoal}>
-          Edit Goal
-        </div>
-        {goal && goal.eventType ? <span className="badge success">{dcGoalLabel(goal)}</span> : <span className="f-hint" style={{ margin: 0 }}>No goal set</span>}
+        {goal && goal.eventType ? (
+          <span className="badge success">
+            Goal: {dcGoalLabel(goal)} <span style={{ opacity: 0.75, fontWeight: 400 }}>({goal.eventCategory})</span>
+          </span>
+        ) : (
+          <span className="f-hint" style={{ margin: 0 }}>
+            No goal set
+          </span>
+        )}
 
         <div className="dcb-header-spacer" />
 

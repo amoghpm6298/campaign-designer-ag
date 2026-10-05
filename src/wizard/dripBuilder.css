@@ -41,6 +41,47 @@
   flex-shrink: 0;
 }
 .dcb-canvas { flex: 1; min-width: 0; min-height: 0; background: #fbfbfc; }
+.dcb-step-body { flex: 1; min-height: 0; overflow-y: auto; }
 .dcb-mid-inner { max-width: 640px; margin: 0 auto; padding: 36px 24px 60px; }
 .dcb-hr { border: none; border-top: 1px solid var(--gray-200); margin: 14px 0; }
-.dcb-step-indicator { font-size: 11.5px; color: var(--gray-500); margin-bottom: 22px; }
+
+/* Shared stepper — one consistent nav across all 3 steps, replacing both
+   the old per-step "Step X of 3" text and the Builder step's separate
+   "Edit Setup"/"Edit Goal" text links. */
+.dcb-stepper {
+  display: flex;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--gray-200);
+  background: var(--gray-25);
+  flex-shrink: 0;
+}
+.dcb-stepper-item-wrap { display: flex; align-items: center; }
+.dcb-stepper-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gray-400);
+  cursor: pointer;
+  padding: 4px 2px;
+}
+.dcb-stepper-item:hover { color: var(--gray-600); }
+.dcb-stepper-item.done { color: var(--gray-600); }
+.dcb-stepper-item.current { color: var(--blue-cta); }
+.dcb-stepper-num {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--gray-200);
+  color: var(--gray-600);
+  font-size: 10.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.dcb-stepper-item.done .dcb-stepper-num { background: var(--success-bg); color: var(--success-text); }
+.dcb-stepper-item.current .dcb-stepper-num { background: var(--blue-cta); color: #fff; }
+.dcb-stepper-sep { width: 28px; height: 1px; background: var(--gray-300); margin: 0 10px; }

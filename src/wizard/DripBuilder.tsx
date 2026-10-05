@@ -17,6 +17,7 @@ import { dcDefaultConfig } from '../reducer/defaultConfig';
 import { BasicDetailsStep } from './BasicDetailsStep';
 import { GoalDefinitionStep } from './GoalDefinitionStep';
 import { BuilderStep } from './BuilderStep';
+import { WizardStepper } from './WizardStepper';
 import { AddEditDrawer } from './AddEditDrawer';
 import './dripBuilder.css';
 
@@ -222,69 +223,65 @@ export function DripBuilder({
     onSubmit(buildPayload('PENDING_REVIEW'));
   }
 
-  if (step === 'basicDetails') {
-    return (
-      <BasicDetailsStep
-        isEditing={!!initial}
-        name={name}
-        onNameChange={setName}
-        description={description}
-        onDescriptionChange={setDescription}
-        issuer={issuer}
-        onIssuerChange={setIssuer}
-        programs={programs}
-        onProgramsChange={setPrograms}
-        controlPct={controlPct}
-        onControlPctChange={setControlPct}
-        startDate={startDate}
-        onStartDateChange={setStartDate}
-        endDate={endDate}
-        onEndDateChange={setEndDate}
-        onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
-        onContinue={() => setStep('goalDefinition')}
-        onSkipToBuilder={() => setStep('builder')}
-      />
-    );
-  }
-
-  if (step === 'goalDefinition') {
-    return (
-      <GoalDefinitionStep
-        goal={goal}
-        onGoalChange={setGoal}
-        onBack={() => setStep('basicDetails')}
-        onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
-        onContinue={() => setStep('builder')}
-      />
-    );
-  }
-
   return (
     <div className="dcb-shell">
-      <BuilderStep
-        name={name}
-        issuer={issuer}
-        goal={goal}
-        graph={graph}
-        canUndo={canUndo}
-        canRedo={canRedo}
-        onUndo={() => setHistoryIndex((i) => Math.max(0, i - 1))}
-        onRedo={() => setHistoryIndex((i) => Math.min(history.length - 1, i + 1))}
-        onBack={onBack}
-        onEditSetup={() => setStep('basicDetails')}
-        onEditGoal={() => setStep('goalDefinition')}
-        onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
-        onSubmitClick={handleSubmitClick}
-        validationMessage={validationMessage}
-        onAddEntry={() => selectAddAt({ kind: 'root' })}
-        onEditNode={openEditNode}
-        onRemoveRoot={removeRoot}
-        onReplaceAuto={replaceAuto}
-        onRemoveEdge={removeEdge}
-        onAddAtEdge={(edgeId) => selectAddAt({ kind: 'edge', edgeId })}
-        onAddAtGrowLeaf={(nodeId) => selectAddAt({ kind: 'growLeaf', nodeId })}
-        onAddAtMidEdge={(edgeId) => selectAddAt({ kind: 'midEdge', edgeId })}
-      />
+      <WizardStepper current={step} onNavigate={setStep} />
+
+      {step === 'basicDetails' && (
+        <div className="dcb-step-body">
+          <BasicDetailsStep
+            isEditing={!!initial}
+            name={name}
+            onNameChange={setName}
+            description={description}
+            onDescriptionChange={setDescription}
+            issuer={issuer}
+            onIssuerChange={setIssuer}
+            programs={programs}
+            onProgramsChange={setPrograms}
+            controlPct={controlPct}
+            onControlPctChange={setControlPct}
+            startDate={startDate}
+            onStartDateChange={setStartDate}
+            endDate={endDate}
+            onEndDateChange={setEndDate}
+            onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
+            onContinue={() => setStep('goalDefinition')}
+            onSkipToBuilder={() => setStep('builder')}
+          />
+        </div>
+      )}
+
+      {step === 'goalDefinition' && (
+        <div className="dcb-step-body">
+          <GoalDefinitionStep goal={goal} onGoalChange={setGoal} onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))} onContinue={() => setStep('builder')} />
+        </div>
+      )}
+
+      {step === 'builder' && (
+        <BuilderStep
+          name={name}
+          issuer={issuer}
+          goal={goal}
+          graph={graph}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={() => setHistoryIndex((i) => Math.max(0, i - 1))}
+          onRedo={() => setHistoryIndex((i) => Math.min(history.length - 1, i + 1))}
+          onBack={onBack}
+          onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
+          onSubmitClick={handleSubmitClick}
+          validationMessage={validationMessage}
+          onAddEntry={() => selectAddAt({ kind: 'root' })}
+          onEditNode={openEditNode}
+          onRemoveRoot={removeRoot}
+          onReplaceAuto={replaceAuto}
+          onRemoveEdge={removeEdge}
+          onAddAtEdge={(edgeId) => selectAddAt({ kind: 'edge', edgeId })}
+          onAddAtGrowLeaf={(nodeId) => selectAddAt({ kind: 'growLeaf', nodeId })}
+          onAddAtMidEdge={(edgeId) => selectAddAt({ kind: 'midEdge', edgeId })}
+        />
+      )}
 
       <AddEditDrawer
         open={drawerOpen}
