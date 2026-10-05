@@ -49,10 +49,10 @@ export function DripView({
         <button className="btn secondary" style={{ marginBottom: 10 }} onClick={onBack}>
           ← Back to Drip Campaigns
         </button>
-        <h1 className="page-title" style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>
+        <h1 className="page-title">
           {c.name} <span className={`badge ${sm.badge}`} style={{ marginLeft: 8, verticalAlign: 'middle' }}>{sm.label}</span>
         </h1>
-        <p className="page-sub" style={{ fontSize: 13, color: 'var(--gray-500)', margin: '4px 0 0' }}>
+        <p className="page-sub">
           {c.issuer || 'No issuer set'}
           {c.programs?.length ? ' · ' + c.programs.join(', ') : ''} · Goal: {dcGoalLabel(c.goal) ? `${dcGoalLabel(c.goal)} (${c.goal!.eventCategory})` : 'None — independent checkpoints'} · Control Group:{' '}
           {c.controlPct ? c.controlPct + '%' : 'None'} · {c.root ? dcCountSends(c.root) : 0} sends

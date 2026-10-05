@@ -1,111 +1,160 @@
+/* Global design tokens + base page chrome, ported from
+   journeysnudgesemi/emi-conversions-prototype.html. Loaded on every
+   route via main.tsx (unlike dripCanvas.css/dripBuilder.css/
+   sideDrawer.css, which only load once their owning component mounts)
+   — anything a page needs regardless of which component is on screen
+   (tokens, .btn, .badge, page-header/card/table chrome, the sidebar)
+   belongs here, not in a component-scoped file. This is also what
+   fixes the earlier dark-mode scaffold bug: color-scheme is pinned to
+   light and background is explicit, matching the rest of the product,
+   which has no dark mode anywhere. */
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
-
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
-
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  --blue-cta: #0a66ef;
+  --blue-cta-hover: #0857ce;
+  --indigo: #292c82;
+  --sidebar-active: #2563eb;
+  --gray-25: #fcfcfd;
+  --gray-50: #f9fafb;
+  --gray-100: #f2f4f7;
+  --gray-200: #e4e7ec;
+  --gray-300: #d0d5dd;
+  --gray-400: #98a2b3;
+  --gray-500: #667085;
+  --gray-600: #475467;
+  --gray-800: #1d2939;
+  --neutral-800: #262626;
+  --neutral-900: #101828;
+  --table-head: #8492a6;
+  --success-text: #039754;
+  --success-bg: #ebfdf2;
+  --success-border: #31d583;
+  --warning-text: #a15c07;
+  --warning-border: #fcb022;
+  --warning-bg: #feefc6;
+  --error-text: #b42318;
+  --error-border: #f97066;
+  --error-bg: #fee3e1;
+  --info-text: #175cd3;
+  --info-bg: #e7f0fe;
+  --purple-text: #6941c6;
+  --purple-bg: #f4ebff;
+  --shadow-card: 0 10px 15px -3px rgba(16, 24, 40, 0.08), 0 4px 6px -4px rgba(16, 24, 40, 0.06);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-}
-
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
+* {
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
+  color-scheme: light;
+  background: #ffffff;
+  color: var(--neutral-900);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+a {
+  text-decoration: none;
+  color: inherit;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
+#root {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
 }
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
+
+svg.ic {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
-p {
+
+/* ---------- Buttons / badges (shared everywhere) ---------- */
+.btn {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm);
+}
+.btn.primary { background: var(--blue-cta); color: #fff; }
+.btn.primary:hover { background: var(--blue-cta-hover); }
+.btn.secondary { background: #fff; border-color: var(--indigo); color: var(--indigo); }
+.btn.secondary:hover { background: var(--gray-50); }
+.btn.danger { background: #fff; border-color: var(--error-border); color: var(--error-text); }
+.btn:disabled { cursor: not-allowed; opacity: 0.6; }
+
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 16px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.badge.success { background: var(--success-bg); color: var(--success-text); }
+.badge.gray { background: var(--gray-100); color: var(--gray-600); }
+.badge.warning { background: var(--warning-bg); color: var(--warning-text); }
+.badge.error { background: var(--error-bg); color: var(--error-text); }
+.badge.info { background: var(--info-bg); color: var(--info-text); }
+
+/* ---------- Page chrome (list/view pages) ---------- */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.page-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--neutral-900);
   margin: 0;
 }
-
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+.page-sub {
+  font-size: 13.5px;
+  color: var(--gray-500);
+  margin: 4px 0 0;
+}
+.card {
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  padding: 20px;
+  background: #fff;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-card);
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+.table-wrap {
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+thead th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--table-head);
+  letter-spacing: 0.03em;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--gray-200);
+  background: var(--gray-50);
+}
+thead th:first-child { border-radius: 10px 0 0 0; }
+thead th:last-child { border-radius: 0 10px 0 0; }
+tbody td {
+  padding: 12px;
+  border-bottom: 1px solid var(--gray-100);
+  color: var(--neutral-800);
+}
+tbody tr:hover { background: var(--gray-50); cursor: pointer; }

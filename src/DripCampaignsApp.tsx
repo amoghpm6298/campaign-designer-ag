@@ -10,6 +10,7 @@ import { DripList } from './list/DripList';
 import { DripView } from './list/DripView';
 import { DripBuilder, type DripBuilderPayload } from './wizard/DripBuilder';
 import { Toast, type ToastState } from './components/Toast';
+import { Sidebar } from './components/Sidebar';
 
 type ViewState =
   | { kind: 'list' }
@@ -128,7 +129,8 @@ export function DripCampaignsApp() {
 
   return (
     <>
-      {body}
+      <Sidebar />
+      <div id="dc-main">{body}</div>
       <Toast toast={toast} onDismiss={() => setToast(null)} />
     </>
   );
