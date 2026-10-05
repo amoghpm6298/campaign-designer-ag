@@ -1,0 +1,106 @@
+/* Ported design tokens + Drip Campaigns' own card/chip styling from
+   journeysnudgesemi/emi-conversions-prototype.html. Visual baseline only —
+   positioning is now owned by React Flow itself (nodes/edges are no
+   longer hand-placed via position:absolute + manually computed left/top),
+   so .dc-node-card etc. drop that part of the original rule and keep only
+   the look (border, padding, category colors, shared-node ring). */
+
+:root {
+  --blue-cta: #0a66ef;
+  --blue-cta-hover: #0857ce;
+  --indigo: #292c82;
+  --gray-25: #fcfcfd;
+  --gray-50: #f9fafb;
+  --gray-100: #f2f4f7;
+  --gray-200: #e4e7ec;
+  --gray-300: #d0d5dd;
+  --gray-400: #98a2b3;
+  --gray-500: #667085;
+  --gray-600: #475467;
+  --neutral-800: #262626;
+  --neutral-900: #101828;
+  --success-text: #039754;
+  --success-bg: #ebfdf2;
+  --success-border: #31d583;
+  --warning-text: #a15c07;
+  --warning-border: #fcb022;
+  --warning-bg: #feefc6;
+  --error-text: #b42318;
+  --info-text: #175cd3;
+  --info-bg: #e7f0fe;
+}
+
+.dc-graph-wrap {
+  width: 100%;
+  height: 100%;
+  background: #fbfbfc;
+}
+
+.dc-node-card {
+  width: 186px;
+  border-radius: 9px;
+  border: 1.5px solid var(--gray-200);
+  background: #fff;
+  padding: 9px 11px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.dc-node-card.editable:hover {
+  border-color: var(--blue-cta);
+  box-shadow: 0 2px 6px rgba(10, 102, 239, 0.12);
+}
+.dc-node-type { font-size: 9.5px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; margin-bottom: 3px; }
+.dc-node-label { font-size: 12.5px; font-weight: 600; color: var(--neutral-900); line-height: 1.3; }
+.dc-node-meta { font-size: 11px; color: var(--gray-500); margin-top: 3px; line-height: 1.35; }
+
+.dc-node-card.cat-entry { border-color: var(--info-text); }
+.dc-node-card.cat-entry .dc-node-type { color: var(--info-text); }
+.dc-node-card.cat-send { border-color: var(--blue-cta); }
+.dc-node-card.cat-send .dc-node-type { color: var(--blue-cta); }
+.dc-node-card.cat-flow { border-color: var(--gray-300); }
+.dc-node-card.cat-flow .dc-node-type { color: var(--gray-600); }
+.dc-node-card.cat-split { border-color: var(--warning-border); }
+.dc-node-card.cat-split .dc-node-type { color: var(--warning-text); }
+.dc-node-card.cat-goal { border-color: var(--success-border); background: var(--success-bg); }
+.dc-node-card.cat-goal .dc-node-type { color: var(--success-text); }
+.dc-node-card.cat-exit { border-color: var(--gray-300); background: var(--gray-50); }
+.dc-node-card.cat-exit .dc-node-type { color: var(--gray-500); }
+
+/* A node reached by more than one edge gets a small "shared step" marker
+   instead of relying on the viewer to notice two lines meeting at one box. */
+.dc-node-card.shared { box-shadow: 0 0 0 2px var(--blue-cta), 0 2px 6px rgba(10, 102, 239, 0.15); position: relative; }
+.dc-shared-badge {
+  position: absolute; top: -9px; right: 8px; background: var(--blue-cta); color: #fff;
+  font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 20px;
+}
+
+.dc-node-card .dc-node-remove {
+  position: absolute; top: 5px; right: 6px; font-size: 11px; color: var(--gray-400); cursor: pointer; line-height: 1; display: none;
+}
+.dc-node-card:hover .dc-node-remove { display: block; }
+.dc-node-card .dc-node-remove:hover { color: var(--error-text); }
+
+.dc-auto-badge {
+  margin-top: 7px; padding: 3px 7px; border-radius: 5px; background: var(--info-bg); color: var(--info-text);
+  font-size: 10px; font-weight: 700; cursor: pointer; display: inline-block;
+}
+.dc-auto-badge:hover { background: var(--blue-cta); color: #fff; }
+
+/* Open-slot "+" node — a real node in the graph/layout, same role as the
+   original's dagre virtual slot node. */
+.dc-add-btn {
+  width: 26px; height: 26px; border-radius: 50%; border: 1.5px dashed var(--gray-300); background: #fff;
+  color: var(--gray-500); font-size: 15px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.dc-add-btn:hover { border-color: var(--blue-cta); color: var(--blue-cta); border-style: solid; }
+
+/* Branch-label edge chip — a bare (unlabeled) connector's chip carries
+   nothing but a remove affordance, so it stays invisible at rest and
+   reveals only on hover (the exact fix for the "what is this, a floating
+   X?" bug that was part of why this migration happened). */
+.dc-branch-label {
+  font-size: 10px; font-weight: 700; color: var(--gray-600); background: #fff;
+  padding: 1px 6px; border: 1px solid var(--gray-200); border-radius: 20px; white-space: nowrap;
+}
+.dc-branch-label-bare { opacity: 0; transition: opacity 0.12s; }
+.dc-branch-label-bare:hover { opacity: 1; }
