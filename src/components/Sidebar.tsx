@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Icon, Chevron } from './icons';
+import { HYPERFACE_LOGO } from './logo';
 import './sidebar.css';
 
 // Ported from journeysnudgesemi/emi-conversions-prototype.html's NAV
@@ -23,7 +24,7 @@ const NAV: NavEntry[] = [
   { type: 'item', icon: 'building', label: 'Issuers' },
   { type: 'item', icon: 'users', label: 'Clients' },
   { type: 'heading', label: 'Insights Center' },
-  { type: 'submenu', icon: 'chart', label: 'Analytics', children: [{ label: 'OnboardIQ Analytics' }, { label: 'Offer Analytics' }, { label: 'EMI Analytics', page: 'analytics', tag: 'NEW' }] },
+  { type: 'submenu', icon: 'chart', label: 'Analytics', open: true, children: [{ label: 'OnboardIQ Analytics' }, { label: 'Offer Analytics' }, { label: 'EMI Analytics', page: 'analytics', tag: 'NEW' }] },
   { type: 'item', icon: 'search', label: 'HyperQuery' },
   { type: 'heading', label: 'Product Setup' },
   { type: 'submenu', icon: 'sliders', label: 'Program Management', children: [{ label: 'Programs' }, { label: 'Themes' }, { label: 'Playground' }] },
@@ -67,8 +68,15 @@ function goTo(page?: string) {
   window.location.href = `/?page=${page}`;
 }
 
+// Submenus open by default, matching the real NAV's own `open:true`
+// defaults (Analytics) plus Communication Hub — which in the real app
+// only opens when its currentPage matches one of its children
+// (hasActiveChild), but here that's always true, since this whole app
+// *is* the Drip Campaigns page.
+const DEFAULT_OPEN = NAV.filter((n): n is NavSubmenu => n.type === 'submenu' && !!n.open).map((n) => n.label);
+
 export function Sidebar() {
-  const [openSubmenus, setOpenSubmenus] = useState<Set<string>>(new Set(['Communication Hub']));
+  const [openSubmenus, setOpenSubmenus] = useState<Set<string>>(new Set([...DEFAULT_OPEN, 'Communication Hub']));
 
   function toggleSub(label: string) {
     setOpenSubmenus((prev) => {
@@ -82,7 +90,7 @@ export function Sidebar() {
   return (
     <div id="sidebar">
       <div className="sb-header">
-        <div className="sb-logo">HF</div>
+        <img className="sb-logo" src={HYPERFACE_LOGO} alt="Hyperface" />
       </div>
       <div className="sb-nav">
         {NAV.map((n, i) => {

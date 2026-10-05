@@ -1,9 +1,10 @@
 /* Ported from journeysnudgesemi/emi-conversions-prototype.html's
-   #sidebar/.sb-* CSS block. The real sidebar's logo is a base64-embedded
-   PNG; this app uses a plain "HF" monogram instead (same spirit as the
-   real SidebarHeader, which per this project's own CLAUDE.md history
-   renders only a small logo mark, no wordmark) rather than inlining a
-   multi-KB image for a detail that isn't load-bearing. */
+   #sidebar/.sb-* CSS block, including the real base64-embedded logo
+   (see logo.ts) — a placeholder "HF" badge was tried first here, but
+   it made the sidebar visibly swap logos on every navigation between
+   this app and the rest of the prototype (full page load, so any
+   visual mismatch reads as a jarring flash, not a smooth transition).
+   Using the exact same asset removes that seam entirely. */
 #sidebar {
   width: 256px;
   flex-shrink: 0;
@@ -25,16 +26,9 @@
 }
 #sidebar .sb-logo {
   height: 26px;
-  width: 26px;
+  width: auto;
   flex-shrink: 0;
-  border-radius: 6px;
-  background: var(--blue-cta);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  object-fit: contain;
 }
 #sidebar .sb-nav {
   flex: 1;
