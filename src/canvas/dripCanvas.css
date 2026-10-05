@@ -26,6 +26,8 @@
   --warning-border: #fcb022;
   --warning-bg: #feefc6;
   --error-text: #b42318;
+  --error-bg: #fee3e1;
+  --error-border: #f97066;
   --info-text: #175cd3;
   --info-bg: #e7f0fe;
 }

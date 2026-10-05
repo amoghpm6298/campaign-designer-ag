@@ -4,6 +4,9 @@
 .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 16px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 .badge.success { background: var(--success-bg); color: var(--success-text); }
 .badge.gray { background: var(--gray-100); color: var(--gray-600); }
+.badge.warning { background: var(--warning-bg); color: var(--warning-text); }
+.badge.error { background: var(--error-bg, #fee3e1); color: var(--error-text); }
+.badge.info { background: var(--info-bg); color: var(--info-text); }
 
 .wiz-rail-title { font-size: 15px; font-weight: 700; color: var(--neutral-900); margin-bottom: 2px; }
 .wiz-rail-sub { font-size: 11.5px; color: var(--gray-500); margin-bottom: 22px; }
