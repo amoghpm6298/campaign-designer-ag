@@ -14,7 +14,7 @@ import './sidebar.css';
 // Atlas Console, etc.) are inert there too — not a gap specific to this
 // build, matched here on purpose rather than inventing a link.
 type NavItem = { type: 'item'; icon: string; label: string; page?: string; tag?: string; ext?: boolean };
-type NavSubItem = { label: string; page?: string; tag?: string };
+type NavSubItem = { label: string; page?: string; tag?: string; ext?: boolean };
 type NavSubmenu = { type: 'submenu'; icon: string; label: string; open?: boolean; children: NavSubItem[] };
 type NavHeading = { type: 'heading'; label: string };
 type NavEntry = NavItem | NavSubmenu | NavHeading;
@@ -42,7 +42,7 @@ const NAV: NavEntry[] = [
       { label: 'Nudges', page: 'nudges-list' },
       { label: 'Comms. Templates', page: 'comms-list' },
       { label: 'DNC', page: 'dnc' },
-      { label: 'Drip Campaigns', page: 'drip-list', tag: 'NEW' },
+      { label: 'Drip Campaigns', tag: 'NEW', ext: true },
     ],
   },
   { type: 'heading', label: 'Operations' },
@@ -125,6 +125,7 @@ export function Sidebar() {
                     >
                       {c.label}
                       {c.tag && <span className="sb-new-tag">{c.tag}</span>}
+                      {c.ext && <span className="sb-ext"><Icon name="external" /></span>}
                     </div>
                   );
                 })}
