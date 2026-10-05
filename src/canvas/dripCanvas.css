@@ -104,3 +104,9 @@
 }
 .dc-branch-label-bare { opacity: 0; transition: opacity 0.12s; }
 .dc-branch-label-bare:hover { opacity: 1; }
+
+.dc-add-entry-placeholder {
+  width: 220px; margin: 24px 0 0 24px; padding: 22px; text-align: center; border-radius: 10px;
+  border: 1.5px dashed var(--gray-300); color: var(--gray-500); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.dc-add-entry-placeholder:hover { border-color: var(--blue-cta); color: var(--blue-cta); }

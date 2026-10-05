@@ -1,0 +1,18 @@
+/* Ported from journeysnudgesemi/emi-conversions-prototype.html — the
+   builder shell/rail chrome + badge styling the Setup/Build steps need. */
+
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 16px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.badge.success { background: var(--success-bg); color: var(--success-text); }
+.badge.gray { background: var(--gray-100); color: var(--gray-600); }
+
+.wiz-rail-title { font-size: 15px; font-weight: 700; color: var(--neutral-900); margin-bottom: 2px; }
+.wiz-rail-sub { font-size: 11.5px; color: var(--gray-500); margin-bottom: 22px; }
+.wiz-group-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--gray-400); margin: 14px 0 4px; }
+.wiz-heading { font-size: 19px; font-weight: 700; color: var(--neutral-900); margin: 0 0 4px; }
+.wiz-sub { font-size: 13px; color: var(--gray-500); margin: 0 0 26px; }
+
+.dcb-shell { display: flex; height: 100vh; }
+.dcb-rail { width: 320px; flex-shrink: 0; border-right: 1px solid var(--gray-200); padding: 24px 20px 100px; overflow-y: auto; background: var(--gray-25); }
+.dcb-canvas { flex: 1; min-width: 0; background: #fbfbfc; }
+.dcb-mid-inner { max-width: 640px; margin: 0 auto; padding: 36px 24px 60px; }
+.dcb-hr { border: none; border-top: 1px solid var(--gray-200); margin: 14px 0; }

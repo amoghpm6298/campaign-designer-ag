@@ -22,6 +22,7 @@ const DC_SLOT_LAYOUT_W = 132;
 export interface LayoutResult {
   positions: Record<string, { x: number; y: number; width: number; height: number }>;
   slotIds: Record<string, string>; // edgeId -> synthetic slot node id, for edges with to===null
+  growSlotIds: Record<string, string>; // nodeId -> synthetic slot node id, for a leaf with 0 outgoing edges (not GOAL_EXIT/EXIT)
 }
 
 export function computeDagreLayout(graph: DripGraph, measuredHeights: Record<string, number>): LayoutResult {
@@ -57,6 +58,22 @@ export function computeDagreLayout(graph: DripGraph, measuredHeights: Record<str
     }
   });
 
+  // A "grow leaf" slot — a linear leaf (0 outgoing edges, not a terminal
+  // GOAL_EXIT/EXIT) still needs a "+" to add its own next step, same as an
+  // open branch slot, just with no existing edge to hang it off. Give it
+  // the same virtual-node treatment so it takes its rightful place in the
+  // layout instead of floating outside what dagre computed.
+  const growSlotIds: Record<string, string> = {};
+  Object.values(graph.nodes).forEach((nd) => {
+    const outCount = graph.edges.filter((e) => e.from === nd.id).length;
+    if (outCount === 0 && nd.type !== 'GOAL_EXIT' && nd.type !== 'EXIT') {
+      const slotId = '__growslot_' + nd.id;
+      growSlotIds[nd.id] = slotId;
+      g.setNode(slotId, { width: DC_SLOT_LAYOUT_W, height: DC_SLOT_SIZE });
+      g.setEdge(nd.id, slotId);
+    }
+  });
+
   dagre.layout(g);
 
   // Position the REAL (unpadded) box around dagre's computed center — the
@@ -72,5 +89,5 @@ export function computeDagreLayout(graph: DripGraph, measuredHeights: Record<str
     positions[id] = { x: n.x - n.width / 2, y: n.y - trueHeight / 2, width: n.width, height: trueHeight };
   });
 
-  return { positions, slotIds };
+  return { positions, slotIds, growSlotIds };
 }

@@ -29,15 +29,18 @@ import './dripCanvas.css';
 interface DripCanvasInnerProps {
   graph: DripGraph;
   editable: boolean;
-  onRemoveNode?: (nodeId: string) => void;
+  onEditNode?: (nodeId: string) => void;
+  onRemoveRoot?: () => void;
+  onReplaceAuto?: (edgeId: string) => void;
   onRemoveEdge?: (edgeId: string) => void;
   onAddAtEdge?: (edgeId: string) => void;
+  onAddAtGrowLeaf?: (nodeId: string) => void;
 }
 
-function DripCanvasInner({ graph, editable, onRemoveNode, onRemoveEdge, onAddAtEdge }: DripCanvasInnerProps) {
+function DripCanvasInner({ graph, editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf }: DripCanvasInnerProps) {
   const opts: ToFlowOptions = useMemo(
-    () => ({ editable, onRemoveNode, onRemoveEdge, onAddAtEdge }),
-    [editable, onRemoveNode, onRemoveEdge, onAddAtEdge],
+    () => ({ editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf }),
+    [editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf],
   );
   const initial = useMemo(() => graphToFlowElements(graph, opts), [graph, opts]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
@@ -92,9 +95,15 @@ function DripCanvasInner({ graph, editable, onRemoveNode, onRemoveEdge, onAddAtE
   );
 }
 
-export function DripCanvas(props: DripCanvasInnerProps) {
+export function DripCanvas(props: DripCanvasInnerProps & { onAddEntry?: () => void }) {
   if (!props.graph.rootId) {
-    return <div style={{ padding: 40, color: 'var(--gray-500)', fontSize: 13 }}>No steps yet — still a draft.</div>;
+    return props.editable ? (
+      <div className="dc-add-entry-placeholder" onClick={props.onAddEntry}>
+        + Add Entry
+      </div>
+    ) : (
+      <div style={{ padding: 40, color: 'var(--gray-500)', fontSize: 13 }}>No steps yet — still a draft.</div>
+    );
   }
   return (
     <ReactFlowProvider>
