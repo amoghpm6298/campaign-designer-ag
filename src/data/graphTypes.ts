@@ -63,6 +63,7 @@ export type DripCampaignStatus =
 export interface DripCampaign {
   id: string;
   name: string;
+  description?: string;
   issuer: string;
   programs: string[];
   goal: DripGoal | null;

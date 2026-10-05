@@ -5,8 +5,13 @@ import { DRIP_STATUS_META } from '../data/statusMeta';
 import { dcCountSends } from '../reducer/graphOps';
 import { dcGoalLabel } from '../reducer/labelMeta';
 import { DripCanvas } from '../canvas/DripCanvas';
+import { DripAnalytics } from './DripAnalytics';
 import { Modal } from '../components/Modal';
 import type { DripCampaign } from '../data/graphTypes';
+
+// A campaign that never launched has no customers to report on — only a
+// campaign that has (or had) real activity gets an Analytics tab.
+const ANALYTICS_STATUSES = ['ACTIVE', 'PAUSED', 'SCHEDULED', 'KILLED'];
 
 export function DripView({
   campaign,
@@ -24,6 +29,8 @@ export function DripView({
   onOpenVersion: (id: string) => void;
 }) {
   const [killConfirmOpen, setKillConfirmOpen] = useState(false);
+  const showAnalyticsTab = ANALYTICS_STATUSES.includes(campaign.status);
+  const [tab, setTab] = useState<'overview' | 'analytics'>('overview');
   const c = campaign;
   const sm = DRIP_STATUS_META[c.status];
 
@@ -57,6 +64,7 @@ export function DripView({
           {c.programs?.length ? ' · ' + c.programs.join(', ') : ''} · Goal: {dcGoalLabel(c.goal) ? `${dcGoalLabel(c.goal)} (${c.goal!.eventCategory})` : 'None — independent checkpoints'} · Control Group:{' '}
           {c.controlPct ? c.controlPct + '%' : 'None'} · {c.root ? dcCountSends(c.root) : 0} sends
         </p>
+        {c.description && <p className="page-sub" style={{ marginTop: 4 }}>{c.description}</p>}
         {versionNote}
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
           {c.status === 'PENDING_REVIEW' && (
@@ -81,9 +89,39 @@ export function DripView({
           )}
         </div>
       </div>
-      <div className="card" style={{ padding: 0, marginTop: 16, height: '70vh', border: '1px solid var(--gray-200)', borderRadius: 10, overflow: 'hidden' }}>
-        <DripCanvas graph={c.root!} editable={false} />
-      </div>
+      {showAnalyticsTab && (
+        <div style={{ display: 'flex', gap: 4, marginTop: 16, marginBottom: 2, borderBottom: '1px solid var(--gray-200)' }}>
+          {(['overview', 'analytics'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              style={{
+                border: 'none',
+                background: 'none',
+                padding: '8px 14px',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                color: tab === t ? 'var(--blue-cta)' : 'var(--gray-500)',
+                borderBottom: tab === t ? '2px solid var(--blue-cta)' : '2px solid transparent',
+                marginBottom: -1,
+              }}
+            >
+              {t === 'overview' ? 'Overview' : 'Analytics'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {tab === 'overview' ? (
+        <div className="card" style={{ padding: 0, marginTop: 16, height: '70vh', border: '1px solid var(--gray-200)', borderRadius: 10, overflow: 'hidden' }}>
+          <DripCanvas graph={c.root!} editable={false} />
+        </div>
+      ) : (
+        <div style={{ marginTop: 16 }}>
+          <DripAnalytics campaign={c} />
+        </div>
+      )}
 
       <Modal open={killConfirmOpen} onClose={() => setKillConfirmOpen(false)}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>Kill switch — "{c.name}"</div>

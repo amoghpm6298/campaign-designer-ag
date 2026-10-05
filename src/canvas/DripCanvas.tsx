@@ -23,7 +23,7 @@ import '@xyflow/react/dist/style.css';
 import type { DripGraph } from '../data/graphTypes';
 import { dripNodeTypes } from './nodeTypes';
 import { dripEdgeTypes } from './DripEdge';
-import { graphToFlowElements, type ToFlowOptions } from './toFlowElements';
+import { graphToFlowElements, type ToFlowOptions, type DripCanvasMetrics } from './toFlowElements';
 import './dripCanvas.css';
 
 interface DripCanvasInnerProps {
@@ -35,12 +35,14 @@ interface DripCanvasInnerProps {
   onRemoveEdge?: (edgeId: string) => void;
   onAddAtEdge?: (edgeId: string) => void;
   onAddAtGrowLeaf?: (nodeId: string) => void;
+  onAddAtMidEdge?: (edgeId: string) => void;
+  metrics?: DripCanvasMetrics;
 }
 
-function DripCanvasInner({ graph, editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf }: DripCanvasInnerProps) {
+function DripCanvasInner({ graph, editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, metrics }: DripCanvasInnerProps) {
   const opts: ToFlowOptions = useMemo(
-    () => ({ editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf }),
-    [editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf],
+    () => ({ editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, metrics }),
+    [editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, metrics],
   );
   const initial = useMemo(() => graphToFlowElements(graph, opts), [graph, opts]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);

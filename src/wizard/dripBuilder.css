@@ -14,8 +14,33 @@
 .wiz-heading { font-size: 19px; font-weight: 700; color: var(--neutral-900); margin: 0 0 4px; }
 .wiz-sub { font-size: 13px; color: var(--gray-500); margin: 0 0 26px; }
 
-.dcb-shell { display: flex; height: 100vh; }
-.dcb-rail { width: 320px; flex-shrink: 0; border-right: 1px solid var(--gray-200); padding: 24px 20px 100px; overflow-y: auto; background: var(--gray-25); }
-.dcb-canvas { flex: 1; min-width: 0; background: #fbfbfc; }
+/* Builder step: a slim top header bar, not a persistent side rail — the
+   canvas gets the full viewport width. Checked directly against how
+   Braze/MoEngage/CleverTap's own canvas-builder screens are laid out:
+   where they have a sidebar at all it's a node palette or an on-demand
+   errors panel, never a permanent campaign-summary column. */
+.dcb-shell { display: flex; flex-direction: column; height: 100vh; }
+.dcb-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--gray-200);
+  background: var(--gray-25);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.dcb-header-name { font-size: 14px; font-weight: 700; color: var(--neutral-900); }
+.dcb-header-spacer { flex: 1; }
+.dcb-validation-banner {
+  padding: 8px 20px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.dcb-canvas { flex: 1; min-width: 0; min-height: 0; background: #fbfbfc; }
 .dcb-mid-inner { max-width: 640px; margin: 0 auto; padding: 36px 24px 60px; }
 .dcb-hr { border: none; border-top: 1px solid var(--gray-200); margin: 14px 0; }
+.dcb-step-indicator { font-size: 11.5px; color: var(--gray-500); margin-bottom: 22px; }

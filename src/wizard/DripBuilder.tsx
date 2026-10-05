@@ -1,31 +1,37 @@
-// Ported from renderDripSetupStep/renderDripBuildStep/dcSelectAddAt/
-// dcPickType/dcConfigField/dcConfirmAddNode/dcConfirmEditNode/
-// dcOpenEditNode/dcRemoveEdge/dcReplaceAutoNode/dcEnterConnectMode/
-// dcConfirmConnectExisting/dcOpenGoalDrawer/dcConfirmGoal — the real
-// create/edit builder, now a self-contained React component. Doesn't know
-// about the campaigns list or persistence; emits a finished payload via
-// onSaveDraft/onSubmit for whatever owns the list (Phase 4) to persist.
+// Thin step dispatcher holding all shared state — the create/edit flow
+// is now 3 steps (Basic Details -> Goal Definition -> Builder, see the
+// UX-rebuild plan) instead of the old Setup -> Build. `graph` is a small
+// history stack rather than a bare useState, so the Builder step can
+// offer real Undo/Redo. Doesn't know about the campaigns list or
+// persistence; emits a finished payload via onSaveDraft/onSubmit for
+// whatever owns the list (Phase 4) to persist.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMemo, useState } from 'react';
 import type { DripCampaign, DripGoal, DripGraph } from '../data/graphTypes';
 import type { DcNodeType } from '../data/nodeMeta';
 import { DC_ENTRY_TYPES } from '../data/typeSub';
-import { PROGRAM_OPTIONS, EVENT_CATEGORIES, computeMakerCheckerFlag } from '../data/sharedConstants';
 import type { Channel } from '../data/sharedConstants';
 import { dcConfirmAddNode, dcConfirmEditNode, dcRemoveEdge, dcRemoveRoot, dcConnectExisting, type DcAddingAt } from '../reducer/campaignReducer';
 import { dcValidMergeTargets, dcGraphHasOpenBranches } from '../reducer/graphOps';
 import { dcDefaultConfig } from '../reducer/defaultConfig';
-import { dcGoalLabel } from '../reducer/labelMeta';
-import { DripCanvas } from '../canvas/DripCanvas';
+import { BasicDetailsStep } from './BasicDetailsStep';
+import { GoalDefinitionStep } from './GoalDefinitionStep';
+import { BuilderStep } from './BuilderStep';
 import { AddEditDrawer } from './AddEditDrawer';
-import { GoalDrawer } from './GoalDrawer';
-import { ChipPicker } from '../components/ChipPicker';
 import './dripBuilder.css';
 
 const EMPTY_GRAPH: DripGraph = { nodes: {}, edges: [], rootId: null };
 
+// Mid-chain insert only reattaches cleanly when the new node (plus its
+// own auto-children) leaves exactly one dangling continuation edge — a
+// branching type (Random/Decision Split) leaves several open arms with
+// no single correct one to reattach to, so those aren't offered here.
+// The reducer itself is defensive about this too (see campaignReducer.ts).
+const MID_EDGE_TYPES: DcNodeType[] = ['SEND', 'CHANNEL_FAILOVER', 'PAUSE', 'WAIT_UNTIL', 'SPLIT'];
+
 export interface DripBuilderPayload {
   name: string;
+  description: string;
   goal: DripGoal | null;
   controlPct: number;
   issuer: string;
@@ -35,6 +41,8 @@ export interface DripBuilderPayload {
   status: 'DRAFT' | 'PENDING_REVIEW';
   root: DripGraph;
 }
+
+type BuilderStepKind = 'basicDetails' | 'goalDefinition' | 'builder';
 
 export function DripBuilder({
   initial,
@@ -47,15 +55,28 @@ export function DripBuilder({
   onSubmit: (payload: DripBuilderPayload) => void;
   onBack: () => void;
 }) {
-  const [step, setStep] = useState<'setup' | 'build'>(initial ? 'build' : 'setup');
+  const [step, setStep] = useState<BuilderStepKind>(initial ? 'builder' : 'basicDetails');
   const [name, setName] = useState(initial?.name || '');
+  const [description, setDescription] = useState(initial?.description || '');
   const [issuer, setIssuer] = useState(initial?.issuer || '');
   const [programs, setPrograms] = useState<string[]>(initial?.programs || []);
   const [controlPct, setControlPct] = useState(initial?.controlPct ?? 10);
   const [startDate, setStartDate] = useState(initial?.startDate || '');
   const [endDate, setEndDate] = useState(initial?.endDate || '');
   const [goal, setGoal] = useState<DripGoal | null>(initial?.goal || null);
-  const [graph, setGraph] = useState<DripGraph>(initial?.root ? structuredClone(initial.root) : EMPTY_GRAPH);
+
+  // Graph as a history stack — every mutation pushes a new entry
+  // (truncating any redo tail first), so Undo/Redo just move the index.
+  const [history, setHistory] = useState<DripGraph[]>([initial?.root ? structuredClone(initial.root) : EMPTY_GRAPH]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const graph = history[historyIndex];
+  function pushGraph(next: DripGraph) {
+    setHistory((h) => [...h.slice(0, historyIndex + 1), next]);
+    setHistoryIndex((i) => i + 1);
+  }
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < history.length - 1;
+
   const [entryEventCategory, setEntryEventCategory] = useState<string | null>(() => {
     const root = initial?.root?.rootId ? initial.root.nodes[initial.root.rootId] : null;
     return root?.type === 'ENTRY_EVENT' ? (root.meta.split(' · ')[0] ?? null) : null;
@@ -68,13 +89,13 @@ export function DripBuilder({
   const [pendingConfig, setPendingConfig] = useState<any>({});
   const [connectMode, setConnectMode] = useState(false);
   const [connectTargetId, setConnectTargetId] = useState<string | null>(null);
-  const [goalDraft, setGoalDraft] = useState<DripGoal | null>(null);
+  const [showValidation, setShowValidation] = useState(false);
 
   const drawerOpen = addingAt !== null || editingNodeId !== null;
 
   const addingAtSourceId = useMemo(() => {
     if (!addingAt) return null;
-    if (addingAt.kind === 'edge') return graph.edges.find((x) => x.id === addingAt.edgeId)?.from ?? null;
+    if (addingAt.kind === 'edge' || addingAt.kind === 'midEdge') return graph.edges.find((x) => x.id === addingAt.edgeId)?.from ?? null;
     if (addingAt.kind === 'growLeaf') return addingAt.nodeId;
     return null;
   }, [addingAt, graph]);
@@ -117,7 +138,7 @@ export function DripBuilder({
   function confirmAddNode() {
     if (!addingType || !addingAt) return;
     const next = dcConfirmAddNode(graph, addingType, pendingConfig, addingAt, goal);
-    setGraph(next);
+    pushGraph(next);
     if (addingType === 'ENTRY_EVENT') setEntryEventCategory(pendingConfig.eventCategory);
     cancelAdd();
   }
@@ -136,15 +157,15 @@ export function DripBuilder({
   function confirmEditNode() {
     if (!editingNodeId || !addingType) return;
     const next = dcConfirmEditNode(graph, editingNodeId, addingType, pendingConfig, goal);
-    setGraph(next);
+    pushGraph(next);
     cancelEdit();
   }
 
   function removeEdge(edgeId: string) {
-    setGraph((g) => dcRemoveEdge(g, edgeId));
+    pushGraph(dcRemoveEdge(graph, edgeId));
   }
   function removeRoot() {
-    setGraph((g) => dcRemoveRoot(g));
+    pushGraph(dcRemoveRoot(graph));
   }
   function replaceAuto(edgeId: string) {
     removeEdge(edgeId);
@@ -158,188 +179,124 @@ export function DripBuilder({
   }
   function confirmConnectExisting() {
     if (!addingAt || !connectTargetId) return;
-    setGraph((g) => dcConnectExisting(g, addingAt, connectTargetId));
+    pushGraph(dcConnectExisting(graph, addingAt, connectTargetId));
     cancelAdd();
-  }
-
-  function openGoalDrawer() {
-    setGoalDraft(goal ? { ...goal, conditions: [...(goal.conditions || [])] } : { eventCategory: Object.keys(EVENT_CATEGORIES)[0], eventType: '', conditions: [] });
   }
 
   const isEntry = graph.rootId === null;
   const connectTargets = addingAtSourceId ? dcValidMergeTargets(graph, addingAtSourceId) : [];
-  const canConnect = !editingNodeId && !isEntry && !!addingAtSourceId && connectTargets.length > 0;
+  // Connect-to-existing isn't wired up for a mid-chain insert — splicing
+  // in a reference to an existing node mid-sequence has its own set of
+  // questions (which of that node's existing paths applies here?) this
+  // rebuild doesn't need to answer yet.
+  const canConnect = !editingNodeId && !isEntry && addingAt?.kind !== 'midEdge' && !!addingAtSourceId && connectTargets.length > 0;
   const open = dcGraphHasOpenBranches(graph);
   const canSubmit = !!name && !!issuer && graph.rootId !== null && !open;
 
+  const validationMessage: string | null = !showValidation
+    ? null
+    : !name
+      ? 'Give this campaign a name first — see Edit Setup.'
+      : !issuer
+        ? 'Set an issuer first — see Edit Setup.'
+        : graph.rootId === null
+          ? 'Add an entry step before submitting.'
+          : open
+            ? 'Some branches still need a next step before this can be submitted.'
+            : null;
+
   function buildPayload(status: 'DRAFT' | 'PENDING_REVIEW'): DripBuilderPayload {
-    return { name, goal, controlPct: Number(controlPct), issuer, programs, startDate, endDate, status, root: graph };
+    // Never persist a half-filled goal (category picked, no event type
+    // yet) — same discipline the old GoalDrawer's disabled Save button
+    // enforced, now applied at save time since Goal Definition no longer
+    // has a separate draft/commit step of its own.
+    const cleanGoal = goal && goal.eventType ? goal : null;
+    return { name, description, goal: cleanGoal, controlPct: Number(controlPct), issuer, programs, startDate, endDate, status, root: graph };
   }
 
-  if (step === 'setup') {
+  function handleSubmitClick() {
+    if (!canSubmit) {
+      setShowValidation(true);
+      return;
+    }
+    onSubmit(buildPayload('PENDING_REVIEW'));
+  }
+
+  if (step === 'basicDetails') {
     return (
-      <div className="dcb-mid-inner">
-        <h1 className="wiz-heading">{initial ? 'Edit Drip Campaign' : 'New Drip Campaign'}</h1>
-        <p className="wiz-sub">Set identity, scope, and launch settings — you'll define the goal and build the flow next.</p>
+      <BasicDetailsStep
+        isEditing={!!initial}
+        name={name}
+        onNameChange={setName}
+        description={description}
+        onDescriptionChange={setDescription}
+        issuer={issuer}
+        onIssuerChange={setIssuer}
+        programs={programs}
+        onProgramsChange={setPrograms}
+        controlPct={controlPct}
+        onControlPctChange={setControlPct}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
+        onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
+        onContinue={() => setStep('goalDefinition')}
+        onSkipToBuilder={() => setStep('builder')}
+      />
+    );
+  }
 
-        <div className="wiz-group-label">Identity</div>
-        <div className="f-group">
-          <label className="f-label">Campaign name</label>
-          <input className="f-input" type="text" value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-
-        <div className="wiz-group-label">Scope</div>
-        <div className="f-row2" style={{ alignItems: 'start' }}>
-          <div className="f-group">
-            <label className="f-label">Issuer</label>
-            <select
-              className="f-input"
-              value={issuer}
-              onChange={(e) => {
-                setIssuer(e.target.value);
-                setPrograms([]);
-              }}
-            >
-              <option value="">Select Issuer</option>
-              {Object.keys(PROGRAM_OPTIONS).map((i) => (
-                <option key={i}>{i}</option>
-              ))}
-            </select>
-          </div>
-          <div className="f-group">
-            <label className="f-label">Program(s)</label>
-            {issuer ? (
-              <ChipPicker
-                options={PROGRAM_OPTIONS[issuer] || []}
-                selected={programs}
-                onToggle={(v) => setPrograms((p) => (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]))}
-              />
-            ) : (
-              <p className="f-hint" style={{ margin: '8px 0 0' }}>
-                Select an issuer first
-              </p>
-            )}
-          </div>
-        </div>
-        {issuer && computeMakerCheckerFlag(issuer, programs) && (
-          <p className="f-hint" style={{ color: 'var(--warning-text)', marginTop: -8 }}>
-            Maker-checker applies — this issuer/program requires a separate approver.
-          </p>
-        )}
-
-        <div className="wiz-group-label">Launch Settings</div>
-        <div className="f-group" style={{ maxWidth: 200 }}>
-          <label className="f-label">Control Group %</label>
-          <input className="f-input" type="number" min={0} max={50} value={controlPct} onChange={(e) => setControlPct(Number(e.target.value))} />
-        </div>
-        <div className="f-row2">
-          <div className="f-group">
-            <label className="f-label">Start</label>
-            <input className="f-input" type="datetime-local" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          </div>
-          <div className="f-group">
-            <label className="f-label">End</label>
-            <input className="f-input" type="datetime-local" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-          </div>
-        </div>
-        <p className="f-hint" style={{ marginTop: -10 }}>
-          Control Group is held back as a baseline for uplift. Leave Start blank to activate immediately once approved — a future Start holds it as Scheduled until then.
-        </p>
-        <p className="f-hint" style={{ background: 'var(--gray-50)', padding: '10px 12px', borderRadius: 6, marginTop: 14 }}>
-          🛡 DNC and opt-outs are checked automatically before every send in this campaign — not something you configure per step, same as Nudges.
-        </p>
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 32 }}>
-          <button className="btn secondary" disabled={!name} onClick={() => onSaveDraft(buildPayload('DRAFT'))}>
-            Save as Draft
-          </button>
-          <button className="btn primary" disabled={!name} onClick={() => setStep('build')}>
-            Continue to Build →
-          </button>
-        </div>
-      </div>
+  if (step === 'goalDefinition') {
+    return (
+      <GoalDefinitionStep
+        goal={goal}
+        onGoalChange={setGoal}
+        onBack={() => setStep('basicDetails')}
+        onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
+        onContinue={() => setStep('builder')}
+      />
     );
   }
 
   return (
     <div className="dcb-shell">
-      <div className="dcb-rail">
-        <div className="add-link" onClick={onBack} style={{ marginBottom: 10 }}>
-          ← Back to Drip Campaigns
-        </div>
-        <div className="wiz-rail-title">{name || 'Untitled Campaign'}</div>
-        <div className="wiz-rail-sub">Step 2 of 2 — Build</div>
-        {issuer && (
-          <div className="f-group" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            <span className="badge gray">{issuer}</span>
-          </div>
-        )}
-        <div className="add-link" style={{ marginBottom: 14 }} onClick={() => setStep('setup')}>
-          Edit Setup
-        </div>
-        <hr className="dcb-hr" />
-        <div className="f-group">
-          <label className="f-label">Goal</label>
-          {goal ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <span className="badge success">{dcGoalLabel(goal)}</span>
-              <span style={{ fontSize: 11, color: 'var(--gray-500)' }}>{goal.eventCategory}</span>
-            </div>
-          ) : (
-            <p className="f-hint" style={{ margin: '0 0 8px' }}>
-              Not set yet — a milestone-style campaign can legitimately have none.
-            </p>
-          )}
-          <button className="btn secondary small" style={{ width: '100%' }} onClick={openGoalDrawer}>
-            {goal ? 'Change Goal' : 'Define Goal'}
-          </button>
-        </div>
-        <hr className="dcb-hr" />
-        {graph.rootId === null ? (
-          <p className="f-hint">
-            Click <b>+ Add Entry</b> on the canvas to choose how customers enter this campaign.
-          </p>
-        ) : (
-          <>
-            <p className="f-hint">
-              Click any <b>+</b> on the canvas to add the next step. Every branch needs to end in a Goal-Based Exit or Exit before this campaign is ready to submit for approval — saving as a draft has no such requirement.
-            </p>
-            {open && (
-              <p className="f-hint" style={{ color: 'var(--warning-text)', fontWeight: 600 }}>
-                ⚠ Open branches remaining — fine to save as a draft, blocks submission.
-              </p>
-            )}
-            <StepsOutline graph={graph} />
-          </>
-        )}
-        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-          <button className="btn secondary" style={{ flex: 1 }} disabled={!name} onClick={() => onSaveDraft(buildPayload('DRAFT'))}>
-            Save as Draft
-          </button>
-          <button className="btn primary" style={{ flex: 1 }} disabled={!canSubmit} onClick={() => onSubmit(buildPayload('PENDING_REVIEW'))}>
-            Submit for Approval
-          </button>
-        </div>
-      </div>
-      <div className="dcb-canvas">
-        <DripCanvas
-          graph={graph}
-          editable
-          onAddEntry={() => selectAddAt({ kind: 'root' })}
-          onEditNode={openEditNode}
-          onRemoveRoot={removeRoot}
-          onReplaceAuto={replaceAuto}
-          onRemoveEdge={removeEdge}
-          onAddAtEdge={(edgeId) => selectAddAt({ kind: 'edge', edgeId })}
-          onAddAtGrowLeaf={(nodeId) => selectAddAt({ kind: 'growLeaf', nodeId })}
-        />
-      </div>
+      <BuilderStep
+        name={name}
+        issuer={issuer}
+        goal={goal}
+        graph={graph}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={() => setHistoryIndex((i) => Math.max(0, i - 1))}
+        onRedo={() => setHistoryIndex((i) => Math.min(history.length - 1, i + 1))}
+        onBack={onBack}
+        onEditSetup={() => setStep('basicDetails')}
+        onEditGoal={() => setStep('goalDefinition')}
+        onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
+        onSubmitClick={handleSubmitClick}
+        validationMessage={validationMessage}
+        onAddEntry={() => selectAddAt({ kind: 'root' })}
+        onEditNode={openEditNode}
+        onRemoveRoot={removeRoot}
+        onReplaceAuto={replaceAuto}
+        onRemoveEdge={removeEdge}
+        onAddAtEdge={(edgeId) => selectAddAt({ kind: 'edge', edgeId })}
+        onAddAtGrowLeaf={(nodeId) => selectAddAt({ kind: 'growLeaf', nodeId })}
+        onAddAtMidEdge={(edgeId) => selectAddAt({ kind: 'midEdge', edgeId })}
+      />
 
       <AddEditDrawer
         open={drawerOpen}
         isEditing={editingNodeId !== null}
         isEntry={isEntry}
-        types={isEntry ? DC_ENTRY_TYPES : (['SEND', 'CHANNEL_FAILOVER', 'PAUSE', 'WAIT_UNTIL', 'SPLIT', 'DECISION_SPLIT', 'RANDOM_SPLIT', 'GOAL_EXIT', 'EXIT'] as DcNodeType[])}
+        types={
+          isEntry
+            ? DC_ENTRY_TYPES
+            : addingAt?.kind === 'midEdge'
+              ? MID_EDGE_TYPES
+              : (['SEND', 'CHANNEL_FAILOVER', 'PAUSE', 'WAIT_UNTIL', 'SPLIT', 'DECISION_SPLIT', 'RANDOM_SPLIT', 'GOAL_EXIT', 'EXIT'] as DcNodeType[])
+        }
         selectedType={addingType}
         pendingConfig={pendingConfig}
         onConfigChange={(patch) => setPendingConfig((p: any) => ({ ...p, ...patch }))}
@@ -356,46 +313,6 @@ export function DripBuilder({
         entryEventCategory={entryEventCategory}
         previousStepChannel={previousStepChannel}
       />
-
-      {goalDraft && (
-        <GoalDrawer
-          open={!!goalDraft}
-          draft={goalDraft}
-          onChange={(patch) => setGoalDraft((g) => (g ? { ...g, ...patch } : g))}
-          onCancel={() => setGoalDraft(null)}
-          onSave={() => {
-            setGoal(goalDraft ? { ...goalDraft, conditions: [...goalDraft.conditions] } : null);
-            setGoalDraft(null);
-          }}
-        />
-      )}
     </div>
-  );
-}
-
-function StepsOutline({ graph }: { graph: DripGraph }) {
-  if (!graph.rootId) return null;
-  const steps: string[] = [];
-  const visited = new Set<string>();
-  (function walk(nodeId: string) {
-    if (visited.has(nodeId)) return;
-    visited.add(nodeId);
-    const node = graph.nodes[nodeId];
-    if (!node) return;
-    if (node.type === 'SEND' || node.type === 'CHANNEL_FAILOVER') steps.push(node.label);
-    graph.edges.filter((e) => e.from === nodeId && e.to).forEach((e) => walk(e.to!));
-  })(graph.rootId);
-  if (!steps.length) return null;
-  return (
-    <>
-      <div className="wiz-group-label" style={{ margin: '16px 0 6px' }}>
-        Steps so far
-      </div>
-      <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: 'var(--neutral-800)', lineHeight: 1.9 }}>
-        {steps.map((s, i) => (
-          <li key={i}>{s}</li>
-        ))}
-      </ol>
-    </>
   );
 }

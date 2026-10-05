@@ -10,6 +10,11 @@ export interface DripEdgeData {
   branchLabel: string;
   editable: boolean;
   onRemove?: () => void;
+  // Mid-insert — only ever set for an edge that already connects two real
+  // nodes (see toFlowElements.ts).
+  onInsert?: () => void;
+  // Present only on the read-only Analytics view.
+  statLabel?: string;
   [key: string]: unknown;
 }
 
@@ -18,7 +23,9 @@ export function DripEdge({ id, sourceX, sourceY, targetX, targetY, sourcePositio
   const branchLabel = data?.branchLabel || '';
   const hasLabel = !!branchLabel;
   const editable = !!data?.editable;
-  if (!hasLabel && !editable) {
+  const statLabel = data?.statLabel;
+  const onInsert = data?.onInsert;
+  if (!hasLabel && !editable && !statLabel) {
     return <BaseEdge id={id} path={edgePath} style={{ stroke: 'var(--gray-300)', strokeWidth: 2 }} />;
   }
   return (
@@ -30,14 +37,22 @@ export function DripEdge({ id, sourceX, sourceY, targetX, targetY, sourcePositio
           style={{
             position: 'absolute',
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-            pointerEvents: editable ? 'auto' : 'none',
-            cursor: editable ? 'pointer' : 'default',
+            pointerEvents: editable || onInsert ? 'auto' : 'none',
+            cursor: 'default',
           }}
-          onClick={editable ? data?.onRemove : undefined}
-          title={editable ? 'Remove this connection' : undefined}
         >
           {hasLabel ? branchLabel : ''}
-          {editable && <span style={{ opacity: 0.55, marginLeft: hasLabel ? 2 : 0 }}>✕</span>}
+          {statLabel && <span className="stat">{statLabel}</span>}
+          {onInsert && (
+            <span className="dc-edge-insert" onClick={onInsert} title="Insert a step here">
+              +
+            </span>
+          )}
+          {editable && (
+            <span style={{ opacity: 0.55, marginLeft: hasLabel || onInsert ? 2 : 0, cursor: 'pointer' }} onClick={data?.onRemove} title="Remove this connection">
+              ✕
+            </span>
+          )}
         </div>
       </EdgeLabelRenderer>
     </>

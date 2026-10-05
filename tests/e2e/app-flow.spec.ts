@@ -16,6 +16,28 @@ test('list shows the 6 real seed campaigns with correctly colored status badges'
   }
 });
 
+test('Analytics tab renders KPIs + an annotated canvas for a live campaign, and is absent for a Draft', async ({ page }) => {
+  await page.goto('/');
+  // DRIP-001 "Card Activation Reminder" is ACTIVE in the seed data.
+  await page.locator('table tbody tr', { hasText: 'Card Activation Reminder' }).click();
+  await page.waitForTimeout(400);
+  await expect(page.getByRole('button', { name: 'Analytics' })).toBeVisible();
+  await page.getByRole('button', { name: 'Analytics' }).click();
+  await page.waitForTimeout(500);
+  await expect(page.getByText('Entered', { exact: true })).toBeVisible();
+  await expect(page.getByText('Reached Goal')).toBeVisible();
+  await expect(page.getByText('Conversion Rate')).toBeVisible();
+  // Annotated canvas — nodes carry a "reached" stat line.
+  await expect(page.locator('.dc-node-stat').first()).toBeVisible();
+
+  await page.goto('/');
+  // DRIP-003 "Spend Milestone Rewards" is DRAFT — never launched, no
+  // customers to report on, so no Analytics tab at all.
+  await page.locator('table tbody tr', { hasText: 'Spend Milestone Rewards' }).click();
+  await page.waitForTimeout(400);
+  await expect(page.getByRole('button', { name: 'Analytics' })).toHaveCount(0);
+});
+
 test('row click opens the real read-only view with the real canvas', async ({ page }) => {
   await page.goto('/');
   const firstRowName = await page.locator('table tbody tr').first().locator('td').first().innerText();
@@ -54,7 +76,7 @@ test('full create -> build -> submit flow lands in the list as Pending Approval'
   await page.getByRole('button', { name: '+ Create Drip Campaign' }).click();
   await page.locator('input[type=text]').first().fill('App Flow Spec Campaign');
   await page.locator('select').first().selectOption('IndusInd Bank (IBL)');
-  await page.getByText('Continue to Build').click();
+  await page.getByText('Skip to Builder →').click();
   await page.waitForTimeout(300);
   await page.locator('.dc-add-entry-placeholder').click();
   await page.locator('.dc-type-opt:has-text("Entry · Event Trigger")').click();
@@ -78,13 +100,12 @@ test('full create -> build -> submit flow lands in the list as Pending Approval'
   await expect(newRow.locator('.badge:has-text("Pending Approval")')).toBeVisible();
 });
 
-test('Save as Draft is always available, even with open branches, and resuming a draft lands back on the Build step', async ({ page }) => {
+test('Save as Draft is always available from any step, even with open branches, and resuming a draft lands back on the Builder step', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: '+ Create Drip Campaign' }).click();
   await page.locator('input[type=text]').first().fill('Draft Spec Campaign');
-  await page.getByText('Continue to Build').click();
-  await page.waitForTimeout(300);
-  // No entry added at all — still genuinely incomplete.
+  // Save straight from Basic Details — no entry added at all, still
+  // genuinely incomplete, and still allowed.
   await expect(page.getByRole('button', { name: 'Save as Draft' })).toBeEnabled();
   await page.getByRole('button', { name: 'Save as Draft' }).click();
   await page.waitForTimeout(400);
@@ -93,6 +114,6 @@ test('Save as Draft is always available, even with open branches, and resuming a
   await expect(draftRow.locator('.badge:has-text("Draft")')).toBeVisible();
   await draftRow.click();
   await page.waitForTimeout(400);
-  // Continuing a draft resumes directly on Build, not Setup.
+  // Continuing a draft resumes directly on the Builder step, not Basic Details.
   await expect(page.locator('.dc-add-entry-placeholder')).toBeVisible();
 });

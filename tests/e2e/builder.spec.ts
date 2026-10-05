@@ -14,7 +14,7 @@ async function startNewCampaign(page: import('@playwright/test').Page, name: str
   await page.getByRole('button', { name: '+ Create Drip Campaign' }).click();
   await page.locator('input[type=text]').first().fill(name);
   await page.locator('select').first().selectOption('IndusInd Bank (IBL)');
-  await page.getByText('Continue to Build').click();
+  await page.getByText('Skip to Builder →').click();
   await page.waitForTimeout(300);
 }
 
@@ -173,10 +173,18 @@ test('Random Split requires branches to sum to 100%', async ({ page }) => {
   await expect(page.locator('.sd-drawer.open .sd-foot button.btn.primary')).toBeEnabled();
 });
 
-test('Submit for Approval is genuinely disabled with open branches, enabled once every branch resolves', async ({ page }) => {
+test('Submit for Approval shows an on-demand validation banner with open branches, clears once every branch resolves', async ({ page }) => {
   await startNewCampaign(page, 'Builder Spec: Submit Gating');
   await addEntryEvent(page, 'Journey Events', 'Pageload');
-  await expect(page.locator('button:has-text("Submit for Approval")')).toBeDisabled();
+
+  // The button itself is never disabled (on-demand validation, not a
+  // permanent rail warning) — clicking it while incomplete surfaces a
+  // banner instead of silently doing nothing.
+  await expect(page.locator('button:has-text("Submit for Approval")')).toBeEnabled();
+  await page.locator('button:has-text("Submit for Approval")').click();
+  await page.waitForTimeout(200);
+  await expect(page.locator('.dcb-validation-banner')).toBeVisible();
+  await expect(page.locator('.dcb-validation-banner')).toContainText('branch');
 
   await page.locator('.dc-add-btn').click();
   await page.locator('.dc-type-opt', { hasText: /^Exit/ }).click();
@@ -184,7 +192,60 @@ test('Submit for Approval is genuinely disabled with open branches, enabled once
   await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
   await page.waitForTimeout(400);
 
-  await expect(page.locator('button:has-text("Submit for Approval")')).toBeEnabled();
+  // Completed now — clicking Submit actually navigates away (back to the
+  // list), rather than showing the banner again.
+  await page.locator('button:has-text("Submit for Approval")').click();
+  await page.waitForTimeout(400);
+  await expect(page.locator('.dcb-validation-banner')).toHaveCount(0);
+  await expect(page.locator('table tbody tr', { hasText: 'Builder Spec: Submit Gating' })).toBeVisible();
+});
+
+test('Mid-chain insert splices a new node into an existing connection, preserving the downstream subtree; Undo/Redo round-trip correctly', async ({ page }) => {
+  await startNewCampaign(page, 'Builder Spec: Mid Insert');
+  await addEntryEvent(page, 'Journey Events', 'Pageload');
+
+  await page.locator('.dc-add-btn').click();
+  await page.locator('.dc-type-opt', { hasText: /^Send/ }).click();
+  await page.locator('.sd-drawer.open input[type=text]').first().fill('First Send');
+  const sendSelects = page.locator('.sd-drawer.open select');
+  await sendSelects.nth(0).selectOption('WHATSAPP');
+  await page.waitForTimeout(150);
+  await page.locator('.sd-drawer.open select', { hasText: 'Select account' }).selectOption({ index: 1 });
+  await page.waitForTimeout(150);
+  await page.locator('.sd-drawer.open select', { hasText: 'Select template' }).selectOption({ index: 1 });
+  await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
+  await page.waitForTimeout(400);
+
+  const countBefore = await page.locator('.dc-node-card').count();
+
+  // The mid-insert "+" only offers the single-continuation types.
+  await page.locator('.dc-edge-insert').first().click();
+  await page.waitForTimeout(300);
+  const typeOpts = await page.locator('.dc-type-opt').allInnerTexts();
+  expect(typeOpts.some((t) => t.startsWith('Pause'))).toBe(true);
+  expect(typeOpts.some((t) => t.startsWith('Random Split'))).toBe(false);
+  expect(typeOpts.some((t) => t.startsWith('Decision Split'))).toBe(false);
+
+  await page.locator('.dc-type-opt', { hasText: /^Pause/ }).click();
+  await page.locator('.sd-drawer.open input[type=number]').first().fill('2');
+  await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
+  await page.waitForTimeout(400);
+
+  await expect(page.locator('.dc-node-card:has-text("Wait 2 days")')).toHaveCount(1);
+  const countAfterInsert = await page.locator('.dc-node-card').count();
+  expect(countAfterInsert).toBeGreaterThan(countBefore);
+
+  // Undo removes exactly the inserted node (+ its own auto goal-check).
+  await page.locator('button', { hasText: 'Undo' }).click();
+  await page.waitForTimeout(400);
+  await expect(page.locator('.dc-node-card:has-text("Wait 2 days")')).toHaveCount(0);
+  expect(await page.locator('.dc-node-card').count()).toBe(countBefore);
+
+  // Redo restores it.
+  await page.locator('button', { hasText: 'Redo' }).click();
+  await page.waitForTimeout(400);
+  await expect(page.locator('.dc-node-card:has-text("Wait 2 days")')).toHaveCount(1);
+  expect(await page.locator('.dc-node-card').count()).toBe(countAfterInsert);
 });
 
 test('Root remove button only appears on the root node and works via real hover + click', async ({ page }) => {

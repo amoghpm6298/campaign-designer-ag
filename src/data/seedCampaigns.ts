@@ -10,6 +10,7 @@ export const DRIP_CAMPAIGNS: DripCampaign[] = [
   {
     "id": "DRIP-001",
     "name": "Card Activation Reminder",
+    "description": "Nudges a newly issued card towards activation with up to three reminders, spaced out over a week.",
     "issuer": "IndusInd Bank (IBL)",
     "programs": [],
     "goal": {
@@ -205,6 +206,7 @@ export const DRIP_CAMPAIGNS: DripCampaign[] = [
   {
     "id": "DRIP-002",
     "name": "OS to EMI — Reminder Push",
+    "description": "A/B tests WhatsApp vs. SMS for nudging eligible outstanding balances towards EMI conversion.",
     "issuer": "IndusInd Bank (IBL)",
     "programs": [],
     "goal": {
@@ -476,6 +478,7 @@ export const DRIP_CAMPAIGNS: DripCampaign[] = [
   {
     "id": "DRIP-003",
     "name": "Spend Milestone Rewards",
+    "description": "Four independent checkpoints (1/3/6/12 months post-activation) that each reward spend milestones — no shared exit, since milestones aren't mutually exclusive.",
     "issuer": "Yes Bank",
     "programs": [],
     "goal": null,
@@ -667,6 +670,7 @@ export const DRIP_CAMPAIGNS: DripCampaign[] = [
   {
     "id": "DRIP-004",
     "name": "Reward Points Expiry Reminder",
+    "description": "Monthly scan for points expiring within 30 days, with a last-chance reminder at the 7-day mark for anyone who hasn't redeemed yet.",
     "issuer": "Yes Bank",
     "programs": [],
     "goal": {
@@ -792,6 +796,7 @@ export const DRIP_CAMPAIGNS: DripCampaign[] = [
   {
     "id": "DRIP-005",
     "name": "Auth Txn to EMI — Consent & Resolution",
+    "description": "Nudges an eligible authorized transaction towards EMI consent, then waits for settlement/reconciliation to resolve the outcome before reminding again.",
     "issuer": "IndusInd Bank (IBL)",
     "programs": [],
     "goal": {
@@ -1079,6 +1084,7 @@ export const DRIP_CAMPAIGNS: DripCampaign[] = [
   {
     "id": "DRIP-006",
     "name": "Card Issuance to Activation (Set PIN)",
+    "description": "A channel-strategy test (WhatsApp-first vs. SMS-first) for getting a newly issued card activated and its PIN set.",
     "issuer": "IndusInd Bank (IBL)",
     "programs": [],
     "goal": {

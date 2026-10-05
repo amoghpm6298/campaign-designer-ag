@@ -107,6 +107,55 @@
 .dc-branch-label-bare { opacity: 0; transition: opacity 0.12s; }
 .dc-branch-label-bare:hover { opacity: 1; }
 
+/* Per-node/per-edge analytics annotation — see Part 3 of the UX-rebuild
+   plan. The canvas IS the funnel: every node gets a quiet stat line
+   reusing the existing muted-meta visual language, every branch's own
+   label chip gains a count/percentage suffix. Only ever present on the
+   read-only Analytics view (DripCanvas's optional `metrics` prop). */
+.dc-node-stat {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--gray-200);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--neutral-800);
+}
+.dc-branch-label .stat {
+  color: var(--blue-cta);
+  font-weight: 700;
+}
+
+/* Per-channel engagement, Send/Channel Failover nodes only — a separate
+   quieter line from .dc-node-stat (raw reach count), same distinction
+   CleverTap draws between Node Stats and Engagement Stats. */
+.dc-node-engagement {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--gray-500);
+}
+
+/* Mid-chain insert — a small "+" inside the SAME branch-label chip every
+   editable edge already renders (not a separately-positioned element —
+   that was tried first and overlapped node cards on short edges, since
+   EdgeLabelRenderer's own midpoint math leaves no guaranteed clear space
+   below it). Reusing the chip's own already-correct positioning removes
+   that whole class of bug. */
+.dc-edge-insert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  margin-left: 4px;
+  color: var(--gray-500);
+  cursor: pointer;
+}
+.dc-edge-insert:hover {
+  background: var(--blue-cta);
+  color: #fff;
+}
+
 .dc-add-entry-placeholder {
   width: 220px; margin: 24px 0 0 24px; padding: 22px; text-align: center; border-radius: 10px;
   border: 1.5px dashed var(--gray-300); color: var(--gray-500); font-size: 13px; font-weight: 600; cursor: pointer;
