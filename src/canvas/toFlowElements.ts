@@ -27,7 +27,8 @@ function formatAbsTime(t: string): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function formatSendTiming(p: any): string {
   if (p.timing === 'Absolute') return formatAbsTime(p.absTime);
-  return `${p.relativeDuration} ${p.relativeUnit} after ${p.relativeAnchor}`;
+  if (Number(p.relativeDuration) === 0) return 'Immediately after previous step';
+  return `${p.relativeDuration} ${p.relativeUnit} after previous step`;
 }
 
 export interface DripCanvasMetrics {

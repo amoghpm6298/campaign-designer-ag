@@ -4,11 +4,11 @@
 // step-outcome channel-aware status list, Random/Decision Split dynamic
 // branch lists with mid-list insert, etc).
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { CHANNEL_CONFIG_LABELS, COMMS_TEMPLATES, EVENT_CATEGORIES, ELIGIBILITY_META, DC_EVENT_ENTITY, deliveryStatusOptionsFor, deliveryStatusOptionsAll, type Channel } from '../data/sharedConstants';
+import { CHANNEL_CONFIG_LABELS, COMMS_TEMPLATES, EVENT_CATEGORIES, ELIGIBILITY_META, DC_EVENT_ENTITY, deliveryStatusOptionsForSend, deliveryStatusOptionsAll, type Channel, type PrevStepSend } from '../data/sharedConstants';
 import type { DripGoal } from '../data/graphTypes';
 import { dcOrdinal, dcRecurrenceLabel, dcGoalLabel } from '../reducer/labelMeta';
 import { dcNewBranchId } from '../reducer/idGen';
-import { ConditionsSection, ConditionRows } from './ConditionRows';
+import { ConditionsSection, ConditionRows, ValueField } from './ConditionRows';
 
 interface FormProps {
   p: any;
@@ -249,23 +249,14 @@ export function SendForm({ p, onChange }: FormProps) {
           <input className="f-input" type="time" value={p.absTime} onChange={(e) => onChange({ absTime: e.target.value })} />
         </div>
       ) : (
-        <div className="f-row2">
-          <div className="f-group">
-            <label className="f-label">After</label>
-            <select className="f-input" value={p.relativeAnchor} onChange={(e) => onChange({ relativeAnchor: e.target.value })}>
-              <option>Entry</option>
-              <option>Previous Step</option>
+        <div className="f-group">
+          <label className="f-label">Delay after previous step</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input className="f-input" type="number" min={0} value={p.relativeDuration} onChange={(e) => onChange({ relativeDuration: e.target.value })} />
+            <select className="f-input" value={p.relativeUnit} onChange={(e) => onChange({ relativeUnit: e.target.value })}>
+              <option>hours</option>
+              <option>days</option>
             </select>
-          </div>
-          <div className="f-group">
-            <label className="f-label">Delay</label>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input className="f-input" type="number" min={0} value={p.relativeDuration} onChange={(e) => onChange({ relativeDuration: e.target.value })} />
-              <select className="f-input" value={p.relativeUnit} onChange={(e) => onChange({ relativeUnit: e.target.value })}>
-                <option>hours</option>
-                <option>days</option>
-              </select>
-            </div>
           </div>
         </div>
       )}
@@ -370,15 +361,24 @@ export function WaitUntilForm({ p, onChange }: FormProps) {
   );
 }
 
-export function SplitForm({ p, onChange, entryEventCategory, previousStepChannel }: FormProps & { goal: DripGoal | null; entryEventCategory: string | null; previousStepChannel: Channel | null }) {
+export function SplitForm({ p, onChange, goal, entryEventCategory, previousStepChannel }: FormProps & { goal: DripGoal | null; entryEventCategory: string | null; previousStepChannel: PrevStepSend | null }) {
   const sourceEntity = entryEventCategory ? DC_EVENT_ENTITY[entryEventCategory] || null : null;
 
   let sourceBody: React.ReactNode;
-  if (p.customSource === 'Previous step outcome') {
-    const outcomeOptions = previousStepChannel ? deliveryStatusOptionsFor(previousStepChannel) : deliveryStatusOptionsAll();
+  if (p.customSource === 'Goal') {
+    sourceBody = goal && goal.eventType ? (
+      <p className="f-hint" style={{ margin: 0 }}>Checks the campaign goal directly: has the customer already reached "{dcGoalLabel(goal)}"? Yes if they have, No if they haven't yet.</p>
+    ) : (
+      <p className="f-hint" style={{ margin: 0 }}>No campaign goal is defined yet. Define one on the Goal step first, or pick a different source.</p>
+    );
+  } else if (p.customSource === 'Previous step outcome') {
+    const outcomeOptions = previousStepChannel ? deliveryStatusOptionsForSend(previousStepChannel) : deliveryStatusOptionsAll();
+    const channelLabel = previousStepChannel
+      ? CHANNEL_CONFIG_LABELS[previousStepChannel.channel] + (previousStepChannel.fallbackChannel ? ` + ${CHANNEL_CONFIG_LABELS[previousStepChannel.fallbackChannel]} fallback` : '')
+      : '';
     sourceBody = (
       <div className="f-group">
-        <label className="f-label">Outcome{previousStepChannel ? ` (${CHANNEL_CONFIG_LABELS[previousStepChannel]})` : ''} — matches → Yes</label>
+        <label className="f-label">Outcome{channelLabel ? ` (${channelLabel})` : ''} — matches → Yes</label>
         <select className="f-input" value={p.outcome} onChange={(e) => onChange({ outcome: e.target.value })}>
           <option value="">Select outcome</option>
           {outcomeOptions.map((o) => (
@@ -424,6 +424,7 @@ export function SplitForm({ p, onChange, entryEventCategory, previousStepChannel
           <option>Previous step outcome</option>
           <option>Account attribute</option>
           <option>Entry event attribute</option>
+          <option>Goal</option>
         </select>
       </div>
       {sourceBody}
@@ -439,7 +440,7 @@ function BranchInsertRow({ onInsert }: { onInsert: () => void }) {
   );
 }
 
-export function DecisionSplitForm({ p, onChange, entryEventCategory, previousStepChannel }: FormProps & { entryEventCategory: string | null; previousStepChannel: Channel | null }) {
+export function DecisionSplitForm({ p, onChange, entryEventCategory, previousStepChannel }: FormProps & { entryEventCategory: string | null; previousStepChannel: PrevStepSend | null }) {
   const sourceEntity = p.source === 'Account attribute' ? 'Account' : p.source === 'Entry event attribute' ? (entryEventCategory ? DC_EVENT_ENTITY[entryEventCategory] : null) : null;
   const attrMeta = sourceEntity && p.attribute ? ELIGIBILITY_META[sourceEntity]?.[p.attribute] : null;
 
@@ -457,10 +458,13 @@ export function DecisionSplitForm({ p, onChange, entryEventCategory, previousSte
 
   let sourceBody: React.ReactNode;
   if (p.source === 'Previous step outcome') {
-    const outcomeOptions = previousStepChannel ? deliveryStatusOptionsFor(previousStepChannel) : deliveryStatusOptionsAll();
+    const outcomeOptions = previousStepChannel ? deliveryStatusOptionsForSend(previousStepChannel) : deliveryStatusOptionsAll();
+    const channelLabel = previousStepChannel
+      ? CHANNEL_CONFIG_LABELS[previousStepChannel.channel] + (previousStepChannel.fallbackChannel ? ` + ${CHANNEL_CONFIG_LABELS[previousStepChannel.fallbackChannel]} fallback` : '')
+      : '';
     sourceBody = (
       <div className="f-group">
-        <label className="f-label">Branches{previousStepChannel ? ` (${CHANNEL_CONFIG_LABELS[previousStepChannel]})` : ''}</label>
+        <label className="f-label">Branches{channelLabel ? ` (${channelLabel})` : ''}</label>
         {!previousStepChannel && (
           <p className="f-hint" style={{ margin: '0 0 8px' }}>There's no earlier Send in this chain. Every channel's statuses are listed — pick the one this split is about.</p>
         )}
@@ -499,36 +503,17 @@ export function DecisionSplitForm({ p, onChange, entryEventCategory, previousSte
     );
   } else {
     const attrOptions = Object.keys(ELIGIBILITY_META[sourceEntity]);
-    const opOptions = attrMeta?.type === 'number' || attrMeta?.type === 'date' ? ['Equals', 'Greater than', 'Less than', 'Between'] : ['Equals', 'Not Equals'];
-    const valueField = (b: any, i: number) => {
-      if (!attrMeta) return <input className="f-input" type="text" style={{ flex: 1 }} placeholder="Attribute" disabled />;
-      if (attrMeta.type === 'select')
-        return (
-          <select className="f-input" style={{ flex: 1 }} value={b.value} onChange={(e) => setBranch(i, { value: e.target.value })}>
-            <option value="">Value</option>
-            {(attrMeta.options || []).map((o) => (
-              <option key={o}>{o}</option>
-            ))}
-          </select>
-        );
-      if (attrMeta.type === 'bool')
-        return (
-          <select className="f-input" style={{ flex: 1 }} value={b.value} onChange={(e) => setBranch(i, { value: e.target.value })}>
-            <option value="">Value</option>
-            <option value="true">true</option>
-            <option value="false">false</option>
-          </select>
-        );
-      if (attrMeta.type === 'number' && b.operator === 'Between')
-        return (
-          <div style={{ display: 'flex', gap: 6, flex: 1 }}>
-            <input className="f-input" type="number" placeholder="From" value={b.value || ''} onChange={(e) => setBranch(i, { value: e.target.value })} />
-            <input className="f-input" type="number" placeholder="To" value={b.value2 || ''} onChange={(e) => setBranch(i, { value2: e.target.value })} />
-          </div>
-        );
-      if (attrMeta.type === 'number') return <input className="f-input" type="number" style={{ flex: 1 }} placeholder="Value" value={b.value || ''} onChange={(e) => setBranch(i, { value: e.target.value })} />;
-      if (attrMeta.type === 'date') return <input className="f-input" type="date" style={{ flex: 1 }} value={b.value || ''} onChange={(e) => setBranch(i, { value: e.target.value })} />;
-      return <input className="f-input" type="text" style={{ flex: 1 }} placeholder="Value" value={b.value || ''} onChange={(e) => setBranch(i, { value: e.target.value })} />;
+    // multiSelect only has one real operator — same precedent as
+    // ConditionRows: shown as already selected, auto-backfilled onto the
+    // branch once a value is toggled, rather than a 1-option dropdown.
+    const opOptions = attrMeta?.type === 'multiSelect' ? ['Any of'] : attrMeta?.type === 'number' || attrMeta?.type === 'date' ? ['Equals', 'Greater than', 'Less than', 'Between'] : ['Equals', 'Not Equals'];
+    const toggleBranchMulti = (i: number, val: string) => {
+      const b = p.branches[i];
+      const values = b.values ? [...b.values] : [];
+      const idx = values.indexOf(val);
+      if (idx > -1) values.splice(idx, 1);
+      else values.push(val);
+      setBranch(i, { values, operator: 'Any of' });
     };
     sourceBody = (
       <>
@@ -546,25 +531,30 @@ export function DecisionSplitForm({ p, onChange, entryEventCategory, previousSte
         {p.attribute && (
           <div className="f-group">
             <label className="f-label">Branches</label>
-            {p.branches.map((b: any, i: number) => (
-              <div key={b.id || i}>
-                <BranchInsertRow onInsert={() => insertBranch(i - 1)} />
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                  <input className="f-input" type="text" style={{ width: 110, flexShrink: 0 }} placeholder="Label" value={b.label} onChange={(e) => setBranch(i, { label: e.target.value })} />
-                  <select className="f-input" style={{ width: 110, flexShrink: 0 }} value={b.operator} onChange={(e) => setBranch(i, { operator: e.target.value })}>
-                    {opOptions.map((o) => (
-                      <option key={o}>{o}</option>
-                    ))}
-                  </select>
-                  {valueField(b, i)}
-                  {p.branches.length > 1 && (
-                    <div className="cond-remove" onClick={() => removeBranch(i)}>
-                      ✕
+            {p.branches.map((b: any, i: number) => {
+              const effectiveOperator = attrMeta?.type === 'multiSelect' ? 'Any of' : b.operator;
+              return (
+                <div key={b.id || i}>
+                  <BranchInsertRow onInsert={() => insertBranch(i - 1)} />
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <input className="f-input" type="text" style={{ width: 110, flexShrink: 0 }} placeholder="Label" value={b.label} onChange={(e) => setBranch(i, { label: e.target.value })} />
+                    <select className="f-input" style={{ width: 110, flexShrink: 0 }} value={effectiveOperator} onChange={(e) => setBranch(i, { operator: e.target.value })}>
+                      {opOptions.map((o) => (
+                        <option key={o}>{o}</option>
+                      ))}
+                    </select>
+                    <div style={{ flex: 1 }}>
+                      <ValueField cond={b} attrMeta={attrMeta} onPatch={(patch) => setBranch(i, patch)} onToggleMulti={(v) => toggleBranchMulti(i, v)} />
                     </div>
-                  )}
+                    {p.branches.length > 1 && (
+                      <div className="cond-remove" onClick={() => removeBranch(i)}>
+                        ✕
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             <div className="add-link" onClick={addBranch}>
               + Add branch
             </div>

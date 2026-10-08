@@ -11,7 +11,7 @@ import * as Forms from './NodeForms';
 import { dcAddFormValid } from '../reducer/defaultConfig';
 import type { DcNodeType } from '../data/nodeMeta';
 import type { DripGoal } from '../data/graphTypes';
-import type { Channel } from '../data/sharedConstants';
+import type { PrevStepSend } from '../data/sharedConstants';
 
 export interface AddEditDrawerProps {
   open: boolean;
@@ -35,7 +35,7 @@ export interface AddEditDrawerProps {
   onConfirm: () => void;
   goal: DripGoal | null;
   entryEventCategory: string | null;
-  previousStepChannel: Channel | null;
+  previousStepChannel: PrevStepSend | null;
   // Goal Check's own "edit" view is read-only (see NodeForms.tsx's
   // GoalCheckInfo) — this is its one real action, a shortcut back to the
   // Goal Definition step rather than a dead end.
@@ -57,7 +57,7 @@ export function AddEditDrawer(props: AddEditDrawerProps) {
   }, [selectedType]);
 
   const isGoalCheck = selectedType === 'GOAL_CHECK';
-  const primaryDisabled = !(selectedType && dcAddFormValid(selectedType, pendingConfig));
+  const primaryDisabled = !(selectedType && dcAddFormValid(selectedType, pendingConfig, goal));
   const primaryLabel = isEditing ? 'Save Changes' : isEntry ? 'Add Entry' : 'Add Step';
   const title = isGoalCheck ? 'Goal Check' : isEditing ? 'Edit Step' : isEntry ? 'Add Entry' : 'Add Next Step';
   // Editing never shows the type grid at all, so it never has a "still
@@ -113,7 +113,7 @@ function NodeForm({
   onChange: (patch: any) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
   goal: DripGoal | null;
   entryEventCategory: string | null;
-  previousStepChannel: Channel | null;
+  previousStepChannel: PrevStepSend | null;
 }) {
   switch (type) {
     case 'ENTRY_SEGMENT':

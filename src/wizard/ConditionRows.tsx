@@ -152,7 +152,7 @@ export function ConditionRows({ conditions, entity, onChange }: { conditions: Co
   );
 }
 
-function ValueField({
+export function ValueField({
   cond,
   attrMeta,
   onPatch,

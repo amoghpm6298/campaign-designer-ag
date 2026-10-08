@@ -10,10 +10,10 @@ import { useMemo, useState } from 'react';
 import type { DripCampaign, DripGoal, DripGraph } from '../data/graphTypes';
 import type { DcNodeType } from '../data/nodeMeta';
 import { DC_ENTRY_TYPES } from '../data/typeSub';
-import type { Channel } from '../data/sharedConstants';
+import type { PrevStepSend } from '../data/sharedConstants';
 import { dcConfirmAddNode, dcConfirmEditNode, dcRemoveEdge, dcRemoveGoalCheck, dcRemoveRoot, type DcAddingAt } from '../reducer/campaignReducer';
 import { dcGraphHasOpenBranches } from '../reducer/graphOps';
-import { dcDefaultConfig } from '../reducer/defaultConfig';
+import { dcDefaultConfig, dcDefaultExitReason } from '../reducer/defaultConfig';
 import { BasicDetailsStep } from './BasicDetailsStep';
 import { GoalDefinitionStep } from './GoalDefinitionStep';
 import { BuilderStep } from './BuilderStep';
@@ -153,15 +153,21 @@ export function DripBuilder({
     return d;
   }, [addingAt, addingAtSourceId, graph]);
 
-  // The channel of the most recent Send before this point — walks
-  // backward via incoming edges, transparently skipping the auto
-  // goal-check Split every Send inserts, so "previous step outcome"
-  // means the last real message sent, not just the nearest node.
-  const previousStepChannel: Channel | null = useMemo(() => {
+  // The most recent Send before this point — walks backward via incoming
+  // edges, transparently skipping the auto goal-check Split every Send
+  // inserts, so "previous step outcome" means the last real message sent,
+  // not just the nearest node. Carries the fallback channel along too —
+  // if a fallback is configured, the primary could have failed and the
+  // fallback delivered instead, so "previous step outcome" needs both
+  // channels' delivery-status vocabularies, not just the primary's.
+  const previousStepChannel: PrevStepSend | null = useMemo(() => {
     let nodeId = editingNodeId !== null ? editingNodeId : addingAtSourceId;
     while (nodeId) {
       const nd = graph.nodes[nodeId];
-      if (nd && nd.type === 'SEND' && nd._config) return (nd._config as any).channel as Channel;
+      if (nd && nd.type === 'SEND' && nd._config) {
+        const cfg = nd._config as any;
+        return { channel: cfg.channel, fallbackChannel: cfg.fallbackChannel || null };
+      }
       const inc = graph.edges.find((e) => e.to === nodeId);
       nodeId = inc ? inc.from : null;
     }
@@ -177,7 +183,9 @@ export function DripBuilder({
 
   function pickType(t: DcNodeType) {
     setAddingType(t);
-    setPendingConfig(dcDefaultConfig(t, goal));
+    const config = dcDefaultConfig(t, goal);
+    if (t === 'EXIT') config.reason = dcDefaultExitReason(graph, addingAt);
+    setPendingConfig(config);
   }
 
   function cancelAdd() {

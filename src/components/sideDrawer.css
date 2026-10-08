@@ -43,8 +43,18 @@ input[type='text'].f-input, input[type='number'].f-input, input[type='date'].f-i
    1fr auto), so the remove icon landed in the 4th 1fr track instead of
    the unused 5th auto one, stretching its cell and throwing off every
    column's real width relative to the others. */
-.cond-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
-.cond-row select, .cond-row input { min-width: 0; }
+/* align-items: start (not center) — the value cell can grow much taller
+   than its row-mates when it's an open MultiSelectDropdown checklist, and
+   center would then vertically re-center the short attribute/operator
+   selects against that full expanded height instead of keeping them top-
+   aligned with it. */
+.cond-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: start; margin-bottom: 8px; }
+/* min-width: 0 on every grid child, not just select/input — the value
+   cell can also be a generic div (MultiSelectDropdown's own wrapper),
+   whose default min-width:auto sizes the track to its longest option
+   text (e.g. "AUTHORIZATION_REVERSAL"), squeezing the other two 1fr
+   tracks down to near-zero and truncating their own select text. */
+.cond-row > * { min-width: 0; }
 .cond-remove { width: 26px; height: 26px; border-radius: 6px; color: var(--gray-400); display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
 .cond-remove:hover { background: var(--error-bg, #fee3e1); color: var(--error-text); }
 .cond-and { margin: 8px 0; font-size: 11px; font-weight: 700; color: var(--gray-400); text-transform: uppercase; }
@@ -54,7 +64,11 @@ input[type='text'].f-input, input[type='number'].f-input, input[type='date'].f-i
 
 .msel-trigger { width: 100%; font-family: inherit; font-size: 13.5px; color: var(--neutral-800); border: 1px solid var(--gray-300); border-radius: 8px; padding: 9px 11px; box-shadow: var(--shadow-sm, 0 1px 2px rgba(16,24,40,.06)); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
 .msel-panel { border: 1px solid var(--gray-200); border-radius: 8px; margin-top: 6px; padding: 8px; max-height: 220px; overflow-y: auto; background: #fff; box-shadow: var(--shadow-sm, 0 1px 2px rgba(16,24,40,.06)); }
-.msel-option { display: flex; align-items: center; gap: 8px; padding: 5px 4px; font-size: 13px; cursor: pointer; }
+/* min-width: 0 + overflow-wrap — option labels like ADD_FUND_REVERSAL are
+   one unbroken underscore-joined token with no space to wrap at, so a
+   flex item's default min-width:auto sizes to that whole token and
+   overflows the panel instead of wrapping. */
+.msel-option { display: flex; align-items: center; gap: 8px; padding: 5px 4px; font-size: 13px; cursor: pointer; min-width: 0; overflow-wrap: anywhere; }
 
 .dc-type-group-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--gray-400); margin: 16px 0 6px; }
 .dc-type-group-label:first-child { margin-top: 0; }

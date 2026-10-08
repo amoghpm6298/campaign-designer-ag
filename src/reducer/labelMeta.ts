@@ -127,6 +127,7 @@ export function dcRecomputeLabelMeta(type: DcNodeType, p: any, goal: DripGoal | 
     // campaign goal (that's GOAL_CHECK's job, a distinct node type that
     // carries no condition config of its own at all — see below).
     if (p.customSource === 'Previous step outcome') return { label: `Previous step: ${p.outcome}?`, meta: '' };
+    if (p.customSource === 'Goal') return { label: (dcGoalLabel(goal) || 'Goal') + '?', meta: '' };
     const conds = (p.customConditions || []).filter((c: DripGoalCondition) => c.attribute);
     // One simple condition gets to be the label itself (a short, real
     // business question) — two or more collapse to a count-only meta

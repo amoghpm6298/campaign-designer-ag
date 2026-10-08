@@ -153,3 +153,67 @@ of their existing `Continue to Review` click, since Guardrails now sits
 between Builder and Review), clean production build, and Playwright
 screenshot verification of every visual change (toggle on/off states,
 chip selection, dimmed Program picker).
+
+## 2026-10-08 (cont'd) — Condition/Branch gap fixes; re-entry + repeating-audience spec
+
+A pass driven by a built node-reference doc (an Artifact — every node's
+config fields, dropdown values, and outputs, read directly off
+`defaultConfig.ts`/`nodeMeta.ts`/`sharedConstants.ts`) surfacing real
+gaps once everything was written down in one place:
+
+**Condition (SPLIT) now actually validates.** It previously had no entry
+in `dcAddFormValid` at all — you could save a Yes/No fork that checked
+nothing (no outcome picked, zero conditions). Now requires a real
+`outcome`, 1+ `customConditions`, or (new) a defined campaign Goal,
+depending on source.
+
+**Condition gained a 4th source: "Goal."** Previously there was no way
+to manually check "has this customer achieved the campaign goal?"
+anywhere except via the auto-generated, non-removable-content
+`GOAL_CHECK` node that only ever appears right after a Send/Pause.
+Picking "Goal" as a Condition's source checks the same thing manually,
+anywhere in the graph, blocked if no campaign Goal is defined yet.
+
+**Branch (DECISION_SPLIT) now properly supports multiSelect/smartTag/list
+attributes.** Its own per-branch value field was a separate, incomplete
+implementation that silently fell through to a plain text input for
+those types (e.g. "Engagement Tier"), while Condition's equivalent
+(`ConditionRows.tsx`'s `ValueField`, now exported) handled them properly
+via a real checkbox picker. Branch now reuses that same component, plus
+the matching "Any of" operator auto-fill multiSelect needs. The
+`dcAddFormValid` check for Branch was also fixed to recognize a
+multiSelect branch's `values[]` as a filled-in value, not just `value`
+(it previously always rejected multiSelect branches as incomplete).
+
+**"Previous step outcome" now accounts for a Send's fallback channel.**
+Previously it only ever looked at the primary channel
+(`previousStepChannel` in `DripBuilder.tsx` returned a bare `Channel`),
+even though a fallback channel could be the one that actually delivered.
+Now carries both (`PrevStepSend = { channel, fallbackChannel }` in
+`sharedConstants.ts`), and `deliveryStatusOptionsForSend` merges both
+channels' delivery-status vocabularies — the field label reads e.g.
+"(WhatsApp + SMS fallback)" when one's configured.
+
+Verified: `tsc --noEmit` clean, unit tests (75/75), e2e tests (26/26),
+clean production build, and live Playwright verification of all four
+fixes (disabled/enabled Add Step states, the merged-channel outcome
+label, the Goal source's info text, and a real checkbox picker for
+Engagement Tier on a Branch).
+
+**Re-entry × repeating Entry · Audience — the combined eligibility rule
+(spec only, nothing to implement — this app has no execution engine):**
+these are two independent flags (`repeat` on Entry · Audience; `allowReEntry`
++ cool-off on the campaign) with no code connecting them, which is a real
+gap the moment a real backend executes this. The agreed rule, for any
+audience pull (first run or a scheduled repeat): a customer is eligible
+to enter if (1) they currently match the entry's entity + conditions,
+**and** (2) they have no currently-active, unfinished run of this same
+campaign — this part is a hard rule, not configurable, regardless of
+Re-entry's setting, since nothing should ever double-enter someone who's
+mid-journey — **and** (3) either they've never been through this
+campaign before, or their last run finished (reached Exit or Goal
+Reached) **and** `allowReEntry` is true **and** at least the cool-off
+duration has passed since that finish. Rule 2 and rule 3 are both
+needed: rule 2 alone doesn't cover someone who's already finished and
+rule 3 alone doesn't stop a parallel duplicate entry for someone still
+running.

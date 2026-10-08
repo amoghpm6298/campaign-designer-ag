@@ -187,3 +187,18 @@ export function deliveryStatusOptionsAll(): string[] {
   Object.values(DELIVERY_STATUS_BY_CHANNEL).forEach((list) => list.forEach((s) => all.add(s)));
   return [...all];
 }
+
+// A Send with a fallback channel could have actually delivered via
+// either one — "Previous step outcome" needs both channels' vocabularies,
+// not just the primary, since the fallback is the one that's genuinely
+// unknown-in-advance (it only fires if the primary failed).
+export interface PrevStepSend {
+  channel: Channel;
+  fallbackChannel: Channel | null;
+}
+export function deliveryStatusOptionsForSend(send: PrevStepSend): string[] {
+  const primary = deliveryStatusOptionsFor(send.channel);
+  if (!send.fallbackChannel) return primary;
+  const fallback = deliveryStatusOptionsFor(send.fallbackChannel);
+  return [...new Set([...primary, ...fallback])];
+}
