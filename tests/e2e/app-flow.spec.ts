@@ -94,7 +94,10 @@ test('full create -> build -> submit flow lands in the list as Pending Approval'
   await page.waitForTimeout(400);
 
   // Submit for Approval now lives on the Review step, not the Builder
-  // header — navigate there via the rail first.
+  // header — navigate there via Guardrails (the new step between
+  // Builder and Review) first.
+  await page.getByText('Continue to Guardrails').click();
+  await page.waitForTimeout(300);
   await page.getByText('Continue to Review').click();
   await page.waitForTimeout(300);
   await expect(page.getByRole('button', { name: 'Submit for Approval' })).toBeEnabled();

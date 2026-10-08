@@ -9,10 +9,11 @@
 // Builder step — a deliberate choice (flagged the canvas-width
 // tradeoff from the earlier full-width-canvas decision, user chose to
 // take it) rather than special-casing Builder.
-const STEPS: { key: 'basicDetails' | 'goalDefinition' | 'builder' | 'review'; label: string }[] = [
+const STEPS: { key: 'basicDetails' | 'goalDefinition' | 'builder' | 'guardrails' | 'review'; label: string }[] = [
   { key: 'basicDetails', label: 'Basic Details' },
   { key: 'goalDefinition', label: 'Goal' },
   { key: 'builder', label: 'Builder' },
+  { key: 'guardrails', label: 'Guardrails' },
   { key: 'review', label: 'Review' },
 ];
 

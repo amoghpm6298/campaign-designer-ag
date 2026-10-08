@@ -92,7 +92,7 @@ export function EntrySegmentForm({ p, onChange }: FormProps) {
         // up-front field that does nothing most of the time.
         <div className="f-group">
           <p className="f-hint" style={{ margin: '0 0 6px' }}>
-            Targets everyone{p.repeat ? ' matching this schedule' : ''} — no conditions set.
+            No conditions are set. This targets everyone{p.repeat ? ' matching this schedule' : ''}.
           </p>
           <div className="add-link" onClick={() => onChange({ conditions: [{ attribute: '', operator: '', value: '' }] })}>
             + Add condition to narrow
@@ -114,9 +114,7 @@ export function EntrySegmentForm({ p, onChange }: FormProps) {
           </div>
         </>
       )}
-      {p.repeat && (
-        <p className="f-hint">Who this pulls in each time the schedule fires — re-evaluated fresh every run, not a one-time snapshot.</p>
-      )}
+      {p.repeat && <p className="f-hint">This re-evaluates fresh every time the schedule fires. It isn't a one-time snapshot.</p>}
     </>
   );
 }
@@ -301,7 +299,7 @@ export function SendForm({ p, onChange }: FormProps) {
             templateLabel="Fallback Template"
           />
           <p className="f-hint">
-            If delivery fails on {CHANNEL_CONFIG_LABELS[p.channel as Channel]}, this sends once via {CHANNEL_CONFIG_LABELS[p.fallbackChannel as Channel]} before continuing the sequence.
+            If delivery fails on {CHANNEL_CONFIG_LABELS[p.channel as Channel]}, this sends once via {CHANNEL_CONFIG_LABELS[p.fallbackChannel as Channel]}. Then it continues the sequence.
           </p>
         </>
       )}
@@ -388,9 +386,7 @@ export function SplitForm({ p, onChange, entryEventCategory, previousStepChannel
           ))}
         </select>
         {!previousStepChannel && (
-          <p className="f-hint" style={{ margin: '6px 0 0' }}>
-            No Send found earlier in this chain, so every channel's statuses are listed together — pick the account/channel this branch is really about.
-          </p>
+          <p className="f-hint" style={{ margin: '6px 0 0' }}>There's no earlier Send in this chain. Every channel's statuses are listed — pick the one this branch is about.</p>
         )}
       </div>
     );
@@ -415,9 +411,7 @@ export function SplitForm({ p, onChange, entryEventCategory, previousStepChannel
   } else {
     sourceBody = (
       <p className="f-hint" style={{ margin: 0 }}>
-        {entryEventCategory
-          ? `No typed attributes defined yet for ${entryEventCategory} — try "Account attribute" instead, or pick an entry category that has one (Transaction Events, EMI Events).`
-          : "Entry isn't an Event Trigger, so there's no entry-event attribute to filter on."}
+        {entryEventCategory ? `There are no attributes for ${entryEventCategory} yet. Try "Account attribute" instead, or pick an entry category that has one.` : "Entry isn't an Event Trigger. There's no entry-event attribute to filter on."}
       </p>
     );
   }
@@ -468,9 +462,7 @@ export function DecisionSplitForm({ p, onChange, entryEventCategory, previousSte
       <div className="f-group">
         <label className="f-label">Branches{previousStepChannel ? ` (${CHANNEL_CONFIG_LABELS[previousStepChannel]})` : ''}</label>
         {!previousStepChannel && (
-          <p className="f-hint" style={{ margin: '0 0 8px' }}>
-            No Send found earlier in this chain, so every channel's statuses are listed together — pick the account/channel this split is really about.
-          </p>
+          <p className="f-hint" style={{ margin: '0 0 8px' }}>There's no earlier Send in this chain. Every channel's statuses are listed — pick the one this split is about.</p>
         )}
         {p.branches.map((b: any, i: number) => (
           <div key={b.id || i}>
@@ -501,8 +493,8 @@ export function DecisionSplitForm({ p, onChange, entryEventCategory, previousSte
     sourceBody = (
       <p className="f-hint" style={{ margin: 0 }}>
         {entryEventCategory
-          ? `No typed attributes defined yet for ${entryEventCategory} — try "Account attribute" instead, or pick an entry category that has one (Transaction Events, EMI Events).`
-          : "Entry isn't an Event Trigger, so there's no entry-event attribute to branch on."}
+          ? `There are no attributes for ${entryEventCategory} yet. Try "Account attribute" instead, or pick an entry category that has one.`
+          : "Entry isn't an Event Trigger. There's no entry-event attribute to branch on."}
       </p>
     );
   } else {
@@ -598,7 +590,7 @@ export function DecisionSplitForm({ p, onChange, entryEventCategory, previousSte
         </select>
       </div>
       {sourceBody}
-      <p className="f-hint">Branches are checked top to bottom — the customer follows the first one that matches. Anything that matches none of them falls into the catch-all at the end.</p>
+      <p className="f-hint">Branches are checked top to bottom. The customer follows the first match. Anything else falls into the catch-all.</p>
     </>
   );
 }

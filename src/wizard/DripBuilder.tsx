@@ -17,6 +17,7 @@ import { dcDefaultConfig } from '../reducer/defaultConfig';
 import { BasicDetailsStep } from './BasicDetailsStep';
 import { GoalDefinitionStep } from './GoalDefinitionStep';
 import { BuilderStep } from './BuilderStep';
+import { GuardrailsStep } from './GuardrailsStep';
 import { ReviewStep } from './ReviewStep';
 import { WizardStepper } from './WizardStepper';
 import { AddEditDrawer } from './AddEditDrawer';
@@ -55,14 +56,19 @@ export interface DripBuilderPayload {
   goal: DripGoal | null;
   controlPct: number;
   issuer: string;
+  applyToAllPrograms: boolean;
   programs: string[];
   startDate: string;
   endDate: string;
+  allowReEntry: boolean;
+  reEntryCooloffDuration: number;
+  reEntryCooloffUnit: 'days' | 'hours';
+  guardrails: { dnc: boolean; npa: boolean };
   status: 'DRAFT' | 'PENDING_REVIEW';
   root: DripGraph;
 }
 
-type BuilderStepKind = 'basicDetails' | 'goalDefinition' | 'builder' | 'review';
+type BuilderStepKind = 'basicDetails' | 'goalDefinition' | 'builder' | 'guardrails' | 'review';
 
 export function DripBuilder({
   initial,
@@ -79,8 +85,14 @@ export function DripBuilder({
   const [name, setName] = useState(initial?.name || '');
   const [description, setDescription] = useState(initial?.description || '');
   const [issuer, setIssuer] = useState(initial?.issuer || '');
+  const [applyToAllPrograms, setApplyToAllPrograms] = useState(initial?.applyToAllPrograms ?? false);
   const [programs, setPrograms] = useState<string[]>(initial?.programs || []);
   const [controlPct, setControlPct] = useState(initial?.controlPct ?? 10);
+  const [allowReEntry, setAllowReEntry] = useState(initial?.allowReEntry ?? false);
+  const [reEntryCooloffDuration, setReEntryCooloffDuration] = useState(initial?.reEntryCooloffDuration ?? 0);
+  const [reEntryCooloffUnit, setReEntryCooloffUnit] = useState<'days' | 'hours'>(initial?.reEntryCooloffUnit ?? 'days');
+  const [dnc, setDnc] = useState(initial?.guardrails?.dnc ?? true);
+  const [npa, setNpa] = useState(initial?.guardrails?.npa ?? true);
   const [startDate, setStartDate] = useState(initial?.startDate || '');
   const [endDate, setEndDate] = useState(initial?.endDate || '');
   const [goal, setGoal] = useState<DripGoal | null>(initial?.goal || null);
@@ -245,7 +257,23 @@ export function DripBuilder({
     // enforced, now applied at save time since Goal Definition no longer
     // has a separate draft/commit step of its own.
     const cleanGoal = goal && goal.eventType ? goal : null;
-    return { name, description, goal: cleanGoal, controlPct: Number(controlPct), issuer, programs, startDate, endDate, status, root: graph };
+    return {
+      name,
+      description,
+      goal: cleanGoal,
+      controlPct: Number(controlPct),
+      issuer,
+      applyToAllPrograms,
+      programs,
+      startDate,
+      endDate,
+      allowReEntry,
+      reEntryCooloffDuration: Number(reEntryCooloffDuration),
+      reEntryCooloffUnit,
+      guardrails: { dnc, npa },
+      status,
+      root: graph,
+    };
   }
 
   function handleSubmitClick() {
@@ -272,10 +300,18 @@ export function DripBuilder({
               onDescriptionChange={setDescription}
               issuer={issuer}
               onIssuerChange={setIssuer}
+              applyToAllPrograms={applyToAllPrograms}
+              onApplyToAllProgramsChange={setApplyToAllPrograms}
               programs={programs}
               onProgramsChange={setPrograms}
               controlPct={controlPct}
               onControlPctChange={setControlPct}
+              allowReEntry={allowReEntry}
+              onAllowReEntryChange={setAllowReEntry}
+              reEntryCooloffDuration={reEntryCooloffDuration}
+              onReEntryCooloffDurationChange={setReEntryCooloffDuration}
+              reEntryCooloffUnit={reEntryCooloffUnit}
+              onReEntryCooloffUnitChange={setReEntryCooloffUnit}
               startDate={startDate}
               onStartDateChange={setStartDate}
               endDate={endDate}
@@ -302,8 +338,8 @@ export function DripBuilder({
                 <Icon name="redo" /> Redo
               </button>
               <div className="dcb-builder-topbar-spacer" />
-              <button className="btn primary" onClick={() => setStep('review')}>
-                Continue to Review →
+              <button className="btn primary" onClick={() => setStep('guardrails')}>
+                Continue to Guardrails →
               </button>
             </div>
             <BuilderStep
@@ -321,16 +357,35 @@ export function DripBuilder({
           </>
         )}
 
+        {step === 'guardrails' && (
+          <div className="dcb-step-body">
+            <GuardrailsStep
+              dnc={dnc}
+              onDncChange={setDnc}
+              npa={npa}
+              onNpaChange={setNpa}
+              onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
+              onContinue={() => setStep('review')}
+            />
+          </div>
+        )}
+
         {step === 'review' && (
           <div className="dcb-step-body">
             <ReviewStep
               name={name}
               description={description}
               issuer={issuer}
+              applyToAllPrograms={applyToAllPrograms}
               programs={programs}
               controlPct={controlPct}
               startDate={startDate}
               endDate={endDate}
+              allowReEntry={allowReEntry}
+              reEntryCooloffDuration={reEntryCooloffDuration}
+              reEntryCooloffUnit={reEntryCooloffUnit}
+              dnc={dnc}
+              npa={npa}
               goal={goal}
               graph={graph}
               validationMessage={validationMessage}

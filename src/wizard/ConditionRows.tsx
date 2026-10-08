@@ -27,9 +27,7 @@ export function ConditionsSection({ conditions, entity, onChange, label = 'Condi
         <label className="f-label">
           {label} <span style={{ fontWeight: 400, color: 'var(--gray-500)' }}>(optional)</span>
         </label>
-        <p className="f-hint" style={{ margin: 0 }}>
-          No typed attributes defined yet for this category — narrowing by attribute isn't available. Only Transaction Events and EMI Events have one today.
-        </p>
+        <p className="f-hint" style={{ margin: 0 }}>Only Transaction and EMI Events support narrowing by attribute today.</p>
       </div>
     );
   }

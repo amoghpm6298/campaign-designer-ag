@@ -100,3 +100,56 @@ fallback DOM classes), clean production build, and real Playwright
 screenshot verification at every step (not just test-suite green) — this
 whole round was driven by the user reviewing actual rendered screenshots,
 not spec compliance alone.
+
+## 2026-10-08 (cont'd) — Re-entry + Guardrails, Basic Details IA cleanup, copy density pass
+
+**Re-entry**, on Basic Details: a one-time gate, distinct from Guardrails
+below — checked only when a customer finishes the journey (reaches Exit or
+Goal Reached), not on every node. Modeled as `allowReEntry: boolean` +
+`reEntryCooloffDuration`/`reEntryCooloffUnit` on `DripCampaign`, reusing
+Pause's own `duration`+`unit` shape. Off by default; cool-off of 0 means
+immediate re-entry once enabled.
+
+**Guardrails**, a new 5th step (Builder → Guardrails → Review): DNC and NPA
+exclusion lists, modeled as `guardrails: { dnc: boolean; npa: boolean }`,
+both on by default. Checked continuously at every node — the opposite
+execution model from Re-entry's one-time gate, which is why they're two
+separate concepts rather than one "exclusions" section. Campaign-priority
+/ cross-campaign arbitration (drop a lower-priority campaign when a
+customer qualifies for two at once) was discussed and deliberately pushed
+to backlog — it needs a cross-campaign evaluation engine this app doesn't
+have; per-campaign config can't honestly solve it.
+
+**Basic Details Issuer/Program redesign**, iterated twice in one session
+before landing: first pass moved Program(s) to a closed-by-default
+`MultiSelectDropdown` (reusing the component already built for Conditions'
+multi-select attributes); the user then pointed at a screenshot of the
+Nudges wizard's own Issuer/Program layout and asked for that instead —
+Issuer dropdown → new **"Apply to all current and future programs"**
+toggle (`applyToAllPrograms: boolean` on `DripCampaign`, ported
+`.toggle-row`/`.toggle` CSS from the Nudges prototype) → Program as
+inline toggle chips (reverted to `ChipPicker`), dimmed and showing "All
+programs selected" once the toggle is on. Also removed every
+`wiz-group-label` section heading on Basic Details ("Campaign Details",
+"Scope", "Experimentation", "Re-entry", "Schedule") per direct request —
+fields now flow directly, grouped only by spacing.
+
+**Removed a redundant "Clear Goal" link** on the Goal step — the adjacent
+Event Type dropdown already has a "No goal — leave unset" option that
+does the same thing; a second control for the same action was pointless
+UX clutter, caught by direct user review.
+
+**Copy density pass, app-wide**: several hint/sub-text strings across
+Basic Details, Goal Definition, Conditions, Guardrails, and the node
+config forms (Pause, Send fallback, Decision/Random Split, mid-chain
+insert) were long em-dash-joined compound sentences — flagged directly
+("these are v dense copies"). Rewritten throughout as short, complete
+sentences with no em-dash joins. This is now a standing rule for all
+future copy in this app, not just a one-time cleanup.
+
+Verified: `tsc --noEmit` clean, unit tests (75/75 throughout), e2e tests
+(26/26 — 2 of them needed a `Continue to Guardrails` click inserted ahead
+of their existing `Continue to Review` click, since Guardrails now sits
+between Builder and Review), clean production build, and Playwright
+screenshot verification of every visual change (toggle on/off states,
+chip selection, dimmed Program picker).

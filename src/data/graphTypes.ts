@@ -65,6 +65,9 @@ export interface DripCampaign {
   name: string;
   description?: string;
   issuer: string;
+  // When true, `programs` is ignored — scope is every current and future
+  // program under this issuer, not a fixed list.
+  applyToAllPrograms?: boolean;
   programs: string[];
   goal: DripGoal | null;
   controlPct: number;
@@ -73,4 +76,17 @@ export interface DripCampaign {
   startDate?: string;
   endDate?: string;
   versionOf?: string | null;
+  // Re-entry — can a customer who already reached a terminal node (Exit
+  // or Goal Reached) on a previous run of THIS campaign be swept back in
+  // on a later qualifying run? Off by default, matching today's de facto
+  // behavior (no existing campaign has ever had a concept of re-entry).
+  // Cool-off only has meaning when allowReEntry is true; 0 = immediate.
+  allowReEntry?: boolean;
+  reEntryCooloffDuration?: number;
+  reEntryCooloffUnit?: 'days' | 'hours';
+  // Guardrails — exclusion lists checked continuously, at every node, not
+  // just at entry (unlike re-entry, which is a one-time gate). Kept as a
+  // small keyed object rather than a flat field per list so adding a new
+  // exclusion type later is one more key, not a new top-level field.
+  guardrails?: { dnc: boolean; npa: boolean };
 }

@@ -74,7 +74,7 @@ export function AddEditDrawer(props: AddEditDrawerProps) {
             disabledTypes={disabledTypes}
             selectedType={selectedType}
             choosing={choosingType}
-            hint={isMidEdge && choosingType ? 'Inserting mid-chain only supports single-continuation steps — branching and terminal types are shown below but disabled, since they would leave more than one new path (or none) with nothing to reconnect to.' : undefined}
+            hint={isMidEdge && choosingType ? 'Inserting mid-chain only supports single-continuation steps. Branching and terminal types are shown below but disabled. They would leave more than one new path, or none, with nothing to reconnect to.' : undefined}
             onPick={(t) => {
               setChoosingType(false);
               onPickType(t);

@@ -335,7 +335,9 @@ test('Submit for Approval shows an on-demand validation banner with open branche
   await addEntryEvent(page, 'Journey Events', 'Pageload');
 
   // Submit for Approval lives on the Review step now — get there via
-  // the rail's "Continue to Review" action on the Builder topbar.
+  // Builder's topbar (-> Guardrails) then Guardrails' own footer (-> Review).
+  await page.getByText('Continue to Guardrails').click();
+  await page.waitForTimeout(300);
   await page.getByText('Continue to Review').click();
   await page.waitForTimeout(300);
 
@@ -359,6 +361,8 @@ test('Submit for Approval shows an on-demand validation banner with open branche
 
   // Completed now — back to Review, clicking Submit actually navigates
   // away (back to the list), rather than showing the banner again.
+  await page.getByText('Continue to Guardrails').click();
+  await page.waitForTimeout(300);
   await page.getByText('Continue to Review').click();
   await page.waitForTimeout(300);
   await page.locator('button:has-text("Submit for Approval")').click();

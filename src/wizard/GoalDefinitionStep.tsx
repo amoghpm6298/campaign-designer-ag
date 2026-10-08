@@ -36,13 +36,12 @@ export function GoalDefinitionStep({
   onSaveDraft: () => void;
   onContinue: () => void;
 }) {
-  const hasGoal = !!(goal && goal.eventType);
   const draft = goal ?? BLANK_GOAL;
 
   return (
     <div className="dcb-mid-inner">
       <h1 className="wiz-heading">What outcome should count as success?</h1>
-      <p className="wiz-sub">Choose the customer event that counts as success, or leave it unset — a milestone-style campaign can legitimately have no single goal. This goal is checked automatically throughout the journey.</p>
+      <p className="wiz-sub">Choose the event that counts as success. Not every campaign needs one.</p>
 
       <div className="wiz-section">
         <div className="wiz-group-label">Goal Event</div>
@@ -68,7 +67,7 @@ export function GoalDefinitionStep({
             ))}
           </select>
         </div>
-        <p className="f-hint" style={{ margin: 0 }}>An event firing isn't always the outcome you want — e.g. EMI_STATUS_CHANGED fires on Failed too. Narrow it below if needed.</p>
+        <p className="f-hint" style={{ margin: 0 }}>Not every firing is success. For example, EMI_STATUS_CHANGED also fires on Failed. Narrow it below if needed.</p>
       </div>
 
       <div className="wiz-section">
@@ -76,15 +75,7 @@ export function GoalDefinitionStep({
         <ConditionsSection conditions={draft.conditions} entity={DC_EVENT_ENTITY[draft.eventCategory] || null} onChange={(conditions) => onGoalChange({ ...draft, conditions })} />
       </div>
 
-      <p className="f-hint" style={{ margin: '0 0 8px' }}>
-        Goal Check steps on the canvas use this same goal — you'll see exactly where customers are evaluated, and can branch the journey based on whether they've achieved it.
-      </p>
-
-      {hasGoal && (
-        <div className="add-link quiet" onClick={() => onGoalChange(null)}>
-          Clear Goal
-        </div>
-      )}
+      <p className="f-hint" style={{ margin: '0 0 8px' }}>Goal Check steps on the canvas use this same goal to branch the journey.</p>
 
       <div className="dcb-step-footer">
         <button className="btn secondary" onClick={onSaveDraft}>
