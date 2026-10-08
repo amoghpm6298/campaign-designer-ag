@@ -59,13 +59,13 @@ describe('generateDripAnalytics', () => {
     expect(totals.stillActive).toBe(0);
   });
 
-  it('Send/Channel Failover nodes get engagement stats, other types do not', () => {
+  it('Send nodes get engagement stats, other types do not', () => {
     const campaign = LIVE_CAMPAIGNS.find((c) => c.id === 'DRIP-005')!;
     const { metrics } = generateDripAnalytics(campaign);
     const graph = campaign.root!;
     Object.values(graph.nodes).forEach((n) => {
       const eng = metrics.engagementByNodeId[n.id];
-      if (n.type === 'SEND' || n.type === 'CHANNEL_FAILOVER') {
+      if (n.type === 'SEND') {
         expect(eng).toBeTruthy();
         expect(eng.deliveredPct).toBeGreaterThan(0);
         expect(eng.deliveredPct).toBeLessThanOrEqual(100);

@@ -19,18 +19,26 @@ export interface DripEdgeData {
 }
 
 export function DripEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data }: EdgeProps & { data?: DripEdgeData }) {
-  const [edgePath, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 8 });
+  // dagre's barycenter layout can leave a straight single-parent chain
+  // a couple px off-center from rank to rank (nudged by sibling
+  // branches elsewhere in the same graph), which getSmoothStepPath then
+  // renders as a visible little jog instead of a straight line even
+  // though the nodes read as vertically aligned. Snapping a near-zero
+  // dx to exactly zero forces the path straight — real branch offsets
+  // (tens of px) are untouched.
+  const alignedTargetX = Math.abs(targetX - sourceX) < 3 ? sourceX : targetX;
+  const [edgePath, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX: alignedTargetX, targetY, targetPosition, borderRadius: 8 });
   const branchLabel = data?.branchLabel || '';
   const hasLabel = !!branchLabel;
   const editable = !!data?.editable;
   const statLabel = data?.statLabel;
   const onInsert = data?.onInsert;
   if (!hasLabel && !editable && !statLabel) {
-    return <BaseEdge id={id} path={edgePath} style={{ stroke: 'var(--gray-300)', strokeWidth: 2 }} />;
+    return <BaseEdge id={id} path={edgePath} style={{ stroke: 'var(--gray-300)', strokeWidth: 1.5 }} />;
   }
   return (
     <>
-      <BaseEdge id={id} path={edgePath} style={{ stroke: 'var(--gray-300)', strokeWidth: 2 }} />
+      <BaseEdge id={id} path={edgePath} style={{ stroke: 'var(--gray-300)', strokeWidth: 1.5 }} />
       <EdgeLabelRenderer>
         <div
           className={`dc-branch-label${!hasLabel && editable ? ' dc-branch-label-bare' : ''}`}

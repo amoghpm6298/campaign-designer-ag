@@ -25,19 +25,98 @@ export function EntrySegmentForm({ p, onChange }: FormProps) {
         <input className="f-input" type="text" value={p.cohortDesc} onChange={(e) => onChange({ cohortDesc: e.target.value })} />
       </div>
       <div className="f-group">
-        <label className="f-label">Entity</label>
-        <select className="f-input" value={p.entity} onChange={(e) => onChange({ entity: e.target.value, conditions: [] })}>
-          {ENTITY_OPTIONS.map((e) => (
-            <option key={e}>{e}</option>
-          ))}
+        <label className="f-label">Runs</label>
+        <select className="f-input" value={p.repeat ? 'Repeat' : 'Once'} onChange={(e) => onChange({ repeat: e.target.value === 'Repeat' })}>
+          <option value="Once">Once — a static snapshot</option>
+          <option value="Repeat">On a repeating schedule</option>
         </select>
       </div>
-      <div className="f-group">
-        <label className="f-label">
-          Conditions <span style={{ fontWeight: 400, color: 'var(--gray-500)' }}>(optional — a static snapshot if none set)</span>
-        </label>
-        <ConditionRows conditions={p.conditions} entity={p.entity} onChange={(conditions) => onChange({ conditions })} />
-      </div>
+      {p.repeat && (
+        <>
+          <div className="f-group">
+            <label className="f-label">Repeats</label>
+            <select className="f-input" value={p.recurrenceType} onChange={(e) => onChange({ recurrenceType: e.target.value })}>
+              <option>Monthly</option>
+              <option>Weekly</option>
+              <option>Daily</option>
+            </select>
+          </div>
+          {p.recurrenceType === 'Monthly' && (
+            <div className="f-group">
+              <label className="f-label">On</label>
+              <select className="f-input" value={p.dayOfMonth} onChange={(e) => onChange({ dayOfMonth: e.target.value })}>
+                {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                  <option key={d} value={d}>
+                    {dcOrdinal(d)}
+                  </option>
+                ))}
+                <option value="last">Last day</option>
+              </select>
+            </div>
+          )}
+          {p.recurrenceType === 'Weekly' && (
+            <div className="f-row2">
+              <div className="f-group">
+                <label className="f-label">Every</label>
+                <input className="f-input" type="number" min={1} value={p.weekInterval} onChange={(e) => onChange({ weekInterval: e.target.value })} />
+              </div>
+              <div className="f-group">
+                <label className="f-label">On</label>
+                <select className="f-input" value={p.dayOfWeek} onChange={(e) => onChange({ dayOfWeek: e.target.value })}>
+                  {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d) => (
+                    <option key={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+          {p.recurrenceType === 'Daily' && (
+            <div className="f-group">
+              <label className="f-label">Every N days</label>
+              <input className="f-input" type="number" min={1} value={p.dayInterval} onChange={(e) => onChange({ dayInterval: e.target.value })} />
+            </div>
+          )}
+          <div className="f-group">
+            <label className="f-label">At</label>
+            <input className="f-input" type="time" value={p.timeOfDay} onChange={(e) => onChange({ timeOfDay: e.target.value })} />
+          </div>
+          <p className="f-hint">{dcRecurrenceLabel(p)}</p>
+        </>
+      )}
+      {p.conditions.length === 0 ? (
+        // Entity only has a visible effect once there's a real condition
+        // to scope it to — asking for it any earlier is a dead-end choice
+        // (Customer vs. Account vs. Card changes nothing about an
+        // unfiltered "everyone" segment). So it stays hidden until a
+        // condition actually exists, rather than being a mandatory
+        // up-front field that does nothing most of the time.
+        <div className="f-group">
+          <p className="f-hint" style={{ margin: '0 0 6px' }}>
+            Targets everyone{p.repeat ? ' matching this schedule' : ''} — no conditions set.
+          </p>
+          <div className="add-link" onClick={() => onChange({ conditions: [{ attribute: '', operator: '', value: '' }] })}>
+            + Add condition to narrow
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="f-group">
+            <label className="f-label">Entity</label>
+            <select className="f-input" value={p.entity} onChange={(e) => onChange({ entity: e.target.value, conditions: [{ attribute: '', operator: '', value: '' }] })}>
+              {ENTITY_OPTIONS.map((e) => (
+                <option key={e}>{e}</option>
+              ))}
+            </select>
+          </div>
+          <div className="f-group">
+            <label className="f-label">Conditions</label>
+            <ConditionRows conditions={p.conditions} entity={p.entity} onChange={(conditions) => onChange({ conditions })} />
+          </div>
+        </>
+      )}
+      {p.repeat && (
+        <p className="f-hint">Who this pulls in each time the schedule fires — re-evaluated fresh every run, not a one-time snapshot.</p>
+      )}
     </>
   );
 }
@@ -72,84 +151,37 @@ export function EntryEventForm({ p, onChange }: FormProps) {
   );
 }
 
-export function EntryScheduledForm({ p, onChange }: FormProps) {
-  return (
-    <>
-      <div className="f-group">
-        <label className="f-label">Repeats</label>
-        <select className="f-input" value={p.recurrenceType} onChange={(e) => onChange({ recurrenceType: e.target.value })}>
-          <option>Monthly</option>
-          <option>Weekly</option>
-          <option>Daily</option>
-        </select>
-      </div>
-      {p.recurrenceType === 'Monthly' && (
-        <div className="f-group">
-          <label className="f-label">On</label>
-          <select className="f-input" value={p.dayOfMonth} onChange={(e) => onChange({ dayOfMonth: e.target.value })}>
-            {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
-              <option key={d} value={d}>
-                {dcOrdinal(d)}
-              </option>
-            ))}
-            <option value="last">Last day</option>
-          </select>
-        </div>
-      )}
-      {p.recurrenceType === 'Weekly' && (
-        <div className="f-row2">
-          <div className="f-group">
-            <label className="f-label">Every</label>
-            <input className="f-input" type="number" min={1} value={p.weekInterval} onChange={(e) => onChange({ weekInterval: e.target.value })} />
-          </div>
-          <div className="f-group">
-            <label className="f-label">On</label>
-            <select className="f-input" value={p.dayOfWeek} onChange={(e) => onChange({ dayOfWeek: e.target.value })}>
-              {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d) => (
-                <option key={d}>{d}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      )}
-      {p.recurrenceType === 'Daily' && (
-        <div className="f-group">
-          <label className="f-label">Every N days</label>
-          <input className="f-input" type="number" min={1} value={p.dayInterval} onChange={(e) => onChange({ dayInterval: e.target.value })} />
-        </div>
-      )}
-      <div className="f-group">
-        <label className="f-label">At</label>
-        <input className="f-input" type="time" value={p.timeOfDay} onChange={(e) => onChange({ timeOfDay: e.target.value })} />
-      </div>
-      <p className="f-hint">{dcRecurrenceLabel(p)}</p>
-      <div className="f-group">
-        <label className="f-label">Entity</label>
-        <select className="f-input" value={p.entity} onChange={(e) => onChange({ entity: e.target.value, conditions: [] })}>
-          {ENTITY_OPTIONS.map((e) => (
-            <option key={e}>{e}</option>
-          ))}
-        </select>
-      </div>
-      <div className="f-group">
-        <label className="f-label">
-          Conditions <span style={{ fontWeight: 400, color: 'var(--gray-500)' }}>(optional — everyone matching the entity if none set)</span>
-        </label>
-        <ConditionRows conditions={p.conditions} entity={p.entity} onChange={(conditions) => onChange({ conditions })} />
-      </div>
-      <p className="f-hint">Who this pulls in each time the schedule fires — re-evaluated fresh every run, not a one-time snapshot like Entry · Segment.</p>
-    </>
-  );
-}
-
-function AccountTemplateFields({ channel, p, onChange }: { channel: Channel; p: any; onChange: (patch: any) => void }) {
+// accountKey/templateKey let this same pair of fields target either the
+// primary account/templateId or (for a Send's optional fallback) a
+// separate fallbackAccount/fallbackTemplateId — a template is always
+// locked to one channel, so the fallback channel needs its own pair
+// rather than sharing the primary's.
+function AccountTemplateFields({
+  channel,
+  p,
+  onChange,
+  accountKey = 'account',
+  templateKey = 'templateId',
+  accountLabel = 'Account',
+  templateLabel = 'Template',
+}: {
+  channel: Channel;
+  p: any;
+  onChange: (patch: any) => void;
+  accountKey?: string;
+  templateKey?: string;
+  accountLabel?: string;
+  templateLabel?: string;
+}) {
+  const account = p[accountKey];
+  const templateId = p[templateKey];
   const accounts = [...new Set(COMMS_TEMPLATES.filter((x) => x.channelType === channel).map((x) => x.accountName))];
-  const templates = COMMS_TEMPLATES.filter((x) => x.channelType === channel && (!p.account || x.accountName === p.account));
+  const templates = COMMS_TEMPLATES.filter((x) => x.channelType === channel && (!account || x.accountName === account));
   return (
     <>
       <div className="f-group">
-        <label className="f-label">Account</label>
-        <select className="f-input" value={p.account} onChange={(e) => onChange({ account: e.target.value, templateId: '' })}>
+        <label className="f-label">{accountLabel}</label>
+        <select className="f-input" value={account} onChange={(e) => onChange({ [accountKey]: e.target.value, [templateKey]: '' })}>
           <option value="">Select account</option>
           {accounts.map((a) => (
             <option key={a}>{a}</option>
@@ -157,8 +189,8 @@ function AccountTemplateFields({ channel, p, onChange }: { channel: Channel; p: 
         </select>
       </div>
       <div className="f-group">
-        <label className="f-label">Template</label>
-        <select className="f-input" value={p.templateId} onChange={(e) => onChange({ templateId: e.target.value })}>
+        <label className="f-label">{templateLabel}</label>
+        <select className="f-input" value={templateId} onChange={(e) => onChange({ [templateKey]: e.target.value })}>
           <option value="">Select template</option>
           {templates.map((x) => (
             <option key={x.id} value={x.id}>
@@ -168,7 +200,7 @@ function AccountTemplateFields({ channel, p, onChange }: { channel: Channel; p: 
         </select>
         {!templates.length && (
           <div className="f-hint">
-            No {CHANNEL_CONFIG_LABELS[channel]} templates exist yet{p.account ? ' for this account' : ''}.
+            No {CHANNEL_CONFIG_LABELS[channel]} templates exist yet{account ? ' for this account' : ''}.
           </div>
         )}
       </div>
@@ -186,7 +218,18 @@ export function SendForm({ p, onChange }: FormProps) {
       <div className="f-row2">
         <div className="f-group">
           <label className="f-label">Channel</label>
-          <select className="f-input" value={p.channel} onChange={(e) => onChange({ channel: e.target.value, account: '', templateId: '' })}>
+          <select
+            className="f-input"
+            value={p.channel}
+            onChange={(e) =>
+              onChange({
+                channel: e.target.value,
+                account: '',
+                templateId: '',
+                ...(p.fallbackChannel === e.target.value ? { fallbackChannel: '', fallbackAccount: '', fallbackTemplateId: '' } : {}),
+              })
+            }
+          >
             {Object.keys(CHANNEL_CONFIG_LABELS).map((c) => (
               <option key={c} value={c}>
                 {CHANNEL_CONFIG_LABELS[c as Channel]}
@@ -229,44 +272,39 @@ export function SendForm({ p, onChange }: FormProps) {
         </div>
       )}
       <AccountTemplateFields channel={p.channel} p={p} onChange={onChange} />
-      <p className="f-hint">A goal-check step is auto-inserted right after this Send — same "define once, check everywhere" pattern used across this campaign.</p>
-    </>
-  );
-}
-
-export function ChannelFailoverForm({ p, onChange }: FormProps) {
-  return (
-    <>
-      <div className="f-row2">
-        <div className="f-group">
-          <label className="f-label">Primary Channel</label>
-          <select
-            className="f-input"
-            value={p.primaryChannel}
-            onChange={(e) => onChange({ primaryChannel: e.target.value, ...(p.fallbackChannel === e.target.value ? { fallbackChannel: '' } : {}) })}
-          >
-            {Object.keys(CHANNEL_CONFIG_LABELS).map((c) => (
+      <div className="f-group">
+        <label className="f-label">Fallback Channel</label>
+        <select
+          className="f-input"
+          value={p.fallbackChannel}
+          onChange={(e) => onChange({ fallbackChannel: e.target.value, fallbackAccount: '', fallbackTemplateId: '' })}
+        >
+          <option value="">No fallback</option>
+          {Object.keys(CHANNEL_CONFIG_LABELS)
+            .filter((c) => c !== p.channel)
+            .map((c) => (
               <option key={c} value={c}>
                 {CHANNEL_CONFIG_LABELS[c as Channel]}
               </option>
             ))}
-          </select>
-        </div>
-        <div className="f-group">
-          <label className="f-label">Fallback Channel</label>
-          <select className="f-input" value={p.fallbackChannel} onChange={(e) => onChange({ fallbackChannel: e.target.value, account: '', templateId: '' })}>
-            {Object.keys(CHANNEL_CONFIG_LABELS)
-              .filter((c) => c !== p.primaryChannel)
-              .map((c) => (
-                <option key={c} value={c}>
-                  {CHANNEL_CONFIG_LABELS[c as Channel]}
-                </option>
-              ))}
-          </select>
-        </div>
+        </select>
       </div>
-      <AccountTemplateFields channel={p.fallbackChannel} p={p} onChange={onChange} />
-      <p className="f-hint">If the primary channel's delivery fails, this sends the above once on the fallback channel before continuing the sequence. A goal-check step is auto-inserted right after, same as after any Send.</p>
+      {p.fallbackChannel && (
+        <>
+          <AccountTemplateFields
+            channel={p.fallbackChannel}
+            p={p}
+            onChange={onChange}
+            accountKey="fallbackAccount"
+            templateKey="fallbackTemplateId"
+            accountLabel="Fallback Account"
+            templateLabel="Fallback Template"
+          />
+          <p className="f-hint">
+            If delivery fails on {CHANNEL_CONFIG_LABELS[p.channel as Channel]}, this sends once via {CHANNEL_CONFIG_LABELS[p.fallbackChannel as Channel]} before continuing the sequence.
+          </p>
+        </>
+      )}
     </>
   );
 }
@@ -287,7 +325,6 @@ export function PauseForm({ p, onChange }: FormProps) {
           </select>
         </div>
       </div>
-      <p className="f-hint">A goal-check step is auto-inserted right after the wait ends — if the customer already converted while this was waiting, the campaign catches that before doing anything else.</p>
     </>
   );
 }
@@ -335,75 +372,67 @@ export function WaitUntilForm({ p, onChange }: FormProps) {
   );
 }
 
-export function SplitForm({ p, onChange, goal, entryEventCategory, previousStepChannel }: FormProps & { goal: DripGoal | null; entryEventCategory: string | null; previousStepChannel: Channel | null }) {
-  const goalQ = (dcGoalLabel(goal) || 'Goal') + '?';
+export function SplitForm({ p, onChange, entryEventCategory, previousStepChannel }: FormProps & { goal: DripGoal | null; entryEventCategory: string | null; previousStepChannel: Channel | null }) {
   const sourceEntity = entryEventCategory ? DC_EVENT_ENTITY[entryEventCategory] || null : null;
 
-  let sourceBody: React.ReactNode = null;
-  if (p.basis === 'Custom condition') {
-    if (p.customSource === 'Previous step outcome') {
-      const outcomeOptions = previousStepChannel ? deliveryStatusOptionsFor(previousStepChannel) : deliveryStatusOptionsAll();
-      sourceBody = (
-        <div className="f-group">
-          <label className="f-label">Outcome{previousStepChannel ? ` (${CHANNEL_CONFIG_LABELS[previousStepChannel]})` : ''}</label>
-          <select className="f-input" value={p.outcome} onChange={(e) => onChange({ outcome: e.target.value })}>
-            {outcomeOptions.map((o) => (
-              <option key={o}>{o}</option>
-            ))}
-          </select>
-        </div>
-      );
-    } else if (p.customSource === 'Account attribute') {
-      sourceBody = (
-        <div className="f-group">
-          <label className="f-label">Condition</label>
-          <ConditionRows conditions={p.customConditions} entity="Account" onChange={(customConditions) => onChange({ customConditions })} />
-        </div>
-      );
-    } else if (sourceEntity) {
-      sourceBody = (
-        <div className="f-group">
-          <label className="f-label">Condition</label>
-          <ConditionsSection conditions={p.customConditions} entity={sourceEntity} onChange={(customConditions) => onChange({ customConditions })} />
-        </div>
-      );
-    } else {
-      sourceBody = (
-        <p className="f-hint" style={{ margin: 0 }}>
-          {entryEventCategory ? `No typed attributes defined yet for ${entryEventCategory}.` : "Entry isn't an Event Trigger, so there's no entry-event attribute to filter on."}
-        </p>
-      );
-    }
+  let sourceBody: React.ReactNode;
+  if (p.customSource === 'Previous step outcome') {
+    const outcomeOptions = previousStepChannel ? deliveryStatusOptionsFor(previousStepChannel) : deliveryStatusOptionsAll();
+    sourceBody = (
+      <div className="f-group">
+        <label className="f-label">Outcome{previousStepChannel ? ` (${CHANNEL_CONFIG_LABELS[previousStepChannel]})` : ''} — matches → Yes</label>
+        <select className="f-input" value={p.outcome} onChange={(e) => onChange({ outcome: e.target.value })}>
+          <option value="">Select outcome</option>
+          {outcomeOptions.map((o) => (
+            <option key={o}>{o}</option>
+          ))}
+        </select>
+        {!previousStepChannel && (
+          <p className="f-hint" style={{ margin: '6px 0 0' }}>
+            No Send found earlier in this chain, so every channel's statuses are listed together — pick the account/channel this branch is really about.
+          </p>
+        )}
+      </div>
+    );
+  } else if (p.customSource === 'Account attribute') {
+    sourceBody = (
+      <div className="f-group">
+        <label className="f-label">Conditions — ALL must match → Yes, otherwise → No</label>
+        <ConditionRows conditions={p.customConditions} entity="Account" onChange={(customConditions) => onChange({ customConditions })} />
+      </div>
+    );
+  } else if (sourceEntity) {
+    sourceBody = (
+      <div className="f-group">
+        <ConditionsSection
+          conditions={p.customConditions}
+          entity={sourceEntity}
+          onChange={(customConditions) => onChange({ customConditions })}
+          label="Conditions — ALL must match → Yes, otherwise → No"
+        />
+      </div>
+    );
+  } else {
+    sourceBody = (
+      <p className="f-hint" style={{ margin: 0 }}>
+        {entryEventCategory
+          ? `No typed attributes defined yet for ${entryEventCategory} — try "Account attribute" instead, or pick an entry category that has one (Transaction Events, EMI Events).`
+          : "Entry isn't an Event Trigger, so there's no entry-event attribute to filter on."}
+      </p>
+    );
   }
 
   return (
     <>
       <div className="f-group">
-        <label className="f-label">Basis</label>
-        <select className="f-input" value={p.basis} onChange={(e) => onChange({ basis: e.target.value })}>
-          <option>Goal reached</option>
-          <option>Custom condition</option>
+        <label className="f-label">Source</label>
+        <select className="f-input" value={p.customSource} onChange={(e) => onChange({ customSource: e.target.value, outcome: '', customConditions: [] })}>
+          <option>Previous step outcome</option>
+          <option>Account attribute</option>
+          <option>Entry event attribute</option>
         </select>
       </div>
-      {p.basis === 'Goal reached' ? (
-        <div className="f-group">
-          <label className="f-label">Condition</label>
-          <input className="f-input" type="text" value={goalQ} disabled style={{ background: 'var(--gray-100)', color: 'var(--gray-500)' }} />
-        </div>
-      ) : (
-        <>
-          <div className="f-group">
-            <label className="f-label">Source</label>
-            <select className="f-input" value={p.customSource} onChange={(e) => onChange({ customSource: e.target.value, outcome: '', customConditions: [] })}>
-              <option>Previous step outcome</option>
-              <option>Account attribute</option>
-              <option>Entry event attribute</option>
-            </select>
-          </div>
-          {sourceBody}
-        </>
-      )}
-      <p className="f-hint">Branches are checked top to bottom — the customer follows the first one that matches. Anything that matches none of them falls into the catch-all at the end.</p>
+      {sourceBody}
     </>
   );
 }
@@ -437,7 +466,12 @@ export function DecisionSplitForm({ p, onChange, entryEventCategory, previousSte
     const outcomeOptions = previousStepChannel ? deliveryStatusOptionsFor(previousStepChannel) : deliveryStatusOptionsAll();
     sourceBody = (
       <div className="f-group">
-        <label className="f-label">Branches</label>
+        <label className="f-label">Branches{previousStepChannel ? ` (${CHANNEL_CONFIG_LABELS[previousStepChannel]})` : ''}</label>
+        {!previousStepChannel && (
+          <p className="f-hint" style={{ margin: '0 0 8px' }}>
+            No Send found earlier in this chain, so every channel's statuses are listed together — pick the account/channel this split is really about.
+          </p>
+        )}
         {p.branches.map((b: any, i: number) => (
           <div key={b.id || i}>
             <BranchInsertRow onInsert={() => insertBranch(i - 1)} />
@@ -466,7 +500,9 @@ export function DecisionSplitForm({ p, onChange, entryEventCategory, previousSte
   } else if (!sourceEntity) {
     sourceBody = (
       <p className="f-hint" style={{ margin: 0 }}>
-        Entry isn't an Event Trigger, so there's no entry-event attribute to branch on.
+        {entryEventCategory
+          ? `No typed attributes defined yet for ${entryEventCategory} — try "Account attribute" instead, or pick an entry category that has one (Transaction Events, EMI Events).`
+          : "Entry isn't an Event Trigger, so there's no entry-event attribute to branch on."}
       </p>
     );
   } else {
@@ -615,6 +651,33 @@ export function RandomSplitForm({ p, onChange }: FormProps) {
           Total: {total}%{total !== 100 ? ' — must add up to 100%' : ''}
         </p>
       </div>
+    </>
+  );
+}
+
+// Goal Check's "edit" view — read-only by design (Phase 1 §5/§12): it
+// carries no configuration of its own, so there's nothing a form could
+// let someone change. Selecting it shows what it actually does and links
+// back to the one place the goal itself IS editable.
+export function GoalCheckInfo({ goal, onGoToGoal }: { goal: DripGoal | null; onGoToGoal?: () => void }) {
+  const goalLabel = dcGoalLabel(goal);
+  return (
+    <>
+      <div className="f-group">
+        <label className="f-label">Goal Check</label>
+        <p className="f-hint" style={{ margin: 0 }}>
+          Asks exactly one question, automatically, every time: has the campaign goal been achieved?
+        </p>
+      </div>
+      <div className="f-group">
+        <label className="f-label">Campaign goal</label>
+        <input className="f-input" type="text" value={goalLabel || 'No goal set'} disabled style={{ background: 'var(--gray-100)', color: 'var(--gray-500)' }} />
+      </div>
+      {onGoToGoal && (
+        <div className="add-link" onClick={onGoToGoal}>
+          → Edit the campaign goal
+        </div>
+      )}
     </>
   );
 }

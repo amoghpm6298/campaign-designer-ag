@@ -1,13 +1,13 @@
-// Step 3 of 3 — the canvas itself, full-width. The header (back link,
-// stepper, Undo/Redo/Save/Submit) now lives entirely in the shared
-// WizardStepper row in DripBuilder.tsx — this component is just the
-// on-demand validation banner plus the canvas, nothing else.
+// Step 3 of 4 — the canvas, beside the persistent left rail. Its own
+// top bar (Undo/Redo + Continue to Review) lives in DripBuilder.tsx;
+// Save as Draft/Submit for Approval and the on-demand validation banner
+// both moved to the new Review step, so this component is just the
+// canvas, nothing else.
 import { DripCanvas } from '../canvas/DripCanvas';
 import type { DripGraph } from '../data/graphTypes';
 
 export function BuilderStep({
   graph,
-  validationMessage,
   onAddEntry,
   onEditNode,
   onRemoveRoot,
@@ -16,9 +16,9 @@ export function BuilderStep({
   onAddAtEdge,
   onAddAtGrowLeaf,
   onAddAtMidEdge,
+  onRemoveGoalCheck,
 }: {
   graph: DripGraph;
-  validationMessage: string | null;
   onAddEntry: () => void;
   onEditNode: (nodeId: string) => void;
   onRemoveRoot: () => void;
@@ -27,11 +27,10 @@ export function BuilderStep({
   onAddAtEdge: (edgeId: string) => void;
   onAddAtGrowLeaf: (nodeId: string) => void;
   onAddAtMidEdge: (edgeId: string) => void;
+  onRemoveGoalCheck: (nodeId: string) => void;
 }) {
   return (
     <>
-      {validationMessage && <div className="dcb-validation-banner">⚠ {validationMessage}</div>}
-
       <div className="dcb-canvas">
         <DripCanvas
           graph={graph}
@@ -44,6 +43,7 @@ export function BuilderStep({
           onAddAtEdge={onAddAtEdge}
           onAddAtGrowLeaf={onAddAtGrowLeaf}
           onAddAtMidEdge={onAddAtMidEdge}
+          onRemoveGoalCheck={onRemoveGoalCheck}
         />
       </div>
     </>

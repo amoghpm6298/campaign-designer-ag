@@ -66,20 +66,19 @@ export function computeMakerCheckerFlag(issuer: string, programs: string[]): boo
 }
 
 export interface EventCategoryMeta {
-  fields: string[];
   events: string[];
   isNew?: boolean;
 }
 export const EVENT_CATEGORIES: Record<string, EventCategoryMeta> = {
-  'Journey Events': { fields: ['Journey', 'Batch'], events: ['Journey Progress', 'Pageload', 'Button Click'] },
-  'Offer Events': { fields: ['Offer Type', 'Offer Name'], events: ['Outcome Issuance'] },
+  'Journey Events': { events: ['Journey Progress', 'Pageload', 'Button Click'] },
+  'Offer Events': { events: ['Outcome Issuance'] },
   // Proposed, not real in Quibbler today — see the Transaction Event-Based
   // Nudges PRD. Marked isNew so the wizard visibly flags these as
   // not-yet-built rather than blending them in as audited, current
   // behavior.
-  'Transaction Events': { fields: [], events: ['Transaction'], isNew: true },
-  'EMI Events': { fields: [], events: ['EMI_STATUS_CHANGED'], isNew: true },
-  'Card Events': { fields: [], events: ['Card Issued', 'Card Activated', 'Card Loaded', 'Card Inactive'], isNew: true },
+  'Transaction Events': { events: ['Transaction'], isNew: true },
+  'EMI Events': { events: ['EMI_STATUS_CHANGED'], isNew: true },
+  'Card Events': { events: ['Card Issued', 'Card Activated', 'Card Loaded', 'Card Inactive'], isNew: true },
 };
 
 // Which flow a customer completed a triggering action through.

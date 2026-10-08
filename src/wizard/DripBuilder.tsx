@@ -11,24 +11,43 @@ import type { DripCampaign, DripGoal, DripGraph } from '../data/graphTypes';
 import type { DcNodeType } from '../data/nodeMeta';
 import { DC_ENTRY_TYPES } from '../data/typeSub';
 import type { Channel } from '../data/sharedConstants';
-import { dcConfirmAddNode, dcConfirmEditNode, dcRemoveEdge, dcRemoveRoot, dcConnectExisting, type DcAddingAt } from '../reducer/campaignReducer';
-import { dcValidMergeTargets, dcGraphHasOpenBranches } from '../reducer/graphOps';
+import { dcConfirmAddNode, dcConfirmEditNode, dcRemoveEdge, dcRemoveGoalCheck, dcRemoveRoot, type DcAddingAt } from '../reducer/campaignReducer';
+import { dcGraphHasOpenBranches } from '../reducer/graphOps';
 import { dcDefaultConfig } from '../reducer/defaultConfig';
 import { BasicDetailsStep } from './BasicDetailsStep';
 import { GoalDefinitionStep } from './GoalDefinitionStep';
 import { BuilderStep } from './BuilderStep';
+import { ReviewStep } from './ReviewStep';
 import { WizardStepper } from './WizardStepper';
 import { AddEditDrawer } from './AddEditDrawer';
+import { Icon } from '../components/icons';
 import './dripBuilder.css';
 
 const EMPTY_GRAPH: DripGraph = { nodes: {}, edges: [], rootId: null };
 
+// Full user-facing taxonomy, every non-Entry context (Phase 1 §10A) —
+// GOAL_CHECK is never a member: it's 100% system-generated, never a tile
+// in any Add Step context. Always passed in full; which tiles are
+// actually pickable right now is controlled by `disabledTypes` below, not
+// by shortening this list (Phase 1 §10: show disabled-with-a-reason,
+// never silently omit).
+const ALL_STEP_TYPES: DcNodeType[] = ['SEND', 'PAUSE', 'WAIT_UNTIL', 'SPLIT', 'DECISION_SPLIT', 'RANDOM_SPLIT', 'GOAL_EXIT', 'EXIT'];
+
 // Mid-chain insert only reattaches cleanly when the new node (plus its
 // own auto-children) leaves exactly one dangling continuation edge — a
-// branching type (Random/Decision Split) leaves several open arms with
-// no single correct one to reattach to, so those aren't offered here.
-// The reducer itself is defensive about this too (see campaignReducer.ts).
-const MID_EDGE_TYPES: DcNodeType[] = ['SEND', 'CHANNEL_FAILOVER', 'PAUSE', 'WAIT_UNTIL', 'SPLIT'];
+// branching type (Branch/Experiment) leaves several open arms, and a
+// terminal type (Exit/Goal Reached) leaves none, with no single correct
+// edge to reattach to. The reducer itself is defensive about this too
+// (see campaignReducer.ts) — this list is what the UI disables/explains.
+const MID_EDGE_DISABLED_REASON = "Branching and terminal steps can't be inserted mid-chain — add this after the step above instead.";
+const MID_EDGE_RESTRICTED_TYPES: DcNodeType[] = ['DECISION_SPLIT', 'RANDOM_SPLIT', 'GOAL_EXIT', 'EXIT'];
+
+// Goal Reached is only a legitimate manual pick on an already-forked
+// branch arm (Phase 1 §5) — anywhere else it would silently mark
+// everyone who reaches that point as having achieved the goal,
+// unconditionally, with no way back (the exact dead-end pattern this
+// restriction exists to prevent).
+const GOAL_REACHED_LINEAR_REASON = 'This would mark everyone who reaches this point as having achieved the goal, unconditionally. Add a Condition or Branch first if you want to check for it.';
 
 export interface DripBuilderPayload {
   name: string;
@@ -43,7 +62,7 @@ export interface DripBuilderPayload {
   root: DripGraph;
 }
 
-type BuilderStepKind = 'basicDetails' | 'goalDefinition' | 'builder';
+type BuilderStepKind = 'basicDetails' | 'goalDefinition' | 'builder' | 'review';
 
 export function DripBuilder({
   initial,
@@ -88,8 +107,6 @@ export function DripBuilder({
   const [addingType, setAddingType] = useState<DcNodeType | null>(null);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [pendingConfig, setPendingConfig] = useState<any>({});
-  const [connectMode, setConnectMode] = useState(false);
-  const [connectTargetId, setConnectTargetId] = useState<string | null>(null);
   const [showValidation, setShowValidation] = useState(false);
 
   const drawerOpen = addingAt !== null || editingNodeId !== null;
@@ -100,6 +117,29 @@ export function DripBuilder({
     if (addingAt.kind === 'growLeaf') return addingAt.nodeId;
     return null;
   }, [addingAt, graph]);
+
+  // Which Add Step tiles are offered but disabled right now, and why —
+  // every tile always renders (Phase 1 §10), this only controls which
+  // ones are clickable. Two independent restrictions can apply at once
+  // (mid-chain insert into a linear edge), so they're merged rather than
+  // treated as mutually exclusive.
+  const disabledTypes = useMemo((): Partial<Record<DcNodeType, string>> => {
+    const d: Partial<Record<DcNodeType, string>> = {};
+    if (addingAt?.kind === 'midEdge') {
+      MID_EDGE_RESTRICTED_TYPES.forEach((t) => {
+        d[t] = MID_EDGE_DISABLED_REASON;
+      });
+    }
+    // Goal Reached is only offered on an already-forked branch arm — a
+    // real edge coming off a node with 2+ outgoing edges (Condition/
+    // Branch/Experiment/Goal Check). `growLeaf` and a source with only
+    // one outgoing edge are both the plain, linear "whatever comes next"
+    // case this restriction exists to catch.
+    const sourceOutCount = addingAtSourceId ? graph.edges.filter((e) => e.from === addingAtSourceId).length : 0;
+    const isBranchArm = addingAt?.kind === 'edge' && sourceOutCount > 1;
+    if (!isBranchArm && !d['GOAL_EXIT']) d['GOAL_EXIT'] = GOAL_REACHED_LINEAR_REASON;
+    return d;
+  }, [addingAt, addingAtSourceId, graph]);
 
   // The channel of the most recent Send before this point — walks
   // backward via incoming edges, transparently skipping the auto
@@ -120,8 +160,6 @@ export function DripBuilder({
     setAddingAt(at);
     setAddingType(null);
     setPendingConfig({});
-    setConnectMode(false);
-    setConnectTargetId(null);
     setEditingNodeId(null);
   }
 
@@ -133,7 +171,6 @@ export function DripBuilder({
   function cancelAdd() {
     setAddingAt(null);
     setAddingType(null);
-    setConnectMode(false);
   }
 
   function confirmAddNode() {
@@ -149,7 +186,17 @@ export function DripBuilder({
     if (!node) return;
     setEditingNodeId(nodeId);
     setAddingType(node.type);
-    setPendingConfig(node._config ? structuredClone(node._config) : {});
+    // Auto-generated nodes (a Send's goal-check Split, its GOAL_EXIT, a
+    // Wait Until's outcome-check Split) are created with `_config: null`
+    // by design (dcConfirmAddNode) — their label/meta is hardcoded
+    // directly, not form-driven. Falling back to `{}` here left every
+    // field genuinely undefined, which NodeForms.tsx renders as broken
+    // rather than blank (e.g. a SPLIT's `p.basis === 'Goal reached'`
+    // check silently fails and misroutes into the empty Custom-condition
+    // branch). dcDefaultConfig gives a type-correct, sensibly-prefilled
+    // starting point instead — exactly the shape a brand-new node of
+    // this type would start from.
+    setPendingConfig(node._config ? structuredClone(node._config) : dcDefaultConfig(node.type, goal));
   }
   function cancelEdit() {
     setEditingNodeId(null);
@@ -172,25 +219,11 @@ export function DripBuilder({
     removeEdge(edgeId);
     selectAddAt({ kind: 'edge', edgeId });
   }
-
-  function enterConnectMode() {
-    setConnectMode(true);
-    setAddingType(null);
-    setConnectTargetId(null);
-  }
-  function confirmConnectExisting() {
-    if (!addingAt || !connectTargetId) return;
-    pushGraph(dcConnectExisting(graph, addingAt, connectTargetId));
-    cancelAdd();
+  function removeGoalCheck(nodeId: string) {
+    pushGraph(dcRemoveGoalCheck(graph, nodeId));
   }
 
   const isEntry = graph.rootId === null;
-  const connectTargets = addingAtSourceId ? dcValidMergeTargets(graph, addingAtSourceId) : [];
-  // Connect-to-existing isn't wired up for a mid-chain insert — splicing
-  // in a reference to an existing node mid-sequence has its own set of
-  // questions (which of that node's existing paths applies here?) this
-  // rebuild doesn't need to answer yet.
-  const canConnect = !editingNodeId && !isEntry && addingAt?.kind !== 'midEdge' && !!addingAtSourceId && connectTargets.length > 0;
   const open = dcGraphHasOpenBranches(graph);
   const canSubmit = !!name && !!issuer && graph.rootId !== null && !open;
 
@@ -227,97 +260,107 @@ export function DripBuilder({
 
   return (
     <div className="dcb-shell">
-      <WizardStepper current={step} onNavigate={setStep} onBack={onBack} isStepComplete={isStepComplete}>
+      <WizardStepper current={step} onNavigate={setStep} onBack={onBack} isStepComplete={isStepComplete} isEditing={!!initial} />
+
+      <div className="dcb-main">
+        {step === 'basicDetails' && (
+          <div className="dcb-step-body">
+            <BasicDetailsStep
+              name={name}
+              onNameChange={setName}
+              description={description}
+              onDescriptionChange={setDescription}
+              issuer={issuer}
+              onIssuerChange={setIssuer}
+              programs={programs}
+              onProgramsChange={setPrograms}
+              controlPct={controlPct}
+              onControlPctChange={setControlPct}
+              startDate={startDate}
+              onStartDateChange={setStartDate}
+              endDate={endDate}
+              onEndDateChange={setEndDate}
+              onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
+              onContinue={() => setStep('goalDefinition')}
+            />
+          </div>
+        )}
+
+        {step === 'goalDefinition' && (
+          <div className="dcb-step-body">
+            <GoalDefinitionStep goal={goal} onGoalChange={setGoal} onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))} onContinue={() => setStep('builder')} />
+          </div>
+        )}
+
         {step === 'builder' && (
           <>
-            <button className="btn secondary small" disabled={!canUndo} onClick={() => setHistoryIndex((i) => Math.max(0, i - 1))} title="Undo">
-              ↶ Undo
-            </button>
-            <button className="btn secondary small" disabled={!canRedo} onClick={() => setHistoryIndex((i) => Math.min(history.length - 1, i + 1))} title="Redo">
-              ↷ Redo
-            </button>
-            <button className="btn secondary" onClick={() => onSaveDraft(buildPayload('DRAFT'))}>
-              Save as Draft
-            </button>
-            <button className="btn primary" onClick={handleSubmitClick}>
-              Submit for Approval
-            </button>
+            <div className="dcb-builder-topbar">
+              <button className="btn secondary small" disabled={!canUndo} onClick={() => setHistoryIndex((i) => Math.max(0, i - 1))} title="Undo">
+                <Icon name="undo" /> Undo
+              </button>
+              <button className="btn secondary small" disabled={!canRedo} onClick={() => setHistoryIndex((i) => Math.min(history.length - 1, i + 1))} title="Redo">
+                <Icon name="redo" /> Redo
+              </button>
+              <div className="dcb-builder-topbar-spacer" />
+              <button className="btn primary" onClick={() => setStep('review')}>
+                Continue to Review →
+              </button>
+            </div>
+            <BuilderStep
+              graph={graph}
+              onAddEntry={() => selectAddAt({ kind: 'root' })}
+              onEditNode={openEditNode}
+              onRemoveRoot={removeRoot}
+              onReplaceAuto={replaceAuto}
+              onRemoveEdge={removeEdge}
+              onAddAtEdge={(edgeId) => selectAddAt({ kind: 'edge', edgeId })}
+              onAddAtGrowLeaf={(nodeId) => selectAddAt({ kind: 'growLeaf', nodeId })}
+              onAddAtMidEdge={(edgeId) => selectAddAt({ kind: 'midEdge', edgeId })}
+              onRemoveGoalCheck={removeGoalCheck}
+            />
           </>
         )}
-      </WizardStepper>
 
-      {step === 'basicDetails' && (
-        <div className="dcb-step-body">
-          <BasicDetailsStep
-            isEditing={!!initial}
-            name={name}
-            onNameChange={setName}
-            description={description}
-            onDescriptionChange={setDescription}
-            issuer={issuer}
-            onIssuerChange={setIssuer}
-            programs={programs}
-            onProgramsChange={setPrograms}
-            controlPct={controlPct}
-            onControlPctChange={setControlPct}
-            startDate={startDate}
-            onStartDateChange={setStartDate}
-            endDate={endDate}
-            onEndDateChange={setEndDate}
-            onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
-            onContinue={() => setStep('goalDefinition')}
-            onSkipToBuilder={() => setStep('builder')}
-          />
-        </div>
-      )}
-
-      {step === 'goalDefinition' && (
-        <div className="dcb-step-body">
-          <GoalDefinitionStep goal={goal} onGoalChange={setGoal} onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))} onContinue={() => setStep('builder')} />
-        </div>
-      )}
-
-      {step === 'builder' && (
-        <BuilderStep
-          graph={graph}
-          validationMessage={validationMessage}
-          onAddEntry={() => selectAddAt({ kind: 'root' })}
-          onEditNode={openEditNode}
-          onRemoveRoot={removeRoot}
-          onReplaceAuto={replaceAuto}
-          onRemoveEdge={removeEdge}
-          onAddAtEdge={(edgeId) => selectAddAt({ kind: 'edge', edgeId })}
-          onAddAtGrowLeaf={(nodeId) => selectAddAt({ kind: 'growLeaf', nodeId })}
-          onAddAtMidEdge={(edgeId) => selectAddAt({ kind: 'midEdge', edgeId })}
-        />
-      )}
+        {step === 'review' && (
+          <div className="dcb-step-body">
+            <ReviewStep
+              name={name}
+              description={description}
+              issuer={issuer}
+              programs={programs}
+              controlPct={controlPct}
+              startDate={startDate}
+              endDate={endDate}
+              goal={goal}
+              graph={graph}
+              validationMessage={validationMessage}
+              onSaveDraft={() => onSaveDraft(buildPayload('DRAFT'))}
+              onSubmit={handleSubmitClick}
+            />
+          </div>
+        )}
+      </div>
 
       <AddEditDrawer
         open={drawerOpen}
         isEditing={editingNodeId !== null}
         isEntry={isEntry}
-        types={
-          isEntry
-            ? DC_ENTRY_TYPES
-            : addingAt?.kind === 'midEdge'
-              ? MID_EDGE_TYPES
-              : (['SEND', 'CHANNEL_FAILOVER', 'PAUSE', 'WAIT_UNTIL', 'SPLIT', 'DECISION_SPLIT', 'RANDOM_SPLIT', 'GOAL_EXIT', 'EXIT'] as DcNodeType[])
-        }
+        isMidEdge={addingAt?.kind === 'midEdge'}
+        types={isEntry ? DC_ENTRY_TYPES : ALL_STEP_TYPES}
+        disabledTypes={isEntry ? undefined : disabledTypes}
         selectedType={addingType}
         pendingConfig={pendingConfig}
         onConfigChange={(patch) => setPendingConfig((p: any) => ({ ...p, ...patch }))}
         onPickType={pickType}
-        canConnect={canConnect}
-        connectMode={connectMode}
-        connectTargets={connectTargets}
-        connectTargetId={connectTargetId}
-        onEnterConnectMode={enterConnectMode}
-        onSelectConnectTarget={setConnectTargetId}
         onCancel={editingNodeId !== null ? cancelEdit : cancelAdd}
-        onConfirm={connectMode ? confirmConnectExisting : editingNodeId !== null ? confirmEditNode : confirmAddNode}
+        onConfirm={editingNodeId !== null ? confirmEditNode : confirmAddNode}
         goal={goal}
         entryEventCategory={entryEventCategory}
         previousStepChannel={previousStepChannel}
+        onGoToGoal={() => {
+          cancelEdit();
+          setStep('goalDefinition');
+        }}
       />
     </div>
   );

@@ -22,35 +22,6 @@ export function dcRootNode(graph: DripGraph): DripNode | null {
   return graph.rootId ? graph.nodes[graph.rootId] ?? null : null;
 }
 
-// Can targetId be reached FROM startId by following outgoing edges
-// forward? Used to block a merge that would close a loop — connecting
-// fromNodeId's open branch to some target T is only safe when T can't
-// already reach back to fromNodeId.
-export function dcCanReach(graph: DripGraph, startId: string, targetId: string): boolean {
-  if (startId === targetId) return true;
-  const seen = new Set([startId]);
-  const stack = [startId];
-  while (stack.length) {
-    const cur = stack.pop()!;
-    for (const e of graph.edges) {
-      if (e.from === cur && e.to && !seen.has(e.to)) {
-        if (e.to === targetId) return true;
-        seen.add(e.to);
-        stack.push(e.to);
-      }
-    }
-  }
-  return false;
-}
-
-// Every existing node EXCEPT fromNodeId itself and anything that could
-// already reach back to it — connecting fromNodeId's open branch to one of
-// those would create a cycle, which a campaign sequence (strictly
-// forward-moving) can never legitimately have.
-export function dcValidMergeTargets(graph: DripGraph, fromNodeId: string): DripNode[] {
-  return Object.values(graph.nodes).filter((nd) => nd.id !== fromNodeId && !dcCanReach(graph, nd.id, fromNodeId));
-}
-
 // Only actually deletes a node once NOTHING still points to it — a step
 // reached from more than one branch (a real, deliberate merge) is never
 // lost just because one of its connections was removed elsewhere.
@@ -75,7 +46,7 @@ export function dcRemoveEdge(graph: DripGraph, edgeId: string): void {
   if (!edge) return;
   const parent = graph.nodes[edge.from];
   const targetId = edge.to;
-  if (parent && ['SPLIT', 'RANDOM_SPLIT', 'WAIT_UNTIL'].includes(parent.type)) {
+  if (parent && ['SPLIT', 'RANDOM_SPLIT', 'WAIT_UNTIL', 'GOAL_CHECK'].includes(parent.type)) {
     edge.to = null;
   } else {
     graph.edges = graph.edges.filter((e) => e.id !== edgeId);
@@ -87,6 +58,31 @@ export function dcRemoveRoot(graph: DripGraph): void {
   graph.nodes = {};
   graph.edges = [];
   graph.rootId = null;
+}
+
+// Collapses an auto-inserted goal-check Split entirely out of the chain.
+// Unlike dcRemoveEdge (which reverts ONE branch to an open slot but
+// leaves the Split node itself in place), this removes the Split node
+// altogether and reconnects its parent directly to whatever the "No"
+// branch already led to — so any real steps already built down that
+// path (the actual continuation of the campaign) survive untouched.
+// Only the Yes branch (the auto-inserted GOAL_EXIT, or anything a user
+// built under it) is discarded, via the same garbage-collection every
+// other removal uses.
+export function dcRemoveGoalCheck(graph: DripGraph, splitNodeId: string): void {
+  const split = graph.nodes[splitNodeId];
+  if (!split || split.type !== 'GOAL_CHECK') return;
+  const incoming = graph.edges.find((e) => e.to === splitNodeId);
+  if (!incoming) return;
+  const yesEdge = graph.edges.find((e) => e.from === splitNodeId && e.branchLabel === 'Yes');
+  const noEdge = graph.edges.find((e) => e.from === splitNodeId && e.branchLabel === 'No');
+  const yesTarget = yesEdge ? yesEdge.to : null;
+  const continuation = noEdge ? noEdge.to : null;
+
+  incoming.to = continuation;
+  graph.edges = graph.edges.filter((e) => e.from !== splitNodeId);
+  delete graph.nodes[splitNodeId];
+  dcGarbageCollect(graph, yesTarget);
 }
 
 export interface BranchLike {

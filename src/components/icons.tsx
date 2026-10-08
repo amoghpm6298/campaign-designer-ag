@@ -27,6 +27,35 @@ const ICONS: Record<string, string> = {
   sigma: '<path d="M18 5H6l6 7-6 7h12"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/>',
   calc: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8"/><path d="M8 11h1M11.5 11h1M15 11h1M8 15h1M11.5 15h1M15 15h1M8 19h1M11.5 19h1M15 19h5v-4"/>',
+
+  // Canvas node-category glyphs (see nodeMeta.ts's DC_CATEGORY_ICON) —
+  // same thin-line style as the sidebar set above, kept intentionally
+  // small in number (one per category, Phase 2 §10: avoid icon overload).
+  flag: '<path d="M6 3v18"/><path d="M6 4h12l-3 4 3 4H6"/>',
+  paperplane: '<path d="m22 2-9.5 9.5"/><path d="M22 2 15 22l-3.5-8.5L3 10z"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  fork: '<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="12" r="2.2"/><path d="M8 7l8 4M8 17l8-4"/>',
+  flask: '<path d="M9.5 2.5h5"/><path d="M10.5 2.5v6.2L4.8 18a1.6 1.6 0 0 0 1.4 2.5h11.6a1.6 1.6 0 0 0 1.4-2.5L13.5 8.7V2.5"/><path d="M7 15h10"/>',
+  targetCheck: '<circle cx="12" cy="12" r="8.5"/><path d="m8.5 12 2.3 2.3L16 9.5"/>',
+  doorExit: '<path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M9.5 16.5 14 12l-4.5-4.5"/><path d="M14 12H3"/>',
+
+  // Per-channel Send glyphs (nodeTypes.tsx: a Send node's icon follows
+  // its configured channel, not a one-size category icon, since the
+  // channel is the single most glance-relevant fact about a Send). Each
+  // one varies the outer bubble shape first (what actually reads at the
+  // ~13px this renders at) then a minimal inner detail — WhatsApp gets
+  // its own rounder bubble + a small call-wave rather than reusing the
+  // sidebar's generic 'message' glyph (which made it indistinguishable
+  // from "just a chat"), SMS gets visible text lines instead of dots
+  // (read as a rating/keypad, not a message), RCS spells itself out
+  // since — same as the real product's own channel-config icons — there
+  // is no universal RCS mark to abbreviate into a line glyph.
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/>',
+  sms: '<path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><path d="M7 9.5h10M7 12.5h6"/>',
+  rcs: '<path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-4 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><text x="12" y="13.2" font-size="6.2" font-weight="800" text-anchor="middle" fill="currentColor" stroke="none">RCS</text>',
+  whatsapp: '<path d="M12 2.5C6.8 2.5 2.5 6.4 2.5 11.2c0 2.3 1 4.4 2.7 5.9L4 21.5l4.6-1.4c1 .3 2.1.5 3.4.5 5.2 0 9.5-3.9 9.5-8.7S17.2 2.5 12 2.5z"/><path d="M8.7 9.8c.3 3 2.3 5 5.2 5.4"/>',
+  undo: '<path d="M3 4v6h6"/><path d="M3.5 15a9 9 0 1 0 2.1-9.4L3 10"/>',
+  redo: '<path d="M21 4v6h-6"/><path d="M20.5 15a9 9 0 1 1-2.1-9.4L21 10"/>',
 };
 
 export function Icon({ name }: { name: string }) {

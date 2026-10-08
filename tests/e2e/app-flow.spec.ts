@@ -40,7 +40,7 @@ test('Analytics tab renders KPIs + an annotated canvas for a live campaign, and 
 
 test('row click opens the real read-only view with the real canvas', async ({ page }) => {
   await page.goto('/');
-  const firstRowName = await page.locator('table tbody tr').first().locator('td').first().innerText();
+  const firstRowName = await page.locator('table tbody tr').first().locator('td').first().locator('b').innerText();
   await page.locator('table tbody tr').first().click();
   await page.waitForTimeout(500);
   await expect(page.locator('h1.page-title')).toContainText(firstRowName);
@@ -76,10 +76,12 @@ test('full create -> build -> submit flow lands in the list as Pending Approval'
   await page.getByRole('button', { name: '+ Create Drip Campaign' }).click();
   await page.locator('input[type=text]').first().fill('App Flow Spec Campaign');
   await page.locator('select').first().selectOption('IndusInd Bank (IBL)');
-  await page.getByText('Skip to Builder →').click();
+  await page.getByText('Continue to Goal →').click();
+  await page.waitForTimeout(200);
+  await page.getByText('Continue to Builder →').click();
   await page.waitForTimeout(300);
   await page.locator('.dc-add-entry-placeholder').click();
-  await page.locator('.dc-type-opt:has-text("Entry · Event Trigger")').click();
+  await page.locator('.dc-type-opt:has-text("Entry · Event")').click();
   const sel = page.locator('.sd-drawer.open select');
   await sel.nth(0).selectOption('Journey Events');
   await sel.nth(1).selectOption('Pageload');
@@ -91,6 +93,10 @@ test('full create -> build -> submit flow lands in the list as Pending Approval'
   await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
   await page.waitForTimeout(400);
 
+  // Submit for Approval now lives on the Review step, not the Builder
+  // header — navigate there via the rail first.
+  await page.getByText('Continue to Review').click();
+  await page.waitForTimeout(300);
   await expect(page.getByRole('button', { name: 'Submit for Approval' })).toBeEnabled();
   await page.getByRole('button', { name: 'Submit for Approval' }).click();
   await page.waitForTimeout(400);

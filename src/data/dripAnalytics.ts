@@ -21,7 +21,7 @@ import type { DripCampaign, DripEdge } from './graphTypes';
 export interface DripAnalyticsMetrics {
   nodeCounts: Record<string, number>;
   edgeCounts: Record<string, { count: number; pct: number }>;
-  // Per-channel engagement — only present for SEND/CHANNEL_FAILOVER nodes.
+  // Per-channel engagement — only present for SEND nodes.
   // CleverTap's own analytics separate this ("Engagement Stats") from
   // raw per-node reach counts ("Node Stats") for exactly this reason: a
   // Send reaching 10,000 people and a Send that reached 10,000 people AND
@@ -128,7 +128,7 @@ export function generateDripAnalytics(campaign: DripCampaign): DripAnalyticsData
       const node = graph.nodes[nodeId];
       if (!node) continue;
       const total = nodeCounts[nodeId] || 0;
-      if (node.type === 'SEND' || node.type === 'CHANNEL_FAILOVER') {
+      if (node.type === 'SEND') {
         // Seeded independently per node (not off the shared `rand`
         // sequence) so engagement numbers don't shift depending on where
         // in the topological walk this node happens to land.

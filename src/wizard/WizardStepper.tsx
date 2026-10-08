@@ -1,57 +1,67 @@
-// Shared step indicator + back link, one single row across all 3
-// create/edit steps — previously a separate stepper bar stacked on top
-// of a second header bar (with its own back link, campaign name, and a
-// "No goal set" text label), which read as two redundant headers. Now
-// one row, and a step's own completion is shown ON the stepper itself
-// (a thin amber ring around a visited-but-empty step's number) instead
-// of restating it in text elsewhere — "Basic Details" with no amber
-// ring IS "name is set," there's no need to also print the name.
-const STEPS: { key: 'basicDetails' | 'goalDefinition' | 'builder'; label: string }[] = [
+// Persistent left rail, shared by all 4 create/edit steps — replaces
+// the earlier single-row horizontal breadcrumb (Phase 2 refinement)
+// per direct user request, modeled EXACTLY on this product's own
+// Nudges/Batch/Incentive/AB creation flows (journeysnudgesemi's
+// .wiz-step/.wiz-step-dot rail): same done/current/upcoming state
+// names, same checkmark-on-done behavior, same dot+connecting-line
+// structure (verified directly against that file's CSS/render
+// functions, not approximated). Applied uniformly including the
+// Builder step — a deliberate choice (flagged the canvas-width
+// tradeoff from the earlier full-width-canvas decision, user chose to
+// take it) rather than special-casing Builder.
+const STEPS: { key: 'basicDetails' | 'goalDefinition' | 'builder' | 'review'; label: string }[] = [
   { key: 'basicDetails', label: 'Basic Details' },
-  { key: 'goalDefinition', label: 'Goal Definition' },
+  { key: 'goalDefinition', label: 'Goal' },
   { key: 'builder', label: 'Builder' },
+  { key: 'review', label: 'Review' },
 ];
+
+export type DcBuilderStepKind = (typeof STEPS)[number]['key'];
 
 export function WizardStepper({
   current,
   onNavigate,
   onBack,
   isStepComplete,
-  children,
+  isEditing,
 }: {
-  current: 'basicDetails' | 'goalDefinition' | 'builder';
-  onNavigate: (step: 'basicDetails' | 'goalDefinition' | 'builder') => void;
+  current: DcBuilderStepKind;
+  onNavigate: (step: DcBuilderStepKind) => void;
   onBack: () => void;
-  isStepComplete: (step: 'basicDetails' | 'goalDefinition' | 'builder') => boolean;
-  // Builder-only action buttons (Undo/Redo/Save/Submit) — rendered on
-  // the right of this same row only when the caller passes them, so
-  // Basic Details/Goal Definition don't show empty space for buttons
-  // that don't apply yet.
-  children?: React.ReactNode;
+  isStepComplete: (step: DcBuilderStepKind) => boolean;
+  isEditing: boolean;
 }) {
   const currentIdx = STEPS.findIndex((s) => s.key === current);
   return (
-    <div className="dcb-header">
+    <div className="dcb-rail">
       <div className="add-link" onClick={onBack}>
         ← Back to Drip Campaigns
       </div>
-      <div className="dcb-stepper">
+      <div className="wiz-group-label">{isEditing ? 'Edit Campaign' : 'New Campaign'}</div>
+      <div className="dcb-vsteps">
         {STEPS.map((s, i) => {
-          const visited = i < currentIdx;
-          const complete = isStepComplete(s.key);
+          // Index-based, same as the reference rail: every step behind
+          // the current one reads as done regardless of whether its own
+          // data actually validates — that's what the amber dot below is
+          // for, a second independent signal, not a replacement for it.
+          const state = i < currentIdx ? 'done' : i === currentIdx ? 'current' : 'upcoming';
+          const incomplete = i < currentIdx && !isStepComplete(s.key);
           return (
-            <div key={s.key} className="dcb-stepper-item-wrap">
-              <div className={`dcb-stepper-item${s.key === current ? ' current' : ''}${visited && complete ? ' done' : ''}`} onClick={() => onNavigate(s.key)}>
-                <span className={`dcb-stepper-num${visited && !complete ? ' incomplete' : ''}`}>{i + 1}</span>
-                {s.label}
+            <div key={s.key} className="dcb-vstep" onClick={() => onNavigate(s.key)}>
+              <div className="dcb-vstep-dotcol">
+                <div className={`dcb-vstep-circle ${state}`}>{state === 'done' ? '✓' : i + 1}</div>
+                {i < STEPS.length - 1 && <div className={`dcb-vstep-line ${state === 'done' ? 'done' : ''}`} />}
               </div>
-              {i < STEPS.length - 1 && <span className="dcb-stepper-sep" />}
+              <div className="dcb-vstep-body">
+                <div className={`dcb-vstep-label ${state}`}>
+                  {s.label}
+                  {incomplete && <span className="dcb-stepper-dot" title="Incomplete" />}
+                </div>
+              </div>
             </div>
           );
         })}
       </div>
-      <div className="dcb-header-spacer" />
-      {children}
     </div>
   );
 }

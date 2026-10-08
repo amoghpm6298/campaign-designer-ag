@@ -41,9 +41,10 @@ test.describe('Bare connector pill (the original "what is this?" bug)', () => {
     await page.getByRole('button', { name: '+ Create Drip Campaign' }).click();
     await page.locator('input[type=text]').first().fill('Bare Chip Regression');
     await page.locator('select').first().selectOption('IndusInd Bank (IBL)');
-    await page.getByText('Skip to Builder →').click();
+    await page.getByText('Continue to Goal →').click();
+    await page.getByText('Continue to Builder →').click();
     await page.locator('.dc-add-entry-placeholder').click();
-    await page.locator('.dc-type-opt:has-text("Entry · Event Trigger")').click();
+    await page.locator('.dc-type-opt:has-text("Entry · Event")').click();
     const entrySelects = page.locator('.sd-drawer.open select');
     await entrySelects.nth(0).selectOption('Journey Events');
     await entrySelects.nth(1).selectOption('Pageload');

@@ -14,13 +14,35 @@ async function startNewCampaign(page: import('@playwright/test').Page, name: str
   await page.getByRole('button', { name: '+ Create Drip Campaign' }).click();
   await page.locator('input[type=text]').first().fill(name);
   await page.locator('select').first().selectOption('IndusInd Bank (IBL)');
-  await page.getByText('Skip to Builder →').click();
+  // "Skip to Builder" was removed — Continue to Goal is always enabled
+  // now, so the same destination is two clicks through the real flow.
+  await page.getByText('Continue to Goal →').click();
+  await page.waitForTimeout(200);
+  await page.getByText('Continue to Builder →').click();
+  await page.waitForTimeout(300);
+}
+
+// The auto goal-check Split after Send/Pause is only
+// inserted when a real campaign Goal is defined — this goes through the
+// Goal Definition step instead of skipping it, for the handful of tests
+// that specifically exercise that auto-insert behavior.
+async function startNewCampaignWithGoal(page: import('@playwright/test').Page, name: string, eventCategory: string, eventType: string) {
+  await page.goto('/');
+  await page.getByRole('button', { name: '+ Create Drip Campaign' }).click();
+  await page.locator('input[type=text]').first().fill(name);
+  await page.locator('select').first().selectOption('IndusInd Bank (IBL)');
+  await page.getByText('Continue to Goal →').click();
+  await page.waitForTimeout(200);
+  const goalSelects = page.locator('select');
+  await goalSelects.nth(0).selectOption(eventCategory);
+  await goalSelects.nth(1).selectOption(eventType);
+  await page.getByText('Continue to Builder →').click();
   await page.waitForTimeout(300);
 }
 
 async function addEntryEvent(page: import('@playwright/test').Page, category: string, type: string) {
   await page.locator('.dc-add-entry-placeholder').click();
-  await page.locator('.dc-type-opt:has-text("Entry · Event Trigger")').click();
+  await page.locator('.dc-type-opt:has-text("Entry · Event")').click();
   const sel = page.locator('.sd-drawer.open select');
   await sel.nth(0).selectOption(category);
   await sel.nth(1).selectOption(type);
@@ -28,8 +50,8 @@ async function addEntryEvent(page: import('@playwright/test').Page, category: st
   await page.waitForTimeout(300);
 }
 
-test('Send auto-inserts a goal-check Split + GOAL_EXIT; Channel Failover chains under No and gets its own check', async ({ page }) => {
-  await startNewCampaign(page, 'Builder Spec: Send Chain');
+test('Send auto-inserts a goal-check Split + GOAL_EXIT; a fallback channel on Send shows the FALLBACK tag on canvas', async ({ page }) => {
+  await startNewCampaignWithGoal(page, 'Builder Spec: Send Chain', 'Card Events', 'Card Activated');
   await addEntryEvent(page, 'Journey Events', 'Pageload');
 
   await page.locator('.dc-add-btn').click();
@@ -45,39 +67,174 @@ test('Send auto-inserts a goal-check Split + GOAL_EXIT; Channel Failover chains 
   await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
   await page.waitForTimeout(400);
 
-  await expect(page.locator('.dc-node-card:has-text("CONDITIONAL SPLIT")')).toHaveCount(1);
+  await expect(page.locator('.dc-node-card:has-text("Goal Check")')).toHaveCount(1);
   await expect(page.locator('.dc-branch-label:has-text("Yes")')).toHaveCount(1);
+  await expect(page.locator('.dc-node-fallback-row')).toHaveCount(0);
 
   await page.locator('.dc-add-btn').click(); // the open "No" slot
-  await page.locator('.dc-type-opt:has-text("Channel Failover")').click();
-  await page.waitForTimeout(150);
-  const cfSelects = page.locator('.sd-drawer.open select');
-  await cfSelects.nth(1).selectOption('SMS'); // fallback channel
+  await page.locator('.dc-type-opt', { hasText: /^Send/ }).click();
+  await page.locator('.sd-drawer.open input[type=text]').first().fill('Msg2');
+  const send2Selects = page.locator('.sd-drawer.open select');
+  await send2Selects.nth(0).selectOption('WHATSAPP');
   await page.waitForTimeout(150);
   await page.locator('.sd-drawer.open select', { hasText: 'Select account' }).selectOption({ index: 1 });
   await page.waitForTimeout(150);
   await page.locator('.sd-drawer.open select', { hasText: 'Select template' }).selectOption({ index: 1 });
+  await page.waitForTimeout(150);
+  // optional fallback channel section — a second account/template pair
+  // appears once a fallback channel is chosen, so these are now the
+  // SECOND match of each (nth(0) is the already-filled primary pair).
+  await page.locator('.sd-drawer.open select', { hasText: 'No fallback' }).selectOption('SMS');
+  await page.waitForTimeout(150);
+  await page.locator('.sd-drawer.open select', { hasText: 'Select account' }).nth(1).selectOption({ index: 1 });
+  await page.waitForTimeout(150);
+  await page.locator('.sd-drawer.open select', { hasText: 'Select template' }).nth(1).selectOption({ index: 1 });
   await expect(page.locator('.sd-drawer.open .sd-foot button.btn.primary')).toBeEnabled();
   await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
   await page.waitForTimeout(400);
 
-  await expect(page.locator('.dc-node-card:has-text("CHANNEL FAILOVER")')).toHaveCount(1);
-  await expect(page.locator('.dc-node-card:has-text("CONDITIONAL SPLIT")')).toHaveCount(2);
+  await expect(page.locator('.dc-node-fallback-row')).toHaveCount(1);
+  await expect(page.locator('.dc-node-card:has-text("Goal Check")')).toHaveCount(2);
 });
 
-test('Pause gets its own auto goal-check; auto-badge click-to-replace opens the add drawer', async ({ page }) => {
-  await startNewCampaign(page, 'Builder Spec: Pause');
+test('Send does NOT get an auto goal-check when no campaign Goal is defined', async ({ page }) => {
+  await startNewCampaign(page, 'Builder Spec: No Goal Send');
   await addEntryEvent(page, 'Journey Events', 'Pageload');
 
   await page.locator('.dc-add-btn').click();
-  await page.locator('.dc-type-opt:has-text("Pause")').click();
+  await page.locator('.dc-type-opt', { hasText: /^Send/ }).click();
+  await page.locator('.sd-drawer.open input[type=text]').first().fill('Msg1');
+  const sendSelects = page.locator('.sd-drawer.open select');
+  await sendSelects.nth(0).selectOption('WHATSAPP');
+  await page.waitForTimeout(150);
+  await page.locator('.sd-drawer.open select', { hasText: 'Select account' }).selectOption('IBL-Karix-Onb');
+  await page.waitForTimeout(150);
+  await page.locator('.sd-drawer.open select', { hasText: 'Select template' }).selectOption({ index: 1 });
+  await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
+  await page.waitForTimeout(400);
+
+  await expect(page.locator('.dc-node-card:has-text("Goal Check")')).toHaveCount(0);
+  await expect(page.locator('.dc-add-btn')).toHaveCount(1);
+});
+
+test('Clicking "remove goal check" on an auto-inserted Split collapses it, keeping whatever was under No', async ({ page }) => {
+  await startNewCampaignWithGoal(page, 'Builder Spec: Remove Goal Check', 'Card Events', 'Card Activated');
+  await addEntryEvent(page, 'Journey Events', 'Pageload');
+
+  await page.locator('.dc-add-btn').click();
+  await page.locator('.dc-type-opt', { hasText: /^Send/ }).click();
+  await page.locator('.sd-drawer.open input[type=text]').first().fill('Msg1');
+  const sendSelects = page.locator('.sd-drawer.open select');
+  await sendSelects.nth(0).selectOption('WHATSAPP');
+  await page.waitForTimeout(150);
+  await page.locator('.sd-drawer.open select', { hasText: 'Select account' }).selectOption('IBL-Karix-Onb');
+  await page.waitForTimeout(150);
+  await page.locator('.sd-drawer.open select', { hasText: 'Select template' }).selectOption({ index: 1 });
+  await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
+  await page.waitForTimeout(400);
+
+  await expect(page.locator('.dc-node-card:has-text("Goal Check")')).toHaveCount(1);
+  await expect(page.locator('.dc-goalcheck-badge')).toHaveCount(1);
+
+  // Build something real under the "No" branch before removing the check,
+  // to prove the removal preserves it rather than discarding it too.
+  await page.locator('.dc-add-btn').click();
+  await page.locator('.dc-type-opt:has-text("Wait for a fixed duration")').click();
+  await page.locator('.sd-drawer.open input[type=number]').first().fill('2');
+  await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
+  await page.waitForTimeout(400);
+  await expect(page.locator('.dc-node-card:has-text("Wait 2 days")')).toHaveCount(1);
+  // Pause (Wait) gets its own auto goal-check too (a real goal is defined
+  // for this campaign) — 2 Goal Checks total at this point, remove the Send's.
+  await expect(page.locator('.dc-node-card:has-text("Goal Check")')).toHaveCount(2);
+
+  await page.locator('.dc-goalcheck-badge').first().click();
+  await page.waitForTimeout(400);
+
+  await expect(page.locator('.dc-node-card:has-text("Goal Check")')).toHaveCount(1);
+  await expect(page.locator('.dc-node-card:has-text("Wait 2 days")')).toHaveCount(1);
+});
+
+test('A Send card shows a visible, hover-revealed remove button, not just the hidden edge "x"', async ({ page }) => {
+  await startNewCampaign(page, 'Builder Spec: Card Remove');
+  await addEntryEvent(page, 'Journey Events', 'Pageload');
+
+  await page.locator('.dc-add-btn').click();
+  await page.locator('.dc-type-opt', { hasText: /^Send/ }).click();
+  await page.locator('.sd-drawer.open input[type=text]').first().fill('RemovableSend');
+  const sendSelects = page.locator('.sd-drawer.open select');
+  await sendSelects.nth(0).selectOption('WHATSAPP');
+  await page.waitForTimeout(150);
+  await page.locator('.sd-drawer.open select', { hasText: 'Select account' }).selectOption('IBL-Karix-Onb');
+  await page.waitForTimeout(150);
+  await page.locator('.sd-drawer.open select', { hasText: 'Select template' }).selectOption({ index: 1 });
+  await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
+  await page.waitForTimeout(400);
+
+  const card = page.locator('.dc-node-card', { hasText: 'RemovableSend' });
+  await expect(card.locator('.dc-node-remove')).toBeHidden();
+  await card.hover();
+  await expect(card.locator('.dc-node-remove')).toBeVisible();
+  await card.locator('.dc-node-remove').click();
+  await page.waitForTimeout(400);
+
+  await expect(page.locator('.dc-node-card', { hasText: 'RemovableSend' })).toHaveCount(0);
+  await expect(page.locator('.dc-add-btn')).toHaveCount(1);
+});
+
+test('Mid-chain insert explains why its type list is narrower, instead of looking broken', async ({ page }) => {
+  await startNewCampaign(page, 'Builder Spec: MidEdge Hint');
+  await addEntryEvent(page, 'Journey Events', 'Pageload');
+
+  await page.locator('.dc-add-btn').click();
+  await page.locator('.dc-type-opt', { hasText: /^Send/ }).click();
+  await page.locator('.sd-drawer.open input[type=text]').first().fill('ChainSend');
+  const sendSelects = page.locator('.sd-drawer.open select');
+  await sendSelects.nth(0).selectOption('WHATSAPP');
+  await page.waitForTimeout(150);
+  await page.locator('.sd-drawer.open select', { hasText: 'Select account' }).selectOption('IBL-Karix-Onb');
+  await page.waitForTimeout(150);
+  await page.locator('.sd-drawer.open select', { hasText: 'Select template' }).selectOption({ index: 1 });
+  await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
+  await page.waitForTimeout(400);
+
+  // No goal is defined, so this Send's own open slot is a plain linear
+  // edge — hover it to reveal the mid-insert "+".
+  const edge = page.locator('.dc-branch-label').first();
+  await edge.hover();
+  await page.waitForTimeout(150);
+  await page.locator('.dc-edge-insert').first().click();
+  await page.waitForTimeout(200);
+
+  await expect(page.locator('.sd-drawer.open')).toContainText('Inserting mid-chain only supports single-continuation steps');
+  // Every tile is still shown (Phase 1: disabled-with-a-reason beats
+  // silent omission) — Condition is a real single-continuation type and
+  // stays clickable; Branch is a branching type and is shown but disabled.
+  const conditionTile = page.locator('.dc-type-opt', { hasText: 'Condition' });
+  const branchTile = page.locator('.dc-type-opt', { hasText: /^Branch/ });
+  await expect(conditionTile).toHaveCount(1);
+  await expect(branchTile).toHaveCount(1);
+  await expect(conditionTile).not.toHaveClass(/disabled/);
+  await expect(branchTile).toHaveClass(/disabled/);
+  await expect(branchTile).toHaveAttribute('title', /can't be inserted mid-chain/);
+});
+
+test('Pause gets its own auto goal-check; auto-badge click-to-replace opens the add drawer', async ({ page }) => {
+  await startNewCampaignWithGoal(page, 'Builder Spec: Pause', 'Card Events', 'Card Activated');
+  await addEntryEvent(page, 'Journey Events', 'Pageload');
+
+  await page.locator('.dc-add-btn').click();
+  await page.locator('.dc-type-opt:has-text("Wait for a fixed duration")').click();
   await page.locator('.sd-drawer.open input[type=number]').first().fill('3');
   await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
   await page.waitForTimeout(400);
 
-  await expect(page.locator('.dc-node-card:has-text("CONDITIONAL SPLIT")')).toHaveCount(1);
+  await expect(page.locator('.dc-node-card:has-text("Goal Check")')).toHaveCount(1);
 
-  await page.locator('.dc-auto-badge').first().click();
+  // The auto goal-check Split itself now also carries a "remove" badge —
+  // this test is specifically about the GOAL_EXIT's own "replace" badge,
+  // so target it precisely rather than the first .dc-auto-badge found.
+  await page.locator('.dc-replace-badge').first().click();
   await page.waitForTimeout(300);
   await expect(page.locator('.sd-title')).toHaveText('Add Next Step');
   await page.locator('.sd-drawer.open .sd-foot button.btn.secondary').click();
@@ -124,7 +281,7 @@ test('Decision Split: Between-operator branches + catch-all, mid-list insert pre
   await addEntryEvent(page, 'Journey Events', 'Pageload');
 
   await page.locator('.dc-add-btn').click();
-  await page.locator('.dc-type-opt:has-text("Decision Split")').click();
+  await page.locator('.dc-type-opt', { hasText: /^Branch/ }).click();
   await page.waitForTimeout(150);
   const attrSelect = page.locator('.sd-drawer.open select').nth(1);
   await attrSelect.selectOption('Milestone Progress %');
@@ -144,11 +301,11 @@ test('Decision Split: Between-operator branches + catch-all, mid-list insert pre
   await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
   await page.waitForTimeout(400);
 
-  await expect(page.locator('.dc-node-card:has-text("DECISION SPLIT")')).toHaveCount(1);
+  await expect(page.locator('.dc-node-card:has-text("Branch")')).toHaveCount(1);
   await expect(page.locator('.dc-branch-label:has-text("Anything else")')).toHaveCount(1);
 
   // Insert a branch between the two existing ones.
-  await page.locator('.dc-node-card:has-text("DECISION SPLIT")').click();
+  await page.locator('.dc-node-card:has-text("Branch")').click();
   await page.waitForTimeout(300);
   const insertRows = page.locator('.dcb-insert-row');
   await expect(insertRows.nth(1)).toBeAttached();
@@ -163,7 +320,7 @@ test('Random Split requires branches to sum to 100%', async ({ page }) => {
   await startNewCampaign(page, 'Builder Spec: Random Split');
   await addEntryEvent(page, 'Journey Events', 'Pageload');
   await page.locator('.dc-add-btn').click();
-  await page.locator('.dc-type-opt:has-text("Random Split")').click();
+  await page.locator('.dc-type-opt:has-text("Experiment")').click();
   await page.waitForTimeout(150);
   const pctInputs = page.locator('.sd-drawer.open input[type=number]');
   await pctInputs.nth(0).fill('30');
@@ -177,6 +334,11 @@ test('Submit for Approval shows an on-demand validation banner with open branche
   await startNewCampaign(page, 'Builder Spec: Submit Gating');
   await addEntryEvent(page, 'Journey Events', 'Pageload');
 
+  // Submit for Approval lives on the Review step now — get there via
+  // the rail's "Continue to Review" action on the Builder topbar.
+  await page.getByText('Continue to Review').click();
+  await page.waitForTimeout(300);
+
   // The button itself is never disabled (on-demand validation, not a
   // permanent rail warning) — clicking it while incomplete surfaces a
   // banner instead of silently doing nothing.
@@ -186,14 +348,19 @@ test('Submit for Approval shows an on-demand validation banner with open branche
   await expect(page.locator('.dcb-validation-banner')).toBeVisible();
   await expect(page.locator('.dcb-validation-banner')).toContainText('branch');
 
+  // Back to the Builder step (via the rail) to close the open branch.
+  await page.locator('.dcb-vstep', { hasText: 'Builder' }).click();
+  await page.waitForTimeout(300);
   await page.locator('.dc-add-btn').click();
   await page.locator('.dc-type-opt', { hasText: /^Exit/ }).click();
   await page.locator('.sd-drawer.open input[type=text]').first().fill('done');
   await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
   await page.waitForTimeout(400);
 
-  // Completed now — clicking Submit actually navigates away (back to the
-  // list), rather than showing the banner again.
+  // Completed now — back to Review, clicking Submit actually navigates
+  // away (back to the list), rather than showing the banner again.
+  await page.getByText('Continue to Review').click();
+  await page.waitForTimeout(300);
   await page.locator('button:has-text("Submit for Approval")').click();
   await page.waitForTimeout(400);
   await expect(page.locator('.dcb-validation-banner')).toHaveCount(0);
@@ -218,15 +385,16 @@ test('Mid-chain insert splices a new node into an existing connection, preservin
 
   const countBefore = await page.locator('.dc-node-card').count();
 
-  // The mid-insert "+" only offers the single-continuation types.
+  // Every tile shows up, but only single-continuation types are
+  // clickable — branching/terminal ones render disabled instead of
+  // being omitted (Phase 1 §10).
   await page.locator('.dc-edge-insert').first().click();
   await page.waitForTimeout(300);
-  const typeOpts = await page.locator('.dc-type-opt').allInnerTexts();
-  expect(typeOpts.some((t) => t.startsWith('Pause'))).toBe(true);
-  expect(typeOpts.some((t) => t.startsWith('Random Split'))).toBe(false);
-  expect(typeOpts.some((t) => t.startsWith('Decision Split'))).toBe(false);
+  await expect(page.locator('.dc-type-opt', { hasText: 'Wait for a fixed duration' })).not.toHaveClass(/disabled/);
+  await expect(page.locator('.dc-type-opt', { hasText: 'Experiment' })).toHaveClass(/disabled/);
+  await expect(page.locator('.dc-type-opt', { hasText: /^Branch/ })).toHaveClass(/disabled/);
 
-  await page.locator('.dc-type-opt', { hasText: /^Pause/ }).click();
+  await page.locator('.dc-type-opt', { hasText: 'Wait for a fixed duration' }).click();
   await page.locator('.sd-drawer.open input[type=number]').first().fill('2');
   await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
   await page.waitForTimeout(400);

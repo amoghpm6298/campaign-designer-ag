@@ -10,14 +10,55 @@
 import dagre from '@dagrejs/dagre';
 import type { DripGraph } from '../data/graphTypes';
 
-export const DC_CARD_W = 186;
+// Every real node uses this same width regardless of type or size class
+// (node-design refinement pass) — size classes (compact/standard, see
+// dripCanvas.css) control height/padding only. One fixed width keeps
+// every node's left/right boundaries aligned down the canvas, so
+// connectors stay straight and the whole taxonomy reads as one node
+// system rather than differently-sized shapes.
+export const DC_CARD_W = 400;
 export const DC_CARD_H_FALLBACK = 74; // used only before real measurement is available (first paint)
 export const DC_SLOT_SIZE = 26;
 // Slot nodes only need DC_SLOT_SIZE of visual room, but every edge gets a
-// branch-label chip centered on its midpoint (~120px wide) — without extra
-// width reserved here, 2+ open branches sitting close together produce
+// branch-label chip centered on its midpoint — without extra width
+// reserved here, 2+ open branches sitting close together produce
 // overlapping chips (the other real bug this migration exists to fix).
-const DC_SLOT_LAYOUT_W = 132;
+// A flat constant here only worked for short labels like "Yes"/"No" —
+// Decision Split branches ("Branch 1 (some condition)", "Anything
+// else") run far longer and overlapped at the same fixed width. A
+// character-count estimate was tried first and measured ~30% too narrow
+// against the real rendered chip (font metrics don't reduce to a single
+// average glyph width reliably) — real canvas text measurement, against
+// the exact font the chip itself uses, is used instead and is exact
+// regardless of what the label string contains.
+const DC_SLOT_LAYOUT_W = 132; // floor — matches a short label like "Yes"/"No"
+const DC_SLOT_LABEL_FONT = "700 10px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+// Chip padding (6px each side) + border (1px each side) + the remove
+// "✕" icon that's always present on an editable (open, in-builder) chip.
+const DC_SLOT_LABEL_CHROME = 40;
+
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+function getMeasureCtx(): CanvasRenderingContext2D | null {
+  if (measureCtx !== undefined) return measureCtx;
+  try {
+    const canvas = document.createElement('canvas');
+    measureCtx = canvas.getContext('2d');
+    if (measureCtx) measureCtx.font = DC_SLOT_LABEL_FONT;
+  } catch {
+    measureCtx = null;
+  }
+  return measureCtx;
+}
+
+function estimateSlotWidth(branchLabel: string): number {
+  if (!branchLabel) return DC_SLOT_LAYOUT_W;
+  const ctx = getMeasureCtx();
+  // Falls back to the floor (never narrower than a short label needs) if
+  // canvas measurement genuinely isn't available in this environment —
+  // better to under-reserve gracefully than throw.
+  const textWidth = ctx ? ctx.measureText(branchLabel).width : 0;
+  return Math.max(DC_SLOT_LAYOUT_W, Math.ceil(textWidth) + DC_SLOT_LABEL_CHROME);
+}
 
 export interface LayoutResult {
   positions: Record<string, { x: number; y: number; width: number; height: number }>;
@@ -51,7 +92,7 @@ export function computeDagreLayout(graph: DripGraph, measuredHeights: Record<str
     if (e.to === null) {
       const slotId = '__slot_' + e.id;
       slotIds[e.id] = slotId;
-      g.setNode(slotId, { width: DC_SLOT_LAYOUT_W, height: DC_SLOT_SIZE });
+      g.setNode(slotId, { width: estimateSlotWidth(e.branchLabel), height: DC_SLOT_SIZE });
       g.setEdge(e.from, slotId);
     } else {
       g.setEdge(e.from, e.to);

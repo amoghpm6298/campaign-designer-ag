@@ -1,14 +1,15 @@
-/* Ported design tokens + Drip Campaigns' own card/chip styling from
-   journeysnudgesemi/emi-conversions-prototype.html. Visual baseline only —
-   positioning is now owned by React Flow itself (nodes/edges are no
-   longer hand-placed via position:absolute + manually computed left/top),
-   so .dc-node-card etc. drop that part of the original rule and keep only
-   the look (border, padding, category colors, shared-node ring). */
+/* Phase 2 visual system for the journey canvas. Positioning is owned by
+   React Flow/dagre (see layoutGraph.ts/toFlowElements.ts) — this file is
+   look only: a quiet neutral card by default, with category meaning
+   carried by a left accent bar + icon + colored type label instead of a
+   fully category-colored border, so a dense journey reads as one
+   product, not a rainbow of competing card styles. */
 
 :root {
   --blue-cta: #0a66ef;
   --blue-cta-hover: #0857ce;
   --indigo: #292c82;
+  --indigo-bg: #eceefc;
   --gray-25: #fcfcfd;
   --gray-50: #f9fafb;
   --gray-100: #f2f4f7;
@@ -30,6 +31,8 @@
   --error-border: #f97066;
   --info-text: #175cd3;
   --info-bg: #e7f0fe;
+  --purple-text: #6941c6;
+  --purple-bg: #f4ebff;
 }
 
 .dc-graph-wrap {
@@ -39,40 +42,121 @@
 }
 
 .dc-node-card {
-  width: 186px;
-  border-radius: 9px;
-  border: 1.5px solid var(--gray-200);
+  width: 400px;
+  border-radius: 8px;
+  border: 1px solid var(--gray-200);
+  border-left-width: 3px;
   background: #fff;
-  padding: 9px 11px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
+/* Fixed-ish height per size class (Phase 2 §6 hard rule: height comes
+   from type/size-class, never from configuration complexity) — paired
+   with the label/meta truncation below so a node with a long name or a
+   long derived meta string can never grow the card past its class's
+   footprint; the overflow is always handled by truncation + a tooltip,
+   not by the card expanding. */
+.dc-node-card.size-standard { padding: 11px 13px; min-height: 74px; }
+.dc-node-card.size-compact { padding: 7px 11px; min-height: 52px; }
 .dc-node-card.editable:hover {
   border-color: var(--blue-cta);
-  box-shadow: 0 2px 6px rgba(10, 102, 239, 0.12);
+  box-shadow: 0 2px 8px rgba(10, 102, 239, 0.14);
 }
-.dc-node-type { font-size: 9.5px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; margin-bottom: 3px; }
-.dc-node-label { font-size: 12.5px; font-weight: 600; color: var(--neutral-900); line-height: 1.3; }
-.dc-node-meta { font-size: 11px; color: var(--gray-500); margin-top: 3px; line-height: 1.35; }
 
-.dc-node-card.cat-entry { border-color: var(--info-text); }
-.dc-node-card.cat-entry .dc-node-type { color: var(--info-text); }
-.dc-node-card.cat-send { border-color: var(--blue-cta); }
+.dc-node-type {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.dc-node-type svg.ic { width: 13px; height: 13px; }
+.dc-node-type span:not(.dc-node-start-tag):not(.dc-node-channel-icon) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-node-type .dc-node-channel-icon { display: flex; flex-shrink: 0; }
+/* Truncate, never wrap indefinitely (Phase 1 §9 rule 1) — full text is
+   always still reachable via the title tooltip set in nodeTypes.tsx and,
+   for anything configurable, the drawer. */
+.dc-node-label {
+  font-size: 13px; font-weight: 600; color: var(--neutral-900); line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.dc-node-meta {
+  font-size: 11px; color: var(--gray-500); margin-top: 3px; line-height: 1.4;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Send's own structured rows (template/timing/fallback) — same muted
+   weight as .dc-node-meta, but each a dedicated icon+text line instead
+   of one " · "-joined string, so step-name vs. template-name keep a
+   clear type-scale gap (node-design refinement pass). */
+.dc-node-send-row {
+  display: flex; align-items: center; gap: 5px; margin-top: 3px;
+  font-size: 11px; color: var(--gray-500); line-height: 1.4;
+}
+.dc-node-send-row svg.ic { width: 11px; height: 11px; flex-shrink: 0; color: var(--gray-400); }
+.dc-node-send-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-node-fallback-row { margin-top: 5px; padding-top: 5px; border-top: 1px dashed var(--gray-100); }
+.dc-node-fallback-arrow { color: var(--gray-400); font-size: 11px; flex-shrink: 0; }
+
+/* Category accent: a left bar + matching icon/type-label color, on an
+   otherwise neutral card — carries the semantic without turning every
+   node into a differently-colored shape. */
+.dc-node-card.cat-entry { border-left-color: var(--blue-cta); }
+.dc-node-card.cat-entry .dc-node-type { color: var(--blue-cta); }
+.dc-node-card.cat-send { border-left-color: var(--blue-cta); }
 .dc-node-card.cat-send .dc-node-type { color: var(--blue-cta); }
-.dc-node-card.cat-flow { border-color: var(--gray-300); }
+.dc-node-card.cat-flow { border-left-color: var(--gray-400); }
 .dc-node-card.cat-flow .dc-node-type { color: var(--gray-600); }
-.dc-node-card.cat-split { border-color: var(--warning-border); }
+.dc-node-card.cat-split { border-left-color: var(--warning-border); }
 .dc-node-card.cat-split .dc-node-type { color: var(--warning-text); }
-.dc-node-card.cat-goal { border-color: var(--success-border); background: var(--success-bg); }
+.dc-node-card.cat-experiment { border-left-color: var(--purple-text); }
+.dc-node-card.cat-experiment .dc-node-type { color: var(--purple-text); }
+.dc-node-card.cat-goal { border-left-color: var(--success-border); background: var(--success-bg); }
 .dc-node-card.cat-goal .dc-node-type { color: var(--success-text); }
-.dc-node-card.cat-exit { border-color: var(--gray-300); background: var(--gray-50); }
+.dc-node-card.cat-exit { border-left-color: var(--gray-300); background: var(--gray-50); }
 .dc-node-card.cat-exit .dc-node-type { color: var(--gray-500); }
 
+/* Goal Check — system evaluation, compact, but never muted: full-strength
+   label text, a distinct indigo identity nowhere else in the taxonomy,
+   and a light indigo wash so it reads as "quietly different," not
+   "disabled." See Phase 1/2: distinct ≠ deprioritized. */
+.dc-node-card.cat-goalcheck { border-left-color: var(--indigo); background: var(--indigo-bg); }
+.dc-node-card.cat-goalcheck .dc-node-type { color: var(--indigo); }
+
+/* Entry — "this is where the journey starts": same base card as every
+   other node (neutral background, thin border, left accent bar), never
+   a full outline — a full border reads as a selection/focus state, not
+   a semantic category, and would make Entry look like a fundamentally
+   different component. Its recognizability comes from the strongest
+   blue in the palette, its own icon/type label, the START badge, and
+   its fixed position as the root — not from a different card shape.
+   START sits inline right after the type label in normal flow (never
+   margin-left:auto-pushed to the card's far edge) — the top-right
+   corner is reserved exclusively for the hover-only remove "✕", never
+   shared with normal node content (node-design refinement pass). */
+.dc-node-start-tag {
+  margin-left: 6px;
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--blue-cta);
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
 /* A node reached by more than one edge gets a small "shared step" marker
-   instead of relying on the viewer to notice two lines meeting at one box. */
+   instead of relying on the viewer to notice two lines meeting at one box.
+   Compact "↗ N" + a tooltip for the full sentence (node-design refinement
+   pass) — the count is the useful part at a glance, not the prose. */
 .dc-node-card.shared { box-shadow: 0 0 0 2px var(--blue-cta), 0 2px 6px rgba(10, 102, 239, 0.15); position: relative; }
 .dc-shared-badge {
   position: absolute; top: -9px; right: 8px; background: var(--blue-cta); color: #fff;
-  font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 20px;
+  font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 20px; line-height: 1.5;
 }
 
 .dc-node-card .dc-node-remove {
@@ -80,12 +164,25 @@
 }
 .dc-node-card:hover .dc-node-remove { display: block; }
 .dc-node-card .dc-node-remove:hover { color: var(--error-text); }
+/* Shared-component fix, not a per-node offset: any card that CAN show
+   the hover remove "✕" reserves its footprint in the identity row at
+   all times, so a short type label (e.g. "ENTRY · EVENT" + START) can
+   never end up directly under it on hover — the collision this is
+   fixing, verified against Entry specifically, where the type label is
+   short enough that START used to sit right at the card's edge. */
+.dc-node-card.has-remove .dc-node-type { padding-right: 16px; }
 
+/* Contextual secondary actions (system-step customize, goal-check
+   remove) — subtle metadata-style text, not a filled badge/pill
+   (node-design refinement pass: "do not turn every piece of
+   information into a badge"). Still full-strength colored text, not
+   muted/disabled — these are real, important actions, just not shouting. */
 .dc-auto-badge {
-  margin-top: 7px; padding: 3px 7px; border-radius: 5px; background: var(--info-bg); color: var(--info-text);
-  font-size: 10px; font-weight: 700; cursor: pointer; display: inline-block;
+  margin-top: 7px; font-size: 10.5px; font-weight: 600; color: var(--info-text); cursor: pointer; display: inline-block;
 }
-.dc-auto-badge:hover { background: var(--blue-cta); color: #fff; }
+.dc-auto-badge:hover { color: var(--blue-cta); text-decoration: underline; }
+.dc-node-card.cat-goalcheck .dc-goalcheck-badge { color: var(--indigo); }
+.dc-node-card.cat-goalcheck .dc-goalcheck-badge:hover { color: var(--indigo); text-decoration: underline; }
 
 /* Open-slot "+" node — a real node in the graph/layout, same role as the
    original's dagre virtual slot node. */
@@ -96,13 +193,14 @@
 }
 .dc-add-btn:hover { border-color: var(--blue-cta); color: var(--blue-cta); border-style: solid; }
 
-/* Branch-label edge chip — a bare (unlabeled) connector's chip carries
-   nothing but a remove affordance, so it stays invisible at rest and
-   reveals only on hover (the exact fix for the "what is this, a floating
-   X?" bug that was part of why this migration happened). */
+/* Branch-label edge chip — no border, a soft neutral fill instead, so it
+   reads as a label floating on the connector rather than a separate
+   bordered card competing with the node cards themselves. A bare
+   (unlabeled) connector's chip carries nothing but a remove affordance,
+   so it stays invisible at rest and reveals only on hover. */
 .dc-branch-label {
-  font-size: 10px; font-weight: 700; color: var(--gray-600); background: #fff;
-  padding: 1px 6px; border: 1px solid var(--gray-200); border-radius: 20px; white-space: nowrap;
+  font-size: 10.5px; font-weight: 700; color: var(--gray-600); background: var(--gray-50);
+  padding: 2px 7px; border-radius: 20px; white-space: nowrap;
 }
 .dc-branch-label-bare { opacity: 0; transition: opacity 0.12s; }
 .dc-branch-label-bare:hover { opacity: 1; }
@@ -125,7 +223,7 @@
   font-weight: 700;
 }
 
-/* Per-channel engagement, Send/Channel Failover nodes only — a separate
+/* Per-channel engagement, Send nodes only — a separate
    quieter line from .dc-node-stat (raw reach count), same distinction
    CleverTap draws between Node Stats and Engagement Stats. */
 .dc-node-engagement {
@@ -161,3 +259,14 @@
   border: 1.5px dashed var(--gray-300); color: var(--gray-500); font-size: 13px; font-weight: 600; cursor: pointer;
 }
 .dc-add-entry-placeholder:hover { border-color: var(--blue-cta); color: var(--blue-cta); }
+
+/* Minimap — kept (genuinely useful once a journey grows toward 20-50
+   nodes), but deliberately small and quiet: thin border, no shadow, no
+   heavy card chrome, so it reads as a secondary utility rather than a
+   floating diagram-editor panel competing with the canvas itself. */
+.dc-minimap.react-flow__minimap {
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  box-shadow: none;
+  background: var(--gray-25);
+}

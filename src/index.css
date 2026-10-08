@@ -39,7 +39,7 @@
   --info-bg: #e7f0fe;
   --purple-text: #6941c6;
   --purple-bg: #f4ebff;
-  --shadow-card: 0 10px 15px -3px rgba(16, 24, 40, 0.08), 0 4px 6px -4px rgba(16, 24, 40, 0.06);
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
 }
 
@@ -68,6 +68,14 @@ a {
   overflow: hidden;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
 svg.ic {
   width: 16px;
   height: 16px;
@@ -76,6 +84,10 @@ svg.ic {
 
 /* ---------- Buttons / badges (shared everywhere) ---------- */
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -91,6 +103,9 @@ svg.ic {
 .btn.secondary:hover { background: var(--gray-50); }
 .btn.danger { background: #fff; border-color: var(--error-border); color: var(--error-text); }
 .btn:disabled { cursor: not-allowed; opacity: 0.6; }
+.btn.small { padding: 6px 10px; font-size: 12px; box-shadow: none; border-color: var(--gray-200); color: var(--gray-600); }
+.btn.small:hover:not(:disabled) { background: var(--gray-50); }
+.btn:focus-visible { outline: 2px solid var(--blue-cta); outline-offset: 2px; }
 
 .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 16px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 .badge.success { background: var(--success-bg); color: var(--success-text); }
@@ -119,9 +134,19 @@ svg.ic {
   color: var(--gray-500);
   margin: 4px 0 0;
 }
+
+/* Campaign detail view's own header — a plain top-to-bottom stack
+   (back link, title+badge, meta line, actions), distinct from
+   .page-header's flex row, which is built for a simple 2-item header
+   like the list page's own title+button. */
+.dv-header { margin-bottom: 18px; }
+.dv-header-title-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.dv-header-title-row .page-title { margin: 0; }
+.dv-header-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+
 .card {
   border: 1px solid var(--gray-200);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 20px;
   background: #fff;
   margin-bottom: 20px;
@@ -158,3 +183,47 @@ tbody td {
   color: var(--neutral-800);
 }
 tbody tr:hover { background: var(--gray-50); cursor: pointer; }
+
+/* ---------- Shared page chrome, ported verbatim from the combined
+   dashboard's own established components (emi-conversions-prototype.html)
+   — KPI tiles and the filters bar already exist as a real pattern used
+   across Batches/Nudges/A-B lists; this app should reuse them exactly
+   rather than invent a parallel one. ---------- */
+select {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--neutral-800);
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: #fff;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+select:focus { outline: 2px solid var(--info-bg); }
+
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.kpi-card { border: 1px solid var(--gray-200); border-radius: 10px; padding: 14px 16px; background: #fff; box-shadow: var(--shadow-sm); }
+.kpi-label { font-size: 12px; color: var(--gray-500); font-weight: 500; margin-bottom: 6px; }
+.kpi-value { font-size: 20px; font-weight: 700; color: var(--neutral-900); }
+
+.filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.filters select { min-width: 168px; }
+.filters input[type='text'] {
+  font-family: inherit;
+  font-size: 13px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  padding: 7px 10px;
+  min-width: 220px;
+  flex: 1 1 220px;
+  box-shadow: var(--shadow-sm);
+}
+
+.dl-row-sub { font-size: 11.5px; color: var(--gray-500); margin-top: 2px; font-weight: 400; }
+
+/* A link that stays available but shouldn't compete with a primary
+   action (e.g. "Clear Goal", "Clear filters") — same control,
+   quieter by default, same blue-link affordance only on hover/focus. */
+.add-link.quiet { color: var(--gray-500); font-weight: 500; }
+.add-link.quiet:hover { color: var(--blue-cta); }

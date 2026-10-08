@@ -1,7 +1,6 @@
 // Ported from journeysnudgesemi/emi-conversions-prototype.html
 // (dcCondSummary, dcDecisionBranchSummary, dcGoalLabel, dcOrdinal,
 // dcRecurrenceLabel, dcRecomputeLabelMeta).
-import { CHANNEL_CONFIG_LABELS, COMMS_TEMPLATES, type Channel } from '../data/sharedConstants';
 import type { DripGoal, DripGoalCondition } from '../data/graphTypes';
 import type { DcNodeType } from '../data/nodeMeta';
 
@@ -90,51 +89,72 @@ export function dcRecurrenceLabel(p: ScheduledEntryConfig): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function dcRecomputeLabelMeta(type: DcNodeType, p: any, goal: DripGoal | null): { label: string; meta: string } {
   if (type === 'ENTRY_SEGMENT') {
-    const condSummary = dcCondSummary(p.conditions);
-    return { label: p.cohortDesc, meta: condSummary ? `${p.entity} · ${condSummary}` : `${p.entity} · no conditions — static snapshot` };
+    // Canvas-vs-drawer principle: the canvas is an execution map, not a
+    // configuration database (node-design refinement pass) — entity and
+    // eligibility conditions are real configuration detail, so they stay
+    // in the drawer. Recurrence is the one P1 fact worth a glance (does
+    // this re-fire on its own, or run once?); a non-repeating segment
+    // gets no meta line at all rather than a sentence restating "this is
+    // a static snapshot," which the absence of a recurrence line already
+    // implies.
+    return { label: p.cohortDesc, meta: p.repeat ? dcRecurrenceLabel(p) : '' };
   }
   if (type === 'ENTRY_EVENT') {
-    const condSummary = dcCondSummary(p.conditions);
-    return { label: p.eventType || 'Event Trigger', meta: condSummary ? `${p.eventCategory} · ${condSummary}` : p.eventCategory };
-  }
-  if (type === 'ENTRY_SCHEDULED') {
-    const condSummary = dcCondSummary(p.conditions);
-    return { label: 'Scheduled entry', meta: `${dcRecurrenceLabel(p)} · ${p.entity}${condSummary ? ': ' + condSummary : ' (everyone matching)'}` };
+    // Conditions are configuration detail (P2, drawer-only) — only the
+    // event category (P1) earns a glance on the canvas.
+    return { label: p.eventType || 'Event Trigger', meta: p.eventCategory };
   }
   if (type === 'SEND') {
-    const tmpl = COMMS_TEMPLATES.find((x) => x.id === p.templateId);
-    const timingLabel = p.timing === 'Absolute' ? p.absTime : `${p.relativeDuration} ${p.relativeUnit} after ${p.relativeAnchor}`;
-    return { label: p.name, meta: `${CHANNEL_CONFIG_LABELS[p.channel as Channel]} · ${p.account} · ${timingLabel}${tmpl ? ' · Template: ' + tmpl.name : ''}` };
-  }
-  if (type === 'CHANNEL_FAILOVER') {
-    const tmpl = COMMS_TEMPLATES.find((x) => x.id === p.templateId);
-    return {
-      label: `${CHANNEL_CONFIG_LABELS[p.primaryChannel as Channel]} → ${CHANNEL_CONFIG_LABELS[p.fallbackChannel as Channel]}`,
-      meta: `${p.account || ''}${tmpl ? ' · Template: ' + tmpl.name : ''} · Retries on fallback if primary delivery fails`,
-    };
+    // meta is deliberately unused for Send's own canvas rendering —
+    // channel, template, timing, and fallback each get their own
+    // dedicated row with its own icon, derived straight from _config at
+    // render time (toFlowElements.ts), not flattened into one string
+    // here (node-design refinement pass). Still returned as '' rather
+    // than removed from this function's total Record, matching every
+    // other node type's shape.
+    return { label: p.name, meta: '' };
   }
   if (type === 'PAUSE') return { label: `Wait ${p.duration} ${p.unit}`, meta: '' };
   if (type === 'WAIT_UNTIL') {
-    const condSummary = dcCondSummary(p.conditions);
-    return { label: p.eventType || 'Wait Until', meta: `Timeout after ${p.duration} ${p.unit} · ${p.eventCategory}${condSummary ? ' · ' + condSummary : ''}` };
+    // Event category and conditions are P2/unclassified configuration
+    // detail — only the timeout (P1) earns a canvas line alongside the
+    // event type itself.
+    return { label: p.eventType || 'Wait for Event', meta: `Timeout after ${p.duration} ${p.unit}` };
   }
   if (type === 'SPLIT') {
-    const goalQ = (dcGoalLabel(goal) || 'Goal') + '?';
-    const question =
-      p.basis === 'Goal reached'
-        ? goalQ
-        : p.customSource === 'Previous step outcome'
-          ? `Previous step: ${p.outcome}?`
-          : (dcCondSummary(p.customConditions) || 'Custom condition') + '?';
-    return { label: question, meta: p.basis === 'Goal reached' ? 'Goal check' : 'Custom condition split' };
+    // A Condition has no "Goal reached" basis anymore (Phase 1) — it's
+    // always a user-defined question, never a stand-in for the one
+    // campaign goal (that's GOAL_CHECK's job, a distinct node type that
+    // carries no condition config of its own at all — see below).
+    if (p.customSource === 'Previous step outcome') return { label: `Previous step: ${p.outcome}?`, meta: '' };
+    const conds = (p.customConditions || []).filter((c: DripGoalCondition) => c.attribute);
+    // One simple condition gets to be the label itself (a short, real
+    // business question) — two or more collapse to a count-only meta
+    // line instead (Phase 1 §9: counts, not joined expressions). This is
+    // the direct fix for the literal bug a joined multi-condition string
+    // produced on canvas ("Status = Active, Status ≠ Active?").
+    if (conds.length === 0) return { label: 'Custom condition', meta: '' };
+    if (conds.length === 1) return { label: (dcCondSummary(conds) || 'Custom condition') + '?', meta: '' };
+    return { label: 'Custom condition', meta: `${conds.length} conditions` };
   }
   if (type === 'DECISION_SPLIT') {
-    const label = p.source === 'Previous step outcome' ? 'Previous step outcome' : p.attribute || 'Decision Split';
+    const label = p.source === 'Previous step outcome' ? 'Previous step outcome' : p.attribute || 'Branch';
     return { label, meta: `${p.branches.length} branch${p.branches.length === 1 ? '' : 'es'} + catch-all` };
   }
   if (type === 'RANDOM_SPLIT') {
-    return { label: p.name, meta: p.branches.map((b: { label: string; pct: number }) => `${b.label} ${b.pct}%`).join(' / ') + ' allocation' };
+    // Count always; the per-branch allocation only tags along when it's
+    // short enough not to become the same "long expression on canvas"
+    // problem Phase 1 §9 exists to prevent (a 2-way 50/50 test reads
+    // fine inline, a 6-variant test would not).
+    const allocation = p.branches.map((b: { label: string; pct: number }) => `${b.label} ${b.pct}%`).join(' / ');
+    const countLabel = `${p.branches.length} variant${p.branches.length === 1 ? '' : 's'}`;
+    return { label: p.name, meta: allocation.length <= 24 ? `${countLabel} — ${allocation}` : countLabel };
   }
+  // GOAL_CHECK carries no `_config` at all (always null) — its label is
+  // set directly at creation time in campaignReducer.ts, never recomputed
+  // here, since it's never routed through an edit form. Included for
+  // completeness/type-safety only; this branch should never actually run.
+  if (type === 'GOAL_CHECK') return { label: (dcGoalLabel(goal) || 'Goal') + '?', meta: '' };
   if (type === 'GOAL_EXIT' || type === 'EXIT') return { label: p.reason, meta: '' };
   return { label: '', meta: '' };
 }

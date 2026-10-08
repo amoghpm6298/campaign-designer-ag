@@ -36,6 +36,7 @@ input[type='text'].f-input, input[type='number'].f-input, input[type='date'].f-i
   border: 1px solid var(--gray-300); border-radius: 8px; padding: 9px 11px; box-shadow: var(--shadow-sm, 0 1px 2px rgba(16,24,40,.06));
   min-width: 0;
 }
+.f-input:focus-visible, .dc-type-opt:focus-visible, .dc-add-btn:focus-visible { outline: 2px solid var(--blue-cta); outline-offset: 1px; }
 
 /* Exactly 4 real grid items are ever rendered here (attribute, operator,
    value, remove) — the template previously defined 5 tracks (1fr 1fr 1fr
@@ -55,24 +56,61 @@ input[type='text'].f-input, input[type='number'].f-input, input[type='date'].f-i
 .msel-panel { border: 1px solid var(--gray-200); border-radius: 8px; margin-top: 6px; padding: 8px; max-height: 220px; overflow-y: auto; background: #fff; box-shadow: var(--shadow-sm, 0 1px 2px rgba(16,24,40,.06)); }
 .msel-option { display: flex; align-items: center; gap: 8px; padding: 5px 4px; font-size: 13px; cursor: pointer; }
 
-.dc-type-group-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--gray-400); margin: 14px 0 6px; }
+.dc-type-group-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--gray-400); margin: 16px 0 6px; }
 .dc-type-group-label:first-child { margin-top: 0; }
-.dc-type-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
-/* A group with an odd number of tiles (the 3-tile Entry picker; the
-   5-tile Logic group) otherwise leaves its last tile alone in a row with
-   dead space beside it — make that one tile span the full width instead. */
-.dc-type-picker > .dc-type-opt:last-child:nth-child(odd) { grid-column: 1 / -1; }
-.dc-type-opt { border: 1.5px solid var(--gray-200); border-radius: 8px; padding: 9px 10px; cursor: pointer; font-size: 12px; font-weight: 600; }
-.dc-type-opt .dc-type-opt-sub { font-size: 10.5px; font-weight: 500; color: var(--gray-500); margin-top: 1px; }
-.dc-type-opt:hover { border-color: var(--blue-cta); }
+
+/* Add Step as a command/menu list, not a grid of tiles — one row per
+   option (icon, name, short explanation), scanned top-to-bottom rather
+   than across two columns. */
+.dc-type-picker { display: flex; flex-direction: column; gap: 2px; margin-bottom: 18px; }
+.dc-type-opt {
+  display: flex; align-items: flex-start; gap: 10px;
+  border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; cursor: pointer;
+}
+.dc-type-opt:hover { background: var(--gray-50); }
 .dc-type-opt.active { border-color: var(--blue-cta); background: var(--info-bg); }
-.dc-type-opt.cat-entry { color: var(--info-text); }
-.dc-type-opt.cat-send { color: var(--blue-cta); }
-.dc-type-opt.cat-flow { color: var(--gray-600); }
-.dc-type-opt.cat-split { color: var(--warning-text); }
-.dc-type-opt.cat-goal { color: var(--success-text); }
-.dc-type-opt.cat-exit { color: var(--gray-500); }
-.dc-type-opt.cat-link { color: var(--indigo); }
+.dc-type-opt-icon { flex-shrink: 0; width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; background: var(--gray-100); color: inherit; margin-top: 1px; }
+.dc-type-opt-text { display: flex; flex-direction: column; min-width: 0; }
+.dc-type-opt-name { font-size: 13px; font-weight: 600; color: var(--neutral-900); }
+.dc-type-opt-sub { font-size: 11.5px; font-weight: 400; color: var(--gray-500); margin-top: 1px; }
+.dc-type-opt.disabled { cursor: not-allowed; }
+.dc-type-opt.disabled .dc-type-opt-icon { background: var(--gray-100); color: var(--gray-400) !important; }
+.dc-type-opt.disabled .dc-type-opt-name { color: var(--gray-400); }
+.dc-type-opt.disabled .dc-type-opt-sub { color: var(--gray-400); }
+.dc-type-opt.disabled:hover { background: transparent; }
+.dc-type-opt.cat-entry .dc-type-opt-icon { color: var(--info-text); background: var(--info-bg); }
+.dc-type-opt.cat-send .dc-type-opt-icon { color: var(--blue-cta); background: var(--info-bg); }
+.dc-type-opt.cat-flow .dc-type-opt-icon { color: var(--gray-600); }
+.dc-type-opt.cat-split .dc-type-opt-icon { color: var(--warning-text); background: var(--warning-bg); }
+.dc-type-opt.cat-experiment .dc-type-opt-icon { color: var(--purple-text); background: var(--purple-bg); }
+.dc-type-opt.cat-goal .dc-type-opt-icon { color: var(--success-text); background: var(--success-bg); }
+.dc-type-opt.cat-goalcheck .dc-type-opt-icon { color: var(--indigo); background: var(--indigo-bg, #eceefc); }
+.dc-type-opt.cat-exit .dc-type-opt-icon { color: var(--gray-500); }
+.dc-type-picker-entry { gap: 8px; }
+
+/* Collapsed picker state — once a type is chosen, the full list above
+   is replaced by this one-row summary + an explicit "Change" button so
+   re-opening the list reads as a real, easy-to-find action rather than
+   something you'd only discover by hunting for a subtle text link. */
+.dc-type-chip {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border: 1px solid var(--gray-200); border-radius: 8px; padding: 9px 10px 9px 12px;
+  margin-bottom: 20px; font-size: 12.5px; font-weight: 600;
+}
+.dc-type-chip-label::before { content: '✓ '; }
+.dc-type-chip.cat-entry { border-color: var(--info-text); background: var(--info-bg); color: var(--info-text); }
+.dc-type-chip.cat-send { border-color: var(--blue-cta); color: var(--blue-cta); }
+.dc-type-chip.cat-flow { color: var(--gray-600); }
+.dc-type-chip.cat-split { border-color: var(--warning-border); color: var(--warning-text); }
+.dc-type-chip.cat-experiment { border-color: var(--purple-text); color: var(--purple-text); }
+.dc-type-chip.cat-goalcheck { border-color: var(--indigo); color: var(--indigo); background: var(--indigo-bg, #eceefc); }
+.dc-type-chip.cat-goal { border-color: var(--success-border); color: var(--success-text); }
+.dc-type-chip.cat-exit { color: var(--gray-500); }
+.dc-type-chip-change {
+  flex-shrink: 0; border: 1px solid var(--indigo); border-radius: 6px; background: #fff;
+  color: var(--indigo); font-size: 11.5px; font-weight: 700; padding: 5px 10px; cursor: pointer;
+}
+.dc-type-chip-change:hover { background: var(--gray-50); }
 
 .dcb-insert-row { height: 14px; margin: -3px 0 3px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }
 .dcb-insert-row::before, .dcb-insert-row::after { content: ''; flex: 1; height: 1px; background: transparent; transition: background 0.12s; }

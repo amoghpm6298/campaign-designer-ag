@@ -52,13 +52,18 @@ export function DripView({
 
   return (
     <div style={{ padding: 24 }}>
-      <div className="page-header">
-        <button className="btn secondary" style={{ marginBottom: 10 }} onClick={onBack}>
+      {/* Plain top-to-bottom stack, not .page-header's flex row (that
+          class is built for a simple 2-item title+button header, like
+          DripList's own — stuffing this view's 6 unrelated pieces into
+          it is what caused the scattered, half-right-aligned layout). */}
+      <div className="dv-header">
+        <div className="add-link" onClick={onBack}>
           ← Back to Drip Campaigns
-        </button>
-        <h1 className="page-title">
-          {c.name} <span className={`badge ${sm.badge}`} style={{ marginLeft: 8, verticalAlign: 'middle' }}>{sm.label}</span>
-        </h1>
+        </div>
+        <div className="dv-header-title-row">
+          <h1 className="page-title">{c.name}</h1>
+          <span className={`badge ${sm.badge}`}>{sm.label}</span>
+        </div>
         <p className="page-sub">
           {c.issuer || 'No issuer set'}
           {c.programs?.length ? ' · ' + c.programs.join(', ') : ''} · Goal: {dcGoalLabel(c.goal) ? `${dcGoalLabel(c.goal)} (${c.goal!.eventCategory})` : 'None — independent checkpoints'} · Control Group:{' '}
@@ -66,7 +71,7 @@ export function DripView({
         </p>
         {c.description && <p className="page-sub" style={{ marginTop: 4 }}>{c.description}</p>}
         {versionNote}
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <div className="dv-header-actions">
           {c.status === 'PENDING_REVIEW' && (
             <button className="btn primary" onClick={() => onAction(c.id, 'approve')}>
               {c.startDate ? `Approve (starts ${c.startDate.replace('T', ' ')})` : 'Approve & Activate'}

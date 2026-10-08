@@ -28,7 +28,7 @@ export function ConditionsSection({ conditions, entity, onChange, label = 'Condi
           {label} <span style={{ fontWeight: 400, color: 'var(--gray-500)' }}>(optional)</span>
         </label>
         <p className="f-hint" style={{ margin: 0 }}>
-          No typed attributes defined yet for this category — narrowing by attribute isn't available.
+          No typed attributes defined yet for this category — narrowing by attribute isn't available. Only Transaction Events and EMI Events have one today.
         </p>
       </div>
     );
@@ -103,17 +103,28 @@ export function ConditionRows({ conditions, entity, onChange }: { conditions: Co
         // same precedent used throughout this file. The underlying
         // condition object is backfilled with it once a value is toggled.
         const effectiveOperator = attrMeta?.type === 'multiSelect' ? 'Any of' : c.operator;
+        // Every condition in this list is AND'd together — picking the
+        // same attribute in two rows can trivially produce a
+        // self-contradictory, always-false condition (e.g. "Status =
+        // Active" AND "Status ≠ Active" in the same list) with nothing
+        // to warn about it. Excluding attributes already claimed by
+        // OTHER rows (not this row's own pick) from this row's own
+        // dropdown rules that out structurally instead of relying on a
+        // warning someone could ignore.
+        const usedElsewhere = new Set(conditions.filter((_, idx) => idx !== i).map((cc) => cc.attribute).filter(Boolean));
 
         return (
           <div className="cond-row" key={i}>
             {attrOptions ? (
               <select value={c.attribute} onChange={(e) => setRow(i, { attribute: e.target.value, value: '', values: [] })}>
                 <option value="">Attribute</option>
-                {attrOptions.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
+                {attrOptions
+                  .filter((a) => a === c.attribute || !usedElsewhere.has(a))
+                  .map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
               </select>
             ) : (
               <input type="text" className="f-input" placeholder="Attribute" value={c.attribute || ''} onChange={(e) => setRow(i, { attribute: e.target.value })} />

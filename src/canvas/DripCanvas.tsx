@@ -36,13 +36,14 @@ interface DripCanvasInnerProps {
   onAddAtEdge?: (edgeId: string) => void;
   onAddAtGrowLeaf?: (nodeId: string) => void;
   onAddAtMidEdge?: (edgeId: string) => void;
+  onRemoveGoalCheck?: (nodeId: string) => void;
   metrics?: DripCanvasMetrics;
 }
 
-function DripCanvasInner({ graph, editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, metrics }: DripCanvasInnerProps) {
+function DripCanvasInner({ graph, editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onRemoveGoalCheck, metrics }: DripCanvasInnerProps) {
   const opts: ToFlowOptions = useMemo(
-    () => ({ editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, metrics }),
-    [editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, metrics],
+    () => ({ editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onRemoveGoalCheck, metrics }),
+    [editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onRemoveGoalCheck, metrics],
   );
   const initial = useMemo(() => graphToFlowElements(graph, opts), [graph, opts]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
@@ -91,7 +92,19 @@ function DripCanvasInner({ graph, editable, onEditNode, onRemoveRoot, onReplaceA
       >
         <Background gap={16} size={1} />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable />
+        {/* Kept — genuinely useful once a journey grows toward the 20-50
+            node range this canvas is built to scale to — but made visually
+            secondary at the sizes most journeys actually are: small,
+            quiet until hovered, no heavy card chrome. */}
+        <MiniMap
+          pannable
+          zoomable
+          className="dc-minimap"
+          style={{ width: 96, height: 64 }}
+          maskColor="rgba(228, 231, 236, 0.5)"
+          nodeColor="#d0d5dd"
+          nodeStrokeWidth={0}
+        />
       </ReactFlow>
     </div>
   );
