@@ -9,8 +9,8 @@ export const DC_TYPE_SUB: Record<DcNodeType, string> = {
   SEND: 'Send a message through a selected channel',
   PAUSE: 'Wait for a fixed duration',
   WAIT_UNTIL: 'Wait until an event occurs',
-  SPLIT: 'Check whether conditions are true',
-  DECISION_SPLIT: 'Split customers by an attribute',
+  SPLIT: 'Splits into Yes or No, based on conditions you set',
+  DECISION_SPLIT: 'Splits into multiple paths, one per attribute value',
   RANDOM_SPLIT: 'Split traffic between variants',
   // Never shown in the Add Step picker — GOAL_CHECK is excluded from
   // every `types` list passed to TypePicker — but DC_TYPE_SUB is a
