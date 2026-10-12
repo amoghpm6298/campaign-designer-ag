@@ -8,10 +8,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMemo, useState } from 'react';
 import type { DripCampaign, DripGoal, DripGraph } from '../data/graphTypes';
-import type { DcNodeType } from '../data/nodeMeta';
+import { DC_STEP_TYPES, type DcNodeType } from '../data/nodeMeta';
 import { DC_ENTRY_TYPES } from '../data/typeSub';
 import type { PrevStepSend } from '../data/sharedConstants';
-import { dcConfirmAddNode, dcConfirmEditNode, dcRemoveEdge, dcRemoveGoalCheck, dcRemoveRoot, type DcAddingAt } from '../reducer/campaignReducer';
+import { dcConfirmAddNode, dcConfirmEditNode, dcRemoveEdge, dcRemoveGoalCheck, dcRemoveRoot, dcRenameEdge, type DcAddingAt } from '../reducer/campaignReducer';
 import { dcGraphHasOpenBranches } from '../reducer/graphOps';
 import { dcDefaultConfig, dcDefaultExitReason } from '../reducer/defaultConfig';
 import { BasicDetailsStep } from './BasicDetailsStep';
@@ -26,13 +26,13 @@ import './dripBuilder.css';
 
 const EMPTY_GRAPH: DripGraph = { nodes: {}, edges: [], rootId: null };
 
-// Full user-facing taxonomy, every non-Entry context (Phase 1 §10A) —
-// GOAL_CHECK is never a member: it's 100% system-generated, never a tile
-// in any Add Step context. Always passed in full; which tiles are
-// actually pickable right now is controlled by `disabledTypes` below, not
-// by shortening this list (Phase 1 §10: show disabled-with-a-reason,
-// never silently omit).
-const ALL_STEP_TYPES: DcNodeType[] = ['SEND', 'PAUSE', 'WAIT_UNTIL', 'SPLIT', 'DECISION_SPLIT', 'RANDOM_SPLIT', 'GOAL_EXIT', 'EXIT'];
+// The full non-Entry taxonomy comes straight from DC_STEP_TYPES
+// (nodeMeta.ts) — this file used to keep its own hand-maintained copy,
+// which then silently fell out of step when GOAL_CHECK became addable:
+// the shared list had it, this one didn't, so the tile never rendered.
+// One list, one place. Which tiles are actually pickable right now is
+// controlled by `disabledTypes` below, never by shortening the list
+// (Phase 1 §10: show disabled-with-a-reason, never silently omit).
 
 // Mid-chain insert only reattaches cleanly when the new node (plus its
 // own auto-children) leaves exactly one dangling continuation edge — a
@@ -48,6 +48,7 @@ const MID_EDGE_RESTRICTED_TYPES: DcNodeType[] = ['DECISION_SPLIT', 'RANDOM_SPLIT
 // everyone who reaches that point as having achieved the goal,
 // unconditionally, with no way back (the exact dead-end pattern this
 // restriction exists to prevent).
+const GOAL_CHECK_NO_GOAL_REASON = 'No campaign Goal is defined yet, so there is nothing for this to check. Set one on the Goal step first.';
 const GOAL_REACHED_LINEAR_REASON = 'This would mark everyone who reaches this point as having achieved the goal, unconditionally. Add a Condition or Branch first if you want to check for it.';
 
 export interface DripBuilderPayload {
@@ -113,6 +114,15 @@ export function DripBuilder({
     const root = initial?.root?.rootId ? initial.root.nodes[initial.root.rootId] : null;
     return root?.type === 'ENTRY_EVENT' ? (root.meta.split(' · ')[0] ?? null) : null;
   });
+  // Entry · Event's own eventType — read straight from the node's own
+  // `label` (same reasoning as entryEventCategory reading `meta`: an
+  // ENTRY_EVENT's label IS its eventType, per dcRecomputeLabelMeta, so
+  // this works for every seeded node regardless of whether its _config
+  // happens to be populated).
+  const [entryEventType, setEntryEventType] = useState<string | null>(() => {
+    const root = initial?.root?.rootId ? initial.root.nodes[initial.root.rootId] : null;
+    return root?.type === 'ENTRY_EVENT' ? root.label || null : null;
+  });
 
   // Add/edit drawer state.
   const [addingAt, setAddingAt] = useState<DcAddingAt | null>(null);
@@ -150,8 +160,13 @@ export function DripBuilder({
     const sourceOutCount = addingAtSourceId ? graph.edges.filter((e) => e.from === addingAtSourceId).length : 0;
     const isBranchArm = addingAt?.kind === 'edge' && sourceOutCount > 1;
     if (!isBranchArm && !d['GOAL_EXIT']) d['GOAL_EXIT'] = GOAL_REACHED_LINEAR_REASON;
+    // A Goal Check asks one question — "has the campaign Goal been
+    // achieved?" — so with no Goal defined there is literally nothing
+    // for it to check. Same shape of gate as Goal Reached above:
+    // offered, visibly disabled, with the reason stated.
+    if (!goal?.eventType && !d['GOAL_CHECK']) d['GOAL_CHECK'] = GOAL_CHECK_NO_GOAL_REASON;
     return d;
-  }, [addingAt, addingAtSourceId, graph]);
+  }, [addingAt, addingAtSourceId, graph, goal]);
 
   // The most recent Send before this point — walks backward via incoming
   // edges, transparently skipping the auto goal-check Split every Send
@@ -197,7 +212,10 @@ export function DripBuilder({
     if (!addingType || !addingAt) return;
     const next = dcConfirmAddNode(graph, addingType, pendingConfig, addingAt, goal);
     pushGraph(next);
-    if (addingType === 'ENTRY_EVENT') setEntryEventCategory(pendingConfig.eventCategory);
+    if (addingType === 'ENTRY_EVENT') {
+      setEntryEventCategory(pendingConfig.eventCategory);
+      setEntryEventType(pendingConfig.eventType);
+    }
     cancelAdd();
   }
 
@@ -231,6 +249,9 @@ export function DripBuilder({
 
   function removeEdge(edgeId: string) {
     pushGraph(dcRemoveEdge(graph, edgeId));
+  }
+  function renameEdge(edgeId: string, label: string) {
+    pushGraph(dcRenameEdge(graph, edgeId, label));
   }
   function removeRoot() {
     pushGraph(dcRemoveRoot(graph));
@@ -352,6 +373,7 @@ export function DripBuilder({
             </div>
             <BuilderStep
               graph={graph}
+              goal={goal}
               onAddEntry={() => selectAddAt({ kind: 'root' })}
               onEditNode={openEditNode}
               onRemoveRoot={removeRoot}
@@ -360,6 +382,8 @@ export function DripBuilder({
               onAddAtEdge={(edgeId) => selectAddAt({ kind: 'edge', edgeId })}
               onAddAtGrowLeaf={(nodeId) => selectAddAt({ kind: 'growLeaf', nodeId })}
               onAddAtMidEdge={(edgeId) => selectAddAt({ kind: 'midEdge', edgeId })}
+              onAddParallel={(nodeId) => selectAddAt({ kind: 'growLeaf', nodeId })}
+              onRenameEdge={renameEdge}
               onRemoveGoalCheck={removeGoalCheck}
             />
           </>
@@ -409,7 +433,7 @@ export function DripBuilder({
         isEditing={editingNodeId !== null}
         isEntry={isEntry}
         isMidEdge={addingAt?.kind === 'midEdge'}
-        types={isEntry ? DC_ENTRY_TYPES : ALL_STEP_TYPES}
+        types={isEntry ? DC_ENTRY_TYPES : DC_STEP_TYPES}
         disabledTypes={isEntry ? undefined : disabledTypes}
         selectedType={addingType}
         pendingConfig={pendingConfig}
@@ -419,6 +443,7 @@ export function DripBuilder({
         onConfirm={editingNodeId !== null ? confirmEditNode : confirmAddNode}
         goal={goal}
         entryEventCategory={entryEventCategory}
+        entryEventType={entryEventType}
         previousStepChannel={previousStepChannel}
         onGoToGoal={() => {
           cancelEdit();

@@ -40,7 +40,7 @@ export function DripAnalytics({ campaign }: { campaign: DripCampaign }) {
       </div>
 
       <div className="card" style={{ padding: 0, height: '65vh', border: '1px solid var(--gray-200)', borderRadius: 10, overflow: 'hidden' }}>
-        <DripCanvas graph={campaign.root!} editable={false} metrics={metrics} />
+        <DripCanvas graph={campaign.root!} goal={campaign.goal} editable={false} metrics={metrics} />
       </div>
     </div>
   );

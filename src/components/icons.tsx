@@ -28,12 +28,29 @@ const ICONS: Record<string, string> = {
   list: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/>',
   calc: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8"/><path d="M8 11h1M11.5 11h1M15 11h1M8 15h1M11.5 15h1M15 15h1M8 19h1M11.5 19h1M15 19h5v-4"/>',
 
-  // Canvas node-category glyphs (see nodeMeta.ts's DC_CATEGORY_ICON) —
-  // same thin-line style as the sidebar set above, kept intentionally
-  // small in number (one per category, Phase 2 §10: avoid icon overload).
+  // Canvas node glyphs (see nodeMeta.ts's DC_NODE_ICON) — same thin-line
+  // style as the sidebar set above. One per NODE TYPE, not per category:
+  // these were originally one-per-category, which left Wait/Wait for
+  // Event sharing a clock and Condition/Branch sharing a fork, so the two
+  // items in a picker section were indistinguishable at a glance. Colour
+  // still comes from the category (see .icon-box in the CSS), so a
+  // section still reads as one family — only the glyph differentiates.
   flag: '<path d="M6 3v18"/><path d="M6 4h12l-3 4 3 4H6"/>',
   paperplane: '<path d="m22 2-9.5 9.5"/><path d="M22 2 15 22l-3.5-8.5L3 10z"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  // Wait for Event — the thing being awaited, not the passing of time,
+  // so it's deliberately NOT a clock variant (a clock with a small badge
+  // is unreadable at the ~13px these render at).
+  bolt: '<path d="M13 2 4.5 13.5H11l-1 8.5L18.5 10.5H12z"/>',
+  // Condition vs Branch. My first attempt made these two fork glyphs
+  // differing only by an extra output dot — true to the semantics, but
+  // invisible at the ~13px these actually render at, which is the same
+  // "two rows look identical" problem this change exists to fix. These
+  // differ in overall SHAPE instead, which is what survives at that
+  // size: Condition is a two-way Y (a question with two answers),
+  // Branch is a trunk with several stacked arms (a list of routes).
+  split2: '<path d="M5 12h4"/><path d="M9 12 15.5 6.5"/><path d="M9 12 15.5 17.5"/><circle cx="17.5" cy="5.2" r="2"/><circle cx="17.5" cy="18.8" r="2"/>',
+  split3: '<path d="M4.5 4.5v15"/><path d="M4.5 7h9M4.5 12h9M4.5 17h9"/><circle cx="16" cy="7" r="1.8"/><circle cx="16" cy="12" r="1.8"/><circle cx="16" cy="17" r="1.8"/>',
   fork: '<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="12" r="2.2"/><path d="M8 7l8 4M8 17l8-4"/>',
   flask: '<path d="M9.5 2.5h5"/><path d="M10.5 2.5v6.2L4.8 18a1.6 1.6 0 0 0 1.4 2.5h11.6a1.6 1.6 0 0 0 1.4-2.5L13.5 8.7V2.5"/><path d="M7 15h10"/>',
   targetCheck: '<circle cx="12" cy="12" r="8.5"/><path d="m8.5 12 2.3 2.3L16 9.5"/>',

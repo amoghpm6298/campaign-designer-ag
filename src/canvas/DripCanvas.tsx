@@ -20,7 +20,7 @@ import {
   ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import type { DripGraph } from '../data/graphTypes';
+import type { DripGraph, DripGoal } from '../data/graphTypes';
 import { dripNodeTypes } from './nodeTypes';
 import { dripEdgeTypes } from './DripEdge';
 import { graphToFlowElements, type ToFlowOptions, type DripCanvasMetrics } from './toFlowElements';
@@ -36,14 +36,17 @@ interface DripCanvasInnerProps {
   onAddAtEdge?: (edgeId: string) => void;
   onAddAtGrowLeaf?: (nodeId: string) => void;
   onAddAtMidEdge?: (edgeId: string) => void;
+  onAddParallel?: (nodeId: string) => void;
+  onRenameEdge?: (edgeId: string, label: string) => void;
   onRemoveGoalCheck?: (nodeId: string) => void;
   metrics?: DripCanvasMetrics;
+  goal?: DripGoal | null;
 }
 
-function DripCanvasInner({ graph, editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onRemoveGoalCheck, metrics }: DripCanvasInnerProps) {
+function DripCanvasInner({ graph, editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onAddParallel, onRenameEdge, onRemoveGoalCheck, metrics, goal }: DripCanvasInnerProps) {
   const opts: ToFlowOptions = useMemo(
-    () => ({ editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onRemoveGoalCheck, metrics }),
-    [editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onRemoveGoalCheck, metrics],
+    () => ({ editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onAddParallel, onRenameEdge, onRemoveGoalCheck, metrics, goal }),
+    [editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onAddParallel, onRenameEdge, onRemoveGoalCheck, metrics, goal],
   );
   const initial = useMemo(() => graphToFlowElements(graph, opts), [graph, opts]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);

@@ -6,7 +6,7 @@
 // affordance.
 import { Handle, Position } from '@xyflow/react';
 import type { DcNodeType, DcNodeCategory } from '../data/nodeMeta';
-import { DC_NODE_META, DC_CATEGORY_ICON } from '../data/nodeMeta';
+import { DC_NODE_META, DC_NODE_ICON } from '../data/nodeMeta';
 import { Icon } from '../components/icons';
 
 const handleStyle: React.CSSProperties = { opacity: 0, width: 1, height: 1 };
@@ -81,6 +81,12 @@ export interface DripCardData {
   // Present only on the read-only Analytics view.
   stat?: string;
   engagement?: string;
+  // Set only when this node can hold genuinely parallel outgoing paths
+  // (see dcCanFanOut) AND already has at least one — with zero children
+  // the ordinary "+" slot below the card already covers adding the
+  // first, so offering both would be two controls for one action.
+  canAddParallel?: boolean;
+  onAddParallel?: () => void;
   // Ordered left-to-right, one id per outgoing edge — only set when this
   // node has 2+ outgoing edges (a Split). See toFlowElements.ts for why:
   // a single shared centered handle makes every branch's label chip
@@ -94,7 +100,7 @@ export function DripCardNode({ data }: { data: DripCardData }) {
   const meta = DC_NODE_META[data.type];
   const cat: DcNodeCategory = meta.cat;
   const isEntry = cat === 'entry';
-  const typeIcon = data.type === 'SEND' && data.channel && DC_CHANNEL_ICON[data.channel] ? DC_CHANNEL_ICON[data.channel] : DC_CATEGORY_ICON[cat];
+  const typeIcon = data.type === 'SEND' && data.channel && DC_CHANNEL_ICON[data.channel] ? DC_CHANNEL_ICON[data.channel] : DC_NODE_ICON[data.type];
   // Once the icon carries the channel, the meta line below no longer
   // repeats it as text (see labelMeta.ts) — this title is the one place
   // that fact is still spelled out, for anyone hovering who doesn't
@@ -204,6 +210,18 @@ export function DripCardNode({ data }: { data: DripCardData }) {
           title="System step — tap to customize"
         >
           ↻ System step · Customize
+        </div>
+      )}
+      {data.editable && data.canAddParallel && (
+        <div
+          className="dc-parallel-badge"
+          onClick={(e) => {
+            e.stopPropagation();
+            data.onAddParallel?.();
+          }}
+          title="Add another path from here — everyone who reaches this step goes down every path"
+        >
+          + Parallel path
         </div>
       )}
       {data.editable && data.isAutoGoalCheck && (

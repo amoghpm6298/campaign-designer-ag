@@ -1,0 +1,620 @@
+<title>Drip Campaigns — Product Overview</title>
+<style>
+  :root{
+    --bg:#ffffff; --surface:#f9fafb; --surface-2:#f2f4f7; --border:#e4e7ec; --border-soft:#edeff3;
+    --text:#101828; --text-muted:#475467; --text-faint:#8a94a6;
+    --indigo:#292c82; --indigo-bg:#eceefa; --indigo-text:#292c82;
+    --blue:#0a66ef; --blue-bg:#e7f0fe; --blue-text:#175cd3;
+    --slate:#475467; --slate-bg:#f2f4f7; --slate-text:#475467;
+    --purple:#6941c6; --purple-bg:#f4ebff; --purple-text:#6941c6;
+    --teal:#0f7b8a; --teal-bg:#e6f5f7; --teal-text:#0f7b8a;
+    --amber:#a15c07; --amber-bg:#feefc6; --amber-text:#a15c07;
+    --green:#039754; --green-bg:#ebfdf2; --green-text:#039754;
+    --mono-bg:#f2f4f7; --mono-border:#e4e7ec;
+    --shadow-card: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+  }
+  /* Light only — no dark-mode variant, matching Hyperface product surfaces. */
+
+  *{box-sizing:border-box;}
+  html,body{color-scheme:light;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  code{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size:0.88em; background:var(--mono-bg); border:1px solid var(--mono-border);
+    border-radius:4px; padding:1px 5px; color:var(--text);
+  }
+  h1,h2,h3,h4{ text-wrap:balance; }
+  a{ color:var(--blue); }
+  .ic{ width:16px; height:16px; flex-shrink:0; stroke:currentColor; fill:none; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ---------- layout ---------- */
+  .layout{ display:flex; max-width:1280px; margin:0 auto; }
+  .nav{
+    position:sticky; top:0; align-self:flex-start; width:224px; flex-shrink:0;
+    padding:28px 16px 40px 28px; height:100vh; overflow-y:auto;
+  }
+  .nav-brand{ display:flex; align-items:center; gap:8px; margin-bottom:28px; }
+  .nav-brand-mark{ width:22px; height:22px; border-radius:6px; background:var(--indigo); flex-shrink:0; }
+  .nav-brand-text{ font-size:13px; font-weight:700; color:var(--text); letter-spacing:-0.01em; }
+  .nav-group{ margin-bottom:20px; }
+  .nav-title{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--text-faint); margin:0 0 6px; padding:0 10px; }
+  .nav a{ display:block; padding:5px 10px; margin:1px 0; border-radius:6px; color:var(--text-muted); text-decoration:none; font-size:13px; font-weight:500; }
+  .nav a:hover{ background:var(--surface-2); color:var(--text); }
+
+  main{ flex:1; min-width:0; padding:40px 48px 120px; border-left:1px solid var(--border); }
+  .section{ margin-bottom:64px; scroll-margin-top:16px; }
+  .section:first-child{ margin-top:0; }
+  .eyebrow{ font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--blue-text); margin:0 0 8px; }
+  .section h2{ font-size:24px; font-weight:750; letter-spacing:-0.015em; margin:0 0 10px; }
+  .section > p.lede{ color:var(--text-muted); max-width:680px; margin:0 0 28px; font-size:15px; }
+  .overflow-wrap{ overflow-x:auto; }
+
+  /* ---------- hero (Section A) ---------- */
+  .hero{ padding-top:4px; }
+  .hero h1{ font-size:34px; font-weight:750; letter-spacing:-0.02em; margin:0 0 14px; max-width:620px; }
+  .hero p.sub{ font-size:16.5px; color:var(--text-muted); max-width:600px; margin:0 0 28px; }
+  .hero-row{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:8px; }
+  .hero-chip{
+    display:flex; align-items:center; gap:7px; padding:7px 13px 7px 10px; border-radius:20px;
+    background:var(--surface); border:1px solid var(--border); font-size:13px; font-weight:600; color:var(--text);
+  }
+  .hero-chip .ic{ color:var(--blue-text); }
+  .hero-note{ font-size:13px; color:var(--text-faint); margin-top:18px; max-width:600px; }
+
+  /* ---------- flow diagram (Section B) ---------- */
+  .band-label{ display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700; letter-spacing:.03em; color:var(--text-faint); text-transform:uppercase; margin:0 0 10px; }
+  .band-label .dot{ width:8px; height:8px; border-radius:50%; }
+  .flow-row{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:28px; }
+  .flow-step{
+    flex:1; min-width:170px; border:1px solid var(--border); border-radius:10px; background:var(--surface);
+    padding:16px 16px 15px; position:relative;
+  }
+  .flow-step.journey{ background:var(--blue-bg); border-color:#cfe1fb; }
+  .flow-step-num{ font-size:11px; font-weight:700; color:var(--text-faint); margin-bottom:6px; }
+  .flow-step-title{ font-size:14.5px; font-weight:700; margin:0 0 5px; color:var(--text); }
+  .flow-step-sub{ font-size:12.5px; color:var(--text-muted); line-height:1.5; margin:0; }
+  .flow-arrow{ display:flex; align-items:center; color:var(--text-faint); flex-shrink:0; }
+  @media (max-width:980px){ .flow-arrow{ display:none; } }
+
+  /* ---------- taxonomy grid (Section C) ---------- */
+  .tax-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(230px,1fr)); gap:14px; margin-bottom:32px; }
+  .tax-card{ border:1px solid var(--border); border-radius:12px; padding:18px 18px 16px; background:var(--bg); box-shadow:var(--shadow-card); }
+  .tax-card-head{ display:flex; align-items:center; gap:9px; margin-bottom:10px; }
+  .tax-icon{ width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .tax-icon .ic{ width:17px; height:17px; }
+  .tax-card-title{ font-size:14.5px; font-weight:700; color:var(--text); }
+  .tax-node-list{ display:flex; flex-direction:column; gap:5px; }
+  .tax-node-item{ font-size:13px; color:var(--text-muted); padding:5px 0 5px 2px; border-top:1px solid var(--border-soft); }
+  .tax-node-item:first-child{ border-top:none; }
+  .tax-node-item b{ color:var(--text); font-weight:600; }
+
+  table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  table.idx th, table.idx td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
+  table.idx th{ font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); font-weight:700; background:var(--surface); }
+  table.idx tr:last-child td{ border-bottom:none; }
+  table.idx td.cat{ white-space:nowrap; }
+
+  .cat-pill{ display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700; padding:3px 9px 3px 7px; border-radius:20px; white-space:nowrap; }
+  .cat-pill .ic{ width:12px; height:12px; }
+  .cat-pill.entry{ background:var(--indigo-bg); color:var(--indigo-text); }
+  .cat-pill.actions{ background:var(--blue-bg); color:var(--blue-text); }
+  .cat-pill.wait{ background:var(--slate-bg); color:var(--slate-text); }
+  .cat-pill.decisions{ background:var(--purple-bg); color:var(--purple-text); }
+  .cat-pill.experiment{ background:var(--teal-bg); color:var(--teal-text); }
+  .cat-pill.syseval{ background:var(--amber-bg); color:var(--amber-text); }
+  .cat-pill.goal{ background:var(--green-bg); color:var(--green-text); }
+  .cat-pill.exit{ background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border); }
+
+  .icon-box.entry{ background:var(--indigo-bg); color:var(--indigo-text); }
+  .icon-box.actions{ background:var(--blue-bg); color:var(--blue-text); }
+  .icon-box.wait{ background:var(--slate-bg); color:var(--slate-text); }
+  .icon-box.decisions{ background:var(--purple-bg); color:var(--purple-text); }
+  .icon-box.experiment{ background:var(--teal-bg); color:var(--teal-text); }
+  .icon-box.syseval{ background:var(--amber-bg); color:var(--amber-text); }
+  .icon-box.goal{ background:var(--green-bg); color:var(--green-text); }
+  .icon-box.exit{ background:var(--surface-2); color:var(--text-muted); }
+
+  /* ---------- node reference cards (Section D) ---------- */
+  .node-card{ border:1px solid var(--border); border-radius:12px; background:var(--bg); padding:22px 26px; margin-bottom:18px; scroll-margin-top:16px; }
+  .node-card-head{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:3px; }
+  .node-card-head h3{ font-size:17px; font-weight:700; margin:0; }
+  .node-card-sub{ color:var(--text-muted); font-size:13px; margin:0 0 16px; }
+  .node-card-purpose{ font-size:13.5px; color:var(--text); background:var(--surface); border-radius:7px; padding:9px 13px; margin:0 0 16px; }
+  h4.sec{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--text-faint); margin:16px 0 8px; }
+  h4.sec:first-of-type{ margin-top:0; }
+  table.fields{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  table.fields th, table.fields td{ text-align:left; padding:6px 10px; border-bottom:1px solid var(--border-soft); vertical-align:top; }
+  table.fields th{ font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); font-weight:700; }
+  table.fields tr:last-child td{ border-bottom:none; }
+  table.fields td.v{ color:var(--text-muted); }
+  .out-row{ display:flex; gap:10px; align-items:flex-start; padding:8px 12px; border-radius:8px; background:var(--surface); margin-bottom:6px; font-size:13.5px; }
+  .out-row:last-child{ margin-bottom:0; }
+  .arrow-badge{ font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:5px; flex-shrink:0; white-space:nowrap; margin-top:1px; }
+  .arrow-badge.yes{ background:var(--green-bg); color:var(--green-text); }
+  .arrow-badge.no{ background:#feeceb; color:#b42318; }
+  .arrow-badge.n{ background:var(--blue-bg); color:var(--blue-text); }
+  .arrow-badge.term{ background:var(--bg); color:var(--text-faint); border:1px solid var(--border); }
+  .note{ font-size:12.5px; color:var(--amber-text); background:var(--amber-bg); border:1px solid #f3dca8; border-radius:7px; padding:7px 11px; margin-top:12px; }
+  .subnote{ font-size:12.5px; color:var(--text-muted); margin-top:10px; }
+  .not-separate{ display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; padding:2px 9px; border-radius:20px; background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border); white-space:nowrap; }
+
+  /* ---------- setup sequence (Section F) ---------- */
+  .setup-row{ display:flex; gap:0; flex-wrap:wrap; margin-bottom:26px; }
+  .setup-step{ flex:1; min-width:150px; text-align:left; padding:0 14px 0 0; position:relative; }
+  .setup-step-dot{ width:28px; height:28px; border-radius:50%; background:var(--bg); border:2px solid var(--indigo); color:var(--indigo); display:flex; align-items:center; justify-content:center; font-size:12.5px; font-weight:700; margin-bottom:10px; }
+  .setup-step-line{ position:absolute; top:13px; left:28px; right:0; height:2px; background:var(--border); }
+  .setup-step:last-child .setup-step-line{ display:none; }
+  .setup-step-title{ font-size:14px; font-weight:700; margin:0 0 4px; }
+  .setup-step-sub{ font-size:12.5px; color:var(--text-muted); line-height:1.5; margin:0; }
+
+  .status-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+  .status-chip{ font-size:12px; font-weight:600; padding:4px 11px; border-radius:16px; }
+  .status-chip.gray{ background:var(--surface-2); color:var(--text-muted); }
+  .status-chip.success{ background:var(--green-bg); color:var(--green-text); }
+  .status-chip.warning{ background:var(--amber-bg); color:var(--amber-text); }
+  .status-chip.error{ background:#fee3e1; color:#b42318; }
+  .status-chip.info{ background:var(--blue-bg); color:var(--blue-text); }
+
+  /* ---------- concepts table (Section G) ---------- */
+  table.concepts td{ padding:12px 14px; border-bottom:1px solid var(--border-soft); font-size:13.5px; vertical-align:top; }
+  table.concepts tr:last-child td{ border-bottom:none; }
+  table.concepts td.term{ font-weight:700; color:var(--text); white-space:nowrap; width:170px; }
+  table.concepts td.def{ color:var(--text-muted); }
+
+  /* ---------- implementation status (Section H) ---------- */
+  .status-split{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  @media (max-width:760px){ .status-split{ grid-template-columns:1fr; } }
+  .status-block{ border:1px solid var(--border); border-radius:12px; padding:18px 20px; }
+  .status-block.configured{ background:var(--blue-bg); border-color:#cfe1fb; }
+  .status-block.runtime{ background:var(--surface); }
+  .status-block h4{ font-size:13px; font-weight:700; margin:0 0 10px; display:flex; align-items:center; gap:7px; }
+  .status-block ul{ margin:0; padding-left:18px; font-size:13px; color:var(--text-muted); line-height:1.7; }
+
+  footer.page-foot{ margin-top:70px; padding-top:20px; border-top:1px solid var(--border); font-size:12px; color:var(--text-faint); }
+
+  @media (max-width:900px){
+    .layout{ flex-direction:column; }
+    .nav{ position:static; width:auto; height:auto; padding:20px 20px; border-bottom:1px solid var(--border); }
+    main{ padding:28px 22px 80px; border-left:none; }
+  }
+</style>
+
+<div class="layout">
+  <nav class="nav">
+    <div class="nav-brand"><div class="nav-brand-mark"></div><div class="nav-brand-text">Hyperface</div></div>
+    <div class="nav-group">
+      <div class="nav-title">Guide</div>
+      <a href="#overview">Overview</a>
+      <a href="#how-it-works">How a campaign works</a>
+      <a href="#taxonomy">Node taxonomy</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title">Node reference</div>
+      <a href="#entry-segment">Entry · Audience</a>
+      <a href="#entry-event">Entry · Event</a>
+      <a href="#send">Send</a>
+      <a href="#parallel-paths">Parallel paths</a>
+      <a href="#channel-failover">Channel Failover</a>
+      <a href="#wait">Wait</a>
+      <a href="#wait-until">Wait for Event</a>
+      <a href="#split">Condition</a>
+      <a href="#decision-split">Branch</a>
+      <a href="#random-split">Experiment</a>
+      <a href="#goal-check">Goal Check</a>
+      <a href="#goal-exit">Goal Reached</a>
+      <a href="#exit">Exit</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title">Putting it together</div>
+      <a href="#campaign-setup">Campaign setup</a>
+      <a href="#concepts">Key concepts</a>
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- ============ SECTION A — OVERVIEW ============ -->
+    <section class="section hero" id="overview">
+      <p class="eyebrow">Drip Campaigns</p>
+      <h1>A visual way to build multi-step customer journeys.</h1>
+      <p class="sub">Drip Campaigns is a builder for setting up how a bank or issuer talks to its customers over time. A campaign is a sequence of communications, waits, and decisions, not one message sent once.</p>
+      <p class="sub">A campaign starts by defining who can enter and what counts as success. Then it lays out a journey on a canvas. The journey is a chain of steps. Each step can send a message, wait, branch customers down different paths, or check whether they've reached the goal.</p>
+      <div class="hero-row">
+        <div class="hero-chip"><svg class="ic" viewBox="0 0 20 20"><line x1="5" y1="3" x2="5" y2="17"/><path d="M5 4h8l-2.3 3L13 10H5"/></svg>Entry</div>
+        <div class="hero-chip"><svg class="ic" viewBox="0 0 20 20"><path d="M17 3 3 9.5l5 2 2 5L17 3Z"/><path d="M10 11.5 8 17l-1-5.5"/></svg>Communications</div>
+        <div class="hero-chip"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.2"/><path d="M10 6v4l3 2"/></svg>Waits</div>
+        <div class="hero-chip"><svg class="ic" viewBox="0 0 20 20"><line x1="10" y1="3" x2="10" y2="9"/><line x1="10" y1="9" x2="5" y2="16"/><line x1="10" y1="9" x2="15" y2="16"/></svg>Decisions &amp; branching</div>
+        <div class="hero-chip"><svg class="ic" viewBox="0 0 20 20"><path d="M8 3h4M8.5 3v5L4.5 15a1.5 1.5 0 0 0 1.3 2.2h8.4A1.5 1.5 0 0 0 15.5 15l-4-7V3"/><line x1="6.5" y1="12.5" x2="13.5" y2="12.5"/></svg>Experimentation</div>
+        <div class="hero-chip"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3.4"/><path d="M8.3 10.2 9.6 11.6 12.2 8.6"/></svg>Goal evaluation</div>
+        <div class="hero-chip"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="7.5" r="4.5"/><path d="M7.3 11.3 6 17l4-2 4 2-1.3-5.7"/></svg>Completion or exit</div>
+      </div>
+      <p class="hero-note">This document explains the product. It also works as a compact reference for what each Journey Builder node accepts and produces.</p>
+    </section>
+
+    <!-- ============ SECTION B — HOW A CAMPAIGN WORKS ============ -->
+    <section class="section" id="how-it-works">
+      <p class="eyebrow">Section B</p>
+      <h2>How a campaign works</h2>
+      <p class="lede">A campaign is built in five steps. Steps 1, 2, and 4 define the campaign as a whole. Step 3, the Builder, is where you lay out the journey.</p>
+
+      <div class="band-label"><span class="dot" style="background:var(--indigo)"></span>Campaign-level configuration</div>
+      <div class="flow-row">
+        <div class="flow-step"><div class="flow-step-num">1</div><div class="flow-step-title">Basic Details</div><p class="flow-step-sub">Name, description, issuer &amp; program scope, control group %, re-entry rule, schedule.</p></div>
+        <div class="flow-arrow"><svg class="ic" style="width:20px;height:20px" viewBox="0 0 20 20"><line x1="3" y1="10" x2="16" y2="10"/><path d="M11.5 5.5 16 10l-4.5 4.5"/></svg></div>
+        <div class="flow-step"><div class="flow-step-num">2</div><div class="flow-step-title">Goal</div><p class="flow-step-sub">The event, and any conditions, that count as success.</p></div>
+      </div>
+
+      <div class="band-label"><span class="dot" style="background:var(--blue)"></span>Journey-level configuration</div>
+      <div class="flow-row">
+        <div class="flow-step journey" style="flex:2"><div class="flow-step-num">3</div><div class="flow-step-title">Builder</div><p class="flow-step-sub">Define entry. Add nodes to the canvas and connect them. Configure each node's conditions, communication settings, or timing.</p></div>
+      </div>
+
+      <div class="band-label"><span class="dot" style="background:var(--indigo)"></span>Campaign-level configuration, continued</div>
+      <div class="flow-row">
+        <div class="flow-step"><div class="flow-step-num">4</div><div class="flow-step-title">Guardrails</div><p class="flow-step-sub">Exclusion lists: Do Not Contact and Non-Performing Assets. Checked at every step, not just at entry.</p></div>
+        <div class="flow-arrow"><svg class="ic" style="width:20px;height:20px" viewBox="0 0 20 20"><line x1="3" y1="10" x2="16" y2="10"/><path d="M11.5 5.5 16 10l-4.5 4.5"/></svg></div>
+        <div class="flow-step"><div class="flow-step-num">5</div><div class="flow-step-title">Review</div><p class="flow-step-sub">A read-back of everything above, then Save as Draft or Submit for Approval.</p></div>
+      </div>
+
+      <p class="lede" style="margin-bottom:0;">Outcomes live inside the journey, not as a separate step. Every path through the canvas ends at <b>Goal Reached</b> or <b>Exit</b>. Goal Reached means the customer achieved the goal. Exit means the journey ended without it.</p>
+    </section>
+
+    <!-- ============ SECTION C — NODE TAXONOMY ============ -->
+    <section class="section" id="taxonomy">
+      <p class="eyebrow">Section C</p>
+      <h2>Journey Builder node catalogue</h2>
+      <p class="lede">Every node type available on the Builder canvas, grouped by what it's for. Click a node below to see its full configuration and routing.</p>
+
+      <div class="tax-grid">
+        <div class="tax-card">
+          <div class="tax-card-head"><div class="tax-icon icon-box entry"><svg class="ic" viewBox="0 0 20 20"><line x1="5" y1="3" x2="5" y2="17"/><path d="M5 4h8l-2.3 3L13 10H5"/></svg></div><div class="tax-card-title">Entry</div></div>
+          <div class="tax-node-list">
+            <div class="tax-node-item"><b>Entry · Audience</b> — qualify by attributes</div>
+            <div class="tax-node-item"><b>Entry · Event</b> — qualify by an event</div>
+          </div>
+        </div>
+        <div class="tax-card">
+          <div class="tax-card-head"><div class="tax-icon icon-box actions"><svg class="ic" viewBox="0 0 20 20"><path d="M17 3 3 9.5l5 2 2 5L17 3Z"/><path d="M10 11.5 8 17l-1-5.5"/></svg></div><div class="tax-card-title">Actions</div></div>
+          <div class="tax-node-list">
+            <div class="tax-node-item"><b>Send</b> — a communication</div>
+            <div class="tax-node-item"><b>Channel Failover</b> — fallback within Send</div>
+          </div>
+        </div>
+        <div class="tax-card">
+          <div class="tax-card-head"><div class="tax-icon icon-box wait"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.2"/><path d="M10 6v4l3 2"/></svg></div><div class="tax-card-title">Wait</div></div>
+          <div class="tax-node-list">
+            <div class="tax-node-item"><b>Wait</b> — a fixed delay</div>
+            <div class="tax-node-item"><b>Wait for Event</b> — delay until an event, or timeout</div>
+          </div>
+        </div>
+        <div class="tax-card">
+          <div class="tax-card-head"><div class="tax-icon icon-box decisions"><svg class="ic" viewBox="0 0 20 20"><line x1="10" y1="3" x2="10" y2="9"/><line x1="10" y1="9" x2="5" y2="16"/><line x1="10" y1="9" x2="15" y2="16"/></svg></div><div class="tax-card-title">Decisions</div></div>
+          <div class="tax-node-list">
+            <div class="tax-node-item"><b>Condition</b> — a Yes/No fork on something you choose</div>
+            <div class="tax-node-item"><b>Branch</b> — an N-way fork</div>
+            <div class="tax-node-item"><b>Goal Check</b> — a Yes/No fork on the campaign Goal. Added automatically after every Send and Wait, and addable by hand anywhere else.</div>
+          </div>
+        </div>
+        <div class="tax-card">
+          <div class="tax-card-head"><div class="tax-icon icon-box experiment"><svg class="ic" viewBox="0 0 20 20"><path d="M8 3h4M8.5 3v5L4.5 15a1.5 1.5 0 0 0 1.3 2.2h8.4A1.5 1.5 0 0 0 15.5 15l-4-7V3"/><line x1="6.5" y1="12.5" x2="13.5" y2="12.5"/></svg></div><div class="tax-card-title">Experimentation</div></div>
+          <div class="tax-node-list">
+            <div class="tax-node-item"><b>Experiment</b> — split by chance</div>
+          </div>
+        </div>
+        <div class="tax-card">
+          <div class="tax-card-head"><div class="tax-icon icon-box goal"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="7.5" r="4.5"/><path d="M7.3 11.3 6 17l4-2 4 2-1.3-5.7"/></svg></div><div class="tax-card-title">Outcomes</div></div>
+          <div class="tax-node-list">
+            <div class="tax-node-item"><b>Goal Reached</b> — terminal, counted as success</div>
+            <div class="tax-node-item"><b>Exit</b> — terminal, not counted as success</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="overflow-wrap">
+        <table class="idx">
+          <tr><th>Category</th><th>Node</th><th>Purpose</th></tr>
+          <tr><td class="cat"><span class="cat-pill entry"><svg class="ic" viewBox="0 0 20 20"><line x1="5" y1="3" x2="5" y2="17"/><path d="M5 4h8l-2.3 3L13 10H5"/></svg>Entry</span></td><td>Entry · Audience</td><td>Qualifies customers into the journey based on their current attributes.</td></tr>
+          <tr><td class="cat"><span class="cat-pill entry"><svg class="ic" viewBox="0 0 20 20"><line x1="5" y1="3" x2="5" y2="17"/><path d="M5 4h8l-2.3 3L13 10H5"/></svg>Entry</span></td><td>Entry · Event</td><td>Qualifies customers into the journey when they fire a specific event.</td></tr>
+          <tr><td class="cat"><span class="cat-pill actions"><svg class="ic" viewBox="0 0 20 20"><path d="M17 3 3 9.5l5 2 2 5L17 3Z"/><path d="M10 11.5 8 17l-1-5.5"/></svg>Actions</span></td><td>Send</td><td>Sends a communication on a chosen channel at a chosen time.</td></tr>
+          <tr><td class="cat"><span class="cat-pill actions"><svg class="ic" viewBox="0 0 20 20"><path d="M17 3 3 9.5l5 2 2 5L17 3Z"/><path d="M10 11.5 8 17l-1-5.5"/></svg>Actions</span></td><td>Channel Failover</td><td>A fallback channel configured on Send, used if the primary delivery fails.</td></tr>
+          <tr><td class="cat"><span class="cat-pill wait"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.2"/><path d="M10 6v4l3 2"/></svg>Wait</span></td><td>Wait</td><td>Pauses the journey for a fixed duration before continuing.</td></tr>
+          <tr><td class="cat"><span class="cat-pill wait"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.2"/><path d="M10 6v4l3 2"/></svg>Wait</span></td><td>Wait for Event</td><td>Pauses until an event occurs or a timeout elapses, then forks on which happened.</td></tr>
+          <tr><td class="cat"><span class="cat-pill decisions"><svg class="ic" viewBox="0 0 20 20"><line x1="10" y1="3" x2="10" y2="9"/><line x1="10" y1="9" x2="5" y2="16"/><line x1="10" y1="9" x2="15" y2="16"/></svg>Decisions</span></td><td>Condition</td><td>Evaluates a configured condition and forks customers into Yes/No.</td></tr>
+          <tr><td class="cat"><span class="cat-pill decisions"><svg class="ic" viewBox="0 0 20 20"><line x1="10" y1="3" x2="10" y2="9"/><line x1="10" y1="9" x2="5" y2="16"/><line x1="10" y1="9" x2="15" y2="16"/></svg>Decisions</span></td><td>Branch</td><td>Routes customers across several named paths based on one attribute or outcome.</td></tr>
+          <tr><td class="cat"><span class="cat-pill experiment"><svg class="ic" viewBox="0 0 20 20"><path d="M8 3h4M8.5 3v5L4.5 15a1.5 1.5 0 0 0 1.3 2.2h8.4A1.5 1.5 0 0 0 15.5 15l-4-7V3"/><line x1="6.5" y1="12.5" x2="13.5" y2="12.5"/></svg>Experimentation</span></td><td>Experiment</td><td>Randomly allocates customers across variants by percentage.</td></tr>
+          <tr><td class="cat"><span class="cat-pill decisions"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3.4"/><path d="M8.3 10.2 9.6 11.6 12.2 8.6"/></svg>Decisions</span></td><td>Goal Check</td><td>Checks whether the campaign Goal has been reached. Added automatically after every Send and Wait, and addable by hand anywhere else.</td></tr>
+          <tr><td class="cat"><span class="cat-pill goal"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="7.5" r="4.5"/><path d="M7.3 11.3 6 17l4-2 4 2-1.3-5.7"/></svg>Outcomes</span></td><td>Goal Reached</td><td>A terminal node. The customer achieved the campaign Goal.</td></tr>
+          <tr><td class="cat"><span class="cat-pill exit"><svg class="ic" viewBox="0 0 20 20"><rect x="4" y="3" width="8" height="14" rx="1"/><path d="M12 10h4m0 0-2-2m2 2-2 2"/></svg>Outcomes</span></td><td>Exit</td><td>A terminal node. The journey ended without reaching the Goal.</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ SECTION D — NODE REFERENCE ============ -->
+    <section class="section" id="node-reference-intro">
+      <p class="eyebrow">Section D</p>
+      <h2>Node reference</h2>
+      <p class="lede">What each node accepts as configuration, and what it produces: which customers continue, and down which path.</p>
+    </section>
+
+    <!-- ENTRY · AUDIENCE -->
+    <div class="node-card" id="entry-segment">
+      <div class="node-card-head"><h3>Entry · Audience</h3><span class="cat-pill entry"><svg class="ic" viewBox="0 0 20 20"><line x1="5" y1="3" x2="5" y2="17"/><path d="M5 4h8l-2.3 3L13 10H5"/></svg>Entry</span></div>
+      <p class="node-card-sub">Root node. One per campaign.</p>
+      <p class="node-card-purpose">Qualifies a customer based on their current attributes. Re-checked on a schedule if the audience repeats.</p>
+      <h4 class="sec">Configuration</h4>
+      <table class="fields">
+        <tr><th>Field</th><th>Type</th><th>Values / default</th></tr>
+        <tr><td><code>entity</code></td><td>select</td><td class="v">Customer · Account · Card · Transaction · Milestone — default <code>Customer</code></td></tr>
+        <tr><td><code>conditions[]</code></td><td>array</td><td class="v">attribute + operator + value rows, scoped to the chosen entity. Unused when entity is Milestone.</td></tr>
+        <tr><td><code>milestone</code></td><td>object</td><td class="v">only shown when <code>entity</code> = Milestone — which benefit, which condition, and what value. See <a href="#split">Condition</a> for the full shape.</td></tr>
+        <tr><td><code>lookbackDuration</code> + <code>lookbackUnit</code> + <code>existence</code></td><td>number + select + select</td><td class="v">only meaningful (and only shown) when <code>entity</code> = Transaction — days/hours lookback window, default <code>90</code>/<code>days</code>, and whether a matching transaction must exist or must not, default <code>exists</code></td></tr>
+        <tr><td><code>extraEntityGroups[]</code></td><td>array</td><td class="v">zero or more extra entity filters, same shape as the primary block above, each AND'd with it. Default <code>[]</code>. Lets one audience combine entities, like Account = Dormant and Card = Active, or even two different Transaction checks.</td></tr>
+        <tr><td><code>repeat</code></td><td>boolean</td><td class="v">default <code>false</code></td></tr>
+        <tr><td><code>recurrenceType</code></td><td>select</td><td class="v">Monthly · Weekly · Daily — only shown if <code>repeat</code> is true, default <code>Monthly</code></td></tr>
+        <tr><td><code>timeOfDay</code></td><td>time</td><td class="v">default <code>'09:00'</code></td></tr>
+      </table>
+      <h4 class="sec">Output</h4>
+      <div class="out-row"><span class="arrow-badge n">Starting segment</span>Every customer who matches the primary block and every extra entity filter. This is where the rest of the journey starts from.</div>
+      <p class="subnote">This is an entry-time check only. It decides who qualifies to start. What happens after that is up to the nodes that follow.</p>
+      <p class="subnote">Transaction is a real entity choice, not a separate toggle — picking it reveals a Lookback and Match field under the usual Filters, since its attributes already exist and render the same way every other entity's do.</p>
+      <p class="subnote">Milestone is a real entity choice too. It checks whether a customer has completed, or not completed, a specific benefit, like a spend target. This is the main way a Promotional campaign's whole audience is qualified, not just an extra filter.</p>
+      <p class="subnote">"+ Add another entity filter" adds one more entity block, each independently removable. A customer must match every block.</p>
+    </div>
+
+    <!-- ENTRY · EVENT -->
+    <div class="node-card" id="entry-event">
+      <div class="node-card-head"><h3>Entry · Event</h3><span class="cat-pill entry"><svg class="ic" viewBox="0 0 20 20"><line x1="5" y1="3" x2="5" y2="17"/><path d="M5 4h8l-2.3 3L13 10H5"/></svg>Entry</span></div>
+      <p class="node-card-sub">Root node. One per campaign.</p>
+      <p class="node-card-purpose">Qualifies a customer the moment they fire a specific event.</p>
+      <h4 class="sec">Configuration</h4>
+      <table class="fields">
+        <tr><th>Field</th><th>Type</th><th>Values / default</th></tr>
+        <tr><td><code>eventCategory</code></td><td>select</td><td class="v">see Event categories — default <code>Journey Events</code></td></tr>
+        <tr><td><code>eventType</code></td><td>select</td><td class="v">depends on <code>eventCategory</code>, see Event categories — required</td></tr>
+        <tr><td><code>journey</code> / <code>batch</code></td><td>select + select</td><td class="v">only for Journey Events — optional, blank by default</td></tr>
+        <tr><td><code>offerType</code> / <code>offerName</code></td><td>select + text</td><td class="v">only for Offer Events — optional, blank by default. <code>offerName</code> is free text, since there's no real catalog of offer names to pick from.</td></tr>
+        <tr><td><code>conditions[]</code></td><td>array</td><td class="v">Transaction/EMI Events narrow by a real attribute (Transaction or EMI Request). Journey/Offer Events narrow by one fixed attribute per event type instead (e.g. Pageload locks to "Page Name"). Card Events has neither.</td></tr>
+      </table>
+      <h4 class="sec">Output</h4>
+      <div class="out-row"><span class="arrow-badge n">Starting segment</span>Every customer who fires the event and matches the configured conditions, if any.</div>
+    </div>
+
+    <!-- SEND -->
+    <div class="node-card" id="send">
+      <div class="node-card-head"><h3>Send</h3><span class="cat-pill actions"><svg class="ic" viewBox="0 0 20 20"><path d="M17 3 3 9.5l5 2 2 5L17 3Z"/><path d="M10 11.5 8 17l-1-5.5"/></svg>Actions</span></div>
+      <p class="node-card-purpose">Sends a communication to the customers who reach this step.</p>
+      <h4 class="sec">Configuration</h4>
+      <table class="fields">
+        <tr><th>Field</th><th>Type</th><th>Values / default</th></tr>
+        <tr><td><code>name</code></td><td>text</td><td class="v">step name, default <code>'Send Message'</code></td></tr>
+        <tr><td><code>channel</code></td><td>select</td><td class="v">see Channels — default <code>WHATSAPP</code></td></tr>
+        <tr><td><code>account</code></td><td>select</td><td class="v">depends on <code>channel</code> — required</td></tr>
+        <tr><td><code>templateId</code></td><td>select</td><td class="v">depends on <code>channel</code> + <code>account</code> — required</td></tr>
+        <tr><td><code>timing</code></td><td>select</td><td class="v">Absolute · Relative — default <code>Absolute</code></td></tr>
+        <tr><td><code>absTime</code></td><td>time</td><td class="v">only if timing = Absolute, default <code>'11:00'</code></td></tr>
+        <tr><td><code>relativeDuration</code> + <code>relativeUnit</code></td><td>number + select</td><td class="v">only if timing = Relative — delay after the previous step, default <code>1</code> / <code>days</code>. <code>0</code> reads as "Immediately after previous step."</td></tr>
+        <tr><td><code>fallbackChannel</code></td><td>select</td><td class="v">'' (no fallback) or any channel except the primary — default <code>''</code>. See <a href="#channel-failover">Channel Failover</a> below.</td></tr>
+        <tr><td><code>fallbackAccount</code> + <code>fallbackTemplateId</code></td><td>select + select</td><td class="v">only if <code>fallbackChannel</code> is set</td></tr>
+      </table>
+      <h4 class="sec">Output</h4>
+      <div class="out-row"><span class="arrow-badge n">Unchanged segment</span>A Send doesn't filter anyone out. Everyone who reached it carries forward, whether delivery succeeded or not.</div>
+      <div class="out-row"><span class="arrow-badge yes">Auto-fork, if a Goal is defined</span>The outgoing segment is split right away by an automatically inserted Goal Check. See <a href="#goal-check">Goal Check</a>.</div>
+      <p class="subnote">The delivery status, like delivered or bounced, feeds downstream Condition and Branch nodes through the "Previous step outcome" source.</p>
+    </div>
+
+    <!-- PARALLEL PATHS -->
+    <div class="node-card" id="parallel-paths">
+      <div class="node-card-head"><h3>Parallel paths</h3><span class="not-separate">A way to connect steps, not a separate node</span></div>
+      <p class="node-card-purpose">Lets one step lead to several next steps at the same time. Everyone who reaches that step goes down every path.</p>
+      <p class="subnote">This is different from Condition, Branch and Experiment. Those send each customer down only one path. Parallel paths send everyone down all of them.</p>
+      <h4 class="sec">When you would use it</h4>
+      <div class="out-row"><span class="arrow-badge n">Checkpoints from one start</span>A campaign that checks on a customer at several fixed points in time. Spend Milestone checks at Month 1, 3, 6 and 12, all counted from the day the card was activated. Anniversary programmes and onboarding check-ins work the same way.</div>
+      <h4 class="sec">How to use it</h4>
+      <div class="out-row"><span class="arrow-badge n">Add a path</span>Hover over a step that already has a next step. A "+ Parallel path" link appears. Click it and pick the step you want, same as usual.</div>
+      <div class="out-row"><span class="arrow-badge n">Name each path</span>Once a step has more than one path, each path shows a "+ Name" prompt on its line. Click it and type a name, like "Month 1". This only appears where there is more than one path, since a single line needs no name.</div>
+      <p class="subnote">Not available on Condition, Branch, Experiment, Goal Check or Wait for Event. Those already split into several paths, and their path names are set in their own panel.</p>
+      <p class="subnote">Four paths fit comfortably on screen. Beyond about six the canvas gets wide and you will need to zoom out or scroll.</p>
+    </div>
+
+    <!-- CHANNEL FAILOVER -->
+    <div class="node-card" id="channel-failover">
+      <div class="node-card-head"><h3>Channel Failover</h3><span class="not-separate">Part of Send, not a separate node</span></div>
+      <p class="node-card-purpose">A fallback channel, account, and template, configured directly inside a Send step. Used when the primary channel's delivery fails for a customer.</p>
+      <h4 class="sec">Configuration</h4>
+      <table class="fields">
+        <tr><th>Field</th><th>Type</th><th>Values / default</th></tr>
+        <tr><td><code>fallbackChannel</code></td><td>select</td><td class="v">any channel other than the primary — default <code>''</code> (no fallback)</td></tr>
+        <tr><td><code>fallbackAccount</code> + <code>fallbackTemplateId</code></td><td>select + select</td><td class="v">required once <code>fallbackChannel</code> is set — same dependency rules as the primary pair</td></tr>
+      </table>
+      <h4 class="sec">Output</h4>
+      <div class="out-row"><span class="arrow-badge n">Same Send, one of two channels</span>The journey continues exactly as a normal Send would. Downstream "Previous step outcome" conditions account for either channel delivering.</div>
+      <p class="subnote">There is no separate "Channel Failover" step to add to the canvas. This capability lives entirely inside Send's own configuration panel.</p>
+    </div>
+
+    <!-- WAIT -->
+    <div class="node-card" id="wait">
+      <div class="node-card-head"><h3>Wait</h3><span class="cat-pill wait"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.2"/><path d="M10 6v4l3 2"/></svg>Wait</span></div>
+      <p class="node-card-purpose">Pauses the journey for a fixed amount of time.</p>
+      <h4 class="sec">Configuration</h4>
+      <table class="fields">
+        <tr><th>Field</th><th>Type</th><th>Values / default</th></tr>
+        <tr><td><code>duration</code></td><td>number</td><td class="v">default <code>2</code></td></tr>
+        <tr><td><code>unit</code></td><td>select</td><td class="v">days · hours — default <code>days</code></td></tr>
+      </table>
+      <h4 class="sec">Output</h4>
+      <div class="out-row"><span class="arrow-badge n">Unchanged segment</span>Nobody is filtered out. The same customers continue once the wait elapses.</div>
+      <div class="out-row"><span class="arrow-badge yes">Auto-fork, if a Goal is defined</span>Same rule as Send. Split by an automatically inserted Goal Check.</div>
+    </div>
+
+    <!-- WAIT FOR EVENT -->
+    <div class="node-card" id="wait-until">
+      <div class="node-card-head"><h3>Wait for Event</h3><span class="cat-pill wait"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.2"/><path d="M10 6v4l3 2"/></svg>Wait</span></div>
+      <p class="node-card-purpose">Pauses until a specific event happens, or until a timeout is reached, whichever comes first.</p>
+      <h4 class="sec">Configuration</h4>
+      <table class="fields">
+        <tr><th>Field</th><th>Type</th><th>Values / default</th></tr>
+        <tr><td><code>eventCategory</code></td><td>select</td><td class="v">see Event categories</td></tr>
+        <tr><td><code>eventType</code></td><td>select</td><td class="v">depends on <code>eventCategory</code> — required</td></tr>
+        <tr><td><code>journey</code> / <code>batch</code> / <code>offerType</code> / <code>offerName</code></td><td>— / —</td><td class="v">same optional scoping fields as Entry · Event, shown under the same conditions</td></tr>
+        <tr><td><code>duration</code> + <code>unit</code></td><td>number + select</td><td class="v">timeout — default <code>7</code> / <code>days</code></td></tr>
+        <tr><td><code>conditions[]</code></td><td>array</td><td class="v">resolved the same way as Entry · Event</td></tr>
+      </table>
+      <h4 class="sec">Output — splits into two</h4>
+      <div class="out-row"><span class="arrow-badge yes">Yes</span>The event occurred before the timeout.</div>
+      <div class="out-row"><span class="arrow-badge no">No</span>The timeout was reached without the event occurring.</div>
+      <p class="subnote">If the event carries a status attribute that matches the campaign Goal, Yes is wired straight into a real Goal Check. That Goal Check's Yes goes to Goal Reached, and its No goes to an auto Exit labelled "Resolved, but not to the goal outcome." Otherwise, both paths are left open for you to configure.</p>
+    </div>
+
+    <!-- CONDITION -->
+    <div class="node-card" id="split">
+      <div class="node-card-head"><h3>Condition</h3><span class="cat-pill decisions"><svg class="ic" viewBox="0 0 20 20"><line x1="10" y1="3" x2="10" y2="9"/><line x1="10" y1="9" x2="5" y2="16"/><line x1="10" y1="9" x2="15" y2="16"/></svg>Decisions</span></div>
+      <p class="node-card-purpose">Evaluates a configured condition and forks the journey into two paths.</p>
+      <h4 class="sec">Configuration</h4>
+      <table class="fields">
+        <tr><th>Field</th><th>Type</th><th>Values / default</th></tr>
+        <tr><td><code>customSource</code></td><td>select</td><td class="v">Previous step outcome · Account attribute · Entry event attribute · Transaction history · Milestone — default <code>Previous step outcome</code>. To fork on the campaign Goal, use the Goal Check step instead.</td></tr>
+        <tr><td><code>outcomes[]</code></td><td>multiSelect</td><td class="v">only if source = Previous step outcome — a set of delivery statuses from the last Send; any one match → Yes</td></tr>
+        <tr><td><code>customConditions[]</code></td><td>array</td><td class="v">only if source = Account attribute or Entry event attribute — ALL must match → Yes. For a Journey/Offer Events entry, this becomes one fixed-attribute condition instead of a free attribute pick.</td></tr>
+        <tr><td><code>txnHistory</code></td><td>object</td><td class="v">only if source = Transaction history — filters + lookback duration/unit + existence mode (<code>exists</code>/<code>none</code>)</td></tr>
+        <tr><td><code>milestone</code></td><td>object</td><td class="v">only if source = Milestone — which benefit, which condition (Completed/Not Completed, or a number/percentage comparison), and the value to check</td></tr>
+      </table>
+      <h4 class="sec">Output — splits into two</h4>
+      <div class="out-row"><span class="arrow-badge yes">Yes</span>The condition matched. For Transaction history, it means the check matched. For Milestone, it means the benefit's progress matched.</div>
+      <div class="out-row"><span class="arrow-badge no">No</span>The condition didn't match.</div>
+      <p class="subnote">A single simple condition shows a readable summary on the canvas, like "Status = Active?" or "Spend ₹75,000 in first 90 days — Completed?". Two or more conditions, or a complex one, collapse to "Custom condition" plus a count. Raw operators and values are never shown on the canvas.</p>
+    </div>
+
+    <!-- BRANCH -->
+    <div class="node-card" id="decision-split">
+      <div class="node-card-head"><h3>Branch</h3><span class="cat-pill decisions"><svg class="ic" viewBox="0 0 20 20"><line x1="10" y1="3" x2="10" y2="9"/><line x1="10" y1="9" x2="5" y2="16"/><line x1="10" y1="9" x2="15" y2="16"/></svg>Decisions</span></div>
+      <p class="node-card-purpose">Routes customers across several named paths, based on one attribute or the previous step's outcome.</p>
+      <h4 class="sec">Configuration</h4>
+      <table class="fields">
+        <tr><th>Field</th><th>Type</th><th>Values / default</th></tr>
+        <tr><td><code>name</code></td><td>text</td><td class="v">step name, default <code>'Decision'</code></td></tr>
+        <tr><td><code>source</code></td><td>select</td><td class="v">Previous step outcome · Account attribute · Entry event attribute · Milestone — default <code>Account attribute</code>. No "Goal" source — a binary goal doesn't map onto an N-way branch.</td></tr>
+        <tr><td><code>attribute</code></td><td>select</td><td class="v">required for Account attribute or Entry event attribute. For a Journey/Offer Events entry, fixed to that event type's one locked attribute instead of a free pick. Changing it clears every branch's value, since a different attribute can be a different value type.</td></tr>
+        <tr><td><code>milestoneBenefitId</code></td><td>select</td><td class="v">required for the Milestone source — the one benefit every branch below is compared against</td></tr>
+        <tr><td><code>branches[]</code></td><td>array</td><td class="v">{label, operator, value, value2, values?} — default 2 branches. For Milestone, each branch can use a different condition (like under 25%, between 25 and 75, or Completed), all against the same benefit — a natural way to route by progress tier.</td></tr>
+      </table>
+      <h4 class="sec">Output — splits into N groups + a catch-all</h4>
+      <div class="out-row"><span class="arrow-badge n">One group per branch</span>Customers are sorted into whichever branch they match first, checked top to bottom.</div>
+      <div class="out-row"><span class="arrow-badge term">Catch-all</span>Implicit, and always last. Customers who match none of the configured branches land here.</div>
+    </div>
+
+    <!-- EXPERIMENT -->
+    <div class="node-card" id="random-split">
+      <div class="node-card-head"><h3>Experiment</h3><span class="cat-pill experiment"><svg class="ic" viewBox="0 0 20 20"><path d="M8 3h4M8.5 3v5L4.5 15a1.5 1.5 0 0 0 1.3 2.2h8.4A1.5 1.5 0 0 0 15.5 15l-4-7V3"/><line x1="6.5" y1="12.5" x2="13.5" y2="12.5"/></svg>Experimentation</span></div>
+      <p class="node-card-purpose">Randomly allocates customers across variants by percentage. It isn't based on anything about the customer.</p>
+      <h4 class="sec">Configuration</h4>
+      <table class="fields">
+        <tr><th>Field</th><th>Type</th><th>Values / default</th></tr>
+        <tr><td><code>name</code></td><td>text</td><td class="v">step name, default <code>'Channel test'</code></td></tr>
+        <tr><td><code>branches[]</code></td><td>array</td><td class="v">{label, pct} — default 2 branches, A/B at <code>50%</code> / <code>50%</code></td></tr>
+      </table>
+      <h4 class="sec">Output — splits into N groups by chance</h4>
+      <div class="out-row"><span class="arrow-badge n">One group per variant</span>Assigned randomly according to the configured percentages.</div>
+      <p class="note">Validation: variant percentages must sum to exactly 100.</p>
+    </div>
+
+    <!-- GOAL CHECK -->
+    <div class="node-card" id="goal-check">
+      <div class="node-card-head"><h3>Goal Check</h3><span class="cat-pill decisions"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3.4"/><path d="M8.3 10.2 9.6 11.6 12.2 8.6"/></svg>Decisions</span></div>
+      <p class="node-card-sub">Added automatically, or by hand.</p>
+      <p class="node-card-purpose">Evaluates the campaign-level Goal at this point in the journey.</p>
+      <h4 class="sec">How it gets added</h4>
+      <div class="out-row"><span class="arrow-badge n">Automatically</span>One is placed after every Send and every Wait, as soon as a campaign Goal is set. You don't have to do anything.</div>
+      <div class="out-row"><span class="arrow-badge n">By hand</span>Pick it from the Add Step list to check the Goal anywhere else — after a Wait for Event, or on a Branch, Experiment or Condition path, where no automatic one appears. It stays greyed out until a Goal is set, since there would be nothing to check.</div>
+      <p class="subnote">Both routes build exactly the same step, wired the same way. Condition used to carry a "Goal" source that asked the same question but left both paths open, so one question could produce two different journeys. That source is gone.</p>
+      <h4 class="sec">Configuration</h4>
+      <p class="subnote" style="margin-top:0;">None. It carries no configuration of its own. Its question always comes from the campaign's current Goal, so editing the Goal after the journey is built updates every existing Goal Check automatically.</p>
+      <h4 class="sec">Output — splits into two</h4>
+      <div class="out-row"><span class="arrow-badge yes">Yes</span>The customer achieved the Goal. Routed to Goal Reached.</div>
+      <div class="out-row"><span class="arrow-badge no">No</span>Not yet. The journey continues.</div>
+      <p class="subnote">This app has no execution engine. Nothing here is actually evaluated in real time.</p>
+    </div>
+
+    <!-- GOAL REACHED -->
+    <div class="node-card" id="goal-exit">
+      <div class="node-card-head"><h3>Goal Reached</h3><span class="cat-pill goal"><svg class="ic" viewBox="0 0 20 20"><circle cx="10" cy="7.5" r="4.5"/><path d="M7.3 11.3 6 17l4-2 4 2-1.3-5.7"/></svg>Outcomes</span></div>
+      <p class="node-card-sub">Terminal node.</p>
+      <p class="node-card-purpose">Means the customer achieved the campaign Goal.</p>
+      <h4 class="sec">Configuration</h4>
+      <table class="fields">
+        <tr><th>Field</th><th>Type</th><th>Values / default</th></tr>
+        <tr><td><code>reason</code></td><td>text</td><td class="v">auto-filled from the campaign Goal's label, or <code>'Goal achieved'</code> if there's no Goal. Editable, but set once. It won't update if you edit the Goal later.</td></tr>
+      </table>
+      <h4 class="sec">Output</h4>
+      <div class="out-row"><span class="arrow-badge term">Terminal</span>The journey ends here for this group of customers, counted as converted.</div>
+      <p class="subnote">Different from Goal Check. Goal Check is the evaluation. Goal Reached is where customers land once the answer is Yes.</p>
+    </div>
+
+    <!-- EXIT -->
+    <div class="node-card" id="exit">
+      <div class="node-card-head"><h3>Exit</h3><span class="cat-pill exit"><svg class="ic" viewBox="0 0 20 20"><rect x="4" y="3" width="8" height="14" rx="1"/><path d="M12 10h4m0 0-2-2m2 2-2 2"/></svg>Outcomes</span></div>
+      <p class="node-card-sub">Terminal node.</p>
+      <p class="node-card-purpose">Ends the journey for customers who didn't achieve the Goal.</p>
+      <h4 class="sec">Configuration</h4>
+      <table class="fields">
+        <tr><th>Field</th><th>Type</th><th>Values / default</th></tr>
+        <tr><td><code>reason</code></td><td>text</td><td class="v">default <code>'Sequence exhausted'</code></td></tr>
+      </table>
+      <h4 class="sec">Output</h4>
+      <div class="out-row"><span class="arrow-badge term">Terminal</span>The journey ends here for this group of customers, not counted as converted.</div>
+      <p class="subnote">Different from Goal Reached. The journey simply ran out of steps instead of reaching the goal.</p>
+    </div>
+
+    <!-- ============ SECTION F — CAMPAIGN SETUP & MANAGEMENT ============ -->
+    <section class="section" id="campaign-setup">
+      <p class="eyebrow">Section F</p>
+      <h2>Campaign setup and management</h2>
+      <p class="lede">Beyond the journey itself, a campaign carries its own setup and lifecycle.</p>
+
+      <div class="setup-row">
+        <div class="setup-step"><div class="setup-step-line"></div><div class="setup-step-dot">1</div><div class="setup-step-title">Basic Details</div><p class="setup-step-sub">Name, description, issuer and program scope, control group held back for measurement, re-entry rule, schedule.</p></div>
+        <div class="setup-step"><div class="setup-step-line"></div><div class="setup-step-dot">2</div><div class="setup-step-title">Goal</div><p class="setup-step-sub">The event that counts as success for this campaign.</p></div>
+        <div class="setup-step"><div class="setup-step-line"></div><div class="setup-step-dot">3</div><div class="setup-step-title">Builder</div><p class="setup-step-sub">The journey canvas. Entry, nodes, and connections.</p></div>
+        <div class="setup-step"><div class="setup-step-line"></div><div class="setup-step-dot">4</div><div class="setup-step-title">Guardrails</div><p class="setup-step-sub">Exclusion lists, on by default. Checked at every step.</p></div>
+        <div class="setup-step"><div class="setup-step-dot">5</div><div class="setup-step-title">Review</div><p class="setup-step-sub">Full read-back, then Save as Draft or Submit for Approval.</p></div>
+      </div>
+
+      <h4 class="sec" style="margin-top:4px;">Campaign lifecycle</h4>
+      <div class="status-row">
+        <span class="status-chip gray">Draft</span>
+        <span class="status-chip warning">Pending Approval</span>
+        <span class="status-chip error">Revision Required</span>
+        <span class="status-chip success">Active</span>
+        <span class="status-chip info">Scheduled</span>
+        <span class="status-chip info">Paused</span>
+        <span class="status-chip error">Killed</span>
+      </div>
+      <p class="lede" style="margin-bottom:0;">The campaign listing shows these statuses alongside issuer, program, entry type, and whether a Goal is set. A team can see at a glance what exists, what's awaiting approval, and what's live.</p>
+    </section>
+
+    <!-- ============ SECTION G — KEY CONCEPTS ============ -->
+    <section class="section" id="concepts">
+      <p class="eyebrow">Section G</p>
+      <h2>Important product concepts</h2>
+      <p class="lede">The core vocabulary a stakeholder needs to read a journey correctly.</p>
+
+      <div class="overflow-wrap">
+        <table class="concepts">
+          <tr><td class="term">Entry criteria</td><td class="def">The attributes or event that determine which customers qualify to enter a journey.</td></tr>
+          <tr><td class="term">Condition</td><td class="def">Evaluates a configured criterion and produces a Yes/No fork.</td></tr>
+          <tr><td class="term">Branch</td><td class="def">Routes customers across several named paths based on one attribute or outcome.</td></tr>
+          <tr><td class="term">Experiment</td><td class="def">Allocates customers to variants at random, by percentage.</td></tr>
+          <tr><td class="term">Campaign Goal</td><td class="def">The customer outcome that defines success for the whole campaign.</td></tr>
+          <tr><td class="term">Goal Check</td><td class="def">Evaluates the campaign Goal at a point in the journey. Added automatically after every Send and Wait; you can also add one yourself anywhere else.</td></tr>
+          <tr><td class="term">Goal Reached</td><td class="def">A terminal state that means the customer achieved the Goal.</td></tr>
+          <tr><td class="term">Exit</td><td class="def">A terminal state that ends the journey without reaching the Goal.</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <footer class="page-foot">Drip Campaigns Product Overview. Reflects the Journey Builder implementation as of this document's publication.</footer>
+  </main>
+</div>

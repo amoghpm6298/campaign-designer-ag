@@ -20,7 +20,8 @@
 // scope for this pass), so changing just this screen's labels would
 // create a second, inconsistent vocabulary rather than fix one.
 import { ConditionsSection } from './ConditionRows';
-import { EVENT_CATEGORIES, DC_EVENT_ENTITY } from '../data/sharedConstants';
+import { EventScopingFields } from './EventScopingFields';
+import { EVENT_CATEGORIES, resolveEntryEventAttrSource } from '../data/sharedConstants';
 import type { DripGoal } from '../data/graphTypes';
 
 const BLANK_GOAL: DripGoal = { eventCategory: Object.keys(EVENT_CATEGORIES)[0], eventType: '', conditions: [] };
@@ -70,10 +71,22 @@ export function GoalDefinitionStep({
         <p className="f-hint" style={{ margin: 0 }}>Not every firing is success. For example, EMI_STATUS_CHANGED also fires on Failed. Narrow it below if needed.</p>
       </div>
 
-      <div className="wiz-section">
-        <div className="wiz-group-label">Goal Conditions</div>
-        <ConditionsSection conditions={draft.conditions} entity={DC_EVENT_ENTITY[draft.eventCategory] || null} onChange={(conditions) => onGoalChange({ ...draft, conditions })} />
-      </div>
+      <EventScopingFields
+        eventCategory={draft.eventCategory}
+        value={draft}
+        onChange={(patch) => onGoalChange({ ...draft, ...patch })}
+      />
+
+      {(() => {
+        const { entity, lockedAttr } = resolveEntryEventAttrSource(draft.eventCategory, draft.eventType);
+        if (!entity && !lockedAttr) return null;
+        return (
+          <div className="wiz-section">
+            <div className="wiz-group-label">Goal Conditions</div>
+            <ConditionsSection conditions={draft.conditions} entity={entity} lockedAttribute={lockedAttr} onChange={(conditions) => onGoalChange({ ...draft, conditions })} />
+          </div>
+        );
+      })()}
 
       <p className="f-hint" style={{ margin: '0 0 8px' }}>Goal Check steps on the canvas use this same goal to branch the journey.</p>
 

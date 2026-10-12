@@ -17,6 +17,7 @@
 // small flat attrition (opt-outs/delivery failures) rather than passing
 // the count through unchanged.
 import type { DripCampaign, DripEdge } from './graphTypes';
+import { dcIsRoutingNode } from './nodeMeta';
 
 export interface DripAnalyticsMetrics {
   nodeCounts: Record<string, number>;
@@ -162,6 +163,30 @@ export function generateDripAnalytics(campaign: DripCampaign): DripAnalyticsData
         nodeCounts[e.to!] = (nodeCounts[e.to!] || 0) + share;
         remainingIndegree[e.to!] -= 1;
         if (remainingIndegree[e.to!] === 0) queue.push(e.to!);
+        continue;
+      }
+      // Several outgoing paths mean two completely different things, and
+      // counting them the same way would be wrong for one of them.
+      //
+      // A routing node (Condition/Branch/Experiment/Goal Check/Wait for
+      // Event) DIVIDES its arrivals — each customer takes exactly one
+      // path, so the shares sum to the incoming total.
+      //
+      // A fan-out node sends EVERY customer down EVERY path at once, so
+      // each path carries the FULL incoming total, not a share of it —
+      // four parallel milestone checkpoints off one entry are each
+      // reached by everyone who entered, not by a quarter of them. Same
+      // small per-hop attrition as the single-path case, since each path
+      // is just an ordinary linear continuation from here.
+      if (!dcIsRoutingNode(node.type)) {
+        outs.forEach((e) => {
+          const attrition = 0.02 + rand() * 0.04;
+          const share = Math.round(total * (1 - attrition));
+          edgeCounts[e.id] = { count: share, pct: 100 };
+          nodeCounts[e.to!] = (nodeCounts[e.to!] || 0) + share;
+          remainingIndegree[e.to!] -= 1;
+          if (remainingIndegree[e.to!] === 0) queue.push(e.to!);
+        });
         continue;
       }
       const pcts = computeSplitPcts(outs, rand);

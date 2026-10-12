@@ -4,10 +4,11 @@
 // both moved to the new Review step, so this component is just the
 // canvas, nothing else.
 import { DripCanvas } from '../canvas/DripCanvas';
-import type { DripGraph } from '../data/graphTypes';
+import type { DripGraph, DripGoal } from '../data/graphTypes';
 
 export function BuilderStep({
   graph,
+  goal,
   onAddEntry,
   onEditNode,
   onRemoveRoot,
@@ -16,9 +17,12 @@ export function BuilderStep({
   onAddAtEdge,
   onAddAtGrowLeaf,
   onAddAtMidEdge,
+  onAddParallel,
+  onRenameEdge,
   onRemoveGoalCheck,
 }: {
   graph: DripGraph;
+  goal: DripGoal | null;
   onAddEntry: () => void;
   onEditNode: (nodeId: string) => void;
   onRemoveRoot: () => void;
@@ -27,6 +31,8 @@ export function BuilderStep({
   onAddAtEdge: (edgeId: string) => void;
   onAddAtGrowLeaf: (nodeId: string) => void;
   onAddAtMidEdge: (edgeId: string) => void;
+  onAddParallel: (nodeId: string) => void;
+  onRenameEdge: (edgeId: string, label: string) => void;
   onRemoveGoalCheck: (nodeId: string) => void;
 }) {
   return (
@@ -34,6 +40,7 @@ export function BuilderStep({
       <div className="dcb-canvas">
         <DripCanvas
           graph={graph}
+          goal={goal}
           editable
           onAddEntry={onAddEntry}
           onEditNode={onEditNode}
@@ -43,6 +50,8 @@ export function BuilderStep({
           onAddAtEdge={onAddAtEdge}
           onAddAtGrowLeaf={onAddAtGrowLeaf}
           onAddAtMidEdge={onAddAtMidEdge}
+          onAddParallel={onAddParallel}
+          onRenameEdge={onRenameEdge}
           onRemoveGoalCheck={onRemoveGoalCheck}
         />
       </div>

@@ -120,7 +120,7 @@ export function DripView({
 
       {tab === 'overview' ? (
         <div className="card" style={{ padding: 0, marginTop: 16, height: '70vh', border: '1px solid var(--gray-200)', borderRadius: 10, overflow: 'hidden' }}>
-          <DripCanvas graph={c.root!} editable={false} />
+          <DripCanvas graph={c.root!} goal={c.goal} editable={false} />
         </div>
       ) : (
         <div style={{ marginTop: 16 }}>

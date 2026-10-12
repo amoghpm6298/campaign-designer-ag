@@ -8,8 +8,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { DripGraph, DripGoal } from '../../src/data/graphTypes';
 import { dcResetIdCounters } from '../../src/reducer/idGen';
 import { dcGraphHasOpenBranches } from '../../src/reducer/graphOps';
-import { dcConfirmAddNode, dcConfirmEditNode, dcRemoveEdge, dcRemoveGoalCheck, type DcAddingAt } from '../../src/reducer/campaignReducer';
-import { dcDefaultConfig, dcAddFormValid } from '../../src/reducer/defaultConfig';
+import { dcConfirmAddNode, dcConfirmEditNode, dcRemoveEdge, dcRemoveGoalCheck, dcRenameEdge, type DcAddingAt } from '../../src/reducer/campaignReducer';
+import { dcDefaultConfig, dcAddFormValid, dcDefaultMilestone } from '../../src/reducer/defaultConfig';
+import { resolveEntryEventAttrSource, EVENT_ATTR_BY_TYPE } from '../../src/data/sharedConstants';
+import { dcMilestoneSummary } from '../../src/reducer/labelMeta';
+import { dcCanFanOut, dcIsRoutingNode, DC_STEP_TYPES } from '../../src/data/nodeMeta';
 
 const EMPTY_GRAPH: DripGraph = { nodes: {}, edges: [], rootId: null };
 // A real goal — the auto goal-check Split after Send/Pause is only
@@ -212,7 +215,7 @@ describe('Split (Condition) — no "Goal reached" basis anymore', () => {
 
   it('Custom condition split (Account attribute) builds a real Yes/No pair', () => {
     let g = addEntryEvent(EMPTY_GRAPH);
-    const p = { customSource: 'Account attribute', outcome: '', customConditions: [{ attribute: 'Engagement Tier', operator: 'Any of', values: ['Dormant'] }] };
+    const p = { customSource: 'Account attribute', outcome: '', customConditions: [{ attribute: 'Status', operator: 'Equals', value: 'Dormant' }] };
     g = dcConfirmAddNode(g, 'SPLIT', p, { kind: 'growLeaf', nodeId: g.rootId! }, null);
     const split = Object.values(g.nodes).find((n) => n.type === 'SPLIT')!;
     expect(split).toBeTruthy();
@@ -222,7 +225,7 @@ describe('Split (Condition) — no "Goal reached" basis anymore', () => {
 
   it('Goal Reached can still be added manually on a Condition branch arm', () => {
     let g = addEntryEvent(EMPTY_GRAPH);
-    const p = { customSource: 'Account attribute', outcome: '', customConditions: [{ attribute: 'Engagement Tier', operator: 'Any of', values: ['Dormant'] }] };
+    const p = { customSource: 'Account attribute', outcome: '', customConditions: [{ attribute: 'Status', operator: 'Equals', value: 'Dormant' }] };
     g = dcConfirmAddNode(g, 'SPLIT', p, { kind: 'growLeaf', nodeId: g.rootId! }, null);
     const split = Object.values(g.nodes).find((n) => n.type === 'SPLIT')!;
     const yesEdge = g.edges.find((e) => e.from === split.id && e.branchLabel === 'Yes')!;
@@ -231,11 +234,234 @@ describe('Split (Condition) — no "Goal reached" basis anymore', () => {
   });
 });
 
+describe('Transaction history condition', () => {
+  it('Condition source "Transaction history" builds a real Yes/No pair', () => {
+    let g = addEntryEvent(EMPTY_GRAPH);
+    const p = { customSource: 'Transaction history', txnHistory: { filters: [], lookbackDuration: 90, lookbackUnit: 'days', existence: 'exists' } };
+    g = dcConfirmAddNode(g, 'SPLIT', p, { kind: 'growLeaf', nodeId: g.rootId! }, null);
+    const split = Object.values(g.nodes).find((n) => n.type === 'SPLIT')!;
+    expect(split).toBeTruthy();
+    expect(g.edges.some((e) => e.from === split.id && e.branchLabel === 'Yes')).toBe(true);
+    expect(g.edges.some((e) => e.from === split.id && e.branchLabel === 'No')).toBe(true);
+  });
+
+  it('label reflects existence mode and lookback window, with no filters', () => {
+    let g = addEntryEvent(EMPTY_GRAPH);
+    const p = { customSource: 'Transaction history', txnHistory: { filters: [], lookbackDuration: 90, lookbackUnit: 'days', existence: 'none' } };
+    g = dcConfirmAddNode(g, 'SPLIT', p, { kind: 'growLeaf', nodeId: g.rootId! }, null);
+    const split = Object.values(g.nodes).find((n) => n.type === 'SPLIT')!;
+    expect(split.label).toBe('No transaction in 90 days?');
+  });
+
+  it('label stays readable for exactly one filter', () => {
+    let g = addEntryEvent(EMPTY_GRAPH);
+    const p = {
+      customSource: 'Transaction history',
+      txnHistory: { filters: [{ attribute: 'Transaction Type', operator: 'Any of', values: ['AUTHORIZE'] }], lookbackDuration: 60, lookbackUnit: 'days', existence: 'exists' },
+    };
+    g = dcConfirmAddNode(g, 'SPLIT', p, { kind: 'growLeaf', nodeId: g.rootId! }, null);
+    const split = Object.values(g.nodes).find((n) => n.type === 'SPLIT')!;
+    expect(split.label).toBe('A transaction (Transaction Type any of AUTHORIZE) in 60 days?');
+  });
+
+  it('2+ filters collapse to a count, same convention as other Condition sources', () => {
+    let g = addEntryEvent(EMPTY_GRAPH);
+    const p = {
+      customSource: 'Transaction history',
+      txnHistory: {
+        filters: [
+          { attribute: 'Transaction Type', operator: 'Any of', values: ['AUTHORIZE'] },
+          { attribute: 'Transaction Status', operator: 'Any of', values: ['APPROVED'] },
+        ],
+        lookbackDuration: 90,
+        lookbackUnit: 'days',
+        existence: 'exists',
+      },
+    };
+    g = dcConfirmAddNode(g, 'SPLIT', p, { kind: 'growLeaf', nodeId: g.rootId! }, null);
+    const split = Object.values(g.nodes).find((n) => n.type === 'SPLIT')!;
+    expect(split.label).toBe('A transaction matching 2 filters in 90 days?');
+  });
+
+  it('dcAddFormValid: Transaction history requires only a positive lookback — filters are optional', () => {
+    expect(dcAddFormValid('SPLIT', { customSource: 'Transaction history', txnHistory: { filters: [], lookbackDuration: 90, lookbackUnit: 'days', existence: 'exists' } })).toBe(true);
+    expect(dcAddFormValid('SPLIT', { customSource: 'Transaction history', txnHistory: { filters: [], lookbackDuration: 0, lookbackUnit: 'days', existence: 'exists' } })).toBe(false);
+    expect(dcAddFormValid('SPLIT', { customSource: 'Transaction history', txnHistory: undefined })).toBe(false);
+  });
+
+  it('dcAddFormValid: Entry · Audience only requires a lookback when the primary entity is Transaction', () => {
+    expect(dcAddFormValid('ENTRY_SEGMENT', { entity: 'Account', conditions: [], lookbackDuration: 0 })).toBe(true);
+    expect(dcAddFormValid('ENTRY_SEGMENT', { entity: 'Transaction', conditions: [], lookbackDuration: 0 })).toBe(false);
+    expect(dcAddFormValid('ENTRY_SEGMENT', { entity: 'Transaction', conditions: [], lookbackDuration: 90 })).toBe(true);
+  });
+
+  it('dcAddFormValid: the same lookback rule applies independently to each extra entity group', () => {
+    const base = { entity: 'Account', conditions: [], lookbackDuration: 90 };
+    expect(dcAddFormValid('ENTRY_SEGMENT', { ...base, extraEntityGroups: [{ entity: 'Card', conditions: [] }] })).toBe(true);
+    expect(dcAddFormValid('ENTRY_SEGMENT', { ...base, extraEntityGroups: [{ entity: 'Transaction', conditions: [], lookbackDuration: 0 }] })).toBe(false);
+    expect(dcAddFormValid('ENTRY_SEGMENT', { ...base, extraEntityGroups: [{ entity: 'Transaction', conditions: [], lookbackDuration: 90 }] })).toBe(true);
+  });
+
+  it('backward compatibility: a config predating this field (lookbackDuration absent entirely) stays valid as long as entity is not Transaction', () => {
+    // Simulates an old saved Entry · Audience node's _config, from before
+    // this capability existed.
+    const legacyConfig = { cohortDesc: 'All eligible customers', entity: 'Customer', conditions: [], repeat: false };
+    expect(dcAddFormValid('ENTRY_SEGMENT', legacyConfig)).toBe(true);
+  });
+});
+
+describe('Journey/Offer Events condition narrowing (locked attribute)', () => {
+  it('resolveEntryEventAttrSource: Transaction/EMI Events resolve a real entity, no locked attribute', () => {
+    expect(resolveEntryEventAttrSource('Transaction Events', 'Transaction')).toEqual({ entity: 'Transaction', lockedAttr: null });
+    expect(resolveEntryEventAttrSource('EMI Events', 'EMI_STATUS_CHANGED')).toEqual({ entity: 'EMI Request', lockedAttr: null });
+  });
+
+  it('resolveEntryEventAttrSource: Journey/Offer Events resolve a locked attribute per event type, no entity', () => {
+    expect(resolveEntryEventAttrSource('Journey Events', 'Journey Progress')).toEqual({ entity: null, lockedAttr: 'Status' });
+    expect(resolveEntryEventAttrSource('Journey Events', 'Pageload')).toEqual({ entity: null, lockedAttr: 'Page Name' });
+    expect(resolveEntryEventAttrSource('Journey Events', 'Button Click')).toEqual({ entity: null, lockedAttr: 'Button Name' });
+    expect(resolveEntryEventAttrSource('Offer Events', 'Outcome Issuance')).toEqual({ entity: null, lockedAttr: 'Outcome Status' });
+    expect(EVENT_ATTR_BY_TYPE['Pageload']).toBe('Page Name');
+  });
+
+  it('resolveEntryEventAttrSource: no eventType picked yet resolves neither, even for Journey/Offer Events', () => {
+    expect(resolveEntryEventAttrSource('Journey Events', '')).toEqual({ entity: null, lockedAttr: null });
+    expect(resolveEntryEventAttrSource('Journey Events', null)).toEqual({ entity: null, lockedAttr: null });
+  });
+
+  it('resolveEntryEventAttrSource: Card Events resolve neither — confirmed as a genuine gap in the original source too, not just this port', () => {
+    expect(resolveEntryEventAttrSource('Card Events', 'Card Activated')).toEqual({ entity: null, lockedAttr: null });
+  });
+
+  it('resolveEntryEventAttrSource: no category at all resolves neither', () => {
+    expect(resolveEntryEventAttrSource(null, null)).toEqual({ entity: null, lockedAttr: null });
+  });
+
+  it('Condition "Entry event attribute" source builds a real Yes/No pair off a Journey Events entry\'s locked attribute', () => {
+    let g = addEntryEvent(EMPTY_GRAPH, { eventCategory: 'Journey Events', eventType: 'Pageload' });
+    const p = { customSource: 'Entry event attribute', outcome: '', customConditions: [{ attribute: 'Page Name', operator: 'Equals', value: 'EMI Offer Page' }] };
+    g = dcConfirmAddNode(g, 'SPLIT', p, { kind: 'growLeaf', nodeId: g.rootId! }, null);
+    const split = Object.values(g.nodes).find((n) => n.type === 'SPLIT')!;
+    expect(split).toBeTruthy();
+    expect(split.label).toBe('Page Name = EMI Offer Page?');
+    expect(g.edges.some((e) => e.from === split.id && e.branchLabel === 'Yes')).toBe(true);
+    expect(g.edges.some((e) => e.from === split.id && e.branchLabel === 'No')).toBe(true);
+  });
+
+  it('dcAddFormValid already covers the locked-attribute case via its existing customConditions fallback — no new validation logic needed', () => {
+    expect(dcAddFormValid('SPLIT', { customSource: 'Entry event attribute', customConditions: [{ attribute: 'Status', operator: 'Equals', value: 'Completed' }] })).toBe(true);
+    expect(dcAddFormValid('SPLIT', { customSource: 'Entry event attribute', customConditions: [] })).toBe(false);
+    expect(dcAddFormValid('SPLIT', { customSource: 'Entry event attribute', customConditions: [{ attribute: '', operator: '', value: '' }] })).toBe(false);
+  });
+
+  it('Branch "Entry event attribute" source on a Journey Events entry builds real branches off the locked attribute, with a real canvas label', () => {
+    let g = addEntryEvent(EMPTY_GRAPH, { eventCategory: 'Journey Events', eventType: 'Button Click' });
+    const p = {
+      name: 'Decision', source: 'Entry event attribute', attribute: 'Button Name', outcome: '',
+      branches: [
+        { id: 'b1', label: 'CTA clicked', operator: 'Equals', value: 'Apply Now' },
+        { id: 'b2', label: 'Other', operator: 'Equals', value: 'Learn More' },
+      ],
+    };
+    g = dcConfirmAddNode(g, 'DECISION_SPLIT', p, { kind: 'growLeaf', nodeId: g.rootId! }, null);
+    const ds = Object.values(g.nodes).find((n) => n.type === 'DECISION_SPLIT')!;
+    expect(ds.label).toBe('Button Name');
+    const labels = g.edges.filter((e) => e.from === ds.id).map((e) => e.branchLabel);
+    expect(labels).toEqual(['CTA clicked (Apply Now)', 'Other (Learn More)', 'Anything else']);
+  });
+
+  it('dcAddFormValid: Branch already covers the locked-attribute case the same way Account attribute does — attribute populated, every branch filled in', () => {
+    const valid = {
+      source: 'Entry event attribute', attribute: 'Status',
+      branches: [{ value: 'Started', operator: 'Equals', value2: '' }],
+    };
+    expect(dcAddFormValid('DECISION_SPLIT', valid)).toBe(true);
+    expect(dcAddFormValid('DECISION_SPLIT', { ...valid, attribute: '' })).toBe(false);
+    expect(dcAddFormValid('DECISION_SPLIT', { ...valid, branches: [{ value: '', operator: 'Equals', value2: '' }] })).toBe(false);
+  });
+
+  it('backward compatibility: ENTRY_EVENT/WAIT_UNTIL/Goal configs predating journey/batch/offerType/offerName stay valid', () => {
+    // Simulates a saved node/goal from before this capability existed —
+    // no journey/batch/offerType/offerName keys at all, same as every
+    // other optional field added this session.
+    const legacyEntryEvent = { eventCategory: 'Journey Events', eventType: 'Pageload', conditions: [] };
+    expect(dcAddFormValid('ENTRY_EVENT', legacyEntryEvent)).toBe(true);
+    const legacyWaitUntil = { eventCategory: 'Offer Events', eventType: 'Outcome Issuance', duration: 7, unit: 'days', conditions: [] };
+    expect(dcAddFormValid('WAIT_UNTIL', legacyWaitUntil)).toBe(true);
+  });
+
+  it('the locked-attribute conditions/branches stay optional — 0 rows is valid on ENTRY_EVENT/WAIT_UNTIL, same as every other optional condition list', () => {
+    // Only eventType is required for these two types — conditions (locked
+    // or otherwise) were never part of dcAddFormValid's check, and this
+    // capability doesn't change that.
+    expect(dcAddFormValid('ENTRY_EVENT', { eventCategory: 'Journey Events', eventType: 'Pageload', conditions: [] })).toBe(true);
+    expect(dcAddFormValid('WAIT_UNTIL', { eventCategory: 'Journey Events', eventType: 'Pageload', duration: 7, unit: 'days', conditions: [] })).toBe(true);
+  });
+});
+
+describe('Entry · Audience — additional entity filters, and Transaction as a real entity choice', () => {
+  it('dcDefaultConfig starts with an empty extraEntityGroups list', () => {
+    const p = dcDefaultConfig('ENTRY_SEGMENT', null);
+    expect(p.extraEntityGroups).toEqual([]);
+  });
+
+  it('extra entity groups persist into _config untouched, alongside the primary entity/conditions, and stay out of canvas meta', () => {
+    const p = {
+      ...dcDefaultConfig('ENTRY_SEGMENT', null),
+      entity: 'Account',
+      conditions: [{ attribute: 'Status', operator: 'Equals', value: 'Dormant' }],
+      extraEntityGroups: [{ entity: 'Card', conditions: [{ attribute: 'Status', operator: 'Equals', value: 'Active' }] }],
+    };
+    const g = dcConfirmAddNode(EMPTY_GRAPH, 'ENTRY_SEGMENT', p, { kind: 'root' }, null);
+    const root = g.nodes[g.rootId!];
+    // Same canvas-vs-drawer principle as the primary block above — none of
+    // this is configuration detail the canvas should show.
+    expect(root.meta).toBe('');
+    const saved = root._config as { entity: string; extraEntityGroups: { entity: string; conditions: unknown[] }[] };
+    expect(saved.entity).toBe('Account');
+    expect(saved.extraEntityGroups).toHaveLength(1);
+    expect(saved.extraEntityGroups[0].entity).toBe('Card');
+    expect(saved.extraEntityGroups[0].conditions).toHaveLength(1);
+  });
+
+  it('Transaction is a real entity choice, not a separate toggle — its lookback/existence fields persist on the primary block exactly like entity/conditions do, and it can coexist with another entity in extraEntityGroups', () => {
+    const p = {
+      ...dcDefaultConfig('ENTRY_SEGMENT', null),
+      entity: 'Transaction',
+      conditions: [{ attribute: 'Transaction Type', operator: 'Any of', values: ['AUTHORIZE'] }],
+      lookbackDuration: 90,
+      lookbackUnit: 'days',
+      existence: 'none',
+      extraEntityGroups: [{ entity: 'Account', conditions: [{ attribute: 'Status', operator: 'Equals', value: 'Active' }] }],
+    };
+    const g = dcConfirmAddNode(EMPTY_GRAPH, 'ENTRY_SEGMENT', p, { kind: 'root' }, null);
+    const root = g.nodes[g.rootId!];
+    expect(root.meta).toBe('');
+    const saved = root._config as typeof p;
+    expect(saved.entity).toBe('Transaction');
+    expect(saved.lookbackDuration).toBe(90);
+    expect(saved.existence).toBe('none');
+    expect(saved.extraEntityGroups[0].entity).toBe('Account');
+  });
+
+  it('backward compatibility: a config predating this field (extraEntityGroups absent entirely) is unaffected', () => {
+    // Simulates an old saved Entry · Audience node's _config, from before
+    // this capability existed — no extraEntityGroups key at all. Nothing
+    // in dcAddFormValid depends on it (same leniency as the primary
+    // entity/conditions, which are optional too), so this just confirms
+    // the node still builds cleanly with the key fully absent.
+    const legacyConfig = { cohortDesc: 'All eligible customers', entity: 'Customer', conditions: [], repeat: false };
+    const g = dcConfirmAddNode(EMPTY_GRAPH, 'ENTRY_SEGMENT', legacyConfig, { kind: 'root' }, null);
+    expect(g.rootId).toBeTruthy();
+    expect(dcAddFormValid('ENTRY_SEGMENT', legacyConfig)).toBe(true);
+  });
+});
+
 describe('Decision Split', () => {
   it('2 branches + catch-all, correct summary labels', () => {
     let g = addEntryEvent(EMPTY_GRAPH);
     const p = {
-      name: 'Decision', source: 'Account attribute', attribute: 'Milestone Progress %', outcome: 'Clicked',
+      name: 'Decision', source: 'Account attribute', attribute: 'Transaction Amount', outcome: 'Clicked',
       branches: [
         { id: 'b1', label: 'Branch 1', operator: 'Between', value: '5', value2: '20' },
         { id: 'b2', label: 'Branch 2', operator: 'Between', value: '21', value2: '50' },
@@ -243,14 +469,14 @@ describe('Decision Split', () => {
     };
     g = dcConfirmAddNode(g, 'DECISION_SPLIT', p, { kind: 'growLeaf', nodeId: g.rootId! }, null);
     const ds = Object.values(g.nodes).find((n) => n.type === 'DECISION_SPLIT')!;
-    expect(ds.label).toBe('Milestone Progress %');
+    expect(ds.label).toBe('Transaction Amount');
     expect(ds.meta).toBe('2 branches + catch-all');
     const labels = g.edges.filter((e) => e.from === ds.id).map((e) => e.branchLabel);
     expect(labels).toEqual(['Branch 1 (5–20)', 'Branch 2 (21–50)', 'Anything else']);
   });
 
   it('dcAddFormValid blocks when a branch value is missing', () => {
-    const p = { ...dcDefaultConfig('DECISION_SPLIT', null), attribute: 'Milestone Progress %' };
+    const p = { ...dcDefaultConfig('DECISION_SPLIT', null), attribute: 'Transaction Amount' };
     expect(dcAddFormValid('DECISION_SPLIT', p)).toBe(false); // branch values empty by default
   });
 });
@@ -302,7 +528,7 @@ describe('Branch insert/remove — the real data-integrity bug this reducer fixe
   it('inserting a branch mid-edit preserves every existing branch subtree and positions the new branch correctly', () => {
     let g = addEntryEvent(EMPTY_GRAPH);
     const p = {
-      name: 'Decision', source: 'Account attribute', attribute: 'Milestone Progress %', outcome: 'Clicked',
+      name: 'Decision', source: 'Account attribute', attribute: 'Transaction Amount', outcome: 'Clicked',
       branches: [
         { id: 'b1', label: 'Branch 1', operator: 'Equals', value: '10', value2: '' },
         { id: 'b2', label: 'Branch 2', operator: 'Equals', value: '20', value2: '' },
@@ -334,7 +560,7 @@ describe('Branch insert/remove — the real data-integrity bug this reducer fixe
   it('removing a branch cascade-GCs its subtree', () => {
     let g = addEntryEvent(EMPTY_GRAPH);
     const p = {
-      name: 'Decision', source: 'Account attribute', attribute: 'Milestone Progress %', outcome: 'Clicked',
+      name: 'Decision', source: 'Account attribute', attribute: 'Transaction Amount', outcome: 'Clicked',
       branches: [
         { id: 'b1', label: 'Branch 1', operator: 'Equals', value: '10', value2: '' },
         { id: 'b2', label: 'Branch 2', operator: 'Equals', value: '20', value2: '' },
@@ -391,5 +617,192 @@ describe('dcGraphHasOpenBranches validation', () => {
     let g = addEntryEvent(EMPTY_GRAPH);
     g = dcConfirmAddNode(g, 'EXIT', { reason: 'done' }, { kind: 'growLeaf', nodeId: g.rootId! }, null);
     expect(dcGraphHasOpenBranches(g)).toBe(false);
+  });
+});
+
+// Milestone — the real replacement for the fabricated Account fields this
+// project briefly had (Milestone Progress %/Engagement Tier, removed
+// outright). Confirmed against ironbank-face-main's own Promotional
+// Nudge eligibility form: pick one specific benefit, then either
+// Completed/Not Completed or a numeric/percentage comparator.
+describe('Milestone — Condition (SPLIT) source', () => {
+  it('is invalid with no benefit picked, valid once one is and "Is" auto-writes value "100"', () => {
+    const empty = dcDefaultMilestone();
+    expect(dcAddFormValid('SPLIT', { customSource: 'Milestone', milestone: { ...empty, benefitId: '' } })).toBe(false);
+    const filled = { ...empty, benefitId: 'MS-1001' };
+    expect(filled.value).toBe('100');
+    expect(dcAddFormValid('SPLIT', { customSource: 'Milestone', milestone: filled })).toBe(true);
+  });
+
+  it('"Between" requires both bounds', () => {
+    const base = { benefitId: 'MS-1002', operator: 'BETWEEN', value: '', value2: '' };
+    expect(dcAddFormValid('SPLIT', { customSource: 'Milestone', milestone: base })).toBe(false);
+    expect(dcAddFormValid('SPLIT', { customSource: 'Milestone', milestone: { ...base, value: '25', value2: '75' } })).toBe(true);
+  });
+
+  it('builds a real Yes/No pair, same as every other Condition source', () => {
+    let g = addEntryEvent(EMPTY_GRAPH);
+    const p = { customSource: 'Milestone', milestone: { benefitId: 'MS-1001', operator: 'IS', statusChoice: 'COMPLETED', value: '100' } };
+    g = dcConfirmAddNode(g, 'SPLIT', p, { kind: 'growLeaf', nodeId: g.rootId! }, null);
+    const split = Object.values(g.nodes).find((n) => n.type === 'SPLIT')!;
+    expect(g.edges.some((e) => e.from === split.id && e.branchLabel === 'Yes')).toBe(true);
+    expect(g.edges.some((e) => e.from === split.id && e.branchLabel === 'No')).toBe(true);
+  });
+
+  it('dcMilestoneSummary renders a real business question per operator', () => {
+    expect(dcMilestoneSummary({ benefitId: 'MS-1001', operator: 'IS', statusChoice: 'COMPLETED', value: '100' })).toBe('Spend ₹25,000 in first 30 days — Completed');
+    expect(dcMilestoneSummary({ benefitId: 'MS-1002', operator: 'GTE_PCT', value: '75' })).toBe('Spend ₹75,000 in first 90 days ≥ 75%');
+    expect(dcMilestoneSummary({ benefitId: 'MS-1003', operator: 'BETWEEN', value: '25', value2: '75' })).toBe('Spend ₹1,50,000 in first 180 days between 25 and 75');
+  });
+});
+
+describe('Milestone — Branch (DECISION_SPLIT) source', () => {
+  it('requires milestoneBenefitId, same "pick one thing" rule as Account/Entry event attribute', () => {
+    const p = { source: 'Milestone', milestoneBenefitId: '', branches: [{ id: 'b1', label: 'B1', operator: 'IS', statusChoice: 'COMPLETED', value: '100' }] };
+    expect(dcAddFormValid('DECISION_SPLIT', p)).toBe(false);
+    expect(dcAddFormValid('DECISION_SPLIT', { ...p, milestoneBenefitId: 'MS-1001' })).toBe(true);
+  });
+
+  it("'BETWEEN' (Milestone's own real spelling) is checked alongside the generic 'Between'", () => {
+    const p = {
+      source: 'Milestone',
+      milestoneBenefitId: 'MS-1002',
+      branches: [{ id: 'b1', label: 'Band', operator: 'BETWEEN', value: '25', value2: '' }],
+    };
+    expect(dcAddFormValid('DECISION_SPLIT', p)).toBe(false);
+    expect(dcAddFormValid('DECISION_SPLIT', { ...p, branches: [{ ...p.branches[0], value2: '75' }] })).toBe(true);
+  });
+
+  it('builds one open edge per branch plus a catch-all, labeled with the real summary', () => {
+    let g = addEntryEvent(EMPTY_GRAPH);
+    const p = {
+      name: 'Milestone band', source: 'Milestone', milestoneBenefitId: 'MS-1002',
+      branches: [
+        { id: 'b1', label: 'Needs a nudge', operator: 'LTE_PCT', value: '25' },
+        { id: 'b2', label: 'On track', operator: 'BETWEEN', value: '25', value2: '75' },
+        { id: 'b3', label: 'Reward now', operator: 'IS', statusChoice: 'COMPLETED', value: '100' },
+      ],
+    };
+    g = dcConfirmAddNode(g, 'DECISION_SPLIT', p, { kind: 'growLeaf', nodeId: g.rootId! }, null);
+    const ds = Object.values(g.nodes).find((n) => n.type === 'DECISION_SPLIT')!;
+    expect(ds.label).toBe('Spend ₹75,000 in first 90 days');
+    const labels = g.edges.filter((e) => e.from === ds.id).map((e) => e.branchLabel);
+    expect(labels).toEqual(['Needs a nudge (≤ 25%)', 'On track (25–75)', 'Reward now (Completed)', 'Anything else']);
+  });
+});
+
+describe('Milestone — Entry · Audience entity', () => {
+  it('requires a complete milestone condition when entity is Milestone, same rule as Transaction requiring a lookback window', () => {
+    const base = { entity: 'Milestone', conditions: [], extraEntityGroups: [] };
+    expect(dcAddFormValid('ENTRY_SEGMENT', { ...base, milestone: { benefitId: '', operator: 'IS' } })).toBe(false);
+    expect(dcAddFormValid('ENTRY_SEGMENT', { ...base, milestone: dcDefaultMilestone() })).toBe(false); // still no benefit picked
+    expect(dcAddFormValid('ENTRY_SEGMENT', { ...base, milestone: { ...dcDefaultMilestone(), benefitId: 'MS-1001' } })).toBe(true);
+  });
+
+  it('an extra entity group can independently be Milestone, AND\'d with the primary block', () => {
+    const p = {
+      entity: 'Account',
+      conditions: [{ attribute: 'Status', operator: 'Equals', value: 'Active' }],
+      extraEntityGroups: [{ entity: 'Milestone', conditions: [], milestone: { benefitId: 'MS-1003', operator: 'IS', statusChoice: 'NOT_COMPLETED', value: '100' } }],
+    };
+    expect(dcAddFormValid('ENTRY_SEGMENT', p)).toBe(true);
+    const g = dcConfirmAddNode(EMPTY_GRAPH, 'ENTRY_SEGMENT', p, { kind: 'root' }, null);
+    expect(g.rootId).toBeTruthy();
+  });
+});
+
+// Parallel paths (fan-out) — a node sending EVERY customer down EVERY
+// outgoing path, as opposed to a routing node sending each customer down
+// exactly one. The reducer always supported this (growLeaf just appends
+// another edge); what was missing was any way to ask for it, plus an
+// analytics rule that didn't wrongly divide the arrivals.
+describe('Fan-out — parallel paths from one node', () => {
+  it('repeated growLeaf on the same node builds independent siblings, not a chain', () => {
+    let g = addEntryEvent(EMPTY_GRAPH);
+    const entry = g.rootId!;
+    g = dcConfirmAddNode(g, 'PAUSE', { duration: 30, unit: 'days' }, { kind: 'growLeaf', nodeId: entry }, null);
+    g = dcConfirmAddNode(g, 'PAUSE', { duration: 90, unit: 'days' }, { kind: 'growLeaf', nodeId: entry }, null);
+    g = dcConfirmAddNode(g, 'PAUSE', { duration: 180, unit: 'days' }, { kind: 'growLeaf', nodeId: entry }, null);
+    const kids = g.edges.filter((e) => e.from === entry);
+    expect(kids.length).toBe(3);
+    // Each child is a leaf in its own right — none is chained under
+    // another. (Each does carry one dangling open slot of its own, which
+    // is what makes it a leaf, so this counts only real connections.)
+    kids.forEach((e) => expect(g.edges.filter((x) => x.from === e.to && x.to !== null).length).toBe(0));
+    expect(kids.map((e) => g.nodes[e.to!].label).sort()).toEqual(['Wait 180 days', 'Wait 30 days', 'Wait 90 days']);
+  });
+
+  it('dcRenameEdge names one path without touching its siblings', () => {
+    let g = addEntryEvent(EMPTY_GRAPH);
+    const entry = g.rootId!;
+    g = dcConfirmAddNode(g, 'PAUSE', { duration: 30, unit: 'days' }, { kind: 'growLeaf', nodeId: entry }, null);
+    g = dcConfirmAddNode(g, 'PAUSE', { duration: 90, unit: 'days' }, { kind: 'growLeaf', nodeId: entry }, null);
+    const [first, second] = g.edges.filter((e) => e.from === entry);
+    g = dcRenameEdge(g, first.id, '  Month 1  ');
+    expect(g.edges.find((e) => e.id === first.id)!.branchLabel).toBe('Month 1'); // trimmed
+    expect(g.edges.find((e) => e.id === second.id)!.branchLabel).toBe('');
+  });
+
+  it('routing vs fan-out is decided by node type, the one rule three places read', () => {
+    // Routers: every outgoing path is mutually exclusive.
+    expect(dcIsRoutingNode('SPLIT')).toBe(true);
+    expect(dcIsRoutingNode('DECISION_SPLIT')).toBe(true);
+    expect(dcIsRoutingNode('RANDOM_SPLIT')).toBe(true);
+    expect(dcIsRoutingNode('GOAL_CHECK')).toBe(true);
+    expect(dcIsRoutingNode('WAIT_UNTIL')).toBe(true);
+    [...(['SPLIT', 'DECISION_SPLIT', 'RANDOM_SPLIT', 'GOAL_CHECK', 'WAIT_UNTIL'] as const)].forEach((t) => expect(dcCanFanOut(t)).toBe(false));
+    // Terminals have no outgoing paths at all.
+    expect(dcCanFanOut('EXIT')).toBe(false);
+    expect(dcCanFanOut('GOAL_EXIT')).toBe(false);
+    // Everything else can hold genuinely parallel paths.
+    expect(dcCanFanOut('ENTRY_EVENT')).toBe(true);
+    expect(dcCanFanOut('ENTRY_SEGMENT')).toBe(true);
+    expect(dcCanFanOut('SEND')).toBe(true);
+    expect(dcCanFanOut('PAUSE')).toBe(true);
+  });
+});
+
+// Goal Check became manually addable, and Condition's old "Goal" source
+// was removed. Before this, the same question — "has the campaign Goal
+// been achieved?" — could be built two ways that produced two different
+// graphs: the auto Goal Check wired Yes straight to Goal Reached, while a
+// Goal-source Condition left both arms open.
+describe('Goal Check — one node type, one behaviour, added either way', () => {
+  it('a hand-added Goal Check wires Yes to Goal Reached, exactly like the auto one', () => {
+    let g = addEntryEvent(EMPTY_GRAPH);
+    g = dcConfirmAddNode(g, 'GOAL_CHECK', dcDefaultConfig('GOAL_CHECK', TEST_GOAL), { kind: 'growLeaf', nodeId: g.rootId! }, TEST_GOAL);
+    const check = Object.values(g.nodes).find((n) => n.type === 'GOAL_CHECK')!;
+    expect(check).toBeTruthy();
+    const yes = g.edges.find((e) => e.from === check.id && e.branchLabel === 'Yes')!;
+    const no = g.edges.find((e) => e.from === check.id && e.branchLabel === 'No')!;
+    expect(g.nodes[yes.to!].type).toBe('GOAL_EXIT');
+    expect(no.to).toBeNull();
+  });
+
+  it('its question is derived live from the Goal, not stored on the node', () => {
+    let g = addEntryEvent(EMPTY_GRAPH);
+    g = dcConfirmAddNode(g, 'GOAL_CHECK', dcDefaultConfig('GOAL_CHECK', TEST_GOAL), { kind: 'growLeaf', nodeId: g.rootId! }, TEST_GOAL);
+    const check = Object.values(g.nodes).find((n) => n.type === 'GOAL_CHECK')!;
+    expect(check.label).toBe('Card Activated?');
+    expect(check._config).toBeNull(); // nothing of its own to configure
+  });
+
+  it('a hand-added one is not flagged autoGenerated — that badge is for steps the builder added unasked', () => {
+    let g = addEntryEvent(EMPTY_GRAPH);
+    g = dcConfirmAddNode(g, 'GOAL_CHECK', dcDefaultConfig('GOAL_CHECK', TEST_GOAL), { kind: 'growLeaf', nodeId: g.rootId! }, TEST_GOAL);
+    const check = Object.values(g.nodes).find((n) => n.type === 'GOAL_CHECK')!;
+    expect(check.autoGenerated).toBe(false);
+  });
+
+  it("Condition no longer accepts a 'Goal' source — it isn't valid and builds nothing goal-related", () => {
+    // The source is gone from the picker; if an old saved journey somehow
+    // carried it, it simply fails the "must check something real" gate
+    // rather than silently behaving like a Goal Check.
+    expect(dcAddFormValid('SPLIT', { customSource: 'Goal', customConditions: [] }, TEST_GOAL)).toBe(false);
+  });
+
+  it('Goal Check is in the Add Step list; Goal Reached stays too — they are question and answer', () => {
+    expect(DC_STEP_TYPES).toContain('GOAL_CHECK');
+    expect(DC_STEP_TYPES).toContain('GOAL_EXIT');
   });
 });

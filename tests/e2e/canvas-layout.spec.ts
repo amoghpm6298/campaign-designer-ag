@@ -45,9 +45,12 @@ test.describe('Bare connector pill (the original "what is this?" bug)', () => {
     await page.getByText('Continue to Builder →').click();
     await page.locator('.dc-add-entry-placeholder').click();
     await page.locator('.dc-type-opt:has-text("Entry · Event")').click();
-    const entrySelects = page.locator('.sd-drawer.open select');
-    await entrySelects.nth(0).selectOption('Journey Events');
-    await entrySelects.nth(1).selectOption('Pageload');
+    // Scoped by each field's own label, not position — Journey Events
+    // inserts its own Journey+Batch scoping selects between Event
+    // Category and Event Type, so a fixed index doesn't hold here.
+    const entryDrawer = page.locator('.sd-drawer.open');
+    await entryDrawer.locator('.f-group', { has: page.locator('label.f-label', { hasText: 'Event Category' }) }).locator('select').selectOption('Journey Events');
+    await entryDrawer.locator('.f-group', { has: page.locator('label.f-label', { hasText: 'Event Type' }) }).locator('select').selectOption('Pageload');
     await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
     await page.waitForTimeout(300);
 

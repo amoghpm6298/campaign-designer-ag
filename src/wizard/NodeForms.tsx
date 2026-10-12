@@ -4,20 +4,133 @@
 // step-outcome channel-aware status list, Random/Decision Split dynamic
 // branch lists with mid-list insert, etc).
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { CHANNEL_CONFIG_LABELS, COMMS_TEMPLATES, EVENT_CATEGORIES, ELIGIBILITY_META, DC_EVENT_ENTITY, deliveryStatusOptionsForSend, deliveryStatusOptionsAll, type Channel, type PrevStepSend } from '../data/sharedConstants';
-import type { DripGoal } from '../data/graphTypes';
-import { dcOrdinal, dcRecurrenceLabel, dcGoalLabel } from '../reducer/labelMeta';
+import {
+  CHANNEL_CONFIG_LABELS,
+  COMMS_TEMPLATES,
+  EVENT_CATEGORIES,
+  ELIGIBILITY_META,
+  LOCKED_ATTR_OPERATORS,
+  resolveEntryEventAttrSource,
+  deliveryStatusOptionsForSend,
+  deliveryStatusOptionsAll,
+  type Channel,
+  type PrevStepSend,
+} from '../data/sharedConstants';
+import type { DripGoal, DripMilestoneCondition } from '../data/graphTypes';
+import { dcOrdinal, dcRecurrenceLabel, dcGoalLabel, dcSelectedMulti } from '../reducer/labelMeta';
 import { dcNewBranchId } from '../reducer/idGen';
+import { dcDefaultTxnHistory, dcDefaultMilestone } from '../reducer/defaultConfig';
 import { ConditionsSection, ConditionRows, ValueField } from './ConditionRows';
+import { MultiSelectDropdown } from '../components/MultiSelectDropdown';
+import { TxnHistoryFields, TxnLookbackFields } from './TxnHistoryFields';
+import { MilestoneConditionFields, MilestoneValueField } from './MilestoneFields';
+import { MILESTONE_BENEFITS, MILESTONE_OPERATORS } from '../data/sharedConstants';
+import { EventScopingFields } from './EventScopingFields';
 
 interface FormProps {
   p: any;
   onChange: (patch: any) => void;
 }
 
-const ENTITY_OPTIONS = ['Customer', 'Account', 'Card'];
+// Transaction is a real entity choice here, not a separate toggle or a
+// different "kind" of filter — its attributes already exist in
+// ELIGIBILITY_META and already render through the same ConditionRows
+// every other entity uses. The only things it needs that Customer/
+// Account/Card don't are a lookback window and an existence direction
+// (see EntityConditionBlock below) — three optional fields, not a
+// different shape. Milestone is the real replacement for the fabricated
+// Account fields this project briefly had (Milestone Progress %/
+// Engagement Tier, removed outright — see CLAUDE.md): a specific
+// benefit's Completed/Not-Completed or numeric/percentage progress,
+// confirmed directly against ironbank-face-main's own Promotional Nudge
+// eligibility form, not a free Account attribute.
+const ENTITY_OPTIONS = ['Customer', 'Account', 'Card', 'Transaction', 'Milestone'];
+
+// One Entity + its own Conditions (+ lookback/existence, when the entity
+// is Transaction) — reused for Entry · Audience's primary block and for
+// each additional entity filter, so "Account = Dormant AND Card = Active"
+// is just two of these stacked, AND'd, and "no transaction in 90 days" is
+// simply a third with entity = Transaction. Only the additional blocks
+// are individually removable; the primary block has no remove affordance
+// of its own (clearing all its condition rows collapses it back to the
+// existing "No conditions are set" empty state instead).
+function EntityConditionBlock({
+  entity,
+  conditions,
+  lookbackDuration,
+  lookbackUnit,
+  existence,
+  milestone,
+  onEntityChange,
+  onConditionsChange,
+  onTxnFieldsChange,
+  onMilestoneChange,
+  onRemove,
+}: {
+  entity: string;
+  conditions: any[];
+  lookbackDuration?: number;
+  lookbackUnit?: 'days' | 'hours';
+  existence?: 'exists' | 'none';
+  milestone?: DripMilestoneCondition;
+  onEntityChange: (entity: string) => void;
+  onConditionsChange: (conditions: any[]) => void;
+  onTxnFieldsChange: (patch: { lookbackDuration?: number; lookbackUnit?: 'days' | 'hours'; existence?: 'exists' | 'none' }) => void;
+  onMilestoneChange: (milestone: DripMilestoneCondition) => void;
+  onRemove?: () => void;
+}) {
+  const isTxn = entity === 'Transaction';
+  const isMilestone = entity === 'Milestone';
+  return (
+    <div className="f-group" style={onRemove ? { paddingTop: 12, marginTop: 4, borderTop: '1px dashed var(--gray-200)' } : undefined}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+        <label className="f-label">Entity</label>
+        {onRemove && (
+          <div className="cond-remove" style={{ width: 'auto', height: 'auto' }} onClick={onRemove} title="Remove this filter">
+            ✕
+          </div>
+        )}
+      </div>
+      <select className="f-input" value={entity} onChange={(e) => onEntityChange(e.target.value)}>
+        {ENTITY_OPTIONS.map((e) => (
+          <option key={e}>{e}</option>
+        ))}
+      </select>
+      {isMilestone ? (
+        <div style={{ marginTop: 10 }}>
+          <MilestoneConditionFields value={milestone ?? dcDefaultMilestone()} onChange={onMilestoneChange} />
+        </div>
+      ) : (
+        <>
+          <label className="f-label" style={{ marginTop: 10 }}>
+            {isTxn ? (
+              <>
+                Filters <span style={{ fontWeight: 400, color: 'var(--gray-500)' }}>(optional)</span>
+              </>
+            ) : (
+              'Conditions'
+            )}
+          </label>
+          <ConditionRows conditions={conditions} entity={entity} onChange={onConditionsChange} />
+          {isTxn && (
+            <div style={{ marginTop: 10 }}>
+              <TxnLookbackFields lookbackDuration={lookbackDuration ?? 90} lookbackUnit={lookbackUnit ?? 'days'} existence={existence ?? 'exists'} onChange={onTxnFieldsChange} />
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 export function EntrySegmentForm({ p, onChange }: FormProps) {
+  const extraGroups = p.extraEntityGroups || [];
+  const setExtraGroup = (i: number, patch: any) => {
+    const next = extraGroups.map((g: any, idx: number) => (idx === i ? { ...g, ...patch } : g));
+    onChange({ extraEntityGroups: next });
+  };
+  const removeExtraGroup = (i: number) => onChange({ extraEntityGroups: extraGroups.filter((_: any, idx: number) => idx !== i) });
+  const addExtraGroup = () => onChange({ extraEntityGroups: [...extraGroups, { entity: 'Customer', conditions: [{ attribute: '', operator: '', value: '' }] }] });
   return (
     <>
       <div className="f-group">
@@ -100,18 +213,44 @@ export function EntrySegmentForm({ p, onChange }: FormProps) {
         </div>
       ) : (
         <>
-          <div className="f-group">
-            <label className="f-label">Entity</label>
-            <select className="f-input" value={p.entity} onChange={(e) => onChange({ entity: e.target.value, conditions: [{ attribute: '', operator: '', value: '' }] })}>
-              {ENTITY_OPTIONS.map((e) => (
-                <option key={e}>{e}</option>
-              ))}
-            </select>
+          <EntityConditionBlock
+            entity={p.entity}
+            conditions={p.conditions}
+            lookbackDuration={p.lookbackDuration}
+            lookbackUnit={p.lookbackUnit}
+            existence={p.existence}
+            milestone={p.milestone}
+            onEntityChange={(entity) =>
+              onChange({ entity, conditions: [{ attribute: '', operator: '', value: '' }], lookbackDuration: 90, lookbackUnit: 'days', existence: 'exists', milestone: dcDefaultMilestone() })
+            }
+            onConditionsChange={(conditions) => onChange({ conditions })}
+            onTxnFieldsChange={(patch) => onChange(patch)}
+            onMilestoneChange={(milestone) => onChange({ milestone })}
+          />
+          {extraGroups.map((g: any, i: number) => (
+            <EntityConditionBlock
+              key={i}
+              entity={g.entity}
+              conditions={g.conditions}
+              lookbackDuration={g.lookbackDuration}
+              lookbackUnit={g.lookbackUnit}
+              existence={g.existence}
+              milestone={g.milestone}
+              onEntityChange={(entity) =>
+                setExtraGroup(i, { entity, conditions: [{ attribute: '', operator: '', value: '' }], lookbackDuration: 90, lookbackUnit: 'days', existence: 'exists', milestone: dcDefaultMilestone() })
+              }
+              onConditionsChange={(conditions) => setExtraGroup(i, { conditions })}
+              onTxnFieldsChange={(patch) => setExtraGroup(i, patch)}
+              onMilestoneChange={(milestone) => setExtraGroup(i, { milestone })}
+              onRemove={() => removeExtraGroup(i)}
+            />
+          ))}
+          <div className="add-link" onClick={addExtraGroup}>
+            + Add another entity filter
           </div>
-          <div className="f-group">
-            <label className="f-label">Conditions</label>
-            <ConditionRows conditions={p.conditions} entity={p.entity} onChange={(conditions) => onChange({ conditions })} />
-          </div>
+          <p className="f-hint" style={{ margin: '4px 0 0' }}>
+            Every filter here is AND'd together — a customer must match all of them. Pick "Transaction" as the entity to require (or rule out) a qualifying transaction in a lookback window, or "Milestone" to check a specific benefit's progress, instead of a current attribute.
+          </p>
         </>
       )}
       {p.repeat && <p className="f-hint">This re-evaluates fresh every time the schedule fires. It isn't a one-time snapshot.</p>}
@@ -133,6 +272,7 @@ export function EntryEventForm({ p, onChange }: FormProps) {
           ))}
         </select>
       </div>
+      <EventScopingFields eventCategory={p.eventCategory} value={p} onChange={onChange} />
       <div className="f-group">
         <label className="f-label">Event Type</label>
         <select className="f-input" value={p.eventType} onChange={(e) => onChange({ eventType: e.target.value })}>
@@ -144,7 +284,10 @@ export function EntryEventForm({ p, onChange }: FormProps) {
           ))}
         </select>
       </div>
-      <ConditionsSection conditions={p.conditions} entity={DC_EVENT_ENTITY[p.eventCategory] || null} onChange={(conditions) => onChange({ conditions })} />
+      {(() => {
+        const { entity, lockedAttr } = resolveEntryEventAttrSource(p.eventCategory, p.eventType);
+        return <ConditionsSection conditions={p.conditions} entity={entity} lockedAttribute={lockedAttr} onChange={(conditions) => onChange({ conditions })} />;
+      })()}
     </>
   );
 }
@@ -332,6 +475,7 @@ export function WaitUntilForm({ p, onChange }: FormProps) {
           ))}
         </select>
       </div>
+      <EventScopingFields eventCategory={p.eventCategory} value={p} onChange={onChange} />
       <div className="f-group">
         <label className="f-label">Event Type</label>
         <select className="f-input" value={p.eventType} onChange={(e) => onChange({ eventType: e.target.value })}>
@@ -356,38 +500,42 @@ export function WaitUntilForm({ p, onChange }: FormProps) {
           </select>
         </div>
       </div>
-      <ConditionsSection conditions={p.conditions} entity={DC_EVENT_ENTITY[p.eventCategory] || null} onChange={(conditions) => onChange({ conditions })} />
+      {(() => {
+        const { entity, lockedAttr } = resolveEntryEventAttrSource(p.eventCategory, p.eventType);
+        return <ConditionsSection conditions={p.conditions} entity={entity} lockedAttribute={lockedAttr} onChange={(conditions) => onChange({ conditions })} />;
+      })()}
     </>
   );
 }
 
-export function SplitForm({ p, onChange, goal, entryEventCategory, previousStepChannel }: FormProps & { goal: DripGoal | null; entryEventCategory: string | null; previousStepChannel: PrevStepSend | null }) {
-  const sourceEntity = entryEventCategory ? DC_EVENT_ENTITY[entryEventCategory] || null : null;
+export function SplitForm({
+  p,
+  onChange,
+  entryEventCategory,
+  entryEventType,
+  previousStepChannel,
+}: FormProps & { entryEventCategory: string | null; entryEventType: string | null; previousStepChannel: PrevStepSend | null }) {
+  const { entity: sourceEntity, lockedAttr } = resolveEntryEventAttrSource(entryEventCategory, entryEventType);
 
   let sourceBody: React.ReactNode;
-  if (p.customSource === 'Goal') {
-    sourceBody = goal && goal.eventType ? (
-      <p className="f-hint" style={{ margin: 0 }}>Checks the campaign goal directly: has the customer already reached "{dcGoalLabel(goal)}"? Yes if they have, No if they haven't yet.</p>
-    ) : (
-      <p className="f-hint" style={{ margin: 0 }}>No campaign goal is defined yet. Define one on the Goal step first, or pick a different source.</p>
-    );
-  } else if (p.customSource === 'Previous step outcome') {
+  if (p.customSource === 'Previous step outcome') {
     const outcomeOptions = previousStepChannel ? deliveryStatusOptionsForSend(previousStepChannel) : deliveryStatusOptionsAll();
     const channelLabel = previousStepChannel
       ? CHANNEL_CONFIG_LABELS[previousStepChannel.channel] + (previousStepChannel.fallbackChannel ? ` + ${CHANNEL_CONFIG_LABELS[previousStepChannel.fallbackChannel]} fallback` : '')
       : '';
+    const selectedOutcomes = dcSelectedMulti(p.outcome, p.outcomes);
     sourceBody = (
       <div className="f-group">
-        <label className="f-label">Outcome{channelLabel ? ` (${channelLabel})` : ''} — matches → Yes</label>
-        <select className="f-input" value={p.outcome} onChange={(e) => onChange({ outcome: e.target.value })}>
-          <option value="">Select outcome</option>
-          {outcomeOptions.map((o) => (
-            <option key={o}>{o}</option>
-          ))}
-        </select>
+        <label className="f-label">Outcome{channelLabel ? ` (${channelLabel})` : ''} — any match → Yes</label>
+        <MultiSelectDropdown
+          options={outcomeOptions}
+          selected={selectedOutcomes}
+          onToggle={(v) => onChange({ outcome: '', outcomes: selectedOutcomes.includes(v) ? selectedOutcomes.filter((x) => x !== v) : [...selectedOutcomes, v] })}
+        />
         {!previousStepChannel && (
-          <p className="f-hint" style={{ margin: '6px 0 0' }}>There's no earlier Send in this chain. Every channel's statuses are listed — pick the one this branch is about.</p>
+          <p className="f-hint" style={{ margin: '6px 0 0' }}>There's no earlier Send in this chain. Every channel's statuses are listed — pick the ones this branch is about.</p>
         )}
+        <p className="f-hint" style={{ margin: '6px 0 0' }}>Pick every status that should count as a match. Intermediate processing states (e.g. SENT, QUEUED, PENDING) usually aren't final outcomes worth conditioning on.</p>
       </div>
     );
   } else if (p.customSource === 'Account attribute') {
@@ -397,12 +545,27 @@ export function SplitForm({ p, onChange, goal, entryEventCategory, previousStepC
         <ConditionRows conditions={p.customConditions} entity="Account" onChange={(customConditions) => onChange({ customConditions })} />
       </div>
     );
-  } else if (sourceEntity) {
+  } else if (p.customSource === 'Transaction history') {
+    sourceBody = (
+      <div className="f-group">
+        <TxnHistoryFields value={p.txnHistory ?? dcDefaultTxnHistory()} onChange={(txnHistory) => onChange({ txnHistory })} />
+        <p className="f-hint" style={{ margin: '6px 0 0' }}>Checked against the customer's transaction history — not their current attributes. The lookback window is relative to when this node is reached and evaluated.</p>
+      </div>
+    );
+  } else if (p.customSource === 'Milestone') {
+    sourceBody = (
+      <div className="f-group">
+        <MilestoneConditionFields value={p.milestone ?? dcDefaultMilestone()} onChange={(milestone) => onChange({ milestone })} />
+        <p className="f-hint" style={{ margin: '6px 0 0' }}>Checks one specific, already-configured milestone benefit's progress at the moment this node is reached — not a general customer or account attribute.</p>
+      </div>
+    );
+  } else if (sourceEntity || lockedAttr) {
     sourceBody = (
       <div className="f-group">
         <ConditionsSection
           conditions={p.customConditions}
           entity={sourceEntity}
+          lockedAttribute={lockedAttr}
           onChange={(customConditions) => onChange({ customConditions })}
           label="Conditions — ALL must match → Yes, otherwise → No"
         />
@@ -420,11 +583,12 @@ export function SplitForm({ p, onChange, goal, entryEventCategory, previousStepC
     <>
       <div className="f-group">
         <label className="f-label">Source</label>
-        <select className="f-input" value={p.customSource} onChange={(e) => onChange({ customSource: e.target.value, outcome: '', customConditions: [] })}>
+        <select className="f-input" value={p.customSource} onChange={(e) => onChange({ customSource: e.target.value, outcome: '', customConditions: [], milestone: dcDefaultMilestone() })}>
           <option>Previous step outcome</option>
           <option>Account attribute</option>
           <option>Entry event attribute</option>
-          <option>Goal</option>
+          <option>Transaction history</option>
+          <option>Milestone</option>
         </select>
       </div>
       {sourceBody}
@@ -440,8 +604,22 @@ function BranchInsertRow({ onInsert }: { onInsert: () => void }) {
   );
 }
 
-export function DecisionSplitForm({ p, onChange, entryEventCategory, previousStepChannel }: FormProps & { entryEventCategory: string | null; previousStepChannel: PrevStepSend | null }) {
-  const sourceEntity = p.source === 'Account attribute' ? 'Account' : p.source === 'Entry event attribute' ? (entryEventCategory ? DC_EVENT_ENTITY[entryEventCategory] : null) : null;
+export function DecisionSplitForm({
+  p,
+  onChange,
+  entryEventCategory,
+  entryEventType,
+  previousStepChannel,
+}: FormProps & { entryEventCategory: string | null; entryEventType: string | null; previousStepChannel: PrevStepSend | null }) {
+  const { entity: entryEntity, lockedAttr } = resolveEntryEventAttrSource(entryEventCategory, entryEventType);
+  const sourceEntity = p.source === 'Account attribute' ? 'Account' : p.source === 'Entry event attribute' ? entryEntity : null;
+  // Journey/Offer Events have no typed entity — Branch gets the same
+  // single locked attribute Condition does (see EVENT_ATTR_BY_TYPE),
+  // never a Branch-specific scoping UI of its own. `p.attribute` is
+  // force-set to this value the moment Source is switched to "Entry
+  // event attribute" (below), so it's always populated in this mode —
+  // no separate "Select attribute" step, since there's only ever one.
+  const isLockedAttrMode = p.source === 'Entry event attribute' && !sourceEntity && !!lockedAttr;
   const attrMeta = sourceEntity && p.attribute ? ELIGIBILITY_META[sourceEntity]?.[p.attribute] : null;
 
   const setBranch = (i: number, patch: any) => {
@@ -464,21 +642,73 @@ export function DecisionSplitForm({ p, onChange, entryEventCategory, previousSte
       : '';
     sourceBody = (
       <div className="f-group">
-        <label className="f-label">Branches{channelLabel ? ` (${channelLabel})` : ''}</label>
+        <label className="f-label">Branches{channelLabel ? ` (${channelLabel})` : ''} — any match routes to that branch</label>
         {!previousStepChannel && (
-          <p className="f-hint" style={{ margin: '0 0 8px' }}>There's no earlier Send in this chain. Every channel's statuses are listed — pick the one this split is about.</p>
+          <p className="f-hint" style={{ margin: '0 0 8px' }}>There's no earlier Send in this chain. Every channel's statuses are listed — pick the ones this split is about.</p>
         )}
+        {p.branches.map((b: any, i: number) => {
+          const selectedOutcomes = dcSelectedMulti(b.value, b.values);
+          return (
+            <div key={b.id || i}>
+              <BranchInsertRow onInsert={() => insertBranch(i - 1)} />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <input className="f-input" type="text" style={{ flex: 1 }} placeholder="Label" value={b.label} onChange={(e) => setBranch(i, { label: e.target.value })} />
+                <div style={{ flex: 2 }}>
+                  <MultiSelectDropdown
+                    options={outcomeOptions}
+                    selected={selectedOutcomes}
+                    onToggle={(v) => setBranch(i, { value: '', values: selectedOutcomes.includes(v) ? selectedOutcomes.filter((x) => x !== v) : [...selectedOutcomes, v] })}
+                  />
+                </div>
+                {p.branches.length > 1 && (
+                  <div className="cond-remove" onClick={() => removeBranch(i)}>
+                    ✕
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <div className="add-link" onClick={addBranch}>
+          + Add branch
+        </div>
+        <CatchAllRow />
+        <p className="f-hint" style={{ margin: '8px 0 0' }}>Pick every status that should count toward a branch. Intermediate processing states (e.g. SENT, QUEUED, PENDING) usually aren't final outcomes worth conditioning on.</p>
+      </div>
+    );
+  } else if (isLockedAttrMode) {
+    // Same shape as the entity-based branches below (label + operator +
+    // value per branch, "+ Add branch", catch-all), minus the Attribute
+    // picker — there's only one real attribute for this event type, so
+    // it's shown fixed rather than offered as a dead 1-option dropdown.
+    const toggleBranchMulti = (i: number, val: string) => {
+      const b = p.branches[i];
+      const values = b.values ? [...b.values] : [];
+      const idx = values.indexOf(val);
+      if (idx > -1) values.splice(idx, 1);
+      else values.push(val);
+      setBranch(i, { values, operator: 'Any of' });
+    };
+    sourceBody = (
+      <div className="f-group">
+        <label className="f-label">Attribute</label>
+        <input className="f-input" type="text" value={lockedAttr || ''} disabled />
+        <label className="f-label" style={{ marginTop: 10 }}>
+          Branches
+        </label>
         {p.branches.map((b: any, i: number) => (
           <div key={b.id || i}>
             <BranchInsertRow onInsert={() => insertBranch(i - 1)} />
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-              <input className="f-input" type="text" style={{ flex: 1 }} placeholder="Label" value={b.label} onChange={(e) => setBranch(i, { label: e.target.value })} />
-              <select className="f-input" style={{ flex: 2 }} value={b.value} onChange={(e) => setBranch(i, { value: e.target.value })}>
-                <option value="">Select outcome</option>
-                {outcomeOptions.map((o) => (
+              <input className="f-input" type="text" style={{ width: 110, flexShrink: 0 }} placeholder="Label" value={b.label} onChange={(e) => setBranch(i, { label: e.target.value })} />
+              <select className="f-input" style={{ width: 110, flexShrink: 0 }} value={b.operator} onChange={(e) => setBranch(i, { operator: e.target.value })}>
+                {LOCKED_ATTR_OPERATORS.map((o) => (
                   <option key={o}>{o}</option>
                 ))}
               </select>
+              <div style={{ flex: 1 }}>
+                <ValueField cond={b} attrMeta={null} onPatch={(patch) => setBranch(i, patch)} onToggleMulti={(v) => toggleBranchMulti(i, v)} />
+              </div>
               {p.branches.length > 1 && (
                 <div className="cond-remove" onClick={() => removeBranch(i)}>
                   ✕
@@ -492,6 +722,63 @@ export function DecisionSplitForm({ p, onChange, entryEventCategory, previousSte
         </div>
         <CatchAllRow />
       </div>
+    );
+  } else if (p.source === 'Milestone') {
+    sourceBody = (
+      <>
+        <div className="f-group">
+          <label className="f-label">Milestone benefit</label>
+          <select
+            className="f-input"
+            value={p.milestoneBenefitId || ''}
+            onChange={(e) => onChange({ milestoneBenefitId: e.target.value })}
+          >
+            <option value="">Select benefit</option>
+            {MILESTONE_BENEFITS.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {p.milestoneBenefitId && (
+          <div className="f-group">
+            <label className="f-label">Branches</label>
+            {p.branches.map((b: any, i: number) => (
+              <div key={b.id || i}>
+                <BranchInsertRow onInsert={() => insertBranch(i - 1)} />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <input className="f-input" type="text" style={{ width: 110, flexShrink: 0 }} placeholder="Label" value={b.label} onChange={(e) => setBranch(i, { label: e.target.value })} />
+                  <select
+                    className="f-input"
+                    style={{ width: 150, flexShrink: 0 }}
+                    value={b.operator}
+                    onChange={(e) => setBranch(i, { operator: e.target.value, value: '', value2: '', statusChoice: undefined })}
+                  >
+                    {MILESTONE_OPERATORS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ flex: 1 }}>
+                    <MilestoneValueField operator={b.operator} value={b.value} value2={b.value2} statusChoice={b.statusChoice} onPatch={(patch) => setBranch(i, patch)} />
+                  </div>
+                  {p.branches.length > 1 && (
+                    <div className="cond-remove" onClick={() => removeBranch(i)}>
+                      ✕
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            <div className="add-link" onClick={addBranch}>
+              + Add branch
+            </div>
+            <CatchAllRow />
+          </div>
+        )}
+      </>
     );
   } else if (!sourceEntity) {
     sourceBody = (
@@ -519,7 +806,20 @@ export function DecisionSplitForm({ p, onChange, entryEventCategory, previousSte
       <>
         <div className="f-group">
           <label className="f-label">Attribute</label>
-          <select className="f-input" value={p.attribute} onChange={(e) => onChange({ attribute: e.target.value })}>
+          <select
+            className="f-input"
+            value={p.attribute}
+            onChange={(e) =>
+              // A new attribute can be a completely different value type
+              // (e.g. switching from a select to a multiSelect) — every
+              // branch's old value/values/value2 is stale the moment the
+              // attribute changes, not just hidden.
+              onChange({
+                attribute: e.target.value,
+                branches: p.branches.map((b: any) => ({ ...b, operator: 'Equals', value: '', value2: '', values: [] })),
+              })
+            }
+          >
             <option value="">Select attribute</option>
             {attrOptions.map((a) => (
               <option key={a} value={a}>
@@ -573,10 +873,35 @@ export function DecisionSplitForm({ p, onChange, entryEventCategory, previousSte
       </div>
       <div className="f-group">
         <label className="f-label">Source</label>
-        <select className="f-input" value={p.source} onChange={(e) => onChange({ source: e.target.value, attribute: '' })}>
+        <select
+          className="f-input"
+          value={p.source}
+          onChange={(e) => {
+            const nextSource = e.target.value;
+            // Picking "Entry event attribute" on a Journey/Offer Events
+            // entry locks the attribute immediately — there's only one,
+            // so there's no separate pick step the way Account attribute
+            // has. Any other source (or an entity-based entry) clears it,
+            // same as before.
+            const nextAttribute = nextSource === 'Entry event attribute' && !entryEntity && lockedAttr ? lockedAttr : '';
+            const patch: any = { source: nextSource, attribute: nextAttribute, milestoneBenefitId: '' };
+            // Milestone's operator vocabulary (IS/GT/GTE_PCT/etc.) is
+            // disjoint from every other source's (Equals/Not Equals/Any
+            // of) — stale branches from a previous source would show an
+            // operator select with no matching option, so they're reset
+            // to a valid Milestone starting point the moment this source
+            // is picked, same as the attribute-select's own reset below
+            // does when a new attribute is chosen.
+            if (nextSource === 'Milestone') {
+              patch.branches = p.branches.map((b: any) => ({ ...b, operator: 'IS', value: '', value2: '', values: [], statusChoice: undefined }));
+            }
+            onChange(patch);
+          }}
+        >
           <option>Previous step outcome</option>
           <option>Account attribute</option>
           <option>Entry event attribute</option>
+          <option>Milestone</option>
         </select>
       </div>
       {sourceBody}

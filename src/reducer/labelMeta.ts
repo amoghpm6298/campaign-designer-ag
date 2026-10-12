@@ -1,8 +1,26 @@
 // Ported from journeysnudgesemi/emi-conversions-prototype.html
 // (dcCondSummary, dcDecisionBranchSummary, dcGoalLabel, dcOrdinal,
 // dcRecurrenceLabel, dcRecomputeLabelMeta).
-import type { DripGoal, DripGoalCondition } from '../data/graphTypes';
+import type { DripGoal, DripGoalCondition, DripMilestoneCondition, DripTxnHistoryCriteria } from '../data/graphTypes';
 import type { DcNodeType } from '../data/nodeMeta';
+import { milestoneBenefitName } from '../data/sharedConstants';
+
+// Short operator symbols for Milestone summaries — same convention as
+// dcCondSummary's '>' / '<' / '≠'. Only the two _PCT operators get a '%'
+// suffix; 'BETWEEN' and 'IS' are handled as their own cases below.
+const MILESTONE_OP_SYMBOL: Record<string, string> = { GT: '>', GTE: '≥', LT: '<', LTE: '≤', GTE_PCT: '≥', LTE_PCT: '≤' };
+
+// Readable canvas summary for a Milestone condition — same collapse
+// discipline as dcTxnHistorySummary: a real business question, not a
+// dump of the raw operator/value shape.
+export function dcMilestoneSummary(m: DripMilestoneCondition | undefined): string {
+  if (!m || !m.benefitId) return 'Milestone';
+  const name = milestoneBenefitName(m.benefitId);
+  if (m.operator === 'IS') return `${name} — ${m.statusChoice === 'NOT_COMPLETED' ? 'Not Completed' : 'Completed'}`;
+  if (m.operator === 'BETWEEN') return `${name} between ${m.value || '?'} and ${m.value2 || '?'}`;
+  const pct = m.operator === 'GTE_PCT' || m.operator === 'LTE_PCT' ? '%' : '';
+  return `${name} ${MILESTONE_OP_SYMBOL[m.operator] || m.operator} ${m.value || '?'}${pct}`;
+}
 
 // Short readable summary of a condition array for a node's meta line —
 // "Amount = 2000, MCC = 5411" rather than making a reviewer open the
@@ -21,24 +39,61 @@ export function dcCondSummary(conditions: DripGoalCondition[] | undefined): stri
     .join(', ');
 }
 
+// Readable canvas summary for a transaction-history condition — same
+// collapse convention as dcCondSummary: 0 or 1 filters stay readable,
+// 2+ collapse to a count so the card never grows to fit raw filter
+// expressions.
+export function dcTxnHistorySummary(t: DripTxnHistoryCriteria | undefined): string {
+  if (!t) return 'Transaction history';
+  const verb = t.existence === 'none' ? 'No transaction' : 'A transaction';
+  const filters = (t.filters || []).filter((c) => c.attribute);
+  const filterText = filters.length === 1 ? ` (${dcCondSummary(filters)})` : filters.length > 1 ? ` matching ${filters.length} filters` : '';
+  return `${verb}${filterText} in ${t.lookbackDuration ?? '?'} ${t.lookbackUnit ?? 'days'}`;
+}
+
 export interface DecisionBranch {
   id?: string;
   label: string;
   operator: string;
   value?: string;
   value2?: string;
+  values?: string[];
+  // Only meaningful when the parent Decision Split's source is
+  // 'Milestone' and this branch's own operator is 'IS'.
+  statusChoice?: 'COMPLETED' | 'NOT_COMPLETED';
 }
 export interface DecisionSplitConfig {
   source: string;
+  attribute?: string;
+  milestoneBenefitId?: string;
   branches: DecisionBranch[];
 }
+
+// "Previous step outcome" moved from a single exact-match value to a set
+// (any selected status qualifies) — this derives the effective selection
+// from either shape, so an old saved journey with only the singular
+// value/outcome field still behaves exactly as it did (a set of one).
+export function dcSelectedMulti(single: string | undefined, multi: string[] | undefined): string[] {
+  if (multi && multi.length) return multi;
+  return single ? [single] : [];
+}
+
 // Short readable summary of one Decision Split branch's own condition —
 // used both for its edge's branchLabel on the canvas and the node's own
 // meta line. "Previous step outcome" branches have no operator concept
-// (always an exact status match), everything else mirrors dcCondSummary's
+// (always a status-set match), everything else mirrors dcCondSummary's
 // operator formatting.
 export function dcDecisionBranchSummary(p: DecisionSplitConfig, b: DecisionBranch): string {
-  if (p.source === 'Previous step outcome') return b.value || '(unset)';
+  if (p.source === 'Previous step outcome') {
+    const sel = dcSelectedMulti(b.value, b.values);
+    return sel.length === 0 ? '(unset)' : sel.length === 1 ? sel[0] : `${sel.length} outcomes`;
+  }
+  if (p.source === 'Milestone') {
+    if (b.operator === 'IS') return b.statusChoice === 'NOT_COMPLETED' ? 'Not Completed' : 'Completed';
+    if (b.operator === 'BETWEEN') return `${b.value || '?'}–${b.value2 || '?'}`;
+    const pct = b.operator === 'GTE_PCT' || b.operator === 'LTE_PCT' ? '%' : '';
+    return `${MILESTONE_OP_SYMBOL[b.operator] || b.operator} ${b.value || '?'}${pct}`;
+  }
   if (b.operator === 'Between') return `${b.value || '?'}–${b.value2 || '?'}`;
   if (b.operator === 'Greater than') return `> ${b.value || '?'}`;
   if (b.operator === 'Less than') return `< ${b.value || '?'}`;
@@ -126,8 +181,13 @@ export function dcRecomputeLabelMeta(type: DcNodeType, p: any, goal: DripGoal | 
     // always a user-defined question, never a stand-in for the one
     // campaign goal (that's GOAL_CHECK's job, a distinct node type that
     // carries no condition config of its own at all — see below).
-    if (p.customSource === 'Previous step outcome') return { label: `Previous step: ${p.outcome}?`, meta: '' };
-    if (p.customSource === 'Goal') return { label: (dcGoalLabel(goal) || 'Goal') + '?', meta: '' };
+    if (p.customSource === 'Previous step outcome') {
+      const sel = dcSelectedMulti(p.outcome, p.outcomes);
+      const text = sel.length === 0 ? '(unset)' : sel.length === 1 ? sel[0] : `${sel.length} outcomes`;
+      return { label: `Previous step: ${text}?`, meta: '' };
+    }
+    if (p.customSource === 'Transaction history') return { label: dcTxnHistorySummary(p.txnHistory) + '?', meta: '' };
+    if (p.customSource === 'Milestone') return { label: dcMilestoneSummary(p.milestone) + '?', meta: '' };
     const conds = (p.customConditions || []).filter((c: DripGoalCondition) => c.attribute);
     // One simple condition gets to be the label itself (a short, real
     // business question) — two or more collapse to a count-only meta
@@ -139,7 +199,12 @@ export function dcRecomputeLabelMeta(type: DcNodeType, p: any, goal: DripGoal | 
     return { label: 'Custom condition', meta: `${conds.length} conditions` };
   }
   if (type === 'DECISION_SPLIT') {
-    const label = p.source === 'Previous step outcome' ? 'Previous step outcome' : p.attribute || 'Branch';
+    const label =
+      p.source === 'Previous step outcome'
+        ? 'Previous step outcome'
+        : p.source === 'Milestone'
+          ? milestoneBenefitName(p.milestoneBenefitId) || 'Milestone'
+          : p.attribute || 'Branch';
     return { label, meta: `${p.branches.length} branch${p.branches.length === 1 ? '' : 'es'} + catch-all` };
   }
   if (type === 'RANDOM_SPLIT') {
@@ -151,10 +216,11 @@ export function dcRecomputeLabelMeta(type: DcNodeType, p: any, goal: DripGoal | 
     const countLabel = `${p.branches.length} variant${p.branches.length === 1 ? '' : 's'}`;
     return { label: p.name, meta: allocation.length <= 24 ? `${countLabel} — ${allocation}` : countLabel };
   }
-  // GOAL_CHECK carries no `_config` at all (always null) — its label is
-  // set directly at creation time in campaignReducer.ts, never recomputed
-  // here, since it's never routed through an edit form. Included for
-  // completeness/type-safety only; this branch should never actually run.
+  // GOAL_CHECK carries no `_config` at all (always null) — nothing to
+  // recompute FROM, so its question is derived live from the campaign's
+  // current Goal every time. That's what makes editing the Goal update
+  // every existing Goal Check's label for free, with no second copy of
+  // the goal stored on any node.
   if (type === 'GOAL_CHECK') return { label: (dcGoalLabel(goal) || 'Goal') + '?', meta: '' };
   if (type === 'GOAL_EXIT' || type === 'EXIT') return { label: p.reason, meta: '' };
   return { label: '', meta: '' };

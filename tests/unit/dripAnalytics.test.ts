@@ -75,3 +75,47 @@ describe('generateDripAnalytics', () => {
     });
   });
 });
+
+// The distinction that makes a fan-out campaign's numbers correct: a
+// routing node DIVIDES its arrivals between mutually exclusive paths,
+// while a fan-out node sends EVERY customer down EVERY path, so each
+// path carries the full incoming count. Counting fan-out the routing way
+// would have quietly reported a quarter of the real reach on each of
+// DRIP-003's four milestone checkpoints.
+describe('fan-out counts in full, routing divides', () => {
+  const drip003 = DRIP_CAMPAIGNS.find((c) => c.id === 'DRIP-003')!;
+
+  it("DRIP-003's four parallel paths each carry the entry's full count, not a share", () => {
+    const { metrics, totals } = generateDripAnalytics({ ...drip003, status: 'ACTIVE' });
+    const entryId = drip003.root!.rootId!;
+    const outs = drip003.root!.edges.filter((e) => e.from === entryId && e.to);
+    expect(outs.length).toBe(4);
+    const shares = outs.map((e) => metrics.edgeCounts[e.id]?.count ?? 0);
+    // Compared against the entry node's own arrivals, not the campaign
+    // total — the entry already holds some back as still-in-sequence
+    // before any path is taken. Every path is within normal per-hop
+    // attrition of ALL of them, emphatically not a quarter each, which
+    // is what a routing split would have produced.
+    const arrivals = metrics.nodeCounts[entryId];
+    shares.forEach((s) => {
+      expect(s).toBeGreaterThan(arrivals * 0.92);
+      expect(s).toBeLessThanOrEqual(arrivals);
+    });
+    // Their sum far exceeds the arrivals, which is correct here and
+    // would be a bug for a routing node.
+    expect(shares.reduce((a, b) => a + b, 0)).toBeGreaterThan(arrivals * 3);
+    expect(totals.entered).toBeGreaterThan(0);
+  });
+
+  it("a routing node's paths still divide, summing to roughly its arrivals", () => {
+    // DRIP-002's Experiment splits traffic between two variants.
+    const drip002 = DRIP_CAMPAIGNS.find((c) => c.id === 'DRIP-002')!;
+    const { metrics } = generateDripAnalytics({ ...drip002, status: 'ACTIVE' });
+    const splitId = Object.values(drip002.root!.nodes).find((n) => n.type === 'RANDOM_SPLIT')!.id;
+    const outs = drip002.root!.edges.filter((e) => e.from === splitId && e.to);
+    const arrivals = metrics.nodeCounts[splitId];
+    const sum = outs.reduce((acc, e) => acc + (metrics.edgeCounts[e.id]?.count ?? 0), 0);
+    expect(sum).toBeLessThanOrEqual(arrivals + outs.length); // rounding only
+    expect(sum).toBeGreaterThan(arrivals * 0.95);
+  });
+});

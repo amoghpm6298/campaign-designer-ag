@@ -51,10 +51,73 @@ export interface DripGoalCondition {
   value2?: string;
 }
 
+// Shared by Condition's "Transaction history" source and Entry · Audience's
+// own optional transaction-history block, so the two entry points can't
+// drift — one config shape, one UI component, two call sites. The builder
+// only ever captures this as config; nothing executes it (see the Node
+// Reference's Known Limitations / Transaction-history condition section).
+export interface DripTxnHistoryCriteria {
+  filters: DripGoalCondition[];
+  lookbackDuration: number;
+  lookbackUnit: 'days' | 'hours';
+  existence: 'exists' | 'none';
+}
+
+// Shared by Entry · Audience's entity = 'Milestone' block, Condition's
+// "Milestone" source, and Branch's "Milestone" source — one specific,
+// already-configured milestone benefit, checked either as Completed/Not
+// Completed (operator 'IS', value auto-set to "100" same as the real
+// form) or via a numeric/percentage comparator against its progress.
+// value2 is only meaningful for 'BETWEEN'. See sharedConstants.ts's
+// MILESTONE_BENEFITS/MILESTONE_OPERATORS for where this is grounded.
+export interface DripMilestoneCondition {
+  benefitId: string;
+  operator: string;
+  value?: string;
+  value2?: string;
+  statusChoice?: 'COMPLETED' | 'NOT_COMPLETED';
+}
+
+// Entry · Audience's entity-scoped filter blocks — the primary block and
+// every block in extraEntityGroups share this one shape, repeatable and
+// AND'd together (e.g. Account = Dormant AND Card = Active). Reconsidered
+// twice before landing here: first kept Transaction-history as a wholly
+// separate toggle (on the claim it couldn't share this shape at all);
+// then as a separate "kind" in a tagged union (on the claim it at least
+// needed a different shape). Neither holds up — Transaction is just
+// another entity, its attributes already exist in ELIGIBILITY_META, and
+// ConditionRows already renders them. The only things an entity made of
+// many-records-per-member (Transaction) needs that a one-row-per-member
+// entity (Customer/Account/Card) doesn't are a lookback window and an
+// existence direction — three optional fields, not a different shape.
+// They're simply unused/meaningless whenever entity isn't 'Transaction'.
+export interface DripEntityConditionGroup {
+  entity: string;
+  conditions: DripGoalCondition[];
+  lookbackDuration?: number;
+  lookbackUnit?: 'days' | 'hours';
+  existence?: 'exists' | 'none';
+  // Only meaningful when entity = 'Milestone' — same "extra optional
+  // fields, not a different shape" precedent as Transaction's lookback/
+  // existence above. `conditions` is simply unused for this entity.
+  milestone?: DripMilestoneCondition;
+}
+
 export interface DripGoal {
   eventCategory: string;
   eventType: string;
   conditions: DripGoalCondition[];
+  // Journey/Offer Events' own scoping — which journey/batch or offer
+  // type/name this event is about. Optional and only meaningful for
+  // those two categories; absent (not just empty-string) on every other
+  // category and on every campaign saved before this existed. Entry ·
+  // Event and Wait for Event carry the identical pair of optional fields
+  // directly on their own _config (untyped, same as every other node
+  // config in this app), not here — this interface only covers Goal.
+  journey?: string;
+  batch?: string;
+  offerType?: string;
+  offerName?: string;
 }
 
 export type DripCampaignStatus =

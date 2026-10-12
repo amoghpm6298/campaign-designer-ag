@@ -18,7 +18,7 @@
 // has to disappear too (there's no "chosen" type to show a form for
 // until a new pick lands), so the parent needs to know the grid is open
 // in order to hide it, not just this component.
-import { DC_NODE_META, DC_CATEGORY_ICON, DC_TYPE_CATEGORIES, type DcNodeType } from '../data/nodeMeta';
+import { DC_NODE_META, DC_NODE_ICON, DC_TYPE_CATEGORIES, type DcNodeType } from '../data/nodeMeta';
 import { DC_ENTRY_TYPES, DC_TYPE_SUB } from '../data/typeSub';
 import { Icon } from '../components/icons';
 
@@ -70,7 +70,7 @@ export function TypePicker({
         title={disabledReason}
       >
         <span className="dc-type-opt-icon">
-          <Icon name={DC_CATEGORY_ICON[cat]} />
+          <Icon name={DC_NODE_ICON[t]} />
         </span>
         <span className="dc-type-opt-text">
           <span className="dc-type-opt-name">{DC_NODE_META[t].type}</span>

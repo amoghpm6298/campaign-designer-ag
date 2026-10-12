@@ -82,9 +82,12 @@ test('full create -> build -> submit flow lands in the list as Pending Approval'
   await page.waitForTimeout(300);
   await page.locator('.dc-add-entry-placeholder').click();
   await page.locator('.dc-type-opt:has-text("Entry · Event")').click();
-  const sel = page.locator('.sd-drawer.open select');
-  await sel.nth(0).selectOption('Journey Events');
-  await sel.nth(1).selectOption('Pageload');
+  // Scoped by each field's own label, not position — Journey Events
+  // inserts its own Journey+Batch scoping selects between Event Category
+  // and Event Type, so a fixed index doesn't hold here.
+  const entryDrawer = page.locator('.sd-drawer.open');
+  await entryDrawer.locator('.f-group', { has: page.locator('label.f-label', { hasText: 'Event Category' }) }).locator('select').selectOption('Journey Events');
+  await entryDrawer.locator('.f-group', { has: page.locator('label.f-label', { hasText: 'Event Type' }) }).locator('select').selectOption('Pageload');
   await page.locator('.sd-drawer.open .sd-foot button.btn.primary').click();
   await page.waitForTimeout(400);
   await page.locator('.dc-add-btn').click();

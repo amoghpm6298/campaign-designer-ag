@@ -35,6 +35,12 @@ export interface AddEditDrawerProps {
   onConfirm: () => void;
   goal: DripGoal | null;
   entryEventCategory: string | null;
+  // The entry's own eventType (e.g. "Pageload") — needed alongside
+  // entryEventCategory because Journey/Offer Events' locked attribute
+  // (see resolveEntryEventAttrSource) depends on the specific event type,
+  // not just the category (Journey Events alone has 3 possible types,
+  // each with a different locked attribute).
+  entryEventType: string | null;
   previousStepChannel: PrevStepSend | null;
   // Goal Check's own "edit" view is read-only (see NodeForms.tsx's
   // GoalCheckInfo) — this is its one real action, a shortcut back to the
@@ -43,7 +49,7 @@ export interface AddEditDrawerProps {
 }
 
 export function AddEditDrawer(props: AddEditDrawerProps) {
-  const { open, isEditing, isEntry, isMidEdge, types, disabledTypes, selectedType, pendingConfig, onConfigChange, onPickType, onCancel, onConfirm, goal, entryEventCategory, previousStepChannel, onGoToGoal } = props;
+  const { open, isEditing, isEntry, isMidEdge, types, disabledTypes, selectedType, pendingConfig, onConfigChange, onPickType, onCancel, onConfirm, goal, entryEventCategory, entryEventType, previousStepChannel, onGoToGoal } = props;
 
   // Whether the type grid should be showing right now, as opposed to the
   // collapsed chip. True initially (nothing picked yet) and whenever the
@@ -57,7 +63,7 @@ export function AddEditDrawer(props: AddEditDrawerProps) {
   }, [selectedType]);
 
   const isGoalCheck = selectedType === 'GOAL_CHECK';
-  const primaryDisabled = !(selectedType && dcAddFormValid(selectedType, pendingConfig, goal));
+  const primaryDisabled = !(selectedType && dcAddFormValid(selectedType, pendingConfig));
   const primaryLabel = isEditing ? 'Save Changes' : isEntry ? 'Add Entry' : 'Add Step';
   const title = isGoalCheck ? 'Goal Check' : isEditing ? 'Edit Step' : isEntry ? 'Add Entry' : 'Add Next Step';
   // Editing never shows the type grid at all, so it never has a "still
@@ -84,10 +90,23 @@ export function AddEditDrawer(props: AddEditDrawerProps) {
         )}
         {showForm && isGoalCheck && <Forms.GoalCheckInfo goal={goal} onGoToGoal={onGoToGoal} />}
         {showForm && !isGoalCheck && (
-          <NodeForm type={selectedType!} p={pendingConfig} onChange={(patch) => onConfigChange(patch)} goal={goal} entryEventCategory={entryEventCategory} previousStepChannel={previousStepChannel} />
+          <NodeForm
+            type={selectedType!}
+            p={pendingConfig}
+            onChange={(patch) => onConfigChange(patch)}
+            entryEventCategory={entryEventCategory}
+            entryEventType={entryEventType}
+            previousStepChannel={previousStepChannel}
+          />
         )}
       </div>
-      {isGoalCheck ? (
+      {isGoalCheck && isEditing ? (
+        // Opening an existing Goal Check is pure read-back — it has no
+        // configuration of its own to save, so Close is the only honest
+        // action. Adding one still needs a real confirm, which is why
+        // this is gated on isEditing rather than on the type alone (it
+        // wasn't, back when a Goal Check could only ever be arrived at
+        // by clicking one the builder had already inserted).
         <div className="sd-foot">
           <button className="btn secondary" onClick={onCancel}>
             Close
@@ -104,15 +123,15 @@ function NodeForm({
   type,
   p,
   onChange,
-  goal,
   entryEventCategory,
+  entryEventType,
   previousStepChannel,
 }: {
   type: DcNodeType;
   p: any; // eslint-disable-line @typescript-eslint/no-explicit-any
   onChange: (patch: any) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
-  goal: DripGoal | null;
   entryEventCategory: string | null;
+  entryEventType: string | null;
   previousStepChannel: PrevStepSend | null;
 }) {
   switch (type) {
@@ -127,9 +146,9 @@ function NodeForm({
     case 'WAIT_UNTIL':
       return <Forms.WaitUntilForm p={p} onChange={onChange} />;
     case 'SPLIT':
-      return <Forms.SplitForm p={p} onChange={onChange} goal={goal} entryEventCategory={entryEventCategory} previousStepChannel={previousStepChannel} />;
+      return <Forms.SplitForm p={p} onChange={onChange} entryEventCategory={entryEventCategory} entryEventType={entryEventType} previousStepChannel={previousStepChannel} />;
     case 'DECISION_SPLIT':
-      return <Forms.DecisionSplitForm p={p} onChange={onChange} entryEventCategory={entryEventCategory} previousStepChannel={previousStepChannel} />;
+      return <Forms.DecisionSplitForm p={p} onChange={onChange} entryEventCategory={entryEventCategory} entryEventType={entryEventType} previousStepChannel={previousStepChannel} />;
     case 'RANDOM_SPLIT':
       return <Forms.RandomSplitForm p={p} onChange={onChange} />;
     case 'GOAL_CHECK':

@@ -3,7 +3,7 @@
 // dcCondUpdate / dcCondToggleMulti — React-idiomatic version: takes the
 // conditions array + an onChange callback instead of a global containerKey
 // lookup (dcCondArrayFor), since each caller now owns its own local state.
-import { ELIGIBILITY_META, DC_PROMOTED_ATTR, type AttrType } from '../data/sharedConstants';
+import { ELIGIBILITY_META, DC_PROMOTED_ATTR, LOCKED_ATTR_OPERATORS, type AttrType } from '../data/sharedConstants';
 import type { DripGoalCondition } from '../data/graphTypes';
 import { MultiSelectDropdown } from '../components/MultiSelectDropdown';
 
@@ -17,26 +17,40 @@ function updateAt(conditions: Cond[], idx: number, patch: Partial<Cond>): Cond[]
 // have one attribute that IS the point of picking that event type at all
 // (New Status for EMI_STATUS_CHANGED), promoted to always-visible instead
 // of buried behind "Add condition."
-export function ConditionsSection({ conditions, entity, onChange, label = 'Conditions' }: { conditions: Cond[]; entity: string | null; onChange: (next: Cond[]) => void; label?: string }) {
+export function ConditionsSection({
+  conditions,
+  entity,
+  lockedAttribute,
+  onChange,
+  label = 'Conditions',
+}: {
+  conditions: Cond[];
+  entity: string | null;
+  // Journey/Offer Events' one locked attribute (see
+  // resolveEntryEventAttrSource / EVENT_ATTR_BY_TYPE) — passed instead of
+  // an entity when the event category has no typed attribute set of its
+  // own, just one fixed attribute per event type.
+  lockedAttribute?: string | null;
+  onChange: (next: Cond[]) => void;
+  label?: string;
+}) {
   if (entity && DC_PROMOTED_ATTR[entity]) {
     return <PromotedField conditions={conditions} entity={entity} attribute={DC_PROMOTED_ATTR[entity]} onChange={onChange} />;
   }
-  if (!entity) {
-    return (
-      <div className="f-group">
-        <label className="f-label">
-          {label} <span style={{ fontWeight: 400, color: 'var(--gray-500)' }}>(optional)</span>
-        </label>
-        <p className="f-hint" style={{ margin: 0 }}>Only Transaction and EMI Events support narrowing by attribute today.</p>
-      </div>
-    );
-  }
+  // No typed entity and no locked attribute (Card Events, or no
+  // eventType picked yet) — nothing to render. Transaction/EMI Events
+  // always resolve a real entity; Journey/Offer Events resolve a locked
+  // attribute once their eventType is known — this is never a silent gap
+  // for any of those three, only an honest "there's nothing here" for
+  // Card Events, which has neither in the source this was ported from
+  // either (see CLAUDE.md).
+  if (!entity && !lockedAttribute) return null;
   return (
     <div className="f-group">
       <label className="f-label">
         {label} <span style={{ fontWeight: 400, color: 'var(--gray-500)' }}>(optional)</span>
       </label>
-      <ConditionRows conditions={conditions} entity={entity} onChange={onChange} />
+      <ConditionRows conditions={conditions} entity={entity} lockedAttribute={lockedAttribute} onChange={onChange} />
     </div>
   );
 }
@@ -71,13 +85,32 @@ function PromotedField({ conditions, entity, attribute, onChange }: { conditions
   );
 }
 
-export function ConditionRows({ conditions, entity, onChange }: { conditions: Cond[]; entity: string | null; onChange: (next: Cond[]) => void }) {
+export function ConditionRows({
+  conditions,
+  entity,
+  lockedAttribute,
+  onChange,
+}: {
+  conditions: Cond[];
+  entity: string | null;
+  lockedAttribute?: string | null;
+  onChange: (next: Cond[]) => void;
+}) {
   const meta = entity ? ELIGIBILITY_META[entity] : null;
   const attrOptions = meta ? Object.keys(meta) : null;
 
-  const setRow = (idx: number, patch: Partial<Cond>) => onChange(updateAt(conditions, idx, patch));
+  // Every row's attribute is forced to the current locked value on every
+  // edit — same "re-sync on every write" fix as the original prototype's
+  // own `d.triggerConditions[0].attribute = lockedAttr` force-overwrite,
+  // just done through the normal onChange flow instead of a render-time
+  // side effect. This is what keeps a row correct if eventType changes
+  // (e.g. Pageload → Button Click) after rows already exist — the
+  // attribute cell always displays `lockedAttribute` directly regardless
+  // of what's stored, and the stored value gets quietly corrected the
+  // next time any field on that row changes.
+  const setRow = (idx: number, patch: Partial<Cond>) => onChange(updateAt(conditions, idx, lockedAttribute ? { ...patch, attribute: lockedAttribute } : patch));
   const removeRow = (idx: number) => onChange(conditions.filter((_, i) => i !== idx));
-  const addRow = () => onChange([...conditions, { attribute: '', operator: '', value: '' }]);
+  const addRow = () => onChange([...conditions, { attribute: lockedAttribute || '', operator: '', value: '' }]);
   const toggleMulti = (idx: number, val: string) => {
     const c = conditions[idx];
     const values = c.values ? [...c.values] : [];
@@ -94,8 +127,13 @@ export function ConditionRows({ conditions, entity, onChange }: { conditions: Co
     <>
       {conditions.map((c, i) => {
         const attrMeta = meta ? meta[c.attribute] : null;
-        const opOptions: string[] =
-          attrMeta?.type === 'multiSelect' ? ['Any of'] : attrMeta?.type === 'number' || attrMeta?.type === 'date' ? ['Equals', 'Greater than', 'Less than', 'Between'] : ['Equals', 'Not Equals'];
+        const opOptions: string[] = lockedAttribute
+          ? LOCKED_ATTR_OPERATORS
+          : attrMeta?.type === 'multiSelect'
+            ? ['Any of']
+            : attrMeta?.type === 'number' || attrMeta?.type === 'date'
+              ? ['Equals', 'Greater than', 'Less than', 'Between']
+              : ['Equals', 'Not Equals'];
         // multiSelect only has one real operator — rendered as already
         // selected rather than making someone pick from a 1-option list,
         // same precedent used throughout this file. The underlying
@@ -124,6 +162,13 @@ export function ConditionRows({ conditions, entity, onChange }: { conditions: Co
                     </option>
                   ))}
               </select>
+            ) : lockedAttribute ? (
+              // Not editable — this event type has exactly one real
+              // attribute to narrow on (see EVENT_ATTR_BY_TYPE), so
+              // there's nothing to pick. Shown, not hidden, so it still
+              // reads as "this row is about X," same as a picked select
+              // value would.
+              <input type="text" className="f-input" value={lockedAttribute} disabled />
             ) : (
               <input type="text" className="f-input" placeholder="Attribute" value={c.attribute || ''} onChange={(e) => setRow(i, { attribute: e.target.value })} />
             )}

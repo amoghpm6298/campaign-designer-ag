@@ -116,8 +116,6 @@ export const ELIGIBILITY_META: Record<string, Record<string, AttrMeta>> = {
     Status: { type: 'select', options: ['Active', 'Charge off', 'Pending closure', 'Closed', 'Dormant', 'Suspended', 'Forced suspended'] },
     'Smart Tag': { type: 'smartTag' },
     'Statement Due Date': { type: 'date' },
-    'Milestone Progress %': { type: 'number' },
-    'Engagement Tier': { type: 'multiSelect', options: ['Dormant', 'Engaged', 'Highly Engaged'] },
     'Created On': { type: 'date' },
     'Last Updated On': { type: 'date' },
     'Account Block Codes': { type: 'list' },
@@ -153,6 +151,49 @@ export const ELIGIBILITY_META: Record<string, Record<string, AttrMeta>> = {
   },
 };
 
+// Real mechanism, confirmed directly against ironbank-face-main's own
+// eligibility form (smartNudgesConstants.ts + createEligibilityComponent.js):
+// a "Promotional Nudge" scopes its whole User Base to a MILESTONE entity —
+// pick one specific, already-configured milestone benefit (live-fetched
+// there via BenefitInput; a static illustrative list here, since this app
+// has no backend), then either an "Is" check (Completed/Not Completed —
+// picking Completed auto-sets value to "100", matching the real form
+// exactly) or a numeric/percentage comparator against that one benefit's
+// progress. Not an Account attribute, not an "Engagement Tier" — those
+// were fabricated and removed outright (see CLAUDE.md). This is the real
+// replacement mechanism, reused across Entry · Audience (entity =
+// 'Milestone'), Condition (customSource = 'Milestone'), and Branch
+// (source = 'Milestone').
+export interface MilestoneBenefit {
+  id: string;
+  name: string;
+}
+export const MILESTONE_BENEFITS: MilestoneBenefit[] = [
+  { id: 'MS-1001', name: 'Spend ₹25,000 in first 30 days' },
+  { id: 'MS-1002', name: 'Spend ₹75,000 in first 90 days' },
+  { id: 'MS-1003', name: 'Spend ₹1,50,000 in first 180 days' },
+  { id: 'MS-1004', name: 'Spend ₹3,00,000 in first 365 days' },
+];
+export function milestoneBenefitName(id: string | undefined): string {
+  return MILESTONE_BENEFITS.find((b) => b.id === id)?.name || '';
+}
+// Same 8 real operator values as the real app's `deliveryValueListSuperSet`
+// (GT/GTE/LT/LTE/BETWEEN/GTE_PCT/LTE_PCT/IS) — not invented labels.
+export interface MilestoneOperatorMeta {
+  value: string;
+  label: string;
+}
+export const MILESTONE_OPERATORS: MilestoneOperatorMeta[] = [
+  { value: 'GT', label: 'Greater than' },
+  { value: 'GTE', label: 'Greater than or equal to' },
+  { value: 'LT', label: 'Less than' },
+  { value: 'LTE', label: 'Less than or equal to' },
+  { value: 'BETWEEN', label: 'Between' },
+  { value: 'GTE_PCT', label: 'Greater than or equal to percentage' },
+  { value: 'LTE_PCT', label: 'Less than or equal to percentage' },
+  { value: 'IS', label: 'Is' },
+];
+
 // Which entity Drip's Entry Event / Wait Until / Split "Entry event
 // attribute" condition builder resolves to per Event Category.
 export const DC_EVENT_ENTITY: Record<string, string> = {
@@ -165,6 +206,69 @@ export const DC_EVENT_ENTITY: Record<string, string> = {
 export const DC_PROMOTED_ATTR: Record<string, string> = {
   'EMI Request': 'New Status',
 };
+
+// Journey/Offer Events narrowing — ported from
+// journeysnudgesemi/emi-conversions-prototype.html's separate
+// "event-based nudges" feature (its EVENT_TRIGGER step), not from this
+// app's own original Drip Campaigns prototype. That original fell back
+// to condRow()'s generic free-text-attribute path for these categories
+// (its own DC_EVENT_ENTITY comment: "Journey/Offer/Card Events have no
+// such entity yet... so they fall back to a plain text attribute name").
+// The richer mechanism below is the one confirmed directly against the
+// event-based-nudges wizard specifically, per explicit instruction.
+//
+// Journey/Offer Events only ever need ONE attribute each, not a full
+// entity attribute set — "Event Conditions are attribute-based per event
+// type, not entity-based — the attribute is effectively locked once the
+// event is chosen" (source's own comment). Transaction/EMI Events keep
+// using the generic entity-based ConditionRows builder above instead —
+// the same source file reserves the locked-attribute pattern
+// specifically for Journey/Offer Events, since Transaction/EMI "each
+// genuinely need multiple independent filterable attributes... instead
+// of one locked attribute."
+export const EVENT_ATTR_BY_TYPE: Record<string, string> = {
+  'Journey Progress': 'Status',
+  Pageload: 'Page Name',
+  'Button Click': 'Button Name',
+  'Outcome Issuance': 'Outcome Status',
+};
+export const LOCKED_ATTR_OPERATORS = ['Equals', 'Not Equals', 'Greater than', 'Less than', 'Is'];
+
+// Journey Events' own scoping selects (shown above its Event Conditions
+// in the source). JOURNEY_OPTIONS above is already the real, reused
+// constant; BATCH_OPTIONS is newly ported here.
+export const BATCH_OPTIONS = ['Aug Festive Batch', 'Sep Reactivation Batch', 'Q3 Consolidation Batch'];
+
+// Offer Events' own scoping selects. OFFER_TYPE_OPTIONS here is the real,
+// reused constant from elsewhere in the same source file — the
+// EVENT_TRIGGER step's own inline Offer Type list (['CVP','Campaign',
+// 'Merchant']) is a separate, shorter, inconsistently-named stub that
+// was never wired to this constant; this port uses the real one.
+// Offer Name has no equivalent real catalog anywhere in that source —
+// its EVENT_TRIGGER step hardcodes exactly one example
+// ('Festive EMI Push') and nothing else. `IBL_CAMPAIGNS` elsewhere in
+// the same file looks adjacent but is unrelated demo-data-generation
+// filler for an EMI-conversions analytics table, not a verified list of
+// real offer names for this feature — presenting it as one would be
+// inventing a catalog that was never actually built. Offer Name is a
+// free-text field here for that reason, not a constrained select.
+export const OFFER_TYPE_OPTIONS = ['CVP', 'Campaign Offers', '3rd Party Offers', 'Merchant Offers', 'Bank Offers', 'Activation Offers'];
+
+// Centralizes "what does Condition/Branch's 'Entry event attribute'
+// source actually mean for this entry" into one function, reused by both
+// SplitForm and DecisionSplitForm so they can't resolve it differently.
+// Exactly one of `entity`/`lockedAttr` is ever non-null: Transaction/EMI
+// Events resolve a real entity (existing ConditionRows/ELIGIBILITY_META
+// path); Journey/Offer Events resolve a locked single attribute instead,
+// once their eventType is known; anything else (Card Events, or no
+// eventType picked yet) resolves neither, same as today.
+export function resolveEntryEventAttrSource(eventCategory: string | null, eventType: string | null): { entity: string | null; lockedAttr: string | null } {
+  if (!eventCategory) return { entity: null, lockedAttr: null };
+  const entity = DC_EVENT_ENTITY[eventCategory] || null;
+  if (entity) return { entity, lockedAttr: null };
+  const lockedAttr = eventType ? EVENT_ATTR_BY_TYPE[eventType] || null : null;
+  return { entity: null, lockedAttr };
+}
 
 // Real per-channel delivery-status vocabulary (Bifrost) — used by Split's
 // "Previous step outcome" source and Decision Split's own version of it.
