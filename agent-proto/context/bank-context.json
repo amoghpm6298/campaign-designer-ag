@@ -1,5 +1,5 @@
 {
- "$comment": "ENTIRELY FICTIONAL. Meridian Bank does not exist. Every value below is an invented placeholder created to exercise the prototype \u2014 none of it is a real bank policy, a real cost, or a verified fact about IndusInd Bank, Yes Bank or any other issuer. A deliberately fictional name is used so this can never be mistaken for real issuer data. The only fields traceable to the real application are marked with sourcedFrom.",
+ "$comment": "ENTIRELY FICTIONAL. Meridian Bank does not exist. Every value below is an invented placeholder created to exercise the prototype — none of it is a real bank policy, a real cost, or a verified fact about IndusInd Bank, Yes Bank or any other issuer. A deliberately fictional name is used so this can never be mistaken for real issuer data. The only fields traceable to the real application are marked with sourcedFrom.",
  "contextVersion": "0.1.0",
  "status": "FICTIONAL_MOCK",
  "bank": {
@@ -51,7 +51,7 @@
   ]
  },
  "hardConstraints": {
-  "$comment": "INVENTED. Modelled as hard so the prototype can exercise 'constraint must win over preference'. A real deployment would source these from the issuer and have them approved. A per-campaign message cap was removed: it is not an issuer policy. How many messages a campaign sends is a design decision that differs per campaign \u2014 a two-week nurture and a three-day expiry reminder are not the same number \u2014 and carrying one here made the agent budget against it ('two sends against a permitted four') instead of designing for the goal.",
+  "$comment": "INVENTED. Modelled as hard so the prototype can exercise 'constraint must win over preference'. A real deployment would source these from the issuer and have them approved. A per-campaign message cap was removed: it is not an issuer policy. How many messages a campaign sends is a design decision that differs per campaign — a two-week nurture and a three-day expiry reminder are not the same number — and carrying one here made the agent budget against it ('two sends against a permitted four') instead of designing for the goal.",
   "quietHours": {
    "from": "21:00",
    "to": "09:00",
@@ -75,7 +75,7 @@
   }
  },
  "softPreferences": {
-  "$comment": "INVENTED. Preferences, not constraints \u2014 the agent may trade these off and must say when it does.",
+  "$comment": "INVENTED. Preferences, not constraints — the agent may trade these off and must say when it does.",
   "preferLowerCostChannelFirst": {
    "value": true,
    "assumption": "INVENTED"
@@ -118,16 +118,52 @@
   ]
  },
  "makerChecker": {
-  "$comment": "The MECHANISM is real \u2014 computeMakerCheckerFlag() in the app decides this from issuer and program flags. The value below is an invented stand-in for the fictional bank.",
+  "$comment": "The MECHANISM is real — computeMakerCheckerFlag() in the app decides this from issuer and program flags. The value below is an invented stand-in for the fictional bank.",
   "sourcedFrom": "src/data/sharedConstants.ts computeMakerCheckerFlag (real mechanism)",
   "required": true,
   "assumption": "INVENTED value, real mechanism"
  },
  "knownGaps": [
-  "No real channel costs \u2014 relativeCost is ordinal and invented.",
+  "No real channel costs — relativeCost is ordinal and invented.",
   "No real send-volume ceiling.",
   "No real events calendar.",
   "No campaign performance history for this bank (none exists anywhere in the prototype).",
-  "The app itself holds no cost, quiet-hours or frequency-cap fields at all \u2014 verified by grep. Nothing here is enforced by the application today."
- ]
+  "The app itself holds no cost, quiet-hours or frequency-cap fields at all — verified by grep. Nothing here is enforced by the application today."
+ ],
+ "market": {
+  "$comment": "REAL, unlike the rest of this file. The BANK here is fictional; the MARKET is not. These are facts about the Indian credit-card market that the agent was previously designing without — it had no idea which country, currency, regulator or messaging regime it was writing for. Each item carries its own confidence: 'established' is something the agent may rely on, 'verify-with-compliance' is directionally right and must not be stated to a campaign manager as settled.",
+  "country": "India",
+  "whoTheCustomersAre": "Retail credit-card holders of Indian banks. The campaign manager works at the issuer.",
+  "currency": {
+   "code": "INR",
+   "symbol": "₹",
+   "confidence": "established",
+   "note": "Write amounts as ₹ with Indian digit grouping (₹1,20,000 not ₹120,000). Large sums are spoken in lakh (1,00,000) and crore (1,00,00,000); a manager will say 'two lakh', not '200 thousand'."
+  },
+  "regulator": {
+   "name": "Reserve Bank of India (RBI)",
+   "confidence": "established",
+   "note": "Named so the agent knows which regime it is in. WHAT THE RULES REQUIRE DOES NOT COME FROM HERE. Specific obligations — activation windows, consent mechanics, registered message templates, retention, grievance timelines — are issuer-specific compliance context that the bank supplies in its own hardConstraints. Never infer a rule, never cite one, and never tell a campaign manager what the regulator requires. If a design depends on a compliance question, raise it as an open item for their compliance team and carry on."
+  },
+  "channelReality": {
+   "confidence": "established",
+   "note": "WhatsApp is a primary, not a fringe, channel for Indian retail banking customers and is often read where email is not. Email open rates are typically far weaker than in Western markets. SMS remains universal reach. Do not assume an email-first sequence is the cheap default in reach terms just because it is cheapest per message."
+  },
+  "competingForSpend": {
+   "confidence": "established",
+   "note": "UPI dominates everyday low-value payments in India. A new credit card is therefore not competing only with other cards but with a free, instant, habitual rail. 'Why use the card at all' is a real customer question, which matters for activation and first-spend campaigns."
+  },
+  "emiIsMainstream": {
+   "confidence": "established",
+   "note": "Converting a purchase or an outstanding balance to EMI is an everyday, heavily marketed product in India, and 'no-cost EMI' is a familiar construct to customers. An EMI campaign is not introducing a novel idea; it is competing for attention against the merchant's own EMI offer at checkout."
+  },
+  "seasonality": {
+   "confidence": "established",
+   "note": "The festive quarter around Diwali (roughly October to November) is the peak of discretionary card spend, and merchant discounting is heaviest then. Timing a campaign into or away from it is a real strategic choice, not a detail."
+  },
+  "language": {
+   "confidence": "established",
+   "note": "English is normal for urban cardholders, but plain English beats formal English, and a mix of English with local-language words is common in real usage. Write short sentences. Avoid idiom that does not travel."
+  }
+ }
 }

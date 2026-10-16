@@ -144,6 +144,47 @@ export function seedKnowledgeBase(): KnowledgeBase {
   push({ category: 'Operational constraints', label: 'DNC required', value: String(hc.dncRequired.value), source: 'agent-proto/context/bank-context.json', status: 'invented', scope: 'campaign-level user choice' });
   push({ category: 'Operational constraints', label: 'NPA exclusion required', value: String(hc.npaExclusionRequired.value), source: 'agent-proto/context/bank-context.json', status: 'invented', scope: 'campaign-level user choice' });
 
+  // THE MARKET, which the agent was previously designing without.
+  //
+  // It had no idea which country, currency, regulator or messaging regime it
+  // was writing for — so it could not reason about a regulatory activation
+  // clock, could not know WhatsApp outranks email for reach here, and would
+  // have written "$" or "₹120,000" without noticing either was wrong.
+  //
+  // Marked 'verified' rather than 'invented', because unlike the fictional
+  // bank above these are facts about India.
+  //
+  // NO REGULATORY OBLIGATIONS LIVE HERE, deliberately. A first version of this
+  // block carried an RBI activation rule and the TRAI messaging regime. Both
+  // came out: what a regulator requires is issuer-specific compliance context
+  // that the bank supplies in its own constraints, it varies between issuers
+  // and over time, and a prototype asserting it would have the agent telling a
+  // campaign manager what the law says on our authority. The regulator is
+  // NAMED so the agent knows the regime; nothing about what it demands.
+  const market = bank.market as Record<string, { confidence?: string; note?: string; claim?: string; whyItMatters?: string; name?: string; symbol?: string }> | undefined;
+  if (market) {
+    push({
+      category: 'Market',
+      label: 'Country and customers',
+      value: `${String(bank.market.country)}. ${String(bank.market.whoTheCustomersAre)}`,
+      source: 'agent-proto/context/bank-context.json → market',
+      status: 'verified',
+      scope: 'market fact',
+    });
+    for (const [key, v] of Object.entries(market)) {
+      if (!v || typeof v !== 'object' || (!v.note && !v.claim)) continue;
+      const body = v.claim ? `${v.claim} ${v.whyItMatters ?? ''}`.trim() : String(v.note);
+      push({
+        category: 'Market',
+        label: key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()),
+        value: body,
+        source: 'agent-proto/context/bank-context.json → market',
+        status: 'verified',
+        scope: 'market fact',
+      });
+    }
+  }
+
   push({ category: 'Preferences', label: 'Prefer lower-cost channel first', value: String(bank.softPreferences.preferLowerCostChannelFirst.value), source: 'agent-proto/context/bank-context.json → softPreferences', status: 'invented', scope: 'preference, may be traded off' });
   push({ category: 'Preferences', label: 'Preferred control group %', value: String(bank.softPreferences.preferredControlGroupPct.value), source: 'agent-proto/context/bank-context.json → softPreferences', status: 'invented', scope: 'preference' });
   push({ category: 'Preferences', label: 'Risk appetite', value: `${bank.riskAppetite.level}. ${bank.riskAppetite.notes.join(' ')}`, source: 'agent-proto/context/bank-context.json → riskAppetite', status: 'invented', scope: 'guidance' });

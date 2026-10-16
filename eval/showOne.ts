@@ -66,6 +66,9 @@ const state: Record<string, unknown> = {
   phase: null, pendingBlueprint: null, pendingStrategy: null,
 };
 
+let approvalMissed = false;
+let approved = false;
+
 const rule = (s: string) => `\n${'='.repeat(78)}\n${s}\n${'='.repeat(78)}`;
 
 // Every live run is written to disk in the shape docs/append-live-run.py reads,
@@ -130,9 +133,26 @@ for (const [i, textIn] of TURNS.entries()) {
     // is the button, pressed deliberately. Otherwise, a reply that says to
     // proceed WHILE a proposal is on the table is treated as approval, which
     // is what a manager typing "looks fine, go ahead" means.
+    // `@confirm` means "approve as soon as there IS something to approve",
+    // not "approve on turn 7".
+    //
+    // THE FLAW THIS FIXES, caught by being asked how I knew turn 7 was the
+    // approval point: I did not, and nothing checked. Approval requires a
+    // proposal on the table, so a scenario whose `@confirm` landed a turn
+    // early silently became an ordinary message and the run proved nothing
+    // while appearing to pass. A fixed turn index cannot know when the agent
+    // will finish discovering.
     const marker = textIn.trim() === '@confirm';
-    const confirming =
-      state.phase === 'awaiting-confirmation' && (marker || saysProceed(textIn));
+    const ready = state.phase === 'awaiting-confirmation';
+    const confirming = ready && (marker || saysProceed(textIn));
+    if (marker && !ready) {
+      // Loud, not silent. The run is not testing what it claims to test.
+      process.stdout.write(
+        `\n[CANNOT APPROVE — nothing is on the table. Phase is "${String(state.phase)}", not "awaiting-confirmation". ` +
+          'Sending this as an ordinary message instead; the build path is NOT being exercised.]\n',
+      );
+      approvalMissed = true;
+    }
     const gen = orchestrateStream({
       sessionId: state.sessionId, tenantId: 'TEN-IBL', knowledge: state.knowledge,
       discoveryRounds: state.discoveryRounds ?? 0, brief: state.brief ?? null,
@@ -141,7 +161,7 @@ for (const [i, textIn] of TURNS.entries()) {
       confirmedBlueprint: confirming ? state.pendingBlueprint : null,
       confirmedStrategy: confirming ? state.pendingStrategy : null,
     } as never);
-    if (confirming) process.stdout.write('\n[approving the proposal on the table]\n');
+    if (confirming) { approved = true; process.stdout.write('\n[approving the proposal on the table]\n'); }
     // Collect, do not discard. The yielded values are the run events.
     let o = await gen.next();
     while (!o.done) { collected.push(o.value); o = await gen.next(); }
@@ -150,7 +170,19 @@ for (const [i, textIn] of TURNS.entries()) {
       // Print the REASON, not just that it happened. A run that gave up four
       // times on turn 1 left nothing to diagnose from, which is the second
       // time this exact gap has cost a run.
-      process.stdout.write(`\n[transport attempt ${attempt} failed: ${String(r.reply ?? 'no detail').slice(0, 200)}]\n`);
+      // NOT TRUNCATED. It was `.slice(0, 200)`, and the one time that mattered
+      // it cut the sentence "You will regain access on 2026-11-01 at 00:00
+      // UTC" off after "20" — so the run reported a failure whose single
+      // actionable fact had been removed by the failure reporter. A diagnostic
+      // that truncates the answer is worse than no diagnostic.
+      process.stdout.write(`\n[transport attempt ${attempt} failed: ${String(r.reply ?? 'no detail')}]\n`);
+      // A usage or auth failure will not fix itself on a retry. Five more
+      // attempts against a spend cap is five more identical errors and a
+      // minute of waiting.
+      if (/usage limit|credit balance|authentication|invalid x-api-key/i.test(String(r.reply ?? ''))) {
+        process.stdout.write('[this will not succeed on retry — stopping the run]\n');
+        break;
+      }
       continue;
     }
     state.messages = [...messages, { role: 'assistant', content: String(r.reply ?? '') }];
@@ -229,6 +261,13 @@ for (const [i, textIn] of TURNS.entries()) {
   if (v) process.stdout.write(`[VALIDATION: ${(v.errors ?? []).length} error(s), ${(v.warnings ?? []).length} warning(s)]\n`);
 }
 
+// THE VERDICT. A run that never reached a build used to look identical to one
+// that did, unless you read every turn. Stated plainly instead.
 process.stdout.write(rule('RUN RECORDED'));
+process.stdout.write(
+  `\nApproval: ${
+    approved ? 'given, so the build path ran' : approvalMissed ? 'ATTEMPTED AND IMPOSSIBLE — no proposal was ever on the table' : 'never attempted'
+  }\n`,
+);
 process.stdout.write(`\nTurn records: ${RUN_DIR}/turns\n`);
 process.stdout.write(`\nTo put this run in the log:\n  python3 docs/append-live-run.py ${RUN_DIR} --label "${LABEL}" --change "<what changed before this run>"\n`);
