@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { newBrief, briefDimensions, type WorkingBrief } from '../../server/discovery';
 import { recordReply, recordAsked, outstanding } from '../../server/record';
-import { OUTPUT_TOOLS, OUTPUT_TOOL_NAMES, isOutputTool, applyOutputTool } from '../../server/outputTools';
+import { OUTPUT_TOOLS, OUTPUT_TOOL_NAMES, isOutputTool, applyOutputTool, outputToolsForPhase } from '../../server/outputTools';
 import { blocksFor } from '../../server/gate';
 
 const started = (): WorkingBrief =>
@@ -24,13 +24,25 @@ const started = (): WorkingBrief =>
 describe('the tools are declared where they cost no prompt budget', () => {
   it('exposes every way the model writes, and nothing else', () => {
     expect(OUTPUT_TOOL_NAMES.sort()).toEqual(
-      ['ask_questions', 'build_campaign', 'propose_strategy', 'record_dimensions', 'record_findings'],
+      ['ask_questions', 'build_campaign', 'propose_strategy', 'record_dimensions', 'record_findings', 'request_evidence'],
     );
     expect(isOutputTool('record_findings')).toBe(true);
     // A data LOOKUP is not an output tool. The distinction matters: output
     // calls skip the lookup cache and the repeat-escalation counter, because
     // recording a finding twice is not a wasted re-read.
     expect(isOutputTool('list_event_types')).toBe(false);
+  });
+
+  it('withholds the journey grammar until something is actually being built', () => {
+    // build_campaign's schema IS the blueprint vocabulary. Offering it on a
+    // discovery turn hands the agent the builder's limits before it has a
+    // plan, which is the leak `systemForPhase` closed and this reopened the
+    // moment the grammar moved from the prompt into a tool.
+    expect(outputToolsForPhase(false).map((t) => t.name)).not.toContain('build_campaign');
+    expect(outputToolsForPhase(true).map((t) => t.name)).toContain('build_campaign');
+    // Everything else is available on both, because recording what you learn
+    // is never phase-dependent.
+    expect(outputToolsForPhase(false)).toHaveLength(OUTPUT_TOOLS.length - 1);
   });
 
   it('expresses the recursive journey grammar with $defs, which prose could not', () => {

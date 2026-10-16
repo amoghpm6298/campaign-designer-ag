@@ -20,6 +20,8 @@
 // avoided designing the wrong campaign.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+const gateSource2 = readFileSync(new URL('../../server/gate.ts', import.meta.url), 'utf8');
+const recordSource = readFileSync(new URL('../../server/record.ts', import.meta.url), 'utf8');
 import { renderStrategy, type Strategy } from '../../server/orchestrator';
 import {
   newBrief,
@@ -169,13 +171,13 @@ describe('the orchestrator enforces the three outcomes', () => {
   const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
 
   it('routes an unanswered fork away from the strategy path', () => {
-    expect(src).toMatch(/const openForks = unansweredForks\(brief\)/);
-    expect(src).toMatch(/const forkUnanswered = !limitReached && openForks\.length > 0 && proposed !== null;/);
-    expect(src).toMatch(/\|\| forkUnanswered \|\| dimensionUnresolved\) \{/);
+    expect(recordSource).toMatch(/export const REOPEN_LIMIT = 1;/);
+    expect(recordSource).toMatch(/if \(\(q\.reopened \?\? 0\) >= REOPEN_LIMIT\) return q;/);
+    expect(src).toMatch(/if \(!decision\.proceed\) \{/);
   });
 
   it('no longer lets any assumption discharge every question', () => {
-    expect(src).toMatch(/const questionDropped = !limitReached && pendingQuestions\.length > 0 && proposed !== null;/);
+    expect(gateSource2).toMatch(/code: 'awaiting-reply'/);
     expect(src).not.toMatch(/questionDropped =[\s\S]{0,120}strategy\?\.assumptions\?\.length/);
   });
 
@@ -185,7 +187,7 @@ describe('the orchestrator enforces the three outcomes', () => {
     // HAD answered — the model omitted the `answered` ids, and the
     // application told the manager their answer did not count. Never put a
     // bookkeeping failure on the user; just ask again.
-    expect(src).toMatch(/changes which campaign this is rather than how it is built/);
+    expect(gateSource2).toMatch(/I am still waiting on this/);
     expect(src).not.toMatch(/Your reply did not cover it/);
   });
 
@@ -197,7 +199,7 @@ describe('the orchestrator enforces the three outcomes', () => {
 
   it('returns no strategy through the fork branch', () => {
     const branch = src.slice(
-      src.indexOf("if (gate.outcome === 'continue_discovery'"),
+      src.indexOf('if (!decision.proceed) {'),
       src.indexOf('// Discovery is complete. If the model only asked questions'),
     );
     expect(branch).toMatch(/strategy: null/);

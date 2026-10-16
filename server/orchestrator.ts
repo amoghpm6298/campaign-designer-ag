@@ -19,9 +19,9 @@ import {
   type ApiMessage,
 } from './anthropic';
 import { runTool, toolTitle, toolsForPhase } from './agentTools';
-import { OUTPUT_TOOLS, isOutputTool, applyOutputTool } from './outputTools';
-import { decide } from './gate';
-import { saysProceed, outstanding } from './record';
+import { outputToolsForPhase, isOutputTool, applyOutputTool } from './outputTools';
+import { decide, blockDelta, renderBlocks } from './gate';
+import { saysProceed, outstanding, REOPEN_LIMIT } from './record';
 import { EventEmitterSeq, type RunEvent } from './runEvents';
 import { auditOptions, applyAudit, unsupportedClaims, copyOnlyExperiments, type OptionAudit } from './optionAudit';
 import { compareArchitectures, checkFidelity, checkExperimentClaims, checkAudienceLearning, checkBarrierCoverage, checkBarrierTesting, JOURNEY_BEHAVIOURS } from './architectureAudit';
@@ -40,10 +40,6 @@ import {
   recordAddressedQuestions,
   recordUncoveredQuestions,
   recordQuestionResolutions,
-  unansweredForks,
-  recordForkRefusal,
-  unresolvedDimensions,
-  unresolvedQuestions,
   asImpact,
   asContingency,
   recordApplicationVerdict,
@@ -62,7 +58,6 @@ import {
   recordSuccessCriteria,
   recordBarriers,
   recordConverters,
-  MAX_FORK_REFUSALS,
   type QuestionContingency,
   recordContextChecked,
   outstandingDimensions,
@@ -477,38 +472,13 @@ Nothing is built until the user confirms it. Propose a complete, coherent strate
 
 OUTPUT
 
-One JSON object, nothing else.
+Your message to the campaign manager is ORDINARY TEXT. Everything structured goes in a tool call, and the tool's own schema tells you its shape — there is no JSON object to assemble here.
 
-Propose only once the user has answered at least one question AND no dimension is still "open". Closing every dimension yourself on the first turn is not discovery: you looked things up, you did not find out what the user wants, and a proposal on a turn where they have said nothing back is rejected by the application and handed to you as more discovery. Check the record above before you write one:
-{"action":"propose",
- "answered":["<ids answered; forks MUST appear here>"],
- "notCovered":["<ids untouched; usually empty>"],
- "questionResolutions":[{"questionId":"<id>","kind":"carried","why":"..."}],
- "dimensions":[{"name":"...","status":"retained","basis":"user","note":"<what was found or decided>"}],
- "contextChecked":[{"source":"<what you consulted>","found":true}],
- "converters":{...},"barriers":[{...}],
- "strategy":{"summary":"<2-4 sentences; max 5 bullets per list>","architectures":[{"name":"...","barrier":"<the customer problem>","lever":"<what you DO about it>","entry":"...","mechanism":"...","timing":"...","journey":"<EXACTLY ONE OF: linear | branch-on-response | wait-for-event | experiment>","measurement":"<what would show it worked>","tradeoff":"<what it gives up>","chosen":true,"whyChosen":"<cite the discovery record>"},{"name":"...","barrier":"...","lever":"...","entry":"...","mechanism":"...","timing":"...","journey":"<one of the four>","measurement":"...","tradeoff":"...","chosen":false}],"approach":["<decision + why>"],"strategyOptions":[{"option":"Segmentation","verdict":"used","why":"<one line>"},{"option":"Experimentation","verdict":"not-applicable","why":"..."},{"option":"Conditional branching","verdict":"...","why":"..."},{"option":"Channel fallback","verdict":"...","why":"..."},{"option":"Adaptive sequencing","verdict":"...","why":"..."},{"option":"Cost and fatigue","verdict":"...","why":"..."},{"option":"Measurement and learning","verdict":"...","why":"..."}],"rejected":[{"option":"<a materially different approach you CHOSE not to take>","why":"..."}],"successCriteria":["<what counts as this working>"],"measurement":["<what to track, how to judge it, what is missing>"],"assumptions":["..."],"unknowns":["..."],"hypotheses":["<worth testing, not claimed>"],"evidenceNotes":["..."]},
- "openItems":[{"kind":"strategic-ambiguity","question":"<what you need settled>","whyItMatters":"<what it would change>","ifUnanswered":"<what you will assume>"}],
- "blueprint":{
-   "campaignName":"...","description":"...","controlPct":<number or omit>,
-   "goal":{"eventCategory":"...","eventType":"...","conditions":[{"attribute":"...","operator":"Equals","value":"..."}]},
-   "entry":{"kind":"event","eventCategory":"...","eventType":"...","conditions":[...]},
-   "steps":[
-     {"kind":"send","name":"...","objective":["<single lowercase words that would appear in the copy>"],"stage":"first-touch|reminder|outcome","describe":"<what this message is for>","copy":"<the message as the customer reads it>","cta":"<button or link text>","channelPreference":["SMS"],"barrier":"<barrier id it attacks>"},
-     {"kind":"wait","durationHours":48,"why":"..."},
-     {"kind":"waitForEvent","eventCategory":"...","eventType":"...","timeoutDays":7},
-     {"kind":"exit","reason":"..."}
-   ]}}
+Propose only once the user has answered at least one question AND no dimension is still "open". Closing every dimension yourself on the first turn is not discovery: you looked things up, you did not find out what the user wants, and a proposal on a turn where they have said nothing back is rejected by the application and handed to you as more discovery. Check the record above before you write one.
 
-Optional step kinds: {"kind":"experiment","label":"...","tests":"wording|explanation|timing|audience","arms":[{"label":"A","pct":50,"steps":[...]},{"label":"B","pct":50,"steps":[...]}]} — "tests" is REQUIRED and says what the experiment can actually settle. Declare "wording" and the arms may differ only in what the messages say. Declare anything else and the arms must differ in something a customer would experience: different people, a different moment, different steps. The application checks this against the arms you built and REFUSES the proposal if they match, because an arm that behaves identically cannot tell you why a customer behaved differently. "wording" is always an honest option — a message test is a real test, it just cannot explain a cause. , {"kind":"condition","label":"...","outcomes":["DELIVERED"],"yes":[...],"no":[...]} — a fork on whether the LAST message landed, and {"kind":"condition","label":"...","on":{"entity":"Account","attribute":"Status","operator":"Equals","value":"Active"},"yes":[...],"no":[...]} — a fork on a CUSTOMER ATTRIBUTE read at that point, needing no preceding message, and {"kind":"branch","label":"...","entity":"Transaction","attribute":"Transaction Amount","paths":[{"label":"Large","operator":"Greater than","value":"25000","steps":[...]},{"label":"Small","operator":"Less than","value":"25000","steps":[...]}]} — N-WAY ROUTING ON ONE ATTRIBUTE, which is how a campaign treats cohorts differently anywhere other than at entry. These work mid-journey, so a group entry could not isolate still gets its own treatment. Entry may instead be {"kind":"audience","entity":"Customer","conditions":[...],"groups":[{"entity":"Account","conditions":[...]},{"entity":"Transaction","lookbackDays":180,"existence":"none"}]} — "groups" AND with the first, so entry CAN require several entities; a Transaction group with existence "none" excludes anyone who already did it (a window, not "ever").
+DISCOVER FIRST. This is the normal opening move, and usually more than one round. Check what you can actually reach before you ask: call the tools, read the knowledge base and the bank context above, and report what you checked in "contextChecked" — one entry per source, with found true or false. Only name sources you genuinely consulted; you have no access to campaign history, analytics or bank systems, so never imply you looked there. Use discovery also when the objective is too vague to design against, or when a drip campaign is the wrong instrument for it entirely — say which, and why. At most ${MAX_QUESTIONS_PER_ROUND} questions, and never one already answered.
 
-DISCOVER FIRST. This is the normal opening move, and usually more than one round. Check what you can actually reach before you ask: call the tools, read the knowledge base and the bank context above, and report what you checked in "contextChecked" — one entry per source, with found true or false. Only name sources you genuinely consulted; you have no access to campaign history, analytics or bank systems, so never imply you looked there. Use it also when the objective is too vague to design against, or when a drip campaign is the wrong instrument for it entirely — say which, and why, in the rationale:
-{"action":"ask","rationale":"<what you now understand, and why these questions matter to the design>","questions":[{"text":"...","impact":"fork","contingency":{"ifA":"<one plausible answer>","thenA":"<what you would do given it>","ifB":"<a materially different answer>","thenB":"<what you would do INSTEAD — must not be the same as thenA>","ifUnknown":"<the default you would apply if they cannot answer>"}},{"text":"...","impact":"detail"}],"answered":["<ids answered; forks required>"],"notCovered":["<ids untouched>"],"contextChecked":[{"source":"<what you consulted>","found":true}],"dimensions":[{"name":"...","rationale":"<why it could change THIS campaign>","status":"open","basis":"none"}],"converters":{"shape":"<their words>","basis":"user|user-belief","knowledge":"known|none-yet|unknown","candidates":[{"segment":"..","restsOn":"<what defines this group>","why":"<why it converts more>"}]},"barriers":[{"id":"..","statement":"..","basis":"user-belief","lever":"message|timing|targeting|not-addressable","quote":"<their actual words>"}]}
-At most ${MAX_QUESTIONS_PER_ROUND} questions, and never one already answered.
-
-Only when aggregated data would change a decision you are about to make, and the brief does not already say it is unavailable:
-{"action":"request_evidence","rationale":"<what you are deciding and why this data matters>","evidence":[{"question":"<the business question it answers>","fields":["<metric>"],"grouping":"<how to bucket it>","period":"<time range>","wouldInform":"<what you would do differently>"}]}
-Aggregated counts and rates only — never customer-level or personal data.`;
+Use "request_evidence" only when aggregated data would change a decision you are about to make, and the brief does not already say it is unavailable. Aggregated counts and rates only — never customer-level or personal data.`;
 
 /**
  * Runs one turn of the conversation, emitting events as work happens.
@@ -850,6 +820,7 @@ export async function* orchestrateStream(
   let toolStrategy: Strategy | null = null;
   let toolBlueprint: CampaignBlueprint | null = null;
   let toolOpenItems: OpenItem[] = [];
+  let toolEvidence: { question: string; fields: string[]; grouping?: string; period?: string; wouldInform: string }[] = [];
   // Did the model write to the record through tools this turn?
   //
   // This is what makes prose-only a SUCCESS rather than a parse failure. The
@@ -951,7 +922,7 @@ export async function* orchestrateStream(
         // model return an empty turn — three of the first four evaluation
         // scenarios died that way, reported as "no text at all". tool_choice
         // 'none' forbids the call while keeping the history coherent.
-        tools: [...toolsForPhase(designSeen), ...OUTPUT_TOOLS].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+        tools: [...toolsForPhase(designSeen), ...outputToolsForPhase(isBuildTurn)].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
         toolChoice: stopLookingUp ? { type: 'none' } : undefined,
         // The round that must produce the answer runs WITHOUT thinking. See
         // `disableThinking` in anthropic.ts for the measurement: with it on,
@@ -1054,7 +1025,7 @@ export async function* orchestrateStream(
         for await (const chunk of streamClaude({
           system: `${systemForPhase(isBuildTurn)}\n\nYour previous turn did not produce a usable answer. Every lookup you need has already been made and the results are above. Reply NOW with the single JSON object described in OUTPUT, complete, and nothing else before or after it.`,
           messages: conversation,
-          tools: [...toolsForPhase(designSeen), ...OUTPUT_TOOLS].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+          tools: [...toolsForPhase(designSeen), ...outputToolsForPhase(isBuildTurn)].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
           toolChoice: { type: 'none' },
           disableThinking: true,
           maxTokens: 32000,
@@ -1234,6 +1205,7 @@ export async function* orchestrateStream(
         if (applied.strategy) toolStrategy = applied.strategy;
         if (applied.blueprint) toolBlueprint = applied.blueprint;
         if (applied.openItems?.length) toolOpenItems = applied.openItems as OpenItem[];
+        if (applied.evidence?.length) toolEvidence = applied.evidence as typeof toolEvidence;
         if (!applied.error) recordedViaTools = true;
         em.emit(applied.error ? 'model.tool_call.failed' : 'model.tool_call.completed', 'discovery', toolTitle(tu.name), {
           status: applied.error ? 'failed' : 'ok',
@@ -1532,32 +1504,25 @@ export async function* orchestrateStream(
   // The old guard accepted ANY assumption anywhere in the strategy as
   // discharging EVERY outstanding question, which is how the biggest fork in
   // the OS-to-EMI conversation was settled by inference.
-  const openForks = unansweredForks(brief);
-  const pendingQuestions = unresolvedQuestions(brief);
 
-  const beliefsInPlay = briefDimensions(brief).filter((d) => d.basis === 'user-belief');
-  const strategyNamesAHypothesis = Boolean(
-    proposed?.strategy?.hypotheses?.length ||
-      proposed?.strategy?.unknowns?.length ||
-      proposed?.openItems?.some((i) => i.kind === 'strategic-ambiguity'),
-  );
+  // THE FOUR VETOES ARE GONE, 2026-10-16, and this is the whole point of the
+  // collapse rather than a tidy-up.
   //
-  // ALL FOUR YIELD AT THE BUDGET, and that is the fix for an unbounded loop.
-  // `evaluateDiscovery` already escapes at the round limit by returning
-  // `ready_for_strategy`, but these four vetoes are computed out here and the
-  // branch below ORs them with the gate's outcome — so a refusal survived the
-  // escape hatch and regenerated for ever. Measured: the same refusal three
-  // turns running, with the user answering each time and finally giving up.
-  // A spent budget now means the agent proceeds and states what it assumed,
-  // which is the standing instruction: with no facts, take a strong guess and
-  // say it is a guess. It must never mean the conversation cannot end.
-  const beliefUntreated = !limitReached && beliefsInPlay.length > 0 && proposed !== null && !strategyNamesAHypothesis;
-  const forkUnanswered = !limitReached && openForks.length > 0 && proposed !== null;
-  // A dimension the agent raised and never resolved may not reach a proposal.
-  // See `unresolvedDimensions` for the measured defect this closes.
-  const openDims = unresolvedDimensions(brief);
-  const dimensionUnresolved = !limitReached && openDims.length > 0 && proposed !== null;
-  const questionDropped = !limitReached && pendingQuestions.length > 0 && proposed !== null;
+  // `beliefUntreated`, `forkUnanswered`, `dimensionUnresolved` and
+  // `questionDropped` were computed here and ORed with the discovery gate's
+  // own outcome. Each could refuse a proposal, none had to say what would
+  // clear it, and none of them read the round budget until very late — so the
+  // gate's escape hatch existed and was overridden, and the same refusal
+  // regenerated for ever. Measured three turns running, then five.
+  //
+  // Every condition they tested is now a Block in `decide()` carrying the
+  // mutation that clears it, which is why they could be DELETED rather than
+  // ported. `gateClearability.test.ts` proves each exit works, so this is a
+  // strictly stronger guarantee than the four of them provided.
+  //
+  // `forkUnanswered` has no successor at all: a reply now closes the questions
+  // the application itself asked, and the protection against discharging a
+  // fork by inference lives in `reopen`, bounded to one re-ask.
 
   // THE DEFECT THIS FIXES: every recordQuestions call below passes
   // `gate.questions`, which are plain strings — `asQuestion()` builds them, and
@@ -1590,6 +1555,34 @@ export async function* orchestrateStream(
       const contingency = contingencyByText.get(text);
       return impact || contingency ? { text, ...(impact ? { impact } : {}), ...(contingency ? { contingency } : {}) } : text;
     });
+
+  // ===================================================================
+  // THE DECISION, in one place.
+  //
+  // `decide()` is now the authority on whether the agent may propose, and
+  // every refusal it returns carries the mutation that clears it. What follows
+  // is a deliberate DEMOTION rather than a deletion: `evaluateDiscovery` keeps
+  // its second job of supplying a fallback question when the agent has not
+  // asked one, because "never leave a refusal with nothing to answer" is a
+  // separate and still-correct rule. It no longer decides anything.
+  //
+  // WHY. Sixteen mechanisms could block the agent and none had to say what
+  // would clear it. Three deadlocks came out of that in one session, and four
+  // more causes out of one live run — every single one the same shape, a
+  // refusal with no reachable exit. `clears` is a required field on Block, so
+  // that shape is now unrepresentable rather than discouraged, and
+  // `satisfy()` proves each exit actually works.
+  //
+  // The four orchestrator vetoes are GONE. Their conditions are blocks now,
+  // with clearing mutations, which is why they could be deleted rather than
+  // ported.
+  const decision = decide(brief, {
+    proceedRequested: saysProceed(latestUserText),
+    // The proposal is handed in so a belief-dependent design can be refused
+    // on the turn it is written, which is the one check that cannot be made
+    // from the record alone.
+    proposed: proposed ? { strategy: proposed.strategy, openItems: proposed.openItems } : null,
+  });
 
   const gate = evaluateDiscovery({
     appOpenItems,
@@ -1684,11 +1677,15 @@ export async function* orchestrateStream(
   // would fall straight through and return the strategy the gate had just
   // refused. Nothing is proposed, so there is nothing for the user to confirm
   // and no blueprint for the approval gate to be handed.
-  if (gate.outcome === 'continue_discovery' || beliefUntreated || questionDropped || forkUnanswered || dimensionUnresolved) {
+  // ONE CONDITION. Previously this ORed the gate's outcome with four vetoes
+  // computed separately, which is how a refusal survived the gate's own escape
+  // hatch at the round budget and regenerated for ever.
+  if (!decision.proceed) {
     brief = recordQuestions(brief, withImpact(gate.questions));
-    // Count this refusal against each fork that caused it, so the next one
-    // escalates and then falls back instead of repeating a third time.
-    if (forkUnanswered) brief = recordForkRefusal(brief, openForks.map((q) => q.id));
+    // The fork-refusal counter is gone with the veto that fed it. It counted
+    // how often the APPLICATION had given up; the bound that matters is how
+    // often the USER has been asked the same thing, and that lives in
+    // `reopen` with a hard cap of one.
     session = {
       ...session,
       state: transition(
@@ -1719,32 +1716,13 @@ export async function* orchestrateStream(
     // something concrete to correct. Caught by a real e2e failure, where a
     // refused turn rendered neither a question nor a confirmation gate.
     const recorded = briefDimensions(brief);
+    // WRITTEN FROM THE BLOCKS, which each carry the mutation that clears them,
+    // and as a DELTA against what was reported last turn. The cascade this
+    // replaces picked one of four veto branches and restated the entire state
+    // every time, which is why five progressing turns read as one stuck turn.
+    const delta = blockDelta(decision.blocks, brief.lastBlocks ?? []);
     const reply = [
-      forkUnanswered
-        // Second time of asking reads differently from the first, and always
-        // names what will happen if no answer comes. Regenerating one sentence
-        // forever is what the previous version did, twice, verbatim.
-        ? openForks
-            .map((q) => {
-              const again = (q.blockedCount ?? 0) >= 1;
-              const fallback = q.contingency?.ifUnknown;
-              return [
-                again
-                  ? `One more on this, then I will decide and tell you what I assumed: "${q.text}"`
-                  : `Before I design anything I need this one settled, because it changes which campaign this is rather than how it is built: "${q.text}"`,
-                fallback
-                  ? `If you would rather not answer, say so and ${/^i\s+will\b/i.test(fallback.trim()) ? `${fallback.charAt(0).toLowerCase()}${fallback.slice(1)}` : `I will ${fallback.charAt(0).toLowerCase()}${fallback.slice(1)}`}`
-                  : 'If you cannot answer it, tell me and I will carry it as an open decision for you to settle before launch rather than quietly choosing.',
-              ].join(' ');
-            })
-            .join('\n\n')
-        : questionDropped
-        ? `I asked ${pendingQuestions.map((q) => `"${q.text}"`).join(' and ')}, and your reply did not cover it. I was about to design around that without telling you what I had assumed. Let me either ask it again or state the assumption plainly.`
-        : dimensionUnresolved
-        ? `I raised ${openDims.map((d) => `"${d.name}"`).join(' and ')} as something that could change this campaign, and then never actually looked into ${openDims.length === 1 ? 'it' : 'them'}. I was about to design as though ${openDims.length === 1 ? 'it did not matter' : 'they did not matter'}, which is not the same as having checked. Let me either ask you, or tell you plainly what I am assuming and why.`
-        : beliefUntreated
-        ? `This design rests on ${beliefsInPlay.map((d) => `"${d.name}"`).join(' and ')}, which you offered as your own reading rather than something measured. I have not said anywhere that it is untested, and competing explanations may change the campaign. Let me either ask what would separate them or carry them as stated hypotheses.`
-        : gate.reason,
+      renderBlocks(delta, decision.advice),
       recorded.length ? '\nWhat I am working through:' : '',
       // Plain words, not the status enum. `retained | deferred | unavailable`
       // is the application's vocabulary for its own record; printing it to a
@@ -1767,6 +1745,7 @@ export async function* orchestrateStream(
       .filter(Boolean)
       .join('\n');
 
+    brief = { ...brief, lastBlocks: decision.blocks.map((b) => b.code) };
     return {
       ...base,
       phase: 'discovery',
@@ -2424,7 +2403,7 @@ export function renderStrategy(
     text: string;
     addressedInRound?: number;
     impact?: QuestionImpact;
-    blockedCount?: number;
+    reopened?: number;
     contingency?: QuestionContingency;
   }[] = [],
   /** Claims the proposed journey did not bear out. RULE 2.4. */
@@ -2582,8 +2561,15 @@ export function renderStrategy(
     // middle path is only honest if the choice is stated where the user is
     // about to approve the campaign, in their own question's words.
     (() => {
+      // Keyed on `reopened`, not the deleted `blockedCount`.
+      //
+      // NEARLY LOST IN THE GATE COLLAPSE: nothing sets `blockedCount` any
+      // more, so this whole section would have stopped rendering silently —
+      // and it is the one place a question the application decided to stop
+      // asking is disclosed at the moment the user approves. The counter
+      // changed; the obligation did not.
       const fallen = questions.filter(
-        (q) => q.impact === 'fork' && q.addressedInRound === undefined && (q.blockedCount ?? 0) >= MAX_FORK_REFUSALS,
+        (q) => q.impact === 'fork' && (q.reopened ?? 0) >= REOPEN_LIMIT,
       );
       return fallen.length
         ? `\n\n**Asked twice, so I decided and moved on**\n${fallen

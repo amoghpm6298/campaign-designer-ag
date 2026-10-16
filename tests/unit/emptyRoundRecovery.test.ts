@@ -142,7 +142,7 @@ describe('the existing limits are untouched', () => {
     // builder's vocabulary is withheld until an intervention is stated, and
     // within a turn the tool list only ever grows, so history can never cite
     // a tool that is missing from the current list.
-    expect(orch).toMatch(/tools: \[\.\.\.toolsForPhase\(designSeen\), \.\.\.OUTPUT_TOOLS\]\.map/);
+    expect(orch).toMatch(/tools: \[\.\.\.toolsForPhase\(designSeen\), \.\.\.outputToolsForPhase\(isBuildTurn\)\]\.map/);
   });
 
   it('still fails explicitly when the budget is genuinely spent', () => {

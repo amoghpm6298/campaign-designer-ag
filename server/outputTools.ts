@@ -37,10 +37,13 @@ import {
   recordConverters,
   recordBarriers,
   recordDimensions,
+  recordContextChecked,
+  recordQuestionResolutions,
   type WorkingBrief,
   type DimensionUpdate,
   type QuestionImpact,
   type QuestionContingency,
+  type QuestionResolution,
 } from './discovery';
 import type { Converters, Barrier } from './findings';
 import type { CampaignBlueprint } from './blueprint';
@@ -390,13 +393,84 @@ export const OUTPUT_TOOLS: ToolDef[] = [
             required: ['name'],
           },
         },
+        // THE SLOTS THAT NEARLY VANISHED. Both lived in the JSON payload, and
+        // deleting that section from the prompt would have silently removed
+        // two capabilities: the agent could no longer say what it consulted,
+        // nor decide to carry or defer a question it had asked. Caught by the
+        // tests that pinned the old payload — the one time those brittle
+        // source-text assertions earned their keep.
+        contextChecked: {
+          type: 'array',
+          description: 'What you actually consulted this turn, and whether anything was found. Never imply access you do not have.',
+          items: {
+            type: 'object',
+            properties: { source: { type: 'string' }, found: { type: 'boolean' } },
+            required: ['source', 'found'],
+          },
+        },
+        questionResolutions: {
+          type: 'array',
+          description: 'A question you asked and have now decided to carry as an open decision or defer, naming which and why.',
+          items: {
+            type: 'object',
+            properties: {
+              questionId: { type: 'string' },
+              kind: { type: 'string', enum: ['carried', 'deferred'] },
+              why: { type: 'string' },
+            },
+            required: ['questionId', 'kind', 'why'],
+          },
+        },
       },
       required: ['dimensions'],
+    },
+  },
+  {
+    name: 'request_evidence',
+    title: 'Asking for data',
+    description:
+      'Ask for aggregated data, and ONLY when it would change a decision you are about to make and the brief does not already say it is unavailable. Aggregated counts and rates only — never customer-level or personal data.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        evidence: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              question: { type: 'string', description: 'The business question it answers.' },
+              fields: { type: 'array', items: { type: 'string' } },
+              grouping: { type: 'string' },
+              period: { type: 'string' },
+              wouldInform: { type: 'string', description: 'What you would do differently once you had it.' },
+            },
+            required: ['question', 'fields', 'wouldInform'],
+          },
+        },
+      },
+      required: ['evidence'],
     },
   },
 ];
 
 export const OUTPUT_TOOL_NAMES = OUTPUT_TOOLS.map((t) => t.name);
+
+/**
+ * The output tools available on this turn.
+ *
+ * `build_campaign`'s schema IS the journey grammar — every step kind, the
+ * entry shapes, the entity groups. Registering it on a discovery turn hands
+ * the agent the builder's vocabulary before it has a plan, which is the exact
+ * leak that was closed in `systemForPhase` and then reopened here the moment
+ * the grammar moved out of the prompt and into a tool. A proposal written
+ * inside the platform's limits is a proposal the platform wrote.
+ *
+ * Caught by the two tests that pinned the prompt-level gate. They looked like
+ * brittle source-text assertions and were in fact guarding the standing
+ * decision that the strategy comes first and the platform second.
+ */
+export const outputToolsForPhase = (isBuildTurn: boolean) =>
+  isBuildTurn ? OUTPUT_TOOLS : OUTPUT_TOOLS.filter((t) => t.name !== 'build_campaign');
 
 // So the activity timeline shows "Recording what you told me about customers"
 // rather than "Running record_findings".
@@ -423,6 +497,8 @@ export interface ApplyResult {
   blueprint?: CampaignBlueprint;
   /** Decisions the proposal leaves open, travelling with the plan that raised them. */
   openItems?: unknown[];
+  /** Aggregated data the agent asked for. */
+  evidence?: unknown[];
 }
 
 /**
@@ -497,10 +573,27 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       if (usable.length === 0) {
         return { brief, error: 'No usable dimension in that call. Each one needs a non-empty "name".' };
       }
-      return {
-        brief: recordDimensions(brief, usable),
-        ok: `Recorded ${usable.length} line(s) of enquiry.`,
-      };
+      let next = recordDimensions(brief, usable);
+      const notes = [`${usable.length} line(s) of enquiry`];
+      const checked = obj.contextChecked as { source: string; found: boolean }[] | undefined;
+      if (checked?.length) {
+        next = recordContextChecked(next, checked);
+        notes.push(`${checked.length} source(s) consulted`);
+      }
+      const resolutions = obj.questionResolutions as QuestionResolution[] | undefined;
+      if (resolutions?.length) {
+        next = recordQuestionResolutions(next, resolutions);
+        notes.push(`${resolutions.length} question decision(s)`);
+      }
+      return { brief: next, ok: `Recorded ${notes.join(', ')}.` };
+    }
+
+    case 'request_evidence': {
+      const evidence = Array.isArray(obj.evidence) ? obj.evidence : [];
+      if (evidence.length === 0) {
+        return { brief, error: 'No request in that call. Each one needs a "question", the "fields" you want and what it "wouldInform".' };
+      }
+      return { brief, evidence, ok: `Asked for ${evidence.length} piece(s) of data.` };
     }
 
     case 'propose_strategy': {

@@ -24,6 +24,7 @@ import {
   successCriteriaSettled,
   type WorkingBrief,
 } from '../../server/discovery';
+import { OUTPUT_TOOLS } from '../../server/outputTools';
 
 const OBJECTIVE = 'I want to increase OS-to-EMI conversions. Design a drip campaign for this.';
 const SYSTEM = (() => {
@@ -72,9 +73,17 @@ describe('the renderer shows the new sections', () => {
 
 describe('the prompt asks for them, and forbids inventing numbers', () => {
   it('requests success criteria and measurement in the propose payload', () => {
-    expect(SYSTEM).toMatch(/"successCriteria":\[/);
-    expect(SYSTEM).toMatch(/"measurement":\[/);
-    expect(SYSTEM).toMatch(/"hypotheses":\[/);
+    // Moved from the propose payload template into propose_strategy's schema,
+    // where the API enforces the shape instead of the prompt describing it.
+    const plan = OUTPUT_TOOLS.find((t) => t.name === 'propose_strategy')!;
+    for (const field of ['successCriteria', 'measurement', 'hypotheses']) {
+      expect(plan.input_schema.properties[field], field).toBeDefined();
+    }
+    // The no-invented-numbers rule travels WITH the field, so it is read at
+    // the moment the field is filled in rather than 20,000 characters earlier.
+    const criteria = plan.input_schema.properties.successCriteria as { description: string };
+    expect(criteria.description).toMatch(/Never a target number/);
+    expect((plan.input_schema.properties.measurement as { description: string }).description).toMatch(/No forecast/);
   });
 
   it('tells the agent to settle how success is judged, and to ask when unclear', () => {
@@ -232,7 +241,7 @@ describe('the audience they asked for is not conflated with the audience we can 
     // The placeholder now also demands that a rejection be a MATERIALLY
     // different approach, not a tactical variation — "we considered sending
     // one fewer email" is not an alternative strategy.
-    expect(SYSTEM).toMatch(/"rejected":\[\{"option":"<a materially different approach you CHOSE not to take>"/);
+    expect(OUTPUT_TOOLS.find((t) => t.name === 'propose_strategy')!.input_schema.properties.rejected).toBeDefined();
     expect(SYSTEM).toMatch(/Something the platform CANNOT do is not a decision/);
     expect(SYSTEM).toMatch(/reads as "we chose against this" when the truth is "we could not express this"/);
     expect(SYSTEM).toMatch(/keep it as the user's standing intent in "assumptions" or "unknowns"/);

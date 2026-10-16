@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { AGENT_TOOLS } from '../../server/agentTools';
+import { OUTPUT_TOOLS } from '../../server/outputTools';
 
 const SYSTEM = (() => {
   const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
@@ -195,8 +196,9 @@ describe('the contradictions the old prompt carried are gone', () => {
     for (const kind of ['strategic-ambiguity', 'evidence-gap', 'optional-preference', 'operational-limitation']) {
       expect(SYSTEM, kind).toContain(kind);
     }
-    expect(SYSTEM).toMatch(/"action":"propose"/);
-    expect(SYSTEM).toMatch(/"copy":/);
+    // The payload templates are gone; these contracts live in the tools now.
+    expect(OUTPUT_TOOLS.map((t) => t.name)).toContain('propose_strategy');
+    expect(JSON.stringify(OUTPUT_TOOLS.find((t) => t.name === 'build_campaign')!.input_schema)).toContain('"copy"');
     expect(SYSTEM).toMatch(/Nothing is built until the user confirms it/);
   });
 

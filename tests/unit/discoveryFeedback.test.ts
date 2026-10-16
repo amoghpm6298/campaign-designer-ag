@@ -16,6 +16,7 @@
 //     so "I checked X" was prose nobody could audit.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { OUTPUT_TOOLS, outputToolsForPhase } from '../../server/outputTools';
 import {
   briefForPrompt,
   newBrief,
@@ -121,15 +122,30 @@ describe('the prompt asks for retrieval honestly', () => {
   });
 
   it('forbids implying access it does not have', () => {
+    // Kept in SYSTEM: this is method, not shape. Only the JSON templates moved
+    // into tool schemas.
     expect(SYSTEM).toMatch(/Only name sources you genuinely consulted/);
     expect(SYSTEM).toMatch(/no access to campaign history, analytics or bank systems/);
     expect(SYSTEM).toMatch(/never imply you looked there/);
   });
 
-  it('requests contextChecked on both the ask and propose payloads', () => {
-    const ask = SYSTEM.slice(SYSTEM.indexOf('{"action":"ask"'), SYSTEM.indexOf('{"action":"ask"') + 800);
-    expect(ask).toMatch(/"contextChecked":\[/);
-    expect(SYSTEM).toMatch(/"action":"propose"[\s\S]{0,900}"contextChecked":\[/);
+  it('gives contextChecked a slot the model can reach on any turn', () => {
+    // It used to appear in two hand-written payload templates. It now has one
+    // slot, on the tool that carries the turn's working record, and this test
+    // is the reason it survived at all: deleting the payload templates from
+    // the prompt would otherwise have silently removed the capability, and
+    // "I checked X" would be unauditable prose again.
+    const dims = OUTPUT_TOOLS.find((t) => t.name === 'record_dimensions')!;
+    const checked = dims.input_schema.properties.contextChecked as {
+      items: { properties: Record<string, unknown>; required: string[] };
+      description: string;
+    };
+    expect(Object.keys(checked.items.properties).sort()).toEqual(['found', 'source']);
+    expect(checked.items.required.sort()).toEqual(['found', 'source']);
+    expect(checked.description).toMatch(/Never imply access you do not have/);
+    for (const turn of [true, false]) {
+      expect(outputToolsForPhase(turn).map((t) => t.name)).toContain('record_dimensions');
+    }
   });
 });
 

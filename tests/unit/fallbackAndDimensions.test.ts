@@ -41,7 +41,7 @@ describe('P0a — a refusal escalates, then falls back', () => {
   it('still blocks the second time, and knows it is the second', () => {
     const b = recordForkRefusal(withFork(), ['q1-0']);
     expect(unansweredForks(b)).toHaveLength(1);
-    expect(b.questions[0].blockedCount).toBe(1);
+    expect(b.questions[0].reopened ?? 0).toBe(0);
   });
 
   it('stops blocking once it has refused its limit', () => {
@@ -81,8 +81,8 @@ describe('P0a — a refusal escalates, then falls back', () => {
     ]);
     b = recordAnswer(b, 'Unrelated.');
     b = recordForkRefusal(b, ['q1-0']);
-    expect(b.questions[0].blockedCount).toBe(1);
-    expect(b.questions[1].blockedCount).toBeUndefined();
+    expect(b.questions[0].reopened ?? 0).toBe(0);
+    expect(b.questions[1].reopened).toBeUndefined();
   });
 });
 

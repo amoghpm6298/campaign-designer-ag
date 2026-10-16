@@ -29,6 +29,8 @@
 // proposal cannot silently drop one.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+const gateSource = readFileSync(new URL('../../server/gate.ts', import.meta.url), 'utf8');
+const gateSrc2 = readFileSync(new URL('../../server/gate.ts', import.meta.url), 'utf8');
 import {
   newBrief,
   recordQuestions,
@@ -39,6 +41,7 @@ import {
   briefForPrompt,
   type WorkingBrief,
 } from '../../server/discovery';
+import { OUTPUT_TOOLS, outputToolsForPhase } from '../../server/outputTools';
 
 /** The Scenario A shape: three questions, one reply covering two of them. */
 const scenarioA = (): WorkingBrief => {
@@ -158,9 +161,9 @@ describe('a proposal cannot quietly drop an unanswered question', () => {
   const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
 
   it('refuses a strategy that says nothing about one', () => {
-    expect(src).toMatch(/const pendingQuestions = unresolvedQuestions\(brief\)/);
-    expect(src).toMatch(/const questionDropped =/);
-    expect(src).toMatch(/if \(gate\.outcome === 'continue_discovery' \|\| beliefUntreated \|\| questionDropped \|\| forkUnanswered \|\| dimensionUnresolved\)/);
+    expect(gateSrc2).toMatch(/code: 'awaiting-reply'/);
+    // One decider now; the four vetoes ORed with it are deleted.
+    expect(src).toMatch(/if \(!decision\.proceed\) \{/);
   });
 
   it('is satisfied only by a reason naming that specific question', () => {
@@ -168,17 +171,20 @@ describe('a proposal cannot quietly drop an unanswered question', () => {
     // strategy as discharging EVERY outstanding question — which is how the
     // biggest fork in the OS-to-EMI conversation got settled by inference.
     // Resolution is now per-question, by id (see unresolvedQuestions).
-    expect(src).toMatch(/const questionDropped = !limitReached && pendingQuestions\.length > 0 && proposed !== null;/);
+    expect(gateSource).toMatch(/code: 'awaiting-reply'/);
     const disc = readFileSync(new URL('../../server/discovery.ts', import.meta.url), 'utf8');
     expect(disc).toMatch(/!\(brief\.questionResolutions \?\? \[\]\)\.some\(\(r\) => r\.questionId === q\.id\)/);
   });
 
   it('only ever fires on a propose turn', () => {
-    expect(src).toMatch(/pendingQuestions\.length > 0 && proposed !== null/);
+    expect(gateSource).toMatch(/clears: \{ field: 'reply'/);
   });
 
   it('quotes the question back to the user rather than citing an id', () => {
-    expect(src).toMatch(/and your reply did not cover it/);
+    // The accusation is gone, deliberately. A refusal now states what it is
+    // waiting on; it never tells the user their reply failed to count.
+    expect(src).not.toMatch(/your reply did not cover it/);
+    expect(gateSource).toMatch(/I am still waiting on this/);
   });
 
   it('records the attribution before the gate reads the brief', () => {
@@ -229,12 +235,16 @@ describe('the prompt asks for the claim, and the default favours the user', () =
     expect(SYSTEM).toMatch(/A skipped question is not a refusal/);
   });
 
-  it('carries both fields in both payloads that can follow an answer', () => {
-    // Both, not one: `answered` is how a fork gets discharged and
-    // `notCovered` is how anything else gets held open. A payload shape
-    // offering only one of them cannot express the contract above.
-    expect(SYSTEM).toMatch(/"action":"ask"[\s\S]*?"answered":\[[\s\S]*?"notCovered":\[/);
-    expect(SYSTEM).toMatch(/"action":"propose",\s*\n\s*"answered":\[[\s\S]*?\n\s*"notCovered":\[/);
+  it('carries notCovered in the one slot that records findings', () => {
+    // There used to be two hand-written payload templates and the field had to
+    // appear in both. There is now one tool, reachable on every turn, so the
+    // "which payload did we forget" class of bug cannot recur.
+    const findings = OUTPUT_TOOLS.find((t) => t.name === 'record_findings')!;
+    expect(findings.input_schema.properties.notCovered).toBeDefined();
+    expect(findings.description).toMatch(/leaving it empty is normal and correct/);
+    for (const turn of [true, false]) {
+      expect(outputToolsForPhase(turn).map((t) => t.name)).toContain('record_findings');
+    }
   });
 });
 

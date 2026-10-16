@@ -26,6 +26,7 @@ import { readFileSync } from 'node:fs';
 import { auditOptions, applyAudit, unsupportedClaims, UNCHECKABLE_OPTIONS } from '../../server/optionAudit';
 import { renderStrategy, type Strategy } from '../../server/orchestrator';
 import type { CampaignBlueprint, BpStep } from '../../server/blueprint';
+import { OUTPUT_TOOLS } from '../../server/outputTools';
 
 const SYSTEM = (() => {
   const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
@@ -210,8 +211,16 @@ describe('2.1 and 2.2 — architectures are compared, not assumed', () => {
 
   it('carries the comparison in the schema, so it cannot stay in prose', () => {
     expect(orch).toMatch(/architectures\?: \{/);
-    for (const f of ['name', 'entry', 'mechanism', 'timing', 'tradeoff', 'chosen', 'whyChosen']) {
-      expect(SYSTEM, f).toContain(`"${f}"`);
+    // In propose_strategy's schema now, with minItems 2 — so "two candidates"
+    // is enforced by the API rather than asked for in prose. The barrier is
+    // required on each, because comparing two mechanics for one barrier is the
+    // failure this whole block exists to prevent.
+    const arch = OUTPUT_TOOLS.find((t) => t.name === 'propose_strategy')!.input_schema
+      .properties.architectures as { minItems: number; items: { properties: Record<string, unknown>; required: string[] } };
+    expect(arch.minItems).toBe(2);
+    expect(arch.required ?? arch.items.required).toContain('barrier');
+    for (const f of ['name', 'barrier', 'audience', 'timing', 'tradeOff', 'chosen', 'why']) {
+      expect(Object.keys(arch.items.properties), f).toContain(f);
     }
   });
 
@@ -265,7 +274,7 @@ describe('2.5 — a viable experiment is written, not requested', () => {
 
 describe('the earlier safeguards are untouched', () => {
   it('fork blocking, no-proxy and risk visibility all still present', () => {
-    expect(orch).toMatch(/\|\| forkUnanswered \|\| dimensionUnresolved\) \{/);
+    expect(orch).toMatch(/if \(!decision\.proceed\) \{/);
     expect(SYSTEM).toMatch(/DO NOT CLOSE THAT GAP WITH A NEAR-ENOUGH ATTRIBUTE/);
     expect(SYSTEM).toMatch(/a single event's value is not a running total/);
     expect(orch).toMatch(/Proceeding without an answer on/);

@@ -24,6 +24,10 @@
 // Each test below fails if its defect returns.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { OUTPUT_TOOLS, outputToolsForPhase } from '../../server/outputTools';
+
+const schemaOf = (name: string) =>
+  JSON.stringify(OUTPUT_TOOLS.find((t) => t.name === name)!.input_schema);
 import {
   newBrief,
   recordQuestions,
@@ -38,19 +42,19 @@ const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.ur
 const SYSTEM = /const SYSTEM = `([\s\S]*?)`;\n/.exec(orch)![1];
 
 describe('1 — the findings have a slot in every payload that can be refused for lacking them', () => {
-  it('asks for them in the propose payload, not only the ask payload', () => {
-    // The precise shape is not the point and should stay free to change. What
-    // may never happen again is the gate demanding a field the response
-    // template gives no room for.
-    const propose = SYSTEM.slice(SYSTEM.indexOf('{"action":"propose"'), SYSTEM.indexOf('"blueprint":{'));
-    expect(propose).toContain('"converters"');
-    expect(propose).toContain('"barriers"');
-  });
-
-  it('still asks for them in the ask payload', () => {
-    const ask = SYSTEM.slice(SYSTEM.indexOf('{"action":"ask"'));
-    expect(ask).toContain('"converters"');
-    expect(ask).toContain('"barriers"');
+  it('gives the findings ONE slot, reachable on every turn', () => {
+    // The original defect was two hand-maintained copies of the payload with
+    // the findings in only one of them. The fix is not a third copy — it is
+    // that there is now a single tool carrying both, available on every turn
+    // including a propose turn, so the gate can never demand a field the model
+    // has nowhere to put.
+    const findings = OUTPUT_TOOLS.find((t) => t.name === 'record_findings')!;
+    expect(Object.keys(findings.input_schema.properties)).toEqual(
+      expect.arrayContaining(['converters', 'barriers']),
+    );
+    for (const turn of [true, false]) {
+      expect(outputToolsForPhase(turn).map((t) => t.name)).toContain('record_findings');
+    }
   });
 
   it('keeps the instruction that makes them mandatory, so the two cannot drift apart', () => {
@@ -123,14 +127,14 @@ describe('3 — the budget is an escape hatch that nothing can override', () => 
     // These four are ORed with the gate's outcome. The gate already returns
     // `ready_for_strategy` at the limit, so any one of them ignoring the limit
     // reopens an unbounded refusal.
-    for (const veto of [
-      /const beliefUntreated = !limitReached &&/,
-      /const forkUnanswered = !limitReached &&/,
-      /const dimensionUnresolved = !limitReached &&/,
-      /const questionDropped = !limitReached &&/,
-    ]) {
-      expect(orch).toMatch(veto);
+    // The four vetoes are DELETED, which is a stronger fix than making them
+    // yield: there is one decider, it checks the budget first, and nothing is
+    // ORed with its outcome any more.
+    for (const gone of ['beliefUntreated', 'forkUnanswered', 'dimensionUnresolved', 'questionDropped']) {
+      expect(orch, gone).not.toContain(`const ${gone} =`);
     }
+    expect(orch).toMatch(/if \(!decision\.proceed\) \{/);
+    expect(orch).toMatch(/const decision = decide\(brief, \{/);
   });
 
   it('defines the budget from the round limit or an explicit request to proceed', () => {
@@ -141,7 +145,8 @@ describe('3 — the budget is an escape hatch that nothing can override', () => 
   });
 
   it('records why, so this is not later read as a loosened guard', () => {
-    expect(orch).toMatch(/ALL FOUR YIELD AT THE BUDGET/);
-    expect(orch).toMatch(/It must never mean the conversation cannot end/);
+    expect(orch).toMatch(/THE FOUR VETOES ARE GONE/);
+    const gateSrc3 = readFileSync(new URL('../../server/gate.ts', import.meta.url), 'utf8');
+    expect(gateSrc3).toMatch(/THE BUDGET IS CHECKED FIRST AND NOTHING OVERRIDES IT/);
   });
 });

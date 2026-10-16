@@ -401,6 +401,15 @@ export interface WorkingBrief {
    */
   converters?: Converters;
   /**
+   * Block codes reported to the user on the previous refusal.
+   *
+   * Exists so a refusal can report the DELTA. A live session refused five
+   * turns running with an identical opening paragraph while the questions
+   * underneath changed every turn, so visible progress read as a frozen loop.
+   * Optional, because a brief saved before this field round-trips without it.
+   */
+  lastBlocks?: string[];
+  /**
    * Why the rest do not convert. Starts empty, deliberately: a seeded list
    * would turn discovery into multiple choice. A barrier may only be designed
    * against once it traces to something the manager said.

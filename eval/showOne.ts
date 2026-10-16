@@ -11,6 +11,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { orchestrateStream } from '../server/orchestrator';
 import { seedKnowledgeBase } from '../server/knowledge';
+import { saysProceed } from '../server/record';
 
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 try {
@@ -62,6 +63,7 @@ const state: Record<string, unknown> = {
   knowledge: seedKnowledgeBase(),
   messages: [] as { role: string; content: string }[],
   brief: null, session: null, discoveryRounds: 0,
+  phase: null, pendingBlueprint: null, pendingStrategy: null,
 };
 
 const rule = (s: string) => `\n${'='.repeat(78)}\n${s}\n${'='.repeat(78)}`;
@@ -113,11 +115,33 @@ for (const [i, textIn] of TURNS.entries()) {
     const messages = [...(state.messages as { role: string; content: string }[]), { role: 'user', content: textIn }];
     const started = Date.now();
     const collected: unknown[] = [];
+
+    // APPROVAL, which this harness could not express until now.
+    //
+    // THE GAP THIS CLOSES: the designer's Approve button sends
+    // `intent: 'confirm'` with the pending strategy and blueprint, and nothing
+    // here ever did. So the approve -> journey -> blocker-report path — the
+    // whole second half of the product — had never executed outside unit
+    // tests. Every recorded run ended in discovery or at a proposal, which is
+    // also why "go ahead and build it" in a scenario did nothing: it was read
+    // as one more message rather than as the approval it plainly was.
+    //
+    // Two ways to approve, because both are real. `@confirm` on its own line
+    // is the button, pressed deliberately. Otherwise, a reply that says to
+    // proceed WHILE a proposal is on the table is treated as approval, which
+    // is what a manager typing "looks fine, go ahead" means.
+    const marker = textIn.trim() === '@confirm';
+    const confirming =
+      state.phase === 'awaiting-confirmation' && (marker || saysProceed(textIn));
     const gen = orchestrateStream({
       sessionId: state.sessionId, tenantId: 'TEN-IBL', knowledge: state.knowledge,
       discoveryRounds: state.discoveryRounds ?? 0, brief: state.brief ?? null,
       session: state.session ?? null, currentCampaign: null, messages,
+      intent: confirming ? 'confirm' : 'converse',
+      confirmedBlueprint: confirming ? state.pendingBlueprint : null,
+      confirmedStrategy: confirming ? state.pendingStrategy : null,
     } as never);
+    if (confirming) process.stdout.write('\n[approving the proposal on the table]\n');
     // Collect, do not discard. The yielded values are the run events.
     let o = await gen.next();
     while (!o.done) { collected.push(o.value); o = await gen.next(); }
@@ -132,6 +156,12 @@ for (const [i, textIn] of TURNS.entries()) {
     state.messages = [...messages, { role: 'assistant', content: String(r.reply ?? '') }];
     state.brief = r.brief; state.session = r.session;
     state.discoveryRounds = r.discoveryRounds ?? state.discoveryRounds;
+    // Carried so the NEXT turn can approve what this one proposed.
+    state.phase = r.phase;
+    if (r.phase !== 'error') {
+      state.pendingBlueprint = r.pendingBlueprint ?? null;
+      state.pendingStrategy = r.strategy ?? null;
+    }
     res = r;
     events = collected;
     ms = Date.now() - started;
@@ -151,6 +181,52 @@ for (const [i, textIn] of TURNS.entries()) {
   const st = res.strategy as { architectureComparison?: { status: string; why: string } } | null;
   if (st?.architectureComparison)
     process.stdout.write(`\n[APPLICATION CHECK — alternatives: ${st.architectureComparison.status}]\n${st.architectureComparison.why}\n`);
+
+  // THE BUILT JOURNEY, printed as a shape rather than left in a JSON file.
+  //
+  // Without this, approving proved nothing: the run log said `phase: review`
+  // and the reader had to go digging to find out whether a graph existed, how
+  // many steps it had, or whether any path was left open. An open path is the
+  // one defect that makes a campaign unshippable, so it is printed first.
+  const campaign = res.campaign as
+    | { nodes?: Record<string, { type: string; label?: string }>; edges?: unknown[] }
+    | null;
+  if (campaign?.nodes) {
+    const nodes = Object.values(campaign.nodes);
+    const kinds = nodes.reduce<Record<string, number>>((acc, n) => {
+      acc[n.type] = (acc[n.type] ?? 0) + 1;
+      return acc;
+    }, {});
+    process.stdout.write(
+      `\n[JOURNEY BUILT — ${nodes.length} nodes, ${(campaign.edges ?? []).length} edges]\n` +
+        Object.entries(kinds)
+          .sort((a, b) => b[1] - a[1])
+          .map(([k, n]) => `  ${n} x ${k}`)
+          .join('\n') +
+        '\n',
+    );
+  }
+  // THE BLOCKER REPORT. A blocker means nothing was built, deliberately: a
+  // campaign that silently dropped a requirement is worse than no campaign and
+  // a plain statement of what is in the way. Printed whether or not a graph
+  // exists, because the interesting case is a blocker ALONGSIDE a partial
+  // build.
+  const blockers = res.campaignBlockers as string[] | undefined;
+  if (blockers?.length)
+    process.stdout.write(`\n[BLOCKED — ${blockers.length}]\n${blockers.map((b) => `  - ${b}`).join('\n')}\n`);
+  const unresolved = res.unresolvedCampaignFields as string[] | undefined;
+  if (unresolved?.length) process.stdout.write(`\n[UNRESOLVED FIELDS — ${unresolved.length}: ${unresolved.join(', ')}]\n`);
+  const issues = res.buildIssues as { message?: string }[] | undefined;
+  if (issues?.length)
+    process.stdout.write(`\n[BUILD ISSUES — ${issues.length}]\n${issues.map((x) => `  - ${x.message ?? JSON.stringify(x)}`).join('\n')}\n`);
+
+  // Exportability is the single honest summary: can this leave the tool?
+  if (res.campaign)
+    process.stdout.write(
+      `\n[EXPORTABLE: ${res.exportable ? 'yes' : `no — ${String(res.exportBlockedReason ?? 'reason not stated')}`}]\n`,
+    );
+  const v = res.validation as { errors?: unknown[]; warnings?: unknown[] } | null;
+  if (v) process.stdout.write(`[VALIDATION: ${(v.errors ?? []).length} error(s), ${(v.warnings ?? []).length} warning(s)]\n`);
 }
 
 process.stdout.write(rule('RUN RECORDED'));

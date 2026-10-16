@@ -241,7 +241,7 @@ describe('the tool loop terminates with an answer, not an error', () => {
     // turn, and within a turn the tool list only ever grows.
     // Now concatenated with OUTPUT_TOOLS: the model writes the record through
     // tools, so those definitions must travel on the same calls.
-    expect(src).toMatch(/tools: \[\.\.\.toolsForPhase\(designSeen\), \.\.\.OUTPUT_TOOLS\]\.map/);
+    expect(src).toMatch(/tools: \[\.\.\.toolsForPhase\(designSeen\), \.\.\.outputToolsForPhase\(isBuildTurn\)\]\.map/);
   });
 
   it('separates "nothing left to look up" from "budget spent"', () => {

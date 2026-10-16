@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { issuerContext, blueprintVocabulary } from '../../server/blueprint';
+import { OUTPUT_TOOLS, outputToolsForPhase } from '../../server/outputTools';
 
 const CHANNELS = ['EMAIL', 'SMS', 'WHATSAPP'];
 const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
@@ -116,17 +117,24 @@ describe('the system prompt itself withholds the blueprint grammar', () => {
     }
   });
 
-  it('keeps all of it on a build turn, where it is needed', async () => {
-    const { systemForPhase } = await import('../../server/orchestrator');
-    const build = systemForPhase(true);
-    for (const needed of ['"kind":"branch"', '"kind":"experiment"', '"campaignName"', 'first-touch|reminder']) {
+  it('keeps all of it on a build turn, where it is needed', () => {
+    // THE GRAMMAR MOVED. It is no longer prose in SYSTEM at all — it is the
+    // input schema of `build_campaign`, checked by the API. So the phase gate
+    // moved with it, from `systemForPhase` to `outputToolsForPhase`, and this
+    // test follows it rather than being deleted.
+    const build = JSON.stringify(
+      outputToolsForPhase(true).find((t) => t.name === 'build_campaign')!.input_schema,
+    );
+    for (const needed of ['"branch"', '"experiment"', 'campaignName', 'first-touch']) {
       expect(build).toContain(needed);
     }
   });
 
-  it('says WHY the field is missing rather than leaving a hole', async () => {
-    const { systemForPhase } = await import('../../server/orchestrator');
-    expect(systemForPhase(false)).toMatch(/OMITTED THIS TURN/);
+  it('does not offer the build tool at all before there is a plan', () => {
+    // Stronger than the old prompt-level omission: the tool is simply absent,
+    // so there is no grammar to withhold and nothing to explain away.
+    expect(outputToolsForPhase(false).map((t) => t.name)).not.toContain('build_campaign');
+    expect(outputToolsForPhase(true).map((t) => t.name)).toContain('build_campaign');
   });
 
   it('is what actually gets SENT — no raw SYSTEM reaches the model', () => {

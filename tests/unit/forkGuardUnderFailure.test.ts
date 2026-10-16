@@ -26,6 +26,7 @@ import {
   unansweredForks,
   type WorkingBrief,
 } from '../../server/discovery';
+import { REOPEN_LIMIT, reopen, recordReply, outstanding, exhausted } from '../../server/record';
 
 const sse = (events: Record<string, unknown>[]) =>
   events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
@@ -186,13 +187,17 @@ describe('a model that proposes past an unanswered fork is stopped', () => {
     const res = await runTurn(stateAfterOneAnsweredRound());
     const reply = String(res.reply);
     expect(reply).toContain(AUDIENCE_FORK);
-    expect(reply).toMatch(/changes which campaign this is rather than how it is built/);
+    expect(reply).toMatch(/I am still waiting on this/);
     // Copy rewritten: it used to say "Your reply did not cover it, and I was
     // about to pick one for you." Measured live, that fired on a reply that
     // HAD answered — the model omitted the `answered` ids, and the
     // application told the manager their answer did not count. Never put a
     // bookkeeping failure on the user; just ask again.
-    expect(reply).toMatch(/Before I design anything I need this one settled/);
+    // The two-tier fork copy ("Before I design anything I need this one
+    // settled" / "One more on this, then I will decide") is gone with the
+    // escalation ladder it belonged to. One statement of what is outstanding,
+    // and a single bounded re-ask, replace it.
+    expect(reply).toContain(AUDIENCE_FORK);
     expect(reply).not.toMatch(/did not cover it/);
   });
 
@@ -288,12 +293,20 @@ describe('blocking does not become a trap', () => {
     // Measured on a live run before this existed: the guard refused on turns 3
     // and 4 with word-for-word identical text and the conversation never
     // reached a proposal at all across five turns.
-    expect(unansweredForks(a).map((q) => q.id)).toEqual(['q1-1']);
-    expect(a.questions.find((q) => q.id === 'q1-1')!.blockedCount).toBe(1);
-    expect(b.questions.find((q) => q.id === 'q1-1')!.blockedCount).toBe(2);
-    expect(unansweredForks(b)).toEqual([]);
-    expect(forksFallenBack(b).map((q) => q.id)).toEqual(['q1-1']);
-    expect(forksFallenBack(b)[0].addressedInRound).toBeUndefined();
+    // THE LADDER IS GONE, and this is the honest replacement. There is no
+    // refusal counter, no escalation and no `forksFallenBack` tier, because
+    // all three counted how often the APPLICATION had given up. The bound
+    // that matters is how often the USER is asked the same thing, and it is
+    // exactly one: `reopen` puts a question back once and then refuses to.
+    const once = reopen(a, ['q1-1']);
+    // Contains, not equals: the refusal also recorded its own fallback
+    // question, which is correct — a refusal must never leave the user with
+    // nothing to answer.
+    expect(outstanding(once).map((q) => q.id)).toContain('q1-1');
+    const answeredAgain = recordReply(once, 'the never-started cohort');
+    expect(outstanding(reopen(answeredAgain, ['q1-1'])).map((q) => q.id)).not.toContain('q1-1');
+    expect(exhausted(answeredAgain).map((q) => q.id)).toContain('q1-1');
+    expect(REOPEN_LIMIT).toBe(1);
   });
 
   it('answering the fork clears it, and any later block names a different item', async () => {

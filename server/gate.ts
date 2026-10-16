@@ -46,7 +46,17 @@ export type Mutation =
   | { field: 'barriers'; how: string }
   | { field: 'dimensions'; how: string }
   | { field: 'dimensionNote'; name: string; how: string }
-  | { field: 'reply'; questionId: string; how: string };
+  | { field: 'reply'; questionId: string; how: string }
+  /**
+   * A change to the PROPOSAL rather than to the record.
+   *
+   * The distinction is real and worth keeping in the type. A record mutation
+   * can be applied by `satisfy()` and is therefore provable; a proposal
+   * mutation is something the model must write into the next proposal, so the
+   * invariant checks that the block names a field on the proposal instead of
+   * trying to synthesise one.
+   */
+  | { field: 'hypotheses'; how: string };
 
 export interface Block {
   /** Stable identity, so two turns can be compared and only the DELTA shown. */
@@ -58,7 +68,8 @@ export interface Block {
     | 'no-barrier'
     | 'too-few-dimensions'
     | 'dimension-unreasoned'
-    | 'awaiting-reply';
+    | 'awaiting-reply'
+    | 'belief-untested';
   /** Said to the user, in their terms. Never names a field or an id. */
   reason: string;
   /** What would clear it. Required by construction. */
@@ -84,8 +95,11 @@ export interface Decision {
  * the blocks are reported as advice, so the agent proceeds AND the user still
  * sees what was assumed.
  */
-export function decide(brief: WorkingBrief, opts: { proceedRequested?: boolean } = {}): Decision {
-  const blocks = blocksFor(brief);
+export function decide(
+  brief: WorkingBrief,
+  opts: { proceedRequested?: boolean; proposed?: ProposalUnderReview | null } = {},
+): Decision {
+  const blocks = [...blocksFor(brief), ...proposalBlocks(brief, opts.proposed ?? null)];
   const advice = adviceFor(brief);
 
   if (opts.proceedRequested) {
@@ -95,6 +109,50 @@ export function decide(brief: WorkingBrief, opts: { proceedRequested?: boolean }
     return { proceed: true, blocks: [], advice: [...advice, ...blocks.map((b) => b.reason)], forcedBy: 'budget' };
   }
   return { proceed: blocks.length === 0, blocks, advice };
+}
+
+/** Just enough of a proposal to check it against the record. */
+export interface ProposalUnderReview {
+  strategy?: { hypotheses?: string[]; unknowns?: string[] } | null;
+  openItems?: { kind: string }[];
+}
+
+/**
+ * Blocks that are about the PROPOSAL, not the record.
+ *
+ * Separated from `blocksFor` because the two are checked at different moments
+ * and only one of them is synthesisable: a record block can be cleared by
+ * `satisfy()` and proved, while a proposal block is cleared by the model
+ * writing something different next time.
+ *
+ * Returns nothing when there is no proposal, which is what keeps a discovery
+ * turn from being refused for the shape of a strategy it has not written.
+ */
+export function proposalBlocks(brief: WorkingBrief, proposed: ProposalUnderReview | null): Block[] {
+  if (!proposed) return [];
+  const beliefs = (brief.dimensions ?? []).filter((d) => d.basis === 'user-belief');
+  if (beliefs.length === 0) return [];
+  // Three honest ways to say it is untested, and any of them satisfies this.
+  // Insisting on one specific field would be a formatting rule rather than a
+  // correctness one.
+  const named = Boolean(
+    proposed.strategy?.hypotheses?.length ||
+      proposed.strategy?.unknowns?.length ||
+      proposed.openItems?.some((i) => i.kind === 'strategic-ambiguity'),
+  );
+  if (named) return [];
+  return [
+    {
+      code: 'belief-untested',
+      reason: `This design rests on ${beliefs
+        .map((d) => `"${d.name}"`)
+        .join(' and ')}, which you offered as your own reading rather than something measured, and nothing in the plan says it is untested.`,
+      clears: {
+        field: 'hypotheses',
+        how: 'Name it as a hypothesis in the proposal, or ask the question that would separate the competing explanations.',
+      },
+    },
+  ];
 }
 
 /** Every reason the agent may not propose yet, most actionable first. */
@@ -281,6 +339,12 @@ export function satisfy(brief: WorkingBrief, m: Mutation): WorkingBrief {
       }));
       return { ...brief, dimensions: [...dims, ...add] };
     }
+    case 'hypotheses':
+      // Not a record change, so there is nothing to synthesise here. The
+      // clearability test treats a proposal mutation separately: it checks the
+      // block names a field the model can write, not that the brief can be
+      // bent into clearing it.
+      return brief;
     case 'dimensionNote':
       return {
         ...brief,
@@ -289,4 +353,64 @@ export function satisfy(brief: WorkingBrief, m: Mutation): WorkingBrief {
         ),
       };
   }
+}
+
+/**
+ * What changed since the last refusal.
+ *
+ * THE DEFECT THIS FIXES, measured. A live session refused five turns running
+ * with the same opening paragraph and the same four-line dimension list, while
+ * the questions underneath it changed every single turn. The agent was making
+ * progress and the refusal was frozen, so the manager read five turns of work
+ * as one stuck turn and wrote "im tired man".
+ *
+ * `Block.code` is a stable identity, which is what makes this possible at all:
+ * the previous turn's codes are compared with this turn's, so the reply can
+ * lead with what is NEW, acknowledge what was SETTLED, and mention what is
+ * still open in one line instead of restating the whole state.
+ */
+export interface BlockDelta {
+  fresh: Block[];
+  carried: Block[];
+  settled: Block['code'][];
+}
+
+export const blockDelta = (blocks: Block[], previous: readonly string[] = []): BlockDelta => {
+  const before = new Set(previous);
+  const now = new Set(blocks.map((b) => b.code));
+  return {
+    fresh: blocks.filter((b) => !before.has(b.code)),
+    carried: blocks.filter((b) => before.has(b.code)),
+    settled: [...before].filter((c) => !now.has(c as Block['code'])) as Block['code'][],
+  };
+};
+
+/**
+ * The refusal, written to the manager.
+ *
+ * Leads with progress when there is any, because a turn that settled something
+ * and still cannot proceed is a different message from a turn that went
+ * nowhere — and the old renderer made them identical.
+ */
+export function renderBlocks(d: BlockDelta, advice: string[] = []): string {
+  const parts: string[] = [];
+  if (d.settled.length) {
+    parts.push(
+      d.settled.length === 1
+        ? 'That settled one of the things I was waiting on.'
+        : `That settled ${d.settled.length} of the things I was waiting on.`,
+    );
+  }
+  for (const b of d.fresh) parts.push(b.reason);
+  if (d.carried.length) {
+    // Named, not restated. The point is that they have not moved, and a
+    // paragraph each would bury the one thing that did.
+    parts.push(
+      d.carried.length === 1
+        ? `Still open: ${d.carried[0].reason}`
+        : `Still open, and unchanged since last time: ${d.carried.map((b) => b.clears.how).join(' ')}`,
+    );
+  }
+  for (const a of advice) parts.push(a);
+  return parts.join('\n\n');
 }

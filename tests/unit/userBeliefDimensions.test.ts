@@ -142,17 +142,21 @@ describe('the brief puts the stopping decision in front of the model', () => {
 
 describe('a proposal may not quietly build on an untreated belief', () => {
   const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+  const gateSrc = readFileSync(new URL('../../server/gate.ts', import.meta.url), 'utf8');
 
   it('refuses a strategy that nowhere records the belief as a hypothesis', () => {
-    expect(src).toMatch(/const beliefsInPlay = briefDimensions\(brief\)\.filter\(\(d\) => d\.basis === 'user-belief'\)/);
-    expect(src).toMatch(/const beliefUntreated = !limitReached && beliefsInPlay\.length > 0 && proposed !== null && !strategyNamesAHypothesis/);
+    // MOVED, not removed. The orchestrator veto was deleted with the other
+    // three; the protection is now a Block in `proposalBlocks`, which means it
+    // also carries the mutation that clears it instead of being a bare refusal.
+    expect(gateSrc).toMatch(/d\.basis === 'user-belief'/);
+    expect(gateSrc).toMatch(/code: 'belief-untested'/);
   });
 
   it('accepts any of the three honest ways of saying so', () => {
     // hypotheses, unknowns, or a strategic-ambiguity open item. All three put
     // it in front of the user, which is the whole requirement — insisting on
     // one specific field would be a formatting rule, not a correctness one.
-    const decl = src.slice(src.indexOf('const strategyNamesAHypothesis'), src.indexOf('const beliefUntreated'));
+    const decl = gateSrc.slice(gateSrc.indexOf('const named = Boolean('), gateSrc.indexOf("code: 'belief-untested'"));
     expect(decl).toMatch(/strategy\?\.hypotheses\?\.length/);
     expect(decl).toMatch(/strategy\?\.unknowns\?\.length/);
     expect(decl).toMatch(/kind === 'strategic-ambiguity'/);
@@ -162,15 +166,18 @@ describe('a proposal may not quietly build on an untreated belief', () => {
     // The model ends the condition by writing one hypothesis OR by asking the
     // question instead. Both are one turn away and always available, so this
     // cannot hold a conversation open the way a round count would.
-    expect(src).toMatch(/Loop-safe by construction/);
-    // It only ever fires on a PROPOSE turn, never on an ask.
-    expect(src).toMatch(/proposed !== null && !strategyNamesAHypothesis/);
+    // Still loop-safe, and now by a stronger construction: the block names the
+    // mutation that clears it, and `proposalBlocks` returns nothing at all
+    // when there is no proposal — so a discovery turn can never be refused for
+    // the shape of a strategy it has not written.
+    expect(gateSrc).toMatch(/if \(!proposed\) return \[\];/);
+    expect(gateSrc).toMatch(/Name it as a hypothesis in the proposal, or ask the question/);
   });
 
   it('returns through the same branch as a gate refusal', () => {
     // So a refused proposal cannot leak its strategy or blueprint.
     const branch = src.slice(
-      src.indexOf("if (gate.outcome === 'continue_discovery'"),
+      src.indexOf('if (!decision.proceed) {'),
       src.indexOf('// Discovery is complete. If the model only asked questions'),
     );
     expect(branch).toMatch(/strategy: null/);
@@ -178,7 +185,7 @@ describe('a proposal may not quietly build on an untreated belief', () => {
   });
 
   it('tells the user what it is doing in their own terms', () => {
-    expect(src).toMatch(/which you offered as your own reading rather than something measured/);
+    expect(gateSrc).toMatch(/which you offered as your own reading rather than something measured/);
   });
 });
 

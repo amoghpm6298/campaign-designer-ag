@@ -34,6 +34,7 @@ import {
   type OpenItem,
   type WorkingBrief,
 } from '../../server/discovery';
+import { OUTPUT_TOOLS, outputToolsForPhase } from '../../server/outputTools';
 
 const OBJECTIVE = 'I want to increase OS-to-EMI conversions. Design a drip campaign for this.';
 
@@ -277,19 +278,20 @@ describe('the orchestrator honours the outcome instead of falling through', () =
     // WITHOUT this branch the change is inert: outcomes are if-chains with
     // early returns, and an unhandled one falls straight through to the
     // strategy the gate had just refused.
-    const i = src.indexOf("if (gate.outcome === 'continue_discovery'");
+    const i = src.indexOf("if (!decision.proceed) {");
     expect(i).toBeGreaterThan(-1);
     // The belief override shares this branch deliberately: a refusal for an
     // untreated user belief must return exactly what a gate refusal returns,
     // or it would leak a strategy the application just declined to accept.
-    expect(src).toMatch(/if \(gate\.outcome === 'continue_discovery' \|\| beliefUntreated \|\| questionDropped \|\| forkUnanswered \|\| dimensionUnresolved\)/);
+    // One decider now; the four vetoes ORed with it are deleted.
+    expect(src).toMatch(/if \(!decision\.proceed\) \{/);
     // It must come BEFORE the proposal is read and built.
     expect(i).toBeLessThan(src.indexOf('// Discovery is complete. If the model only asked questions'));
   });
 
   it('returns no strategy, no blueprint and nothing to confirm', () => {
     const branch = src.slice(
-      src.indexOf("if (gate.outcome === 'continue_discovery'"),
+      src.indexOf('if (!decision.proceed) {'),
       src.indexOf('// Discovery is complete. If the model only asked questions'),
     );
     expect(branch).toMatch(/strategy: null/);
@@ -334,8 +336,18 @@ describe('the prompt and the gate agree', () => {
   it('the prompt carries dimensions on every action the gate reads', () => {
     // If `dimensions` only rode on one action, a conversation could never
     // accumulate a record and the gate would refuse for ever.
-    expect(SYSTEM).toMatch(/"action":"ask"[\s\S]{0,800}"dimensions"/);
-    expect(SYSTEM).toMatch(/"dimensions"[\s\S]{0,400}"action":"propose"|"action":"propose"[\s\S]{0,200}"dimensions"/);
+    // Dimensions are no longer a field on two payload templates; they are a
+    // tool, and the gate reads the record it writes. What must stay true is
+    // that the agent can record them on ANY turn, which is what "every action
+    // the gate reads" meant.
+    for (const turn of [true, false]) {
+      expect(outputToolsForPhase(turn).map((t) => t.name)).toContain('record_dimensions');
+    }
+    // And the tool that records them takes them as its required input, so
+    // "carries dimensions" is now enforced by the schema rather than by the
+    // field appearing in two prompt templates.
+    const dims = OUTPUT_TOOLS.find((t) => t.name === 'record_dimensions')!;
+    expect(dims.input_schema.required).toContain('dimensions');
   });
 });
 
