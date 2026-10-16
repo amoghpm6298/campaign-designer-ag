@@ -1,0 +1,586 @@
+// How the model writes to the record: tool calls, not a JSON blob.
+//
+// WHAT THIS REPLACES. The model answered with one JSON object carrying
+// everything at once — prose, question bookkeeping, findings, dimensions, the
+// strategy and the blueprint. Four separate problems came out of that single
+// shape:
+//
+//  1. THE DEADLOCK. `barriers` existed in the "ask" template and not the
+//     "propose" one, while the prompt said "You cannot propose without both"
+//     and the gate enforced it. One hand-maintained shape in two places
+//     cannot be kept consistent, and nothing checked.
+//  2. THE DEAD STREAM. Prose sat behind six machine fields, so the UI had
+//     nothing to show until the payload was nearly complete — and fell back
+//     to scraping `"summary"` out of half-finished JSON with a regex.
+//  3. THE PROMPT CAP. Roughly 7,350 of 33,500 characters were hand-written
+//     JSON schemas. Adding one field meant trading against tests that pin
+//     method sentences verbatim.
+//  4. NO PARTIAL CREDIT. One malformed field invalidated the whole turn, so a
+//     good finding was lost because an unrelated part of the payload was
+//     wrong.
+//
+// Tool calls fix all four structurally. The schema lives in the API's own
+// `tools` parameter where it costs no prompt budget and the API enforces it;
+// prose becomes a plain text block that streams; each call is validated and
+// applied on its own, so one bad call does not discard the others.
+//
+// SCOPE. These three tools feed the RECORD, which is what the gate blocks on
+// and where every measured deadlock lived. `propose_strategy` and
+// `build_campaign` are a separate pass: the blueprint grammar is the single
+// largest artefact in the prompt and converting it deserves its own change
+// rather than riding along with this one.
+import {
+  recordAsked,
+  type AskAuthor,
+} from './record';
+import {
+  recordConverters,
+  recordBarriers,
+  recordDimensions,
+  type WorkingBrief,
+  type DimensionUpdate,
+  type QuestionImpact,
+  type QuestionContingency,
+} from './discovery';
+import type { Converters, Barrier } from './findings';
+import type { CampaignBlueprint } from './blueprint';
+import type { Strategy } from './orchestrator';
+import { registerToolTitles, type ToolDef } from './agentTools';
+
+/**
+ * Input shapes, declared against the real types.
+ *
+ * These exist so the compiler catches drift between a tool's JSON schema and
+ * the interface it feeds. Widening `Barrier` without touching the schema below
+ * is the bug that caused the deadlock, and it was invisible because the schema
+ * was a string in a prompt.
+ */
+export interface AskQuestionsInput {
+  questions: { text: string; impact?: QuestionImpact; contingency?: QuestionContingency }[];
+}
+export interface RecordFindingsInput {
+  converters?: Converters;
+  barriers?: Barrier[];
+  /** Ids of questions this reply genuinely did not touch. Usually empty. */
+  notCovered?: string[];
+}
+export interface RecordDimensionsInput {
+  dimensions: DimensionUpdate[];
+}
+
+const BASIS = ['user', 'user-belief', 'assumption', 'none'];
+
+
+/**
+ * The journey grammar, as JSON Schema rather than 7,350 characters of prose in
+ * the system prompt.
+ *
+ * Recursive by `$ref`, which the prompt version could not express at all: an
+ * experiment arm, a condition branch and a branch path each contain steps, and
+ * the prompt had to describe that in words and hope. Here it is checked by the
+ * API before a single line of application code runs.
+ */
+const CONDITION = {
+  type: 'object',
+  properties: {
+    attribute: { type: 'string' },
+    operator: { type: 'string' },
+    value: { type: 'string' },
+  },
+  required: ['attribute', 'operator'],
+} as const;
+
+const STEP_DEF = {
+  type: 'object',
+  description: 'One step. "kind" decides which other fields apply.',
+  properties: {
+    kind: {
+      type: 'string',
+      enum: ['send', 'wait', 'waitForEvent', 'exit', 'experiment', 'condition', 'branch'],
+    },
+    // send
+    name: { type: 'string' },
+    objective: { type: 'array', items: { type: 'string' } },
+    stage: { type: 'string', enum: ['first-touch', 'reminder', 'outcome'] },
+    describe: { type: 'string' },
+    copy: { type: 'string', description: 'The message itself, as the CUSTOMER reads it. Never a description of it.' },
+    cta: { type: 'string' },
+    channelPreference: { type: 'array', items: { type: 'string' } },
+    barrier: { type: 'string', description: 'The id of the barrier this send attacks. Checked against your recorded findings.' },
+    // wait
+    durationHours: { type: 'number' },
+    why: { type: 'string' },
+    // waitForEvent
+    eventCategory: { type: 'string' },
+    eventType: { type: 'string' },
+    timeoutDays: { type: 'number' },
+    conditions: { type: 'array', items: CONDITION },
+    // exit
+    reason: { type: 'string' },
+    // experiment / condition / branch
+    label: { type: 'string' },
+    tests: { type: 'string', enum: ['wording', 'explanation', 'timing', 'audience'], description: 'What the experiment actually compares. Arms must differ in THIS.' },
+    arms: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string' },
+          pct: { type: 'number' },
+          steps: { type: 'array', items: { $ref: '#/$defs/step' } },
+        },
+        required: ['label', 'pct', 'steps'],
+      },
+    },
+    outcomes: { type: 'array', items: { type: 'string' } },
+    on: {
+      type: 'object',
+      properties: {
+        entity: { type: 'string' },
+        attribute: { type: 'string' },
+        operator: { type: 'string' },
+        value: { type: 'string' },
+      },
+      required: ['entity', 'attribute', 'operator'],
+    },
+    yes: { type: 'array', items: { $ref: '#/$defs/step' } },
+    no: { type: 'array', items: { $ref: '#/$defs/step' } },
+    entity: { type: 'string' },
+    attribute: { type: 'string' },
+    paths: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string' },
+          operator: { type: 'string' },
+          value: { type: 'string' },
+          steps: { type: 'array', items: { $ref: '#/$defs/step' } },
+        },
+        required: ['label', 'operator', 'value', 'steps'],
+      },
+    },
+  },
+  required: ['kind'],
+} as const;
+
+const STRING_LIST = { type: 'array', items: { type: 'string' } } as const;
+
+export const OUTPUT_TOOLS: ToolDef[] = [
+  {
+    name: 'propose_strategy',
+    title: 'Putting the plan to you',
+    description:
+      'Propose the plan, BEFORE anything is built. Two candidate architectures, each naming the barrier it attacks, then the one you chose and why — citing what the manager told you rather than a general preference. Two architectures differ when they reach DIFFERENT PEOPLE, at a DIFFERENT MOMENT, or by a DIFFERENT MEANS; a different tone, channel order or send count is the same campaign twice. Do not call build_campaign in the same turn: the manager approves the plan first.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', description: '2-4 sentences, in the manager\'s own terms.' },
+        approach: { ...STRING_LIST, description: 'Each entry names what it rests on: what the user told you, what a tool returned, or what you assumed.' },
+        assumptions: STRING_LIST,
+        unknowns: STRING_LIST,
+        successCriteria: { ...STRING_LIST, description: 'How the business would judge this. Never a target number — no performance history exists.' },
+        measurement: { ...STRING_LIST, description: 'What to track and how to read it. No forecast.' },
+        hypotheses: { ...STRING_LIST, description: 'Worth testing later, explicitly not claimed now.' },
+        rejected: {
+          type: 'array',
+          items: { type: 'object', properties: { option: { type: 'string' }, why: { type: 'string' } }, required: ['option', 'why'] },
+        },
+        architectures: {
+          type: 'array',
+          minItems: 2,
+          description: 'Exactly the comparison that decides the campaign. The application checks these are genuinely distinguishable.',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              barrier: { type: 'string', description: 'The customer problem this one attacks. Two candidates attacking the SAME barrier are one architecture described twice.' },
+              lever: { type: 'string' },
+              audience: { type: 'string' },
+              timing: { type: 'string' },
+              journey: { type: 'string' },
+              measurement: { type: 'string' },
+              tradeOff: { type: 'string' },
+              chosen: { type: 'boolean' },
+              why: { type: 'string' },
+            },
+            required: ['name', 'barrier'],
+          },
+        },
+        openItems: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['strategic-ambiguity', 'missing-evidence', 'platform-gap'] },
+              question: { type: 'string' },
+              whyItMatters: { type: 'string' },
+              ifUnanswered: { type: 'string' },
+            },
+            required: ['kind', 'question'],
+          },
+        },
+      },
+      required: ['summary', 'approach', 'assumptions', 'unknowns'],
+    },
+  },
+  {
+    name: 'build_campaign',
+    title: 'Building the journey',
+    description:
+      'Build the approved plan as a journey. Only ever called AFTER the manager has approved a strategy. Emit no ids of any kind — the application owns every node id, edge id and template id, and builds the graph through the product\'s own reducer. If the plan cannot be expressed in this grammar, say so in text instead of building a lesser version: a campaign that silently dropped a requirement is worse than no campaign and a plain statement of what is in the way.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        campaignName: { type: 'string' },
+        description: { type: 'string' },
+        controlPct: { type: 'number', description: 'Holdout percentage. Omit if none.' },
+        goal: {
+          type: 'object',
+          description: 'The event that proves the behaviour happened. Null if there is genuinely none.',
+          properties: {
+            eventCategory: { type: 'string' },
+            eventType: { type: 'string' },
+            conditions: { type: 'array', items: CONDITION },
+          },
+          required: ['eventCategory', 'eventType'],
+        },
+        entry: {
+          type: 'object',
+          description: 'Where the behaviour has NOT happened yet and still can.',
+          properties: {
+            kind: { type: 'string', enum: ['event', 'audience'] },
+            eventCategory: { type: 'string' },
+            eventType: { type: 'string' },
+            entity: { type: 'string' },
+            conditions: { type: 'array', items: CONDITION },
+            groups: {
+              type: 'array',
+              description: 'Further entity blocks, ANDed with the primary one. This is how one entry combines conditions across entities.',
+              items: {
+                type: 'object',
+                properties: {
+                  entity: { type: 'string' },
+                  conditions: { type: 'array', items: CONDITION },
+                  lookbackDays: { type: 'number', description: 'Transaction only.' },
+                  existence: { type: 'string', enum: ['exists', 'none'], description: 'Transaction only. "none" tests the ABSENCE of a matching record over the window — not over all time.' },
+                },
+                required: ['entity'],
+              },
+            },
+          },
+          required: ['kind'],
+        },
+        steps: { type: 'array', items: { $ref: '#/$defs/step' }, minItems: 1 },
+      },
+      required: ['campaignName', 'description', 'entry', 'steps'],
+      $defs: { step: STEP_DEF },
+    },
+  },
+  {
+    name: 'ask_questions',
+    title: 'Putting questions to you',
+    description:
+      'Ask the campaign manager up to three questions. Declare how much rides on each ANSWER: "fork" means two different answers mean two different campaigns, "shaping" changes how it is built, "detail" has a safe default. A fork must say what it would do under each answer, so the application can check that the two answers actually lead somewhere different — a question whose answers lead to the same decision is not worth the manager\'s attention.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        questions: {
+          type: 'array',
+          maxItems: 3,
+          items: {
+            type: 'object',
+            properties: {
+              text: { type: 'string', description: 'The question, in plain language. Never an internal name or id.' },
+              impact: { type: 'string', enum: ['fork', 'shaping', 'detail'] },
+              contingency: {
+                type: 'object',
+                description: 'Required on a fork.',
+                properties: {
+                  ifA: { type: 'string' },
+                  thenA: { type: 'string' },
+                  ifB: { type: 'string' },
+                  thenB: { type: 'string', description: 'Must differ from thenA.' },
+                  ifUnknown: { type: 'string', description: 'What you would assume if they cannot answer.' },
+                },
+              },
+            },
+            required: ['text'],
+          },
+        },
+      },
+      required: ['questions'],
+    },
+  },
+  {
+    name: 'record_findings',
+    title: 'Recording what you told me about customers',
+    description:
+      'Record who converts today and why the rest do not. Call this on EVERY turn where the manager has said anything about either — you cannot propose a strategy without both. A barrier must carry the manager\'s own words in "quote"; the application checks the quote against what they actually typed and downgrades an unverifiable one to an assumption rather than rejecting it. "notCovered" is for the rare case where their reply genuinely did not touch a question you asked; leaving it empty is normal and correct.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        converters: {
+          type: 'object',
+          description: 'Who already does this, in the manager\'s words.',
+          properties: {
+            shape: { type: 'string' },
+            basis: { type: 'string', enum: BASIS },
+            knowledge: {
+              type: 'string',
+              enum: ['known', 'none-yet', 'unknown'],
+              description: '"none-yet" means nobody can say. That demands MORE work, not less: supply at least two candidate segments resting on different things, then wait for the manager to react before designing.',
+            },
+            candidates: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  segment: { type: 'string' },
+                  restsOn: { type: 'string', description: 'What defines this group. Two candidates must rest on DIFFERENT things.' },
+                  why: { type: 'string' },
+                },
+                required: ['segment', 'restsOn', 'why'],
+              },
+            },
+          },
+          required: ['shape', 'basis', 'knowledge'],
+        },
+        barriers: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              statement: { type: 'string', description: 'What is stopping them, as a customer problem.' },
+              basis: { type: 'string', enum: BASIS },
+              lever: {
+                type: 'string',
+                enum: ['message', 'timing', 'targeting', 'not-addressable'],
+                description: '"not-addressable" is how you say this reason is real and a drip campaign cannot fix it.',
+              },
+              quote: { type: 'string', description: "The manager's own words. Checked." },
+            },
+            required: ['id', 'statement', 'basis', 'lever'],
+          },
+        },
+        notCovered: { type: 'array', items: { type: 'string' } },
+      },
+    },
+  },
+  {
+    name: 'record_dimensions',
+    title: 'Recording what could change this campaign',
+    description:
+      'Record the factors whose answers could genuinely change THIS campaign, and what became of each. A dimension is something that might SEGMENT these customers; a reason they do not act is a barrier and belongs in record_findings. Anything not carried into the design must say why in "note" — ruling something out is a decision, so it needs a reason. If the manager said they do not know, the application writes that note for you from their own words.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        dimensions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              rationale: { type: 'string', description: 'Why it could change THIS campaign.' },
+              status: { type: 'string', enum: ['open', 'retained', 'deferred', 'unavailable'] },
+              basis: { type: 'string', enum: [...BASIS, 'tool'] },
+              note: { type: 'string', description: 'What was found, or why it was ruled out.' },
+            },
+            required: ['name'],
+          },
+        },
+      },
+      required: ['dimensions'],
+    },
+  },
+];
+
+export const OUTPUT_TOOL_NAMES = OUTPUT_TOOLS.map((t) => t.name);
+
+// So the activity timeline shows "Recording what you told me about customers"
+// rather than "Running record_findings".
+registerToolTitles(OUTPUT_TOOLS);
+
+export const isOutputTool = (name: string): boolean => OUTPUT_TOOL_NAMES.includes(name);
+
+export interface ApplyResult {
+  brief: WorkingBrief;
+  /**
+   * Returned to the MODEL as the tool result when a call cannot be applied.
+   *
+   * Always says what to do differently, never just what was wrong. This is the
+   * clearability rule from gate.ts applied one level down: a rejection the
+   * model cannot act on produces the same loop as a refusal the user cannot
+   * act on.
+   */
+  error?: string;
+  /** Said back to the model on success, so it knows the record moved. */
+  ok?: string;
+  /** The plan, when this call was `propose_strategy`. */
+  strategy?: Strategy;
+  /** The journey to build, when this call was `build_campaign`. */
+  blueprint?: CampaignBlueprint;
+  /** Decisions the proposal leaves open, travelling with the plan that raised them. */
+  openItems?: unknown[];
+}
+
+/**
+ * Apply one tool call to the record.
+ *
+ * Each call is independent. A malformed `record_dimensions` no longer discards
+ * a perfectly good `record_findings` from the same turn, which is what made a
+ * single bad field cost a whole round.
+ *
+ * Reuses the existing recorders rather than reimplementing them:
+ * `recordBarriers` already verifies quotes against what the user typed and
+ * downgrades unverifiable attributions, and `recordDimensions` already
+ * normalises an assumption to `deferred`. Those rules were each measured into
+ * place and are not re-litigated here.
+ */
+export function applyOutputTool(brief: WorkingBrief, name: string, input: unknown): ApplyResult {
+  const obj = (input ?? {}) as Record<string, unknown>;
+
+  switch (name) {
+    case 'ask_questions': {
+      const questions = Array.isArray(obj.questions) ? (obj.questions as AskQuestionsInput['questions']) : [];
+      const usable = questions.filter((q) => typeof q?.text === 'string' && q.text.trim().length > 0);
+      if (usable.length === 0) {
+        return {
+          brief,
+          error:
+            'No usable question in that call. Send at least one with a non-empty "text", written in plain language.',
+        };
+      }
+      return {
+        brief: recordAsked(brief, usable, 'agent' satisfies AskAuthor),
+        ok: `Recorded ${usable.length} question(s). The manager will see them.`,
+      };
+    }
+
+    case 'record_findings': {
+      let next = brief;
+      const notes: string[] = [];
+      const converters = obj.converters as Converters | undefined;
+      const barriers = obj.barriers as Barrier[] | undefined;
+      if (!converters && !(barriers ?? []).length) {
+        return {
+          brief,
+          error:
+            'That call recorded nothing. Send "converters", "barriers", or both — whichever the manager has actually told you about.',
+        };
+      }
+      if (converters) {
+        next = recordConverters(next, converters);
+        notes.push('who converts');
+      }
+      if ((barriers ?? []).length) {
+        const before = (next.barriers ?? []).length;
+        next = recordBarriers(next, barriers);
+        const after = (next.barriers ?? []);
+        notes.push(`${after.length - before} barrier(s)`);
+        // Attribution is verified, not trusted, and the model is told when a
+        // quote did not check out. Silently downgrading taught it nothing.
+        const downgraded = after.filter((b) => b.basis === 'assumption' && (barriers ?? []).some((x) => x.id === b.id && x.basis !== 'assumption'));
+        if (downgraded.length) {
+          notes.push(
+            `${downgraded.length} recorded as your own inference rather than theirs, because the quote did not match what they typed — design against it, but say it is untested`,
+          );
+        }
+      }
+      return { brief: next, ok: `Recorded ${notes.join('; ')}.` };
+    }
+
+    case 'record_dimensions': {
+      const dims = Array.isArray(obj.dimensions) ? (obj.dimensions as DimensionUpdate[]) : [];
+      const usable = dims.filter((d) => typeof d?.name === 'string' && d.name.trim().length > 0);
+      if (usable.length === 0) {
+        return { brief, error: 'No usable dimension in that call. Each one needs a non-empty "name".' };
+      }
+      return {
+        brief: recordDimensions(brief, usable),
+        ok: `Recorded ${usable.length} line(s) of enquiry.`,
+      };
+    }
+
+    case 'propose_strategy': {
+      const strategy = obj as unknown as Strategy;
+      if (!strategy.summary?.trim()) {
+        return { brief, error: 'A proposal needs a "summary" saying what the campaign is, in the manager\'s own terms.' };
+      }
+      // TWO candidates, and they must attack DIFFERENT barriers.
+      //
+      // This is the strategy weakness measured on the activation run: both
+      // "architectures considered" segmented or branched differently while
+      // sharing one theory of the problem ("they are not being nudged"). Two
+      // mechanics for one barrier is one architecture described twice, and the
+      // double-down-versus-expand comparison collapses.
+      //
+      // Checked structurally on the model's OWN declaration, the same shape as
+      // the experiment-arms check: the application cannot judge whether two
+      // barriers are meaningfully different, but it can insist they are not
+      // the same string.
+      const arch = strategy.architectures ?? [];
+      if (arch.length < 2) {
+        return {
+          brief,
+          error: 'Send at least two candidate architectures. If you cannot find a second, look for the factor the first one cannot carry — that is usually where it is.',
+        };
+      }
+      // CITED BY ID, NOT BY PROSE, and this is the second attempt at it.
+      //
+      // The first version compared the barrier STRINGS for distinctness. A
+      // live run defeated it three times out of three by appending a
+      // qualifier: the chosen candidate cited "no-nudge-awareness" and the
+      // rival cited "no-nudge-awareness, compounded by delivery timing for
+      // courier-issued cards". Two different strings, one customer problem,
+      // check passed. Comparing free text was always going to be defeatable
+      // by writing more text.
+      //
+      // An id from the findings record is a CLOSED set the model cannot extend
+      // mid-sentence, and it is the same mechanism sends already use to cite
+      // the barrier they attack.
+      const known = new Map((brief.barriers ?? []).map((b) => [b.id.trim().toLowerCase(), b]));
+      const cited = arch.map((a) => (a.barrier ?? '').trim().toLowerCase());
+      const unknown = cited.filter((c) => !known.has(c));
+      if (unknown.length) {
+        return {
+          brief,
+          error: `Cite the barrier by its recorded id. ${
+            known.size
+              ? `You have recorded: ${[...known.keys()].join(', ')}. Use one of those, or record a new barrier first with record_findings.`
+              : 'You have not recorded any barrier yet. Call record_findings first — a strategy cannot attack a problem that is not in the record.'
+          }`,
+        };
+      }
+      if (new Set(cited).size < 2) {
+        return {
+          brief,
+          error:
+            known.size < 2
+              ? 'Both candidates attack the same barrier because only one is recorded, so there is only one theory of the problem and this campaign cannot learn which explanation is right. Record a second candidate explanation — "assumption" is an honest basis for one you inferred rather than were told — and build the rival architecture around attacking that instead.'
+              : `Both candidates cite the same barrier, so they are one architecture described twice. You have ${known.size} barriers recorded; point the second candidate at a different one.`,
+        };
+      }
+      const openItems = Array.isArray(obj.openItems) ? (obj.openItems as unknown[]) : [];
+      return { brief, strategy, openItems, ok: 'Plan recorded. The manager approves it before anything is built.' };
+    }
+
+    case 'build_campaign': {
+      const blueprint = obj as unknown as CampaignBlueprint;
+      if (!blueprint.campaignName?.trim()) {
+        return { brief, error: 'The journey needs a "campaignName".' };
+      }
+      if (!Array.isArray(blueprint.steps) || blueprint.steps.length === 0) {
+        return { brief, error: 'The journey has no steps. Send at least one, or say in text what is stopping you building this.' };
+      }
+      if (!blueprint.entry?.kind) {
+        return { brief, error: 'The journey needs an "entry" with a "kind" of either "event" or "audience".' };
+      }
+      return { brief, blueprint, ok: `Journey received: ${blueprint.steps.length} step(s). Validating.` };
+    }
+
+    default:
+      return { brief, error: `There is no tool called "${name}".` };
+  }
+}

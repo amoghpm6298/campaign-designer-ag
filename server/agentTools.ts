@@ -24,7 +24,18 @@ import type { TenantConfig } from './tenants';
 export interface ToolDef {
   name: string;
   description: string;
-  input_schema: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
+  input_schema: {
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+    /**
+     * Shared sub-schemas, referenced by `$ref`. Needed by the journey grammar,
+     * whose step shape is recursive: an experiment arm, a condition branch and
+     * a branch path each contain steps. The prompt version of this grammar had
+     * to describe that recursion in prose and hope; here the API checks it.
+     */
+    $defs?: Record<string, unknown>;
+  };
   /** Shown in the UI while it runs. */
   title: string;
 }
@@ -320,4 +331,20 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
   }
 }
 
-export const toolTitle = (name: string) => AGENT_TOOLS.find((t) => t.name === name)?.title ?? `Running ${name}`;
+/**
+ * Titles for every tool, including the ones the model WRITES through.
+ *
+ * MEASURED: the activity timeline read "Running record_findings" — a raw
+ * internal name shown to a campaign manager, which is exactly what the prompt
+ * forbids the agent from doing. The lookup only knew AGENT_TOOLS, so the
+ * output tools fell through to the `Running ${name}` default.
+ *
+ * Registered rather than imported, because outputTools.ts imports ToolDef from
+ * here and a direct import would be circular.
+ */
+const extraTitles = new Map<string, string>();
+export const registerToolTitles = (defs: { name: string; title: string }[]) => {
+  for (const d of defs) extraTitles.set(d.name, d.title);
+};
+export const toolTitle = (name: string) =>
+  AGENT_TOOLS.find((t) => t.name === name)?.title ?? extraTitles.get(name) ?? `Running ${name}`;

@@ -134,9 +134,10 @@ describe('3 — the budget is an escape hatch that nothing can override', () => 
   });
 
   it('defines the budget from the round limit or an explicit request to proceed', () => {
-    expect(orch).toMatch(
-      /const limitReached = req\.discoveryRounds >= MAX_DISCOVERY_ROUNDS \|\| Boolean\(req\.forceProposal\)/,
-    );
+    // Now also set by the user TYPING it. `forceProposal` was only ever set
+    // by a button click, and nobody types "go ahead" into a chat box
+    // expecting to have to find a button.
+    expect(orch).toMatch(/req\.discoveryRounds >= MAX_DISCOVERY_ROUNDS \|\| Boolean\(req\.forceProposal\) \|\| saysProceed\(latestUserText\)/);
   });
 
   it('records why, so this is not later read as a loosened guard', () => {

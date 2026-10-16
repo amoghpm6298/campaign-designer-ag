@@ -19,6 +19,9 @@ import {
   type ApiMessage,
 } from './anthropic';
 import { runTool, toolTitle, toolsForPhase } from './agentTools';
+import { OUTPUT_TOOLS, isOutputTool, applyOutputTool } from './outputTools';
+import { decide } from './gate';
+import { saysProceed, outstanding } from './record';
 import { EventEmitterSeq, type RunEvent } from './runEvents';
 import { auditOptions, applyAudit, unsupportedClaims, copyOnlyExperiments, type OptionAudit } from './optionAudit';
 import { compareArchitectures, checkFidelity, checkExperimentClaims, checkAudienceLearning, checkBarrierCoverage, checkBarrierTesting, JOURNEY_BEHAVIOURS } from './architectureAudit';
@@ -797,7 +800,21 @@ export async function* orchestrateStream(
   });
   yield* drain();
 
-  const limitReached = req.discoveryRounds >= MAX_DISCOVERY_ROUNDS || Boolean(req.forceProposal);
+  // "GO AHEAD" IS AN INSTRUCTION, NOT A HINT.
+  //
+  // MEASURED twice. A manager typed "ok go ahead", was refused, typed it
+  // again, and the second one did not work either — the round budget expiring
+  // did. Then with the tools live, two turns of "go ahead and build it" never
+  // left discovery. `forceProposal` was set in exactly one place in the whole
+  // application: a button click in CampaignDesigner.tsx. Nobody types into a
+  // chat box expecting to have to find a button.
+  //
+  // Folded in HERE rather than at one call site, because this value feeds the
+  // discovery gate's own escape AND the four vetoes computed separately from
+  // it. Anywhere it is not consulted is somewhere a refusal can outlive the
+  // instruction to stop refusing.
+  const limitReached =
+    req.discoveryRounds >= MAX_DISCOVERY_ROUNDS || Boolean(req.forceProposal) || saysProceed(latestUserText);
   const context = buildContextPrompt(req, brief, tenant, kbText, availableChannels, limitReached, isRefinement, isBuildTurn);
 
   const conversation: ApiMessage[] = [
@@ -827,6 +844,19 @@ export async function* orchestrateStream(
   // harder would have produced the same empty result sooner; the repeat is
   // what has to stop.
   const toolCache = new Map<string, ReturnType<typeof runTool>>();
+  // Artefacts the model sent via tool calls rather than in a JSON payload.
+  // Held across rounds because a tool call and the turn's final text can
+  // arrive in different rounds of the same turn.
+  let toolStrategy: Strategy | null = null;
+  let toolBlueprint: CampaignBlueprint | null = null;
+  let toolOpenItems: OpenItem[] = [];
+  // Did the model write to the record through tools this turn?
+  //
+  // This is what makes prose-only a SUCCESS rather than a parse failure. The
+  // model is now told to write its message as ordinary text and put structure
+  // in tool calls — so the correct shape for a turn is exactly the shape the
+  // old code treated as unusable.
+  let recordedViaTools = false;
   /** Which round first answered each lookup, so a repeat can be pointed back at it. */
   const toolRounds = new Map<string, number>();
   // A round that asked only for things it already had earns the "stop looking
@@ -921,7 +951,7 @@ export async function* orchestrateStream(
         // model return an empty turn — three of the first four evaluation
         // scenarios died that way, reported as "no text at all". tool_choice
         // 'none' forbids the call while keeping the history coherent.
-        tools: toolsForPhase(designSeen).map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+        tools: [...toolsForPhase(designSeen), ...OUTPUT_TOOLS].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
         toolChoice: stopLookingUp ? { type: 'none' } : undefined,
         // The round that must produce the answer runs WITHOUT thinking. See
         // `disableThinking` in anthropic.ts for the measurement: with it on,
@@ -1003,7 +1033,13 @@ export async function* orchestrateStream(
     // every withdrawal case) but often returned a short prose sentence instead
     // of the JSON object. Both are the same failure from the user's side —
     // they asked a question and got nothing they can act on.
-    const unusable = !assistantText.trim() || !extractJson(assistantText, stopReason).ok;
+    // MEASURED on the first run with the tools live: the model did exactly as
+    // instructed — called record_findings, ask_questions and record_dimensions,
+    // then wrote its message as prose — and the application called that
+    // "unusable", burned a retry, and logged "Could not read the agent's
+    // answer". The turn had already succeeded.
+    const unusable =
+      !assistantText.trim() || (!extractJson(assistantText, stopReason).ok && !recordedViaTools);
     if (!toolUses.length && unusable && emptyRecoveries < MAX_EMPTY_RECOVERIES) {
       emptyRecoveries++;
       em.emit('model.started', isRefinement ? 'review' : 'discovery', 'Agent answer unusable, asking again', {
@@ -1018,7 +1054,7 @@ export async function* orchestrateStream(
         for await (const chunk of streamClaude({
           system: `${systemForPhase(isBuildTurn)}\n\nYour previous turn did not produce a usable answer. Every lookup you need has already been made and the results are above. Reply NOW with the single JSON object described in OUTPUT, complete, and nothing else before or after it.`,
           messages: conversation,
-          tools: toolsForPhase(designSeen).map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+          tools: [...toolsForPhase(designSeen), ...OUTPUT_TOOLS].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
           toolChoice: { type: 'none' },
           disableThinking: true,
           maxTokens: 32000,
@@ -1171,6 +1207,7 @@ export async function* orchestrateStream(
     conversation.push({ role: 'assistant', content: turnContent });
     const results: unknown[] = [];
     let repeats = 0;
+    let lookups = 0;
     for (const tu of toolUses) {
       const started = Date.now();
       em.emit('model.tool_call.started', 'understanding', toolTitle(tu.name), {
@@ -1178,6 +1215,42 @@ export async function* orchestrateStream(
         correlationId: tu.id,
       });
       yield* drain();
+
+      // WRITES TO THE RECORD, handled before any of the lookup machinery.
+      //
+      // These are not data fetches, so none of it applies: there is nothing to
+      // cache, and recording a finding twice is not a wasted round the way
+      // re-reading the event catalogue is. Routing them through the cache
+      // would have counted a second `record_findings` as a "repeat" and
+      // escalated against the model for doing exactly what it was told.
+      //
+      // The result handed back is `ok` or `error` from applyOutputTool, and an
+      // error always says what to send instead — a tool result the model
+      // cannot act on loops the same way a refusal the user cannot act on
+      // does.
+      if (isOutputTool(tu.name)) {
+        const applied = applyOutputTool(brief, tu.name, tu.input);
+        brief = applied.brief;
+        if (applied.strategy) toolStrategy = applied.strategy;
+        if (applied.blueprint) toolBlueprint = applied.blueprint;
+        if (applied.openItems?.length) toolOpenItems = applied.openItems as OpenItem[];
+        if (!applied.error) recordedViaTools = true;
+        em.emit(applied.error ? 'model.tool_call.failed' : 'model.tool_call.completed', 'discovery', toolTitle(tu.name), {
+          status: applied.error ? 'failed' : 'ok',
+          detail: applied.error ?? applied.ok,
+          durationMs: Date.now() - started,
+          correlationId: tu.id,
+        });
+        yield* drain();
+        results.push({
+          type: 'tool_result',
+          tool_use_id: tu.id,
+          content: applied.error ?? applied.ok ?? 'Recorded.',
+          ...(applied.error ? { is_error: true } : {}),
+        });
+        continue;
+      }
+      lookups++;
       const key = `${tu.name}:${JSON.stringify(tu.input ?? {})}`;
       const cachedAt = toolRounds.get(key);
       const cached = toolCache.get(key);
@@ -1222,7 +1295,7 @@ export async function* orchestrateStream(
       });
     }
     // Consecutive, so one stray repeat between useful rounds does not escalate.
-    repeatRounds = repeats === toolUses.length ? repeatRounds + 1 : 0;
+    repeatRounds = lookups > 0 && repeats === lookups ? repeatRounds + 1 : 0;
     conversation.push({ role: 'user', content: results });
   }
 
@@ -1236,7 +1309,7 @@ export async function* orchestrateStream(
   // the rest do not. Both arrive on an `ask` turn as readily as a `propose`
   // one, because the answer usually comes mid-conversation rather than at the
   // end.
-  const parsed = extractJson<
+  let parsed = extractJson<
     | { action: 'ask'; rationale?: string; questions: (string | { text: string; impact?: QuestionImpact })[]; dimensions?: DimensionUpdate[]; contextChecked?: { source: string; found: boolean }[]; answered?: string[]; notCovered?: string[]; questionResolutions?: QuestionResolution[]; converters?: Converters; barriers?: Barrier[] }
     | {
         action: 'request_evidence';
@@ -1267,6 +1340,63 @@ export async function* orchestrateStream(
     const brace = text.indexOf('{');
     return (brace === -1 ? text : text.slice(0, brace)).trim();
   };
+
+  // A plan sent by tool call, on a turn whose text was prose rather than JSON.
+  // `parsed` has nothing in it, so the downstream reads need a value standing
+  // in for the payload the model no longer sends.
+  if (!parsed.ok && (toolStrategy || toolBlueprint)) {
+    parsed = {
+      ok: true,
+      value: {
+        action: 'propose' as const,
+        strategy: toolStrategy ?? ({ summary: '', approach: [], assumptions: [], unknowns: [] } as Strategy),
+        blueprint: toolBlueprint as CampaignBlueprint,
+        openItems: toolOpenItems,
+      },
+    };
+  }
+
+  // THE RECORD MOVED, SO THE TURN WORKED.
+  //
+  // Checked before the parse-failure handling below, because with tool calls
+  // there is nothing left to parse: the findings, dimensions and questions are
+  // already in the brief, and the text IS the message to the manager rather
+  // than a wrapper around a payload. Falling through to `!parsed.ok` would
+  // report a defect on the turn shape we now ask for.
+  // ONLY when the tool calls carried no PLAN. A strategy or a journey must go
+  // through the propose/build path below, not this one.
+  //
+  // THE BUG THIS FIXES, found by a live run within an hour of writing it: this
+  // branch returned `phase: 'discovery'` unconditionally, so a turn where the
+  // model called `propose_strategy` — or `build_campaign` — had its plan
+  // silently discarded and was reported as more discovery. The agent told the
+  // manager "Built. Here's what's live in this journey:" and nothing had been
+  // built. Eight turns of a real conversation never left discovery, including
+  // two where the manager said "go ahead and build it".
+  if (!parsed.ok && recordedViaTools && !toolStrategy && !toolBlueprint) {
+    const prose = proseBefore(assistantText);
+    em.emit('model.completed', isRefinement ? 'review' : 'discovery', 'Agent responded', {
+      detail: 'Wrote its message as text and recorded the rest through tools.',
+    });
+    const gateNow = decide(brief, { proceedRequested: saysProceed(latestUserText) });
+    em.emit('run.completed', 'discovery', gateNow.proceed ? 'Ready to propose' : 'Waiting for your answer', {
+      correlationId: 'run',
+    });
+    yield* drain();
+    return {
+      ...base,
+      phase: 'discovery',
+      stage: 'discovery',
+      reply: prose || 'Recorded.',
+      // Whatever ask_questions recorded, straight from the brief.
+      questions: outstanding(brief).map((q) => q.text),
+      brief,
+      session,
+      strategy: null,
+      blueprint: null,
+      discoveryRounds: brief.rounds,
+    };
+  }
 
   if (!parsed.ok) {
     // IF IT SAID SOMETHING READABLE, SAY IT. Only error when it did not.
@@ -1347,11 +1477,24 @@ export async function* orchestrateStream(
   }
   // Settled on the propose turn, so the gate can tell a strategy that knows
   // what success means from one that never asked.
-  if (parsed.value.action === 'propose' && parsed.value.strategy?.successCriteria?.length) {
-    brief = recordSuccessCriteria(brief, parsed.value.strategy.successCriteria);
+  const sentCriteria = toolStrategy?.successCriteria ?? (parsed.value.action === 'propose' ? parsed.value.strategy?.successCriteria : undefined);
+  if (sentCriteria?.length) {
+    brief = recordSuccessCriteria(brief, sentCriteria);
   }
 
-  const proposed = parsed.value.action === 'propose' ? parsed.value : null;
+  // A PLAN SENT BY TOOL CALL COUNTS AS A PROPOSAL.
+  //
+  // The JSON payload stays supported, deliberately, and this is not
+  // indecision: the tool path is new and a turn that produces good reasoning
+  // should not be thrown away because the model expressed it the old way. The
+  // tool result is preferred where both arrive, because it is the one the API
+  // validated against a schema.
+  const proposed =
+    toolStrategy !== null
+      ? { action: 'propose' as const, strategy: toolStrategy, blueprint: toolBlueprint ?? undefined, openItems: toolOpenItems }
+      : parsed.value.action === 'propose'
+        ? parsed.value
+        : null;
 
   // Open items the APPLICATION raises, from metadata rather than from the
   // model's judgement: a value the user stated that the platform cannot hold,
@@ -2523,6 +2666,24 @@ function buildContextPrompt(
     // vocabulary appears exactly when a proposal would be allowed: the user
     // has taken part, success is defined, both customer findings are
     // established, and nothing raised is still open.
+    // HOW TO WRITE THIS TURN. Lives here rather than in SYSTEM because the
+    // per-turn context has no character cap, and because it describes the
+    // mechanics of one turn rather than the method.
+    //
+    // THE DEFECT THIS ADDRESSES: the whole reply was one JSON object, so it
+    // opened with `{` and the UI had no prose to show. `stripJson` fell back
+    // to scraping "summary" out of half-finished JSON with a regex, and on a
+    // propose turn — where the summary is the seventh field — the manager
+    // watched a hardcoded "Working on the campaign strategy..." for most of
+    // the longest turn in the product.
+    '# How to write this turn',
+    [
+      'Write your message to the campaign manager as ORDINARY TEXT. It streams to them as you type it, so it is the first thing they see.',
+      'Put everything structured in a tool call instead: "ask_questions" for questions, "record_findings" for who converts and what is stopping them, "record_dimensions" for what could change this campaign, "propose_strategy" for the plan, "build_campaign" for the journey once the plan is approved.',
+      'Call record_findings on EVERY turn where they have told you anything about customers, including a turn where you are proposing. The application reads your tool calls, not your prose, so a finding left in the text alone does not exist as far as the gate is concerned.',
+      'Do not restate in text what you have already put in a tool call. Say what you now understand and what it changes.',
+    ].join('\n'),
+    '',
     '# This issuer',
     issuerContext(availableChannels, tenant.templateLibraryAccess),
     '',

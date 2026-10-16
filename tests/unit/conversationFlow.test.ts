@@ -239,7 +239,9 @@ describe('the tool loop terminates with an answer, not an error', () => {
     // That cannot reintroduce the empty-turn failure above: the conversation
     // is seeded from plain text messages, tool blocks exist only within a
     // turn, and within a turn the tool list only ever grows.
-    expect(src).toMatch(/tools: toolsForPhase\(designSeen\)\.map/);
+    // Now concatenated with OUTPUT_TOOLS: the model writes the record through
+    // tools, so those definitions must travel on the same calls.
+    expect(src).toMatch(/tools: \[\.\.\.toolsForPhase\(designSeen\), \.\.\.OUTPUT_TOOLS\]\.map/);
   });
 
   it('separates "nothing left to look up" from "budget spent"', () => {

@@ -57,7 +57,13 @@ describe('an empty terminal round is recovered, not reported', () => {
     // not the JSON the application has to parse. Measured after the thinking
     // fix: the empty turns became short prose, which fails the user just the
     // same.
-    expect(orch).toMatch(/const unusable = !assistantText\.trim\(\) \|\| !extractJson\(assistantText, stopReason\)\.ok;/);
+    // Widened: prose that is not JSON is only unusable when the model ALSO
+    // failed to write to the record through tools. A turn that called
+    // record_findings and then wrote its message as text is the shape we now
+    // ask for, and the old condition called it a failure.
+    expect(orch).toMatch(
+      /const unusable =\s*\n?\s*!assistantText\.trim\(\) \|\| \(!extractJson\(assistantText, stopReason\)\.ok && !recordedViaTools\);/,
+    );
     expect(orch).toMatch(/const MAX_EMPTY_RECOVERIES = 2;/);
     expect(orch).toMatch(/let emptyRecoveries = 0;/);
   });
@@ -112,7 +118,10 @@ describe('the existing limits are untouched', () => {
   });
 
   it('keeps repeat detection consecutive, and budget separate from repeats', () => {
-    expect(orch).toMatch(/repeatRounds = repeats === toolUses\.length \? repeatRounds \+ 1 : 0;/);
+    // Counts LOOKUPS, not every tool call. A second `record_findings` is the
+    // model doing as instructed, not a wasted re-read of the event catalogue,
+    // and counting it as a repeat escalated against correct behaviour.
+    expect(orch).toMatch(/repeatRounds = lookups > 0 && repeats === lookups \? repeatRounds \+ 1 : 0;/);
     expect(orch).toMatch(/const budgetSpent = round === MAX_TOOL_ROUNDS - 1;/);
     expect(orch).toMatch(/const stopLookingUp = budgetSpent \|\| repeatRounds >= MAX_REPEAT_ROUNDS/);
   });
@@ -133,7 +142,7 @@ describe('the existing limits are untouched', () => {
     // builder's vocabulary is withheld until an intervention is stated, and
     // within a turn the tool list only ever grows, so history can never cite
     // a tool that is missing from the current list.
-    expect(orch).toMatch(/tools: toolsForPhase\(designSeen\)\.map/);
+    expect(orch).toMatch(/tools: \[\.\.\.toolsForPhase\(designSeen\), \.\.\.OUTPUT_TOOLS\]\.map/);
   });
 
   it('still fails explicitly when the budget is genuinely spent', () => {
