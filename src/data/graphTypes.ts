@@ -43,6 +43,34 @@ export interface DripGraph {
   rootId: string | null;
 }
 
+/**
+ * The agent's suggested message for a Send, carried on that node's `_config`.
+ *
+ * Deliberately separate from `account`/`templateId`, which are the BANK's own
+ * registered configuration. This is a draft to work from, never an approved
+ * template, and `dcAddFormValid` ignores it so it can never make an
+ * incomplete Send look complete.
+ */
+export interface DripAgentMessaging {
+  /** What the message is for, in the agent's own words. */
+  objective: string;
+  stage?: string;
+  recommendedChannel?: string;
+  /** Present only where no real template was resolved. */
+  suggestedCopy?: string;
+  cta?: string;
+  personalisationTokens?: string[];
+  /**
+   * Whether the agent wrote the copy, or the application generated a
+   * placeholder from the step's description. A placeholder reads as an
+   * instruction to a marketer, so the drawer says which one it is showing.
+   */
+  copySource?: 'agent-written' | 'generated-placeholder';
+  source: 'agent-suggested';
+  /** Plain-language statement of what this is not. */
+  status: string;
+}
+
 export interface DripGoalCondition {
   attribute: string;
   operator: string;

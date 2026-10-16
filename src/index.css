@@ -22,6 +22,13 @@
   --gray-400: #98a2b3;
   --gray-500: #667085;
   --gray-600: #475467;
+  /* Completes the scale. It was missing, and designer.css used it thirteen
+     times with no fallback — including every secondary button's text colour,
+     which therefore computed as invalid and silently inherited whatever the
+     parent was. On a near-white hover background that reads as washed-out
+     text. Value is the one this palette's own scale calls for, sitting
+     between 600 and 800. */
+  --gray-700: #344054;
   --gray-800: #1d2939;
   --neutral-800: #262626;
   --neutral-900: #101828;
@@ -227,3 +234,19 @@ select:focus { outline: 2px solid var(--info-bg); }
    quieter by default, same blue-link affordance only on hover/focus. */
 .add-link.quiet { color: var(--gray-500); font-weight: 500; }
 .add-link.quiet:hover { color: var(--blue-cta); }
+
+/* Agent-suggested message on a Send, shown read-only in the drawer. Styled
+   as a quiet aside rather than a form field, because nothing in it is
+   editable and none of it is bank-approved configuration. */
+.agent-msg {
+  border: 1px dashed var(--gray-300);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--gray-50);
+}
+.agent-msg-dl { margin: 10px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
+.agent-msg-dl dt {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--gray-500); white-space: nowrap;
+}
+.agent-msg-dl dd { margin: 0; font-size: 13px; color: var(--gray-800); }

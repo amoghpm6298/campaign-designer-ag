@@ -1,0 +1,130 @@
+{
+  "id": "S7-offer-led-spend",
+  "title": "Offer-led card spend",
+  "objective": "We issue offers that customers never use. Drive spend against an offer a customer has been given.",
+  "reviewerNotes": "Offer issuance is the opportunity; a qualifying transaction is the proof. Offer events narrow on one locked attribute, which constrains how the entry can be filtered.",
+  "watchFor": [
+    "filtering an offer event with attributes it does not have"
+  ],
+  "turns": [
+    {
+      "phase": "awaiting-confirmation",
+      "toolsUsed": [
+        "Checking available trigger events",
+        "Checking audience attributes",
+        "Checking channel availability",
+        "Checking message template availability",
+        "Checking available journey steps",
+        "Checking available trigger events"
+      ],
+      "questions": [
+        "What should count as 'using the offer' for the goal — any customer-initiated transaction after issuance, a transaction above a minimum amount, or a transaction in a specific MCC tied to the offer?"
+      ],
+      "strategy": {
+        "summary": "Enter customers at the moment an offer is issued to them (the opportunity appears) and nudge them, over a short multi-channel sequence, to make a qualifying transaction before the offer goes stale. The goal is set on a qualifying transaction, which is the best available proxy for 'offer used' since the platform has no field linking a transaction back to a specific issued offer.",
+        "approach": [
+          "Entry on Offer Events / Outcome Issuance: this is the only event marking 'an offer now exists for this customer' — the true opportunity point, before any spend has happened.",
+          "Goal on Transaction Events / Transaction (customer-initiated, APPROVED/SETTLED): the closest provable signal of spend. Flagged as a proxy, not proof the spend used this specific offer, and the category is platform-marked new/proposed.",
+          "Three sends, cheapest channel first (EMAIL → SMS → WHATSAPP), each reinforcing the same single action — spend to use the offer — rather than three different asks, in line with P-005 (one variable) and conservative risk appetite.",
+          "48h minimum gap after message 1 (platform floor), then a longer 96h gap before the final WhatsApp nudge, so the last message reads as a genuine last-chance rather than noise (P-011).",
+          "10% control group per stated preference, so any later read of this campaign can at least be sense-checked against a holdout even though we are not claiming lift today (P-006)."
+        ],
+        "rejected": [
+          {
+            "option": "Wait for a specific 'offer expired' or 'offer redeemed' event before deciding the final message",
+            "why": "No such event type exists in the vocabulary (Outcome Issuance only exposes Outcome Status with an unconfirmed value list); building branching logic on an unverified status risks a condition that matches nobody."
+          },
+          {
+            "option": "Use MCC or Transaction Amount matching to tie the transaction tightly to the specific offer",
+            "why": "We don't know this offer's merchant category or minimum spend — that's bank/offer-specific data this brief doesn't provide. Flagged as an open item rather than guessed."
+          },
+          {
+            "option": "4th message / longer sequence",
+            "why": "Conservative risk appetite and P-011 (avoid fatigue) argue for fewer, better-targeted touches; 3 sends inside a 4-message cap leaves headroom if the user wants a true deadline-day message once offer validity length is known."
+          },
+          {
+            "option": "Experiment (A/B) on message copy",
+            "why": "No prior performance data exists to motivate a specific variable to test yet (P-005); starting with a clean single-path campaign plus holdout is the simpler, defensible first iteration."
+          }
+        ],
+        "assumptions": [
+          "Outcome Issuance's 'Outcome Status' includes a value meaning 'offer issued to this customer' — we used \"Issued\" as the entry condition value; the platform did not publish the allowed-value list for this attribute, so this needs confirmation before build.",
+          "No explicit offer-expiry date is available as an event or attribute, so pacing uses a generic assumed offer-validity window (≈2–4 weeks) rather than a confirmed one.",
+          "Transaction Events and EMI Events are marked 'new — proposed' by the platform, not confirmed live in production; the Transaction-based goal depends on that category actually being built."
+        ],
+        "evidenceNotes": [
+          "No historical conversion data exists for this bank (per brief). Nothing here claims a lift; the control group simply preserves the option to measure one later.",
+          "If/when available, an aggregated breakdown of 'days between offer issuance and first qualifying transaction' would sharpen the wait durations chosen here, which are currently defaults."
+        ]
+      },
+      "entry": {
+        "kind": "event",
+        "eventCategory": "Offer Events",
+        "eventType": "Outcome Issuance",
+        "conditions": [
+          {
+            "attribute": "Outcome Status",
+            "operator": "Equals",
+            "value": "Issued"
+          }
+        ]
+      },
+      "goal": {
+        "eventCategory": "Transaction Events",
+        "eventType": "Transaction",
+        "conditions": [
+          {
+            "attribute": "Transaction Status",
+            "operator": "Any of",
+            "value": [
+              "APPROVED",
+              "SETTLED"
+            ]
+          },
+          {
+            "attribute": "Initiated By",
+            "operator": "Equals",
+            "value": "CUSTOMER_INITIATED"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "kind": "send",
+          "name": "Offer Announcement",
+          "copy": "Hi ${customerFirstName}, you've got a card offer waiting. Spend with your card to claim it before it's gone.",
+          "cta": "View my offer"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 48
+        },
+        {
+          "kind": "send",
+          "name": "Offer Reminder",
+          "copy": "${customerFirstName}, your offer is still active. Use your card to activate the benefit.",
+          "cta": "Check offer details"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 96
+        },
+        {
+          "kind": "send",
+          "name": "Final Reminder",
+          "copy": "${customerFirstName}, time is running out on your offer. Spend now so you don't miss it.",
+          "cta": "Use my offer now"
+        },
+        {
+          "kind": "exit"
+        }
+      ],
+      "graphReadiness": {
+        "status": "ready",
+        "blockers": [],
+        "limitations": []
+      },
+      "reply": "Enter customers at the moment an offer is issued to them (the opportunity appears) and nudge them, over a short multi-channel sequence, to make a qualifying transaction before the offer goes stale. The goal is set on a qualifying transaction, which is the best available proxy for 'offer used' since the platform has no field linking a transaction back to a specific issued offer.\n\n**Approach**\n- Entry on Offer Events / Outcome Issuance: this is the only event marking 'an offer now exists for this customer' — the true opportunity point, before any spend has happened.\n- Goal on Transaction Events / Transaction (customer-initiated, APPROVED/SETTLED): the closest provable signal of spend. Flagged as a proxy, not proof the spend used this specific offer, and the category is platform-marked new/proposed.\n- Three sends, cheapest channel first (EMAIL → SMS → WHATSAPP), each reinforcing the same single action — spend to use the offer — rather than three different asks, in line with P-005 (one variable) and conservative risk appetite.\n- 48h minimum gap after message 1 (platform floor), then a longer 96h gap before the final WhatsApp nudge, so the last message reads as a genuine last-chance rather than noise (P-011).\n- 10% control group per stated preference, so any later read of this campaign can at least be sense-checked against a holdout even though we are not claiming lift today (P-006).\n\n**Considered and not used**\n- Wait for a specific 'offer expired' or 'offer redeemed' event before deciding the final message — No such event type exists in the vocabulary (Outcome Issuance only exposes Outcome Status with an unconfirmed value list); building branching logic on an unverified status risks a condition that matches nobody.\n- Use MCC or Transaction Amount matching to tie the transaction tightly to the specific offer — We don't know this offer's merchant category or minimum spend — that's bank/offer-specific data this brief doesn't provide. Flagged as an open item rather than guessed.\n- 4th message / longer sequence — Conservative risk appetite and P-011 (avoid fatigue) argue for fewer, better-targeted touches; 3 sends inside a 4-message cap leaves headroom if the user wants a true deadline-day message once offer validity length is known.\n- Experiment (A/B) on message copy — No prior performance data exists to motivate a specific variable to test yet (P-005); starting with a clean single-path campaign plus holdout is the simpler, defensible first iteration.\n\n**Assumptions**\n- Outcome Issuance's 'Outcome Status' includes a value meaning 'offer issued to this customer' — we used \"Issued\" as the entry condition value; the platform did not publish the allowed-value list for this attribute, so this needs confirmation before build.\n- No explicit offer-expiry date is available as an event or attribute, so pacing uses a generic assumed offer-validity window (≈2–4 weeks) rather than a confirmed one.\n- Transaction Events and EMI Events are marked 'new — proposed' by the platform, not confirmed live in production; the Transaction-based goal depends on that category actually being built.\n\n**Worth settling before this is built**\n- What should count as 'using the offer' for the goal — any customer-initiated transaction after issuance, a transaction above a minimum amount, or a transaction in a specific MCC tied to the offer? This changes the goal's conditions and therefore who is deemed to have converted. Without an offer-to-transaction link in the data model, a generic 'any transaction' goal risks crediting the campaign for spend unrelated to the offer. Until then: Goal defaults to any customer-initiated transaction with status APPROVED or SETTLED occurring after entry, treated explicitly as a proxy rather than proof.\n\n**Defaults applied**\n- How long does an issued offer stay valid before it expires? Determines how tight the reminder spacing should be and whether a 4th, deadline-day message is worth adding. Until then: Assume a ~2-4 week validity window; sequence spans roughly 6 days (48h + 96h gaps), leaving slack inside almost any realistic validity period.\n\n**Limitations**\n- Transaction Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- Can the bank confirm the exact allowed value(s) for Outcome Issuance's 'Outcome Status' (e.g. is 'Issued' the correct string), and that the Transaction Events category is actually live in production? Entry and goal both depend on these; an unverified value or an unbuilt event category would mean the campaign silently matches nobody."
+    }
+  ]
+}

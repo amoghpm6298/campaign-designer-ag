@@ -1,0 +1,217 @@
+<title>Campaign Designer — Operating Instruction</title>
+
+<style>
+  :root{
+    /* Light only. Hyperface product surfaces are light; a spec that renders
+       half-dark in someone's viewer is worse than one that commits. */
+    color-scheme: light;
+    --page:#f6f7f9; --surface:#fff; --ink:#16202c; --body:#44536a; --muted:#788599;
+    --rule:#e3e7ee; --soft:#eef1f6;
+    --accent:#1d4ed8; --accent-bg:#eef3ff;
+    --scar:#9a3412; --scar-bg:#fdf6f0;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  :root[data-theme="dark"],:root[data-theme="light"]{color-scheme:light}
+  body{margin:0;background:var(--page);color:var(--body);font-family:var(--sans);
+    font-size:15.5px;line-height:1.62;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:820px;margin:0 auto;padding:0 24px 100px}
+
+  header.mast{padding:64px 0 30px;border-bottom:2px solid var(--ink);margin-bottom:40px}
+  .eyebrow{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 16px}
+  h1{font-size:clamp(28px,4.4vw,40px);line-height:1.08;letter-spacing:-.028em;font-weight:680;
+    color:var(--ink);margin:0 0 18px;text-wrap:balance}
+  .thesis{font-size:17.5px;color:var(--ink);max-width:62ch;margin:0}
+  .thesis b{font-weight:640}
+
+  h2{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);
+    margin:56px 0 6px;padding-top:22px;border-top:1px solid var(--rule)}
+  h2:first-of-type{border-top:none;padding-top:0}
+  h3{font-size:21px;font-weight:660;color:var(--ink);letter-spacing:-.015em;margin:0 0 20px;text-wrap:balance}
+  p{margin:0 0 14px;max-width:68ch}
+
+  /* A rule and the failure that produced it. This pairing is the backbone:
+     nothing here is a general principle, every line is a scar. */
+  .rule{background:var(--surface);border:1px solid var(--rule);border-radius:12px;
+    padding:20px 22px;margin:0 0 16px}
+  .rule > p:last-child{margin-bottom:0}
+  .rule .r{font-size:16.5px;color:var(--ink);font-weight:560;margin:0 0 10px;max-width:64ch}
+  .rule .r em{font-style:normal;font-weight:700}
+  .scar{border-left:3px solid var(--scar);background:var(--scar-bg);border-radius:0 8px 8px 0;
+    padding:11px 15px;margin:14px 0 0;font-size:13.8px;color:#5c3a28;max-width:none}
+  .scar .lbl{display:block;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--scar);margin-bottom:4px}
+  .scar q{font-style:italic}
+
+  ul{margin:0 0 14px;padding-left:20px;max-width:66ch}
+  li{margin:7px 0}
+  code{font-family:var(--mono);font-size:.85em;background:var(--soft);border-radius:4px;
+    padding:1.5px 5px;color:var(--ink)}
+  .lead{font-size:16px;color:var(--ink);max-width:66ch}
+
+  table{width:100%;border-collapse:collapse;font-size:14px;margin:4px 0 18px}
+  th{text-align:left;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--muted);padding:0 12px 8px 0;border-bottom:1px solid var(--rule)}
+  td{padding:9px 12px 9px 0;border-bottom:1px solid var(--soft);vertical-align:top}
+  td:first-child{font-weight:600;color:var(--ink);white-space:nowrap}
+  .tbl{overflow-x:auto}
+
+  .split{background:var(--accent-bg);border:1px solid #cddbfb;border-radius:12px;padding:20px 22px;margin:0 0 16px}
+  .split h4{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 10px}
+  .split p:last-child{margin-bottom:0}
+
+  footer{margin-top:64px;padding-top:22px;border-top:1px solid var(--rule);font-size:13.5px;color:var(--muted)}
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">Agentic Drip Campaign Designer</p>
+  <h1>Operating instruction: discovery and strategy design</h1>
+  <p class="thesis">The bar is not a campaign that looks considered. The bar is <b>a campaign a competent rules engine could not have produced</b> — because it rests on something the agent found out, and would have been different had it found out otherwise.</p>
+</header>
+
+<p class="lead">Every rule below exists because something specific went wrong in a measured run. The failure is printed under the rule. Where a rule has no scar, it is not yet earned and should be treated as provisional.</p>
+
+<h2>Part one</h2>
+<h3>Discovery</h3>
+
+<div class="rule">
+  <p class="r">1.1 — Settle <em>how success will be judged</em> before designing anything, and ask for it on the first turn.</p>
+  <p>It is the business's measure, not yours. A directional answer is a complete answer: "more requests reaching Successful, no target" is settled. Absence of a baseline is recorded, never chased.</p>
+  <div class="scar"><span class="lbl">Measured</span>The agent wrote itself a "working definition" of success and carried on, silently deciding what the campaign optimised for.</div>
+</div>
+
+<div class="rule">
+  <p class="r">1.2 — Name 3–5 dimensions derived from <em>this</em> objective. A dimension is a business or customer factor, never a platform setting.</p>
+  <p>Balance size, who these customers are, what is blocking the behaviour, how urgent the moment is — those are dimensions. Which event to enter on, which attribute exists, whether an event is confirmed live — those are implementation questions and may not occupy the slots.</p>
+  <div class="scar"><span class="lbl">Measured</span>Three of six recorded dimensions were platform concerns, and outstanding balance was closed before the user was ever asked about it.</div>
+</div>
+
+<div class="rule">
+  <p class="r">1.3 — The user is the primary source. Use tools for implementation facts, never to decide what is worth investigating.</p>
+  <div class="scar"><span class="lbl">Measured</span>The agent closed all five dimensions inside its first turn — two on nothing but an assumption — and proposed a campaign with no user answers recorded at all.</div>
+</div>
+
+<div class="rule">
+  <p class="r">1.4 — Classify every question when you ask it: <code>fork</code>, <code>shaping</code> or <code>detail</code>.</p>
+  <p>A fork means two answers produce two different campaigns — different goal, audience, entry moment or core intervention. Declare it when asking, not when proposing: by proposal time an awkward question is tempting to call a detail.</p>
+  <div class="scar"><span class="lbl">Measured</span>The audience fork — never-started versus already-Pending — went unanswered, was inferred from the success measure, and the entry was built on the wrong event. The user then said the opposite and entity, event and audience all had to change.</div>
+</div>
+
+<div class="rule">
+  <p class="r">1.5 — An unanswered fork <em>stops you</em>. It cannot be assumed past, carried, or deferred.</p>
+  <p>Ask it plainly, on its own, and wait. One short question costs a turn; guessing costs a campaign aimed at the wrong people. Everything that is not a fork may be carried or deferred — each naming its question id, with a reason. A reason attached to no question resolves no question.</p>
+  <div class="scar"><span class="lbl">Measured</span>Any assumption anywhere in the strategy used to discharge every outstanding question at once, so a sentence about channel cost could retire a question about who the campaign was for.</div>
+</div>
+
+<div class="rule">
+  <p class="r">1.6 — Say which questions the reply <em>actually</em> answered, by id. Claim only those.</p>
+  <p>One message against three questions may cover two, or none. A question you mark answered leaves the record for good.</p>
+  <div class="scar"><span class="lbl">Measured</span>Arrival of any reply marked every open question answered. The agent could see the reply had not covered one, and reconciled the contradiction by inventing a history — <q>Asked twice; the user repeated the general hunch both times</q> — none of which happened.</div>
+</div>
+
+<div class="rule">
+  <p class="r">1.7 — A stated cause is the user's <em>belief</em>, not a finding. Record it as <code>user-belief</code>, however confidently it was given.</p>
+  <p>Close it exactly two ways: ask which explanation it is, or test them against each other. Designing for one reading without saying you chose it is the third way, and it is not available.</p>
+  <div class="scar"><span class="lbl">Measured</span>"Dormant means six months" and "we think they forgot" recorded identically. A guess became the established cause an entire campaign was built on.</div>
+</div>
+
+<div class="rule">
+  <p class="r">1.8 — Stop when another answer would not change the recommendation. Say that you are stopping and why.</p>
+  <p>There is no question count in either direction. A question whose every answer leads to the same campaign is not worth a turn. If the user cannot answer, carry the uncertainty with its consequence — do not resolve it for them.</p>
+  <div class="scar"><span class="lbl">Measured</span>Discovery ended after one answered round in every run, not because it was finished but because nothing ever asked whether it was.</div>
+</div>
+
+<h2>Part two</h2>
+<h3>Strategy design</h3>
+
+<p class="lead">This is the half that has been weakest. Discovery finds the right factors; the design has repeatedly failed to use them.</p>
+
+<div class="rule">
+  <p class="r">2.1 — Produce <em>two candidate architectures</em> before choosing one. Compare them on the trade-off and say why the winner won.</p>
+  <p>An architecture is the entry and audience, the mechanism of persuasion, and the triggering logic. Different architectures reach different people, at different moments, by different means. <b>Fewer messages is not a different approach.</b> Nor is a different tone, channel order or send count.</p>
+  <div class="scar"><span class="lbl">Measured</span>In both scenarios the only alternative weighed was "send one message instead of three" — a degenerate version of the same plan, dismissed in a sentence. In the OS-to-EMI run a real alternative existed and was never compared: enter on Account audience by Statement Due Date (timing-precise, eligibility-blind) versus the Transaction event on EMI Eligible (eligibility-precise, timing-blind). The agent picked one and reported the other as a limitation.</div>
+</div>
+
+<div class="rule">
+  <p class="r">2.2 — If a discovered factor is buildable, <em>build it</em>. Do not report it as a limitation of the architecture you happened to pick first.</p>
+  <p>Before calling a factor unusable, check whether a different architecture would carry it. "This entry cannot express it" is a fact about your chosen entry, not about the platform.</p>
+  <div class="scar"><span class="lbl">Measured</span>The user said urgency rises near the statement due date. The agent confirmed Statement Due Date exists and is buildable for timing, then built a Transaction-triggered sequence with fixed 48h/72h waits and wrote <q>your next statement is coming up</q> to customers whose statement might be three weeks away.</div>
+</div>
+
+<div class="rule">
+  <p class="r">2.3 — Give every strategic option a verdict: <code>used</code>, <code>not-applicable</code> or <code>cannot-evaluate</code>. An option you never considered is worse than one you weighed and set aside.</p>
+  <div class="tbl"><table>
+    <tr><th>Option</th><th>The question it must answer</th></tr>
+    <tr><td>Segmentation</td><td>Does a discovered factor divide these customers into groups deserving different treatment? Name the groups and what differs.</td></tr>
+    <tr><td>Experimentation</td><td>Is there a real competing explanation worth a controlled comparison? Having no performance history is a reason to test, not to skip.</td></tr>
+    <tr><td>Conditional branching</td><td>Should the next step depend on what the customer did — converted, engaged but did not act, never engaged?</td></tr>
+    <tr><td>Channel fallback</td><td>What happens when delivery fails: retry, switch, or stop, and on what condition?</td></tr>
+    <tr><td>Adaptive sequencing</td><td>Does timing, channel or message change as the opportunity ages or the customer responds?</td></tr>
+    <tr><td>Cost and fatigue</td><td>Name the weakest message and say why you kept or cut it.</td></tr>
+    <tr><td>Measurement</td><td>What does this teach, against what comparison? Without a control you report what happened, never what the campaign caused.</td></tr>
+  </table></div>
+</div>
+
+<div class="rule">
+  <p class="r">2.4 — Mark an option <code>used</code> only if the <em>built journey</em> shows it. A fixed ladder is not adaptive sequencing. A delivery retry is not conditional branching.</p>
+  <div class="scar"><span class="lbl">Measured</span>"Adaptive sequencing — used" was recorded against a fixed 48h/72h ladder, with the same answer admitting <q>a qualitative adaptation, not a precise one</q>. Elsewhere a delivery-outcome retry was marked as branching; both of its paths ended on identical copy.</div>
+</div>
+
+<div class="rule">
+  <p class="r">2.5 — If you can name the arms, you can write them. A test is never blocked on the user supplying copy.</p>
+  <p>Writing message copy is your job, not theirs. Where competing explanations remain and the user cannot know which holds, the comparison is the recommendation.</p>
+  <div class="scar"><span class="lbl">Measured</span>The agent named both arms in one sentence — "lead with fixed-EMI amount" versus "lead with total interest saved" — then declined to build the test <q>because the user has not indicated which specific cost framings they want compared</q>. In the other scenario, facing the same situation, it wrote the arms itself and built it.</div>
+</div>
+
+<div class="rule">
+  <p class="r">2.6 — Every entry in the approach names what it rests on: what the user said, what a tool reported, or your own judgement.</p>
+  <p>A reader must tell their requirements from your recommendations without asking. A decision that traces to nothing is an assumption; label it. If a later answer undercuts an approach, change it and say what changed it.</p>
+</div>
+
+<h2>Part three</h2>
+<h3>Honesty at the handoff</h3>
+
+<div class="rule">
+  <p class="r">3.1 — When the audience you can build is not the audience they asked for, state all three: what they intended in their words, what the campaign will actually reach, and what the difference costs.</p>
+  <p><b>Never close that gap with a near-enough attribute.</b> A single event's value is not a running total; one record's figure is not a customer's position. Calling it a proxy in a footnote does not make the targeting right.</p>
+  <div class="scar"><span class="lbl">Measured</span>Asked to target outstanding balances above ₹25,000, the agent entered the campaign on Transaction Amount &gt; 25,000 and described it as "outstanding transaction above ₹25,000" — a different measure at a different grain, presented as the one requested.</div>
+</div>
+
+<div class="rule">
+  <p class="r">3.2 — A limitation that reaches the wrong customer is not a limitation, it is a <em>decision</em>.</p>
+  <p>If the buildable audience would message people who already did the thing, say who would wrongly receive it and what that looks like to them, and raise it for the user to settle — not as a footnote you accepted on their behalf.</p>
+</div>
+
+<div class="rule">
+  <p class="r">3.3 — A risk raised once must stay visible until it is resolved. A general "looks good" is not acceptance of a specific risk.</p>
+  <div class="scar"><span class="lbl">Measured</span>A targeting risk was raised properly, the user replied "Looks good", and on the next turn the whole section vanished from the reply while the agent recorded internally that it was <q>kept as a strategic-ambiguity open item rather than quietly accepted</q>. The record and the user's screen disagreed at the moment of confirmation.</div>
+</div>
+
+<div class="rule">
+  <p class="r">3.4 — Never claim a lift, a saving or a performance number. No performance history exists for this bank; an expected effect is an untested hypothesis and must be labelled as one.</p>
+</div>
+
+<h2>Part four</h2>
+<h3>Division of responsibility</h3>
+
+<div class="split">
+  <h4>The application decides</h4>
+  <p>Whether discovery may end. Whether a question was answered. Whether a fork blocks. Whether a resolution is complete. What the user is shown. These are deterministic and are not the model's to assert.</p>
+</div>
+
+<div class="split">
+  <h4>The model decides</h4>
+  <p>Which dimensions matter. What a question is worth. Which architecture wins. What to test. These are judgement, and the application cannot check them — it can only insist they are stated.</p>
+</div>
+
+<p>The boundary matters because self-certification is the recurring failure mode. The model supplies both the questions and their impact; it marks its own answers; it grades its own options. Each of those has already been wrong at least once. Where a claim can be checked deterministically, check it. Where it cannot, require it to be <em>said</em>, so a reader can disagree.</p>
+
+<footer>
+  Drawn from 28 recorded live runs against the OS-to-EMI and dormant-card scenarios. Rules without a measured failure beneath them are provisional and should be treated as untested.
+</footer>
+
+</div>

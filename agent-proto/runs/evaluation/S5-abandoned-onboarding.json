@@ -1,0 +1,121 @@
+{
+  "id": "S5-abandoned-onboarding",
+  "title": "Abandoned onboarding",
+  "objective": "People start onboarding and drop out before finishing KYC. Bring them back to complete it.",
+  "reviewerNotes": "Journey progress and KYC status are the available handles. Whether a usable 'dropped out' signal exists at all is the first thing to establish; if it does not, say so.",
+  "watchFor": [
+    "asserting a drop-off cause",
+    "inventing an abandonment event"
+  ],
+  "turns": [
+    {
+      "phase": "awaiting-confirmation",
+      "toolsUsed": [
+        "Checking available trigger events",
+        "Checking audience attributes",
+        "Checking channel availability",
+        "Checking message template availability",
+        "Checking available journey steps",
+        "Checking available trigger events"
+      ],
+      "questions": [
+        "Should customers who never started FKYC at all ('Not Initiated') also be brought into a similar journey, or is that a separate campaign?"
+      ],
+      "strategy": {
+        "summary": "Target customers whose full KYC is already underway but stuck (FKYC Status = Pending), since this is the only verified audience attribute that matches 'started onboarding, not yet finished KYC.' A short, escalating-cost reminder sequence (EMAIL → SMS → WHATSAPP) nudges them back to the unfinished step. The goal is completion of KYC, but no event in this platform's vocabulary is confirmed to fire on that moment, so the goal is built on the Journey Progress event as the closest available proxy and flagged as unverified pending build-team confirmation.",
+        "approach": [
+          "Entry via audience segment (Customer: FKYC Status = Pending) rather than an event, because Journey Progress's 'Status' values aren't enumerated anywhere I can check — using an audience attribute with a confirmed allowed value avoids guessing a string the builder would reject.",
+          "Scoped to 'Pending' only, excluding 'Not Initiated' (never started — a different problem, arguably a different campaign) and 'Rejected' (needs a remediation message, not a reminder) and 'Completed' (already done).",
+          "Lead with EMAIL (cheapest), escalate to SMS then WHATSAPP for later reminders — per stated preference to front-load low-cost channels and reserve costlier ones for reinforcement.",
+          "Three sends spaced 48h apart (the enforced minimum), staying under the 4-message cap, then a terminal exit — sized to a short window since there's no defined expiry event for stalled KYC (unlike the 7-day EMI expiry), so an indefinite journey isn't justified either.",
+          "Applied the preferred 10% control group as a holdout, even though this campaign isn't claiming incremental lift, so that a future lift read remains possible without retrofitting."
+        ],
+        "rejected": [
+          {
+            "option": "Entry on Journey Progress event with a status like 'KYC_STARTED'",
+            "why": "No allowed-value list exists for this field in the tooling; inventing a status string risks a condition that matches nobody or gets rejected by the builder."
+          },
+          {
+            "option": "Include FKYC Status = 'Not Initiated' in the same campaign",
+            "why": "That audience never began KYC — the mechanism (remind to resume) doesn't apply; it's a distinct behaviour needing different copy and is a separate campaign decision."
+          },
+          {
+            "option": "Use waitForEvent to wait on a KYC-completion event before each reminder",
+            "why": "Goal checks are already auto-inserted after every send and wait, so anyone who completes KYC mid-sequence exits automatically — an explicit wait-for-event step would be redundant."
+          },
+          {
+            "option": "Send all 4 allowed messages",
+            "why": "Conservative risk appetite and fatigue avoidance (P-011) favour fewer, better-targeted reminders; 3 well-spaced touches cover the plausible re-engagement window without crowding the cap."
+          }
+        ],
+        "assumptions": [
+          "Quiet hours (21:00–09:00), DNC suppression and NPA exclusion are enforced by the platform's send scheduling and do not need explicit steps from me.",
+          "No launch is scheduled inside the 2026-11-07 to 2026-11-21 freeze window; this is a scheduling detail for the build team, not a design change.",
+          "A customer who completes KYC at any point is removed from the journey automatically via the platform's built-in goal check — no manual exit is added for that case."
+        ],
+        "evidenceNotes": [
+          "No performance history exists for this bank (P-verified), so channel order, spacing and message count are built on stated preferences and hypotheses (P-010, P-011), not measured effect. Nothing here should be read as predicting a conversion rate; P-001/P-002 already set expectations low for this kind of funnel."
+        ]
+      },
+      "entry": {
+        "kind": "audience",
+        "entity": "Customer",
+        "conditions": [
+          {
+            "attribute": "FKYC Status",
+            "operator": "Equals",
+            "value": "Pending"
+          }
+        ]
+      },
+      "goal": {
+        "eventCategory": "Journey Events",
+        "eventType": "Journey Progress",
+        "conditions": [
+          {
+            "attribute": "Status",
+            "operator": "Equals",
+            "value": "KYC Completed"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "kind": "send",
+          "name": "KYC reminder - first touch",
+          "copy": "Hi ${customerFirstName}, you're almost there. Finish your KYC to activate your account.",
+          "cta": "Complete KYC"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 48
+        },
+        {
+          "kind": "send",
+          "name": "KYC reminder - follow up",
+          "copy": "${customerFirstName}, your KYC is still pending. It only takes a few minutes to finish and unlock your account.",
+          "cta": "Finish KYC now"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 48
+        },
+        {
+          "kind": "send",
+          "name": "KYC reminder - final",
+          "copy": "${customerFirstName}, this is your last reminder. Complete your KYC now so your application stays active.",
+          "cta": "Complete now"
+        },
+        {
+          "kind": "exit"
+        }
+      ],
+      "graphReadiness": {
+        "status": "ready",
+        "blockers": [],
+        "limitations": []
+      },
+      "reply": "Target customers whose full KYC is already underway but stuck (FKYC Status = Pending), since this is the only verified audience attribute that matches 'started onboarding, not yet finished KYC.' A short, escalating-cost reminder sequence (EMAIL → SMS → WHATSAPP) nudges them back to the unfinished step. The goal is completion of KYC, but no event in this platform's vocabulary is confirmed to fire on that moment, so the goal is built on the Journey Progress event as the closest available proxy and flagged as unverified pending build-team confirmation.\n\n**Approach**\n- Entry via audience segment (Customer: FKYC Status = Pending) rather than an event, because Journey Progress's 'Status' values aren't enumerated anywhere I can check — using an audience attribute with a confirmed allowed value avoids guessing a string the builder would reject.\n- Scoped to 'Pending' only, excluding 'Not Initiated' (never started — a different problem, arguably a different campaign) and 'Rejected' (needs a remediation message, not a reminder) and 'Completed' (already done).\n- Lead with EMAIL (cheapest), escalate to SMS then WHATSAPP for later reminders — per stated preference to front-load low-cost channels and reserve costlier ones for reinforcement.\n- Three sends spaced 48h apart (the enforced minimum), staying under the 4-message cap, then a terminal exit — sized to a short window since there's no defined expiry event for stalled KYC (unlike the 7-day EMI expiry), so an indefinite journey isn't justified either.\n- Applied the preferred 10% control group as a holdout, even though this campaign isn't claiming incremental lift, so that a future lift read remains possible without retrofitting.\n\n**Considered and not used**\n- Entry on Journey Progress event with a status like 'KYC_STARTED' — No allowed-value list exists for this field in the tooling; inventing a status string risks a condition that matches nobody or gets rejected by the builder.\n- Include FKYC Status = 'Not Initiated' in the same campaign — That audience never began KYC — the mechanism (remind to resume) doesn't apply; it's a distinct behaviour needing different copy and is a separate campaign decision.\n- Use waitForEvent to wait on a KYC-completion event before each reminder — Goal checks are already auto-inserted after every send and wait, so anyone who completes KYC mid-sequence exits automatically — an explicit wait-for-event step would be redundant.\n- Send all 4 allowed messages — Conservative risk appetite and fatigue avoidance (P-011) favour fewer, better-targeted reminders; 3 well-spaced touches cover the plausible re-engagement window without crowding the cap.\n\n**Assumptions**\n- Quiet hours (21:00–09:00), DNC suppression and NPA exclusion are enforced by the platform's send scheduling and do not need explicit steps from me.\n- No launch is scheduled inside the 2026-11-07 to 2026-11-21 freeze window; this is a scheduling detail for the build team, not a design change.\n- A customer who completes KYC at any point is removed from the journey automatically via the platform's built-in goal check — no manual exit is added for that case.\n\n**Worth settling before this is built**\n- Should customers who never started FKYC at all ('Not Initiated') also be brought into a similar journey, or is that a separate campaign? It changes the audience definition and the message framing — 'resume where you left off' doesn't fit someone who hasn't started. Until then: I'll scope this campaign to FKYC Status = Pending only, since the brief specifically describes people who 'start onboarding and drop out,' implying KYC is already underway.\n\n**Defaults applied**\n- Apply the preferred 10% control/holdout group even though this campaign isn't making an incremental-lift claim? A holdout costs reach now but preserves the option to read a basic before/after signal later; skipping it saves nothing measurable today but forecloses that option. Until then: I will set controlPct to 10, matching the stated preference, with no lift claims made from it.\n\n**Limitations**\n- The Journey Progress event's 'Status' field has no enumerated allowed values in this platform's tooling, so I cannot confirm that a value like 'KYC Completed' is what actually fires when a customer finishes KYC. If the real status string differs, the goal will never fire, customers won't exit on success, and they'll keep receiving reminders after already completing KYC."
+    }
+  ]
+}

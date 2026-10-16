@@ -1,0 +1,110 @@
+{
+  "id": "S9-emi-adoption",
+  "title": "EMI feature adoption",
+  "objective": "Most customers have never used EMI at all. Introduce the feature to people who have never tried it.",
+  "reviewerNotes": "This is awareness, not recovery: there is no triggering moment, so an audience entry is correct. 'Never used EMI' must be expressed with what exists, or flagged as unexpressible.",
+  "watchFor": [
+    "forcing an event entry where no trigger exists"
+  ],
+  "turns": [
+    {
+      "phase": "awaiting-confirmation",
+      "toolsUsed": [
+        "Checking available trigger events",
+        "Checking audience attributes",
+        "Checking channel availability",
+        "Checking message template availability",
+        "Checking available journey steps",
+        "Checking available trigger events"
+      ],
+      "questions": [
+        "Is 'customers who have never used EMI' meant literally at the customer level, or is 'introduce EMI at the next eligible transaction' an acceptable proxy, given the platform has no lifetime EMI-usage flag on Customer?"
+      ],
+      "strategy": {
+        "summary": "Target the moment an eligible purchase occurs and introduce EMI conversion on that specific transaction, since no customer-level 'has never used EMI' flag exists anywhere in the attribute catalogue. A two-touch, low-to-higher-cost message sequence invites conversion, with the platform's automatic goal check removing anyone who converts. A 10% holdout arm is included so any future lift claim has a baseline to compare against.",
+        "approach": [
+          "Entry on the Transaction event (EMI Eligible = true, status Approved/Settled, customer-initiated) rather than any Customer-entity audience filter, because Customer has no EMI-history attribute to screen out past users — this is the closest available 'opportunity appears' moment.",
+          "Lead with EMAIL (cheapest) for the first-touch, reinforce with SMS for the reminder, per the stated preference for lower-cost-first sequencing.",
+          "Cap the sequence at 2 sends (well under the 4-message limit) to match the conservative 'fewer, better-targeted messages' preference, with a 48h wait enforcing the minimum spacing.",
+          "Use a 7-day waitForEvent for the EMI outcome, matching the verified 7-day request-expiry window (P-003), so the journey does not time out before an outcome is possible.",
+          "Add a 10% control arm with no messages, since any later claim of incremental effect needs a holdout (P-006) and 10% matches the stated preference."
+        ],
+        "rejected": [
+          {
+            "option": "Audience entry (ENTRY_SEGMENT) on broad Customer segment, trying to exclude prior EMI users",
+            "why": "Customer entity exposes no EMI-usage attribute, so 'never used EMI' cannot actually be encoded this way — it would silently fail to exclude anyone, giving false precision."
+          },
+          {
+            "option": "Entering on EMI Request creation (EMI_STATUS_CHANGED = Pending)",
+            "why": "That event means the customer already started an EMI request — the behaviour has already begun, so it is too late to be the entry point for 'introduce the feature'."
+          },
+          {
+            "option": "3+ reminder messages up to the 4-message cap",
+            "why": "Risk appetite is conservative and prefers fewer, better-targeted messages; two touches plus a 7-day wait already covers the realistic decision window without fatiguing the customer."
+          }
+        ],
+        "assumptions": [
+          "Transaction Events and EMI Events categories are usable for design purposes but are marked new/proposed, not confirmed live in production.",
+          "Quiet hours, DNC and NPA exclusion are enforced by the platform's hard constraints rather than by conditions added here, since no such attributes exist in the condition catalogue.",
+          "The festive freeze window (Nov 7–21) is handled by platform-level scheduling, not by this blueprint, since this is an always-on, event-triggered journey rather than a fixed-date send."
+        ],
+        "evidenceNotes": [
+          "No performance history exists for this tenant (P-verified). Expected effects described below are hypotheses, not predictions.",
+          "Aggregated EMI-eligible-transaction volume and current EMI-adoption rate among first-time-eligible customers would sharpen sizing of this journey, but is not a prerequisite — proceeding without it."
+        ]
+      },
+      "entry": {
+        "kind": "event",
+        "eventCategory": "Transaction Events",
+        "eventType": "Transaction",
+        "conditions": [
+          {
+            "attribute": "EMI Eligible",
+            "operator": "Equals",
+            "value": "true"
+          },
+          {
+            "attribute": "Transaction Status",
+            "operator": "Any of",
+            "value": [
+              "APPROVED",
+              "SETTLED"
+            ]
+          },
+          {
+            "attribute": "Initiated By",
+            "operator": "Equals",
+            "value": "CUSTOMER_INITIATED"
+          }
+        ]
+      },
+      "goal": {
+        "eventCategory": "EMI Events",
+        "eventType": "EMI_STATUS_CHANGED",
+        "conditions": [
+          {
+            "attribute": "New Status",
+            "operator": "Equals",
+            "value": "Successful"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "kind": "experiment"
+        }
+      ],
+      "graphReadiness": {
+        "status": "blocked",
+        "blockers": [
+          "steps[0].experiment.arms[0][1].wait: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][2].send: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][3].waitForEvent: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][4].exit: 2 open slots exist; the continuation is ambiguous."
+        ],
+        "limitations": []
+      },
+      "reply": "Target the moment an eligible purchase occurs and introduce EMI conversion on that specific transaction, since no customer-level 'has never used EMI' flag exists anywhere in the attribute catalogue. A two-touch, low-to-higher-cost message sequence invites conversion, with the platform's automatic goal check removing anyone who converts. A 10% holdout arm is included so any future lift claim has a baseline to compare against.\n\n**Approach**\n- Entry on the Transaction event (EMI Eligible = true, status Approved/Settled, customer-initiated) rather than any Customer-entity audience filter, because Customer has no EMI-history attribute to screen out past users — this is the closest available 'opportunity appears' moment.\n- Lead with EMAIL (cheapest) for the first-touch, reinforce with SMS for the reminder, per the stated preference for lower-cost-first sequencing.\n- Cap the sequence at 2 sends (well under the 4-message limit) to match the conservative 'fewer, better-targeted messages' preference, with a 48h wait enforcing the minimum spacing.\n- Use a 7-day waitForEvent for the EMI outcome, matching the verified 7-day request-expiry window (P-003), so the journey does not time out before an outcome is possible.\n- Add a 10% control arm with no messages, since any later claim of incremental effect needs a holdout (P-006) and 10% matches the stated preference.\n\n**Considered and not used**\n- Audience entry (ENTRY_SEGMENT) on broad Customer segment, trying to exclude prior EMI users — Customer entity exposes no EMI-usage attribute, so 'never used EMI' cannot actually be encoded this way — it would silently fail to exclude anyone, giving false precision.\n- Entering on EMI Request creation (EMI_STATUS_CHANGED = Pending) — That event means the customer already started an EMI request — the behaviour has already begun, so it is too late to be the entry point for 'introduce the feature'.\n- 3+ reminder messages up to the 4-message cap — Risk appetite is conservative and prefers fewer, better-targeted messages; two touches plus a 7-day wait already covers the realistic decision window without fatiguing the customer.\n\n**Assumptions**\n- Transaction Events and EMI Events categories are usable for design purposes but are marked new/proposed, not confirmed live in production.\n- Quiet hours, DNC and NPA exclusion are enforced by the platform's hard constraints rather than by conditions added here, since no such attributes exist in the condition catalogue.\n- The festive freeze window (Nov 7–21) is handled by platform-level scheduling, not by this blueprint, since this is an always-on, event-triggered journey rather than a fixed-date send.\n\n**Worth settling before this is built**\n- Is 'customers who have never used EMI' meant literally at the customer level, or is 'introduce EMI at the next eligible transaction' an acceptable proxy, given the platform has no lifetime EMI-usage flag on Customer? If a true never-used segment is required, this journey will also reach some repeat EMI users whose next transaction happens to be newly eligible, diluting the 'introduction' framing. Until then: Proceed with the eligible-transaction trigger as the practical entry point, since it is the only opportunity-based event available, and flag any future need for a customer-level EMI-history attribute.\n\n**Defaults applied**\n- Is a 10% no-message control arm acceptable for this specific campaign, or should the full audience receive the message given low expected reach already (P-001/P-002)? A holdout is only useful if a lift claim is actually wanted later; otherwise it reduces reach to an already-small converting population. Until then: Default to the stated 10% control preference since it is already on record.\n\n**Limitations**\n- Transaction Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- EMI Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- Can Transaction Events and EMI Events be relied on in production, or are they still proposed-only? Both the entry trigger and the goal depend on these categories; if they are not yet live, neither the entry nor the goal can fire.\n\n**Cannot be generated yet**\n- steps[0].experiment.arms[0][1].wait: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][2].send: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][3].waitForEvent: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][4].exit: 2 open slots exist; the continuation is ambiguous."
+    }
+  ]
+}

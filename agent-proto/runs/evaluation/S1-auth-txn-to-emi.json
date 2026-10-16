@@ -1,0 +1,235 @@
+{
+  "id": "S1-auth-txn-to-emi",
+  "title": "Auth transaction to EMI conversion",
+  "objective": "Customers authorised for an EMI-eligible purchase are not converting. Get more of them to convert before the request expires.",
+  "reviewerNotes": "The authorisation creates the opportunity; the EMI request is what the customer has not yet raised. Entry belongs on the transaction, the goal on the EMI status reaching its successful value. 'Product type is Auth' matches no value the platform defines and must be raised, not translated into a different attribute.",
+  "watchFor": [
+    "entry chosen on the EMI side because the objective says EMI",
+    "the Product Type mismatch absorbed silently"
+  ],
+  "turns": [
+    {
+      "phase": "awaiting-confirmation",
+      "toolsUsed": [
+        "Checking available trigger events",
+        "Checking audience attributes",
+        "Checking channel availability",
+        "Checking message template availability",
+        "Checking available journey steps",
+        "Checking available trigger events"
+      ],
+      "questions": [
+        "Should entry be the EMI Request's Pending transition (a request already exists, 7-day clock running) or the earlier Transaction authorisation event (purchase just approved, EMI-eligible, no request yet)?"
+      ],
+      "strategy": {
+        "summary": "Customers already have an open EMI Request sitting in 'Pending' from the moment their eligible purchase was authorised, and that request auto-expires after 7 days (P-003). The campaign enters at request creation, nudges completion with up to three spaced messages across the 7-day window, and exits cleanly at expiry. No performance history exists, so this is a hypothesis-driven nudge sequence with a holdout, not a guaranteed lift.",
+        "approach": [
+          "Entry on EMI_STATUS_CHANGED / New Status = Pending (EMI Request entity): this is the moment a real, open, convertible request exists — the behaviour (completing conversion) has not happened yet and the 7-day clock is already running, matching P-003's 'auth-triggered EMI request' language.",
+          "Goal on EMI_STATUS_CHANGED / New Status = Successful: the only event that proves the customer actually converted the request, as opposed to merely being eligible or merely messaged.",
+          "Three sends at 0h/48h/96h respect the 48h minimum spacing and the 4-message cap, leaving 2+ days of the 7-day window uncontested by messaging so the final waitForEvent can still observe success before expiry.",
+          "Lead with EMAIL (lowest cost) for the opener, SMS for the first reminder, WHATSAPP for the final, most-urgent reminder — cheaper-first per P-010, reserving the costliest channel for the last, highest-stakes push.",
+          "10% control group retained per stated preference so any future before/after read isn't confounded with 'what would have happened anyway' (P-006), though no lift claim is being made today."
+        ],
+        "rejected": [
+          {
+            "option": "Enter on the Transaction authorisation event (APPROVED + EMI Eligible=true) instead of EMI Request Pending.",
+            "why": "Not every eligible authorisation necessarily produces an EMI Request; entering earlier risks messaging people before any convertible request exists and before a 7-day expiry clock has started. Entering on Pending guarantees there is something concrete to finish and a known deadline. Flagged below as the one real strategic choice."
+          },
+          {
+            "option": "Branch and send a distinct message to customers whose request ends in Failed/Cancelled/Expired.",
+            "why": "Nothing is left to convert once a request is closed, and the goal check already removes anyone who succeeds — adding more branches just for closed/failed outcomes spends message-cap budget without a next action for the customer, which conflicts with the conservative, fewer-better-targeted-messages preference."
+          },
+          {
+            "option": "A fourth, final send right before the 7-day expiry.",
+            "why": "At 96h the next legal send point (48h later) is hour 144, within the 7-day/168h window but leaves almost no slack for quiet-hours deferral; a waitForEvent close-out is safer and avoids risking a 5th touch beyond the 4-message cap if timing slips."
+          },
+          {
+            "option": "A channel A/B experiment on top of the control holdout.",
+            "why": "P-005 — change one variable at a time. Running a channel test and a lift holdout simultaneously on a low-volume, low single-digit-conversion funnel (P-001/P-002) would make neither result interpretable."
+          }
+        ],
+        "assumptions": [
+          "DNC suppression, NPA exclusion, quiet-hours deferral and the 4-message/48h-spacing caps are enforced automatically by the platform and don't need to be modelled as explicit conditions.",
+          "EMI_STATUS_CHANGED and its New Status attribute, though marked 'new-proposed', are the only event source that can prove request creation and conversion, so the design depends on this becoming available.",
+          "The 7-day countdown in P-003 runs from the Pending transition, so 7 days minus the time already consumed by the two 48h waits (4 days) leaves 3 days for the final wait-for-event before close-out."
+        ],
+        "evidenceNotes": [
+          "No performance history exists for this bank (stated), so channel/timing choices are hypotheses, not optimisations. Aggregated conversion-by-channel or conversion-by-elapsed-day data, once available, would help re-sequence or re-channel the reminders."
+        ]
+      },
+      "entry": {
+        "kind": "event",
+        "eventCategory": "EMI Events",
+        "eventType": "EMI_STATUS_CHANGED",
+        "conditions": [
+          {
+            "attribute": "New Status",
+            "operator": "Equals",
+            "value": "Pending"
+          }
+        ]
+      },
+      "goal": {
+        "eventCategory": "EMI Events",
+        "eventType": "EMI_STATUS_CHANGED",
+        "conditions": [
+          {
+            "attribute": "New Status",
+            "operator": "Equals",
+            "value": "Successful"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "kind": "send",
+          "name": "Opener - EMI conversion available",
+          "copy": "${customerFirstName}, good news. Your recent purchase qualifies for easy EMI. Finish setting it up in just a few taps before the offer closes.",
+          "cta": "Convert to EMI"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 48
+        },
+        {
+          "kind": "send",
+          "name": "Reminder 1 - still open",
+          "copy": "${customerFirstName}, your EMI conversion request is still open. Complete it today to spread the cost of your purchase.",
+          "cta": "Complete now"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 48
+        },
+        {
+          "kind": "send",
+          "name": "Final reminder - closing soon",
+          "copy": "${customerFirstName}, your EMI conversion window is closing soon. Convert your purchase into easy instalments before it expires.",
+          "cta": "Convert before it expires"
+        },
+        {
+          "kind": "waitForEvent",
+          "timeoutDays": 3
+        },
+        {
+          "kind": "exit"
+        }
+      ],
+      "graphReadiness": {
+        "status": "ready",
+        "blockers": [],
+        "limitations": []
+      },
+      "reply": "Customers already have an open EMI Request sitting in 'Pending' from the moment their eligible purchase was authorised, and that request auto-expires after 7 days (P-003). The campaign enters at request creation, nudges completion with up to three spaced messages across the 7-day window, and exits cleanly at expiry. No performance history exists, so this is a hypothesis-driven nudge sequence with a holdout, not a guaranteed lift.\n\n**Approach**\n- Entry on EMI_STATUS_CHANGED / New Status = Pending (EMI Request entity): this is the moment a real, open, convertible request exists — the behaviour (completing conversion) has not happened yet and the 7-day clock is already running, matching P-003's 'auth-triggered EMI request' language.\n- Goal on EMI_STATUS_CHANGED / New Status = Successful: the only event that proves the customer actually converted the request, as opposed to merely being eligible or merely messaged.\n- Three sends at 0h/48h/96h respect the 48h minimum spacing and the 4-message cap, leaving 2+ days of the 7-day window uncontested by messaging so the final waitForEvent can still observe success before expiry.\n- Lead with EMAIL (lowest cost) for the opener, SMS for the first reminder, WHATSAPP for the final, most-urgent reminder — cheaper-first per P-010, reserving the costliest channel for the last, highest-stakes push.\n- 10% control group retained per stated preference so any future before/after read isn't confounded with 'what would have happened anyway' (P-006), though no lift claim is being made today.\n\n**Considered and not used**\n- Enter on the Transaction authorisation event (APPROVED + EMI Eligible=true) instead of EMI Request Pending. — Not every eligible authorisation necessarily produces an EMI Request; entering earlier risks messaging people before any convertible request exists and before a 7-day expiry clock has started. Entering on Pending guarantees there is something concrete to finish and a known deadline. Flagged below as the one real strategic choice.\n- Branch and send a distinct message to customers whose request ends in Failed/Cancelled/Expired. — Nothing is left to convert once a request is closed, and the goal check already removes anyone who succeeds — adding more branches just for closed/failed outcomes spends message-cap budget without a next action for the customer, which conflicts with the conservative, fewer-better-targeted-messages preference.\n- A fourth, final send right before the 7-day expiry. — At 96h the next legal send point (48h later) is hour 144, within the 7-day/168h window but leaves almost no slack for quiet-hours deferral; a waitForEvent close-out is safer and avoids risking a 5th touch beyond the 4-message cap if timing slips.\n- A channel A/B experiment on top of the control holdout. — P-005 — change one variable at a time. Running a channel test and a lift holdout simultaneously on a low-volume, low single-digit-conversion funnel (P-001/P-002) would make neither result interpretable.\n\n**Assumptions**\n- DNC suppression, NPA exclusion, quiet-hours deferral and the 4-message/48h-spacing caps are enforced automatically by the platform and don't need to be modelled as explicit conditions.\n- EMI_STATUS_CHANGED and its New Status attribute, though marked 'new-proposed', are the only event source that can prove request creation and conversion, so the design depends on this becoming available.\n- The 7-day countdown in P-003 runs from the Pending transition, so 7 days minus the time already consumed by the two 48h waits (4 days) leaves 3 days for the final wait-for-event before close-out.\n\n**Worth settling before this is built**\n- Should entry be the EMI Request's Pending transition (a request already exists, 7-day clock running) or the earlier Transaction authorisation event (purchase just approved, EMI-eligible, no request yet)? Changes who enters and when: Pending-based entry only reaches customers with a live, expiring request; transaction-based entry would reach a broader, earlier population including people who may never generate a request at all, and removes the ability to anchor the 7-day expiry deadline precisely. Until then: Default to entry on EMI_STATUS_CHANGED / New Status = Pending, since it's the only point that both guarantees an open request and gives a known expiry to design the wait/reminder cadence against.\n\n**Defaults applied**\n- Is a 10% holdout acceptable given the small addressable base (bookings run ~0.5% of TAB per P-002), or should the holdout be smaller to keep treated volume up? At low single-digit conversion and 0.5% booking rates, a 10% holdout may leave too few converted customers in either arm to read anything meaningful; a smaller holdout trades measurement rigor for treated reach. Until then: Default to the stated 10% control preference.\n- Channel order for the 3 touches (EMAIL → SMS → WHATSAPP) — acceptable, or is there a reason to prioritise WhatsApp earlier for this audience? Determines cost and likely attention pattern of the sequence. Until then: Default to cheapest-first, reserving WhatsApp (highest cost) for the final, most time-sensitive reminder, per stated preference P-010.\n\n**Limitations**\n- EMI Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- EMI_STATUS_CHANGED (EMI Request entity) is marked 'new-proposed' in platform metadata, not confirmed live in production. If this event isn't actually emitted yet, neither the entry trigger nor the goal can fire, and the whole campaign is blocked regardless of message design."
+    },
+    {
+      "phase": "awaiting-confirmation",
+      "toolsUsed": [
+        "Checking audience attributes",
+        "Checking available trigger events",
+        "Checking channel availability",
+        "Checking available journey steps"
+      ],
+      "questions": [
+        "You said \"Product type is Auth\". Product Type is defined on EMI Request, and \"Auth\" is not one of its values. It accepts: Single-Txn, Multi-Txn, Outstanding. Which of those do you mean?",
+        "Product Type = 'Auth' is not a valid EMI Request value (platform accepts Single-Txn, Multi-Txn, Outstanding only). Did you mean one of those three, or did you actually mean EMI Request Source = 'Txn-to-EMI' (a request generated directly from a transaction authorisation, which is conceptually closer to what 'Auth' suggests), or should the goal simply not filter by product/source at all?"
+      ],
+      "strategy": {
+        "summary": "Entry is now confirmed on the Transaction authorisation event, which catches customers at the earliest possible moment: the purchase just got approved and is EMI-eligible, before any EMI Request necessarily exists. The goal remains the EMI Request reaching Successful status — the only event that proves conversion. One value in your brief, Product Type = 'Auth', is still not expressible on this platform; I've designed around it by leaving Product Type out of the goal filter rather than guessing, and flagged the real alternatives below.",
+        "approach": [
+          "Entry on Transaction / Transaction Type Any of [AUTHORIZE], Transaction Status Any of [APPROVED], Initiated By = CUSTOMER_INITIATED, as confirmed — this is the opportunity event, before conversion has happened and while it still can.",
+          "Added EMI Eligible = true to entry. The brief didn't state it explicitly, but the objective names 'EMI-eligible purchase' specifically, and Transaction carries this attribute, so without it the entry would also catch non-eligible authorisations who can never convert.",
+          "Goal on EMI_STATUS_CHANGED / New Status = Successful only — Product Type is dropped from the goal filter because 'Auth' isn't a valid value for it (see open item below). Dropping it is the conflict-free option; it does mean the goal fires on ANY successful EMI request type, not just the one you meant by 'Auth'.",
+          "A 10% experiment holdout is added per your stated preference, even though no lift claim is being made yet — if you later want to read incremental effect, the control group needs to exist from day one (P-006), it can't be added retroactively.",
+          "Three messages, 48h apart (EMAIL → SMS → WHATSAPP, cheapest-first per P-010), then a waitForEvent closing out near the 7-day window — this respects the 4-message cap and 48h minimum spacing while leaving the automatic goal-check/exit to catch conversions after each touch."
+        ],
+        "rejected": [
+          {
+            "option": "Keep Product Type = 'Auth' by substituting the closest-sounding allowed value (e.g. Single-Txn).",
+            "why": "Guessing a substitute for a value the user gave would misrepresent their intent as settled. The instructions are explicit: raise the conflict, don't substitute."
+          },
+          {
+            "option": "Anchor the 7-day expiry wait to EMI Request creation instead of entry time.",
+            "why": "Entry is now the Transaction event, which may precede actual EMI Request creation by an unknown interval. There's no event available to re-anchor the clock mid-journey, so the 7-day countdown is approximated from entry time — flagged as an assumption, not a certainty."
+          },
+          {
+            "option": "A 4th send right before expiry.",
+            "why": "At 144h (3rd send + 48h) there's little slack left before a 168h expiry; a waitForEvent close-out is safer and keeps the journey inside the 4-message cap with margin for quiet-hours deferral."
+          },
+          {
+            "option": "Branch customers by delivery outcome (e.g. resend on SMS failure).",
+            "why": "That's a per-send fallback-channel concern (P-009), not a separate branch, and no fallback channel was requested — kept the design simple per the conservative, fewer-better-targeted-messages preference."
+          }
+        ],
+        "assumptions": [
+          "EMI Eligible = true is added to entry conditions to scope strictly to EMI-eligible purchases, consistent with the stated objective.",
+          "The 7-day expiry clock (P-003) is treated as running from the Transaction entry event, as an approximation — the platform has no event to confirm the actual EMI Request creation timestamp relative to entry.",
+          "DNC suppression, NPA exclusion, quiet-hours deferral and the message cap are enforced automatically and don't need explicit conditions."
+        ],
+        "evidenceNotes": [
+          "No performance history exists for this bank (P-verified). Nothing here claims a conversion lift; the 10% holdout exists so a future lift read is possible, not because one is being reported now."
+        ]
+      },
+      "entry": {
+        "kind": "event",
+        "eventCategory": "Transaction Events",
+        "eventType": "Transaction",
+        "conditions": [
+          {
+            "attribute": "Transaction Type",
+            "operator": "Any of",
+            "value": [
+              "AUTHORIZE"
+            ]
+          },
+          {
+            "attribute": "Transaction Status",
+            "operator": "Any of",
+            "value": [
+              "APPROVED"
+            ]
+          },
+          {
+            "attribute": "Initiated By",
+            "operator": "Equals",
+            "value": "CUSTOMER_INITIATED"
+          },
+          {
+            "attribute": "EMI Eligible",
+            "operator": "Equals",
+            "value": true
+          }
+        ]
+      },
+      "goal": {
+        "eventCategory": "EMI Events",
+        "eventType": "EMI_STATUS_CHANGED",
+        "conditions": [
+          {
+            "attribute": "New Status",
+            "operator": "Equals",
+            "value": "Successful"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "kind": "experiment"
+        }
+      ],
+      "graphReadiness": {
+        "status": "blocked",
+        "blockers": [
+          "steps[0].experiment.arms[0][1].wait: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][2].send: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][3].wait: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][4].send: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][5].waitForEvent: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][6].exit: 2 open slots exist; the continuation is ambiguous."
+        ],
+        "limitations": []
+      },
+      "reply": "Entry is now confirmed on the Transaction authorisation event, which catches customers at the earliest possible moment: the purchase just got approved and is EMI-eligible, before any EMI Request necessarily exists. The goal remains the EMI Request reaching Successful status — the only event that proves conversion. One value in your brief, Product Type = 'Auth', is still not expressible on this platform; I've designed around it by leaving Product Type out of the goal filter rather than guessing, and flagged the real alternatives below.\n\n**Approach**\n- Entry on Transaction / Transaction Type Any of [AUTHORIZE], Transaction Status Any of [APPROVED], Initiated By = CUSTOMER_INITIATED, as confirmed — this is the opportunity event, before conversion has happened and while it still can.\n- Added EMI Eligible = true to entry. The brief didn't state it explicitly, but the objective names 'EMI-eligible purchase' specifically, and Transaction carries this attribute, so without it the entry would also catch non-eligible authorisations who can never convert.\n- Goal on EMI_STATUS_CHANGED / New Status = Successful only — Product Type is dropped from the goal filter because 'Auth' isn't a valid value for it (see open item below). Dropping it is the conflict-free option; it does mean the goal fires on ANY successful EMI request type, not just the one you meant by 'Auth'.\n- A 10% experiment holdout is added per your stated preference, even though no lift claim is being made yet — if you later want to read incremental effect, the control group needs to exist from day one (P-006), it can't be added retroactively.\n- Three messages, 48h apart (EMAIL → SMS → WHATSAPP, cheapest-first per P-010), then a waitForEvent closing out near the 7-day window — this respects the 4-message cap and 48h minimum spacing while leaving the automatic goal-check/exit to catch conversions after each touch.\n\n**Considered and not used**\n- Keep Product Type = 'Auth' by substituting the closest-sounding allowed value (e.g. Single-Txn). — Guessing a substitute for a value the user gave would misrepresent their intent as settled. The instructions are explicit: raise the conflict, don't substitute.\n- Anchor the 7-day expiry wait to EMI Request creation instead of entry time. — Entry is now the Transaction event, which may precede actual EMI Request creation by an unknown interval. There's no event available to re-anchor the clock mid-journey, so the 7-day countdown is approximated from entry time — flagged as an assumption, not a certainty.\n- A 4th send right before expiry. — At 144h (3rd send + 48h) there's little slack left before a 168h expiry; a waitForEvent close-out is safer and keeps the journey inside the 4-message cap with margin for quiet-hours deferral.\n- Branch customers by delivery outcome (e.g. resend on SMS failure). — That's a per-send fallback-channel concern (P-009), not a separate branch, and no fallback channel was requested — kept the design simple per the conservative, fewer-better-targeted-messages preference.\n\n**Assumptions**\n- EMI Eligible = true is added to entry conditions to scope strictly to EMI-eligible purchases, consistent with the stated objective.\n- The 7-day expiry clock (P-003) is treated as running from the Transaction entry event, as an approximation — the platform has no event to confirm the actual EMI Request creation timestamp relative to entry.\n- DNC suppression, NPA exclusion, quiet-hours deferral and the message cap are enforced automatically and don't need explicit conditions.\n\n**Worth settling before this is built**\n- You said \"Product type is Auth\". Product Type is defined on EMI Request, and \"Auth\" is not one of its values. It accepts: Single-Txn, Multi-Txn, Outstanding. Which of those do you mean? The campaign cannot carry that value as stated, and choosing a different attribute on your behalf would change who it targets.\n- Product Type = 'Auth' is not a valid EMI Request value (platform accepts Single-Txn, Multi-Txn, Outstanding only). Did you mean one of those three, or did you actually mean EMI Request Source = 'Txn-to-EMI' (a request generated directly from a transaction authorisation, which is conceptually closer to what 'Auth' suggests), or should the goal simply not filter by product/source at all? This changes which successful EMI requests count as the goal. Filtering by product type or source narrows who the campaign claims credit for; leaving it open means any successful EMI request from this flow counts. Until then: Goal stays unfiltered beyond New Status = Successful — broadest, conflict-free interpretation.\n\n**Defaults applied**\n- Is the 10% control holdout right-sized, given booked conversions run ~0.5% of the addressable base (P-002) and reaching ~2% end-to-end conversion (P-001) — a 10% holdout may yield very few holdout conversions to compare against. A too-small treated or control group makes any future lift read statistically weak, though it doesn't block running the campaign today. Until then: Default to the stated 10% control preference.\n\n**Limitations**\n- Transaction Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- EMI Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- Transaction Events and EMI Events (EMI_STATUS_CHANGED) are both marked 'new — proposed, not confirmed built in production.' Both the entry trigger and the goal depend on these. If they aren't live, this campaign cannot fire at all regardless of message design.\n\n**Cannot be generated yet**\n- steps[0].experiment.arms[0][1].wait: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][2].send: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][3].wait: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][4].send: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][5].waitForEvent: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][6].exit: 2 open slots exist; the continuation is ambiguous."
+    }
+  ]
+}

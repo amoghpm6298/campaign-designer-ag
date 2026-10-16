@@ -1,0 +1,458 @@
+{
+ "at": "2026-10-15T10-25-10-503Z",
+ "complete": true,
+ "pairsRun": 1,
+ "pairsPlanned": 1,
+ "results": [
+  {
+   "pair": "goal-count-vs-value",
+   "title": "Maximise the number of conversions vs the value converted",
+   "a": {
+    "label": "count",
+    "phase": "awaiting-confirmation",
+    "reply": "Target customers who already have an open OS-to-EMI request sitting Pending (Product Type=Outstanding, Source=OS-to-EMI), and nudge them to complete it before it expires in 7 days. Because IBL is not certain interest-cost hesitation is the real barrier, the journey tests that belief against a competing explanation (simplicity/affordability) rather than assuming it. Messages escalate in urgency and channel cost as the 7-day window closes, with a 10% holdout so a true comparison is possible.\n\n**Approaches considered**\n- **Pending-request nudge (chosen)** — chosen\n  Entry: EMI_STATUS_CHANGED event, New Status=Pending, Product Type=Outstanding, Source=OS-to-EMI\n  Mechanism: Reduce whatever is holding the customer back — tested as interest-cost vs simplicity/affordability framing — while the request is still open\n  Timing: Anchored to the moment the request goes Pending; up to 4 touches spaced 48h apart, concluding the day before the 7-day expiry\n  Trade-off: Reaches only customers who already have a live OS-to-EMI request; does nothing for eligible customers who never started one\n  Why this one: The user's own success metric is 'EMI Requests reaching Successful' — this architecture sits exactly on that entity and lifecycle, with no proxy involved, and fits inside the real 7-day window (P-003).\n- Upstream eligibility nudge (not chosen)\n  Entry: Transaction event, EMI Eligible=true, Transaction Status=SETTLED, Initiated By=CUSTOMER_INITIATED\n  Mechanism: Proactively surface the outstanding-balance-to-EMI offer before any request exists, aiming to create more Pending requests\n  Timing: Fires right after a qualifying settled transaction\n  Trade-off: Reaches a larger, earlier population, but the Transaction entity has no Product Type field, so it cannot isolate outstanding-balance eligibility from other EMI-eligible transaction types (Txn-to-EMI, Multi-Txn-to-EMI). Targeting would be broader and less precise than the stated objective, and conversion would depend on a Pending stage this architecture doesn't manage.\n\n**Approach**\n- Entry and goal both use the EMI Request entity directly (Product Type=Outstanding, Source=OS-to-EMI) rather than a proxy — this is what the tool's attribute list makes possible and it matches the objective exactly (tool + reasoning).\n- Both EMI_STATUS_CHANGED and Transaction categories are marked 'new-proposed' in the platform metadata — not confirmed built in production. This is disclosed as an operational limitation, not hidden (tool).\n- Interest-cost hesitation is treated as an untested belief, not a given, because the user themselves said they are not certain — so the journey tests it via two framings rather than assuming one (user-belief + reasoning).\n- Balance-size-based targeting/messaging is left unbuilt because no attribute carries it on the entity in play — not substituted with a near-enough proxy (tool).\n- Message count and spacing (4 messages, 48h apart) are chosen because they exactly fill the real 7-day window this request stays open, ending the day before expiry — not an arbitrary cap (tool: P-003, knowledge base: spacing/cap).\n- Channel order leads with EMAIL (cheapest) and escalates to SMS/WhatsApp for reminders and the final urgent touch, per the tenant's stated preference for lower-cost-first (tenant preference).\n\n**Options weighed**\n- Segmentation — cannot evaluate yet. Wanted to segment by outstanding balance size for different framing intensity, but EMI Request carries no amount attribute and Transaction Amount cannot be joined to this entry's entity — would need a balance field exposed on EMI Request or Account to evaluate.\n- Experimentation — used. Two arms with real, different copy test interest-cost-savings framing against affordability/simplicity framing — directly addresses the user's own uncertainty about the cause, read against each other and against a 10% holdout.\n- Conditional branching — used. A condition on the first send's delivery outcome (DELIVERED yes/no) routes customers differently — non-delivered customers get a resend-styled follow-up, delivered customers get a true reinforcing reminder.\n- Channel fallback — used. Built as a condition-plus-alternate-send (not the native single-field fallback property, which this builder cannot express): if the EMAIL first-touch is not DELIVERED, the next message goes via SMS instead.\n- Adaptive sequencing — used. Message tone shifts from informational (day 0) to urgent/deadline-framed (day 6, one day before the 7-day expiry) as the window closes — channel also escalates from EMAIL to SMS to WhatsApp.\n- Cost and fatigue — used. Leads with the cheapest channel, reserves WhatsApp for the last two higher-stakes touches, and uses all 4 permitted messages only because the 7-day window and 48h minimum spacing allow exactly 4 non-overlapping touches ending before expiry; the weakest message is reminder #2 (day 2, SMS) since it follows only 48h after first-touch and repeats the same framing — kept because it is the only second touchpoint before urgency escalates, but it is the first candidate to cut if fatigue becomes a concern.\n- Measurement and learning — used. A 10% holdout lets conversion among entrants be compared against non-contacted customers (incremental read, per P-006), and the A/B framing split lets the two competing explanations for hesitation be compared against each other — not just one message's performance in isolation.\n\n**Considered and not used**\n- Single fixed message for everyone (no framing test) — The user said outright they are not certain interest-cost hesitation is the real barrier. Committing the whole journey to that one framing would quietly decide the cause for them; testing it against a competing explanation costs nothing extra in reach.\n\n**Success criteria**\n- Number of EMI Requests (Source=OS-to-EMI, Product Type=Outstanding) reaching New Status=Successful — a count, not a value. Maximising the number of converting customers is the explicit goal; the size of balance converted does not matter to IBL (their words).\n\n**Measurement**\n- Track, per arm (A: interest-savings framing, B: affordability framing) and against the 10% holdout: count of entrants whose EMI Request reaches Successful, and count reaching Failed/Expired/Cancelled.\n- Track delivery outcomes per channel per step, to see how often the EMAIL-fails-to-SMS fallback path is actually used.\n- Read arm A vs arm B as a relative comparison of two hypotheses about the barrier, not as a proven cause — and read entrants vs holdout as the only valid basis for any incremental claim (no performance history exists for this bank to size an expected lift in advance).\n\n**Assumptions**\n- An EMI Request with Source=OS-to-EMI and New Status=Pending represents a live, actionable conversion opportunity the customer can still complete (consistent with P-003's 7-day open window).\n- Quiet hours and minimum 48h spacing are enforced by the platform at send time; the journey is designed assuming they apply automatically.\n\n**Hypotheses for future testing**\n- Framing the offer around stopping ongoing interest (Arm A) converts a different set of hesitant customers than framing it around ease/fixed payment (Arm B) — untested, to be read from the experiment, not assumed.\n- Escalating urgency as the 7-day expiry nears increases completion among customers who were otherwise going to let the request lapse — untested.\n\n**Worth settling before this is built**\n- Should a separate, earlier-stage campaign be built to nudge customers who have an EMI-eligible outstanding balance but have not yet started any OS-to-EMI request at all — i.e. to grow the Pending pool itself? This campaign only acts on customers who already have a Pending OS-to-EMI request. It does nothing to create new requests from customers who are eligible but have never engaged with the offer, which is a different audience and a different entry point (Architecture 2, not chosen above). Until then: This campaign stays scoped to converting existing Pending requests to Successful, matching the success metric as stated.\n\n**Defaults applied**\n- Confirm the control/holdout size. Needed to read any incremental effect honestly (P-006); affects how many customers are excluded from messaging. Until then: Default to the tenant's stated preferred control group of 10%, as used in this blueprint.\n\n**Limitations**\n- EMI Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- EMI_STATUS_CHANGED (EMI Request) and Transaction are both marked 'new-proposed' in the platform metadata, not confirmed built in production. The entire entry and goal for this campaign depend on EMI_STATUS_CHANGED firing reliably in production. If it is not yet live, this campaign cannot run as designed.\n- Outstanding balance size cannot be used to tailor message intensity or targeting. If larger balances behave differently (e.g. more price-sensitive), this campaign cannot currently differentiate for them — it treats all Pending OS-to-EMI customers alike regardless of size.\n\n**Cannot be generated yet**\n- steps[0].experiment.arms[0][1].wait: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][2].condition: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[1][1].wait: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[1][2].condition: 2 open slots exist; the continuation is ambiguous.\n\n**Still unknown**\n- Whether the true barrier is interest-cost, process friction, trust, or simply not noticing the offer — the experiment narrows this to two candidate explanations but does not cover every possible cause.\n- Whether EMI_STATUS_CHANGED and Transaction events are actually live in production today (flagged 'new-proposed' by the tool) — this blocks nothing in the design but should be confirmed before launch.",
+    "blueprint": {
+     "campaignName": "OS-to-EMI: Pending Request Completion Nudge",
+     "description": "Nudges customers with an open OS-to-EMI request (Product Type=Outstanding, Source=OS-to-EMI, currently Pending) to complete it before the 7-day window closes. Tests two competing explanations for hesitation — interest-cost savings vs affordability/simplicity — against each other and against a holdout.",
+     "controlPct": 10,
+     "goal": {
+      "eventCategory": "EMI Events",
+      "eventType": "EMI_STATUS_CHANGED",
+      "conditions": [
+       {
+        "attribute": "New Status",
+        "operator": "Equals",
+        "value": "Successful"
+       },
+       {
+        "attribute": "Product Type",
+        "operator": "Equals",
+        "value": "Outstanding"
+       },
+       {
+        "attribute": "Source",
+        "operator": "Equals",
+        "value": "OS-to-EMI"
+       }
+      ]
+     },
+     "entry": {
+      "kind": "event",
+      "eventCategory": "EMI Events",
+      "eventType": "EMI_STATUS_CHANGED",
+      "conditions": [
+       {
+        "attribute": "New Status",
+        "operator": "Equals",
+        "value": "Pending"
+       },
+       {
+        "attribute": "Product Type",
+        "operator": "Equals",
+        "value": "Outstanding"
+       },
+       {
+        "attribute": "Source",
+        "operator": "Equals",
+        "value": "OS-to-EMI"
+       }
+      ]
+     },
+     "steps": [
+      {
+       "kind": "experiment",
+       "label": "Framing hypothesis test: interest-cost savings vs affordability/simplicity",
+       "arms": [
+        {
+         "label": "A - Interest-cost savings framing",
+         "pct": 50,
+         "steps": [
+          {
+           "kind": "send",
+           "name": "First touch - interest savings",
+           "objective": [
+            "interest",
+            "fixed",
+            "stop",
+            "convert"
+           ],
+           "stage": "first-touch",
+           "describe": "Opening message framing the offer around stopping ongoing interest on the revolving balance.",
+           "copy": "Hi ${customerFirstName}, you can move your outstanding card balance to a fixed EMI and stop paying revolving interest on it every month. Convert now and lock in a fixed monthly payment.",
+           "cta": "Convert to EMI",
+           "channelPreference": [
+            "EMAIL"
+           ]
+          },
+          {
+           "kind": "wait",
+           "durationHours": 48,
+           "why": "Minimum spacing between messages before checking delivery and following up."
+          },
+          {
+           "kind": "condition",
+           "label": "Was the first-touch email delivered?",
+           "outcomes": [
+            "DELIVERED"
+           ],
+           "yes": [
+            {
+             "kind": "send",
+             "name": "Reminder 1 - interest savings",
+             "objective": [
+              "interest",
+              "eligible",
+              "switch",
+              "balance"
+             ],
+             "stage": "reminder",
+             "describe": "Reinforcing reminder for customers who received the first message.",
+             "copy": "${customerFirstName}, your outstanding balance is still eligible for EMI. Switching now stops further interest from building up.",
+             "cta": "Convert now",
+             "channelPreference": [
+              "SMS"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing before the next reminder."
+            },
+            {
+             "kind": "send",
+             "name": "Reminder 2 - interest savings",
+             "objective": [
+              "interest",
+              "fixed",
+              "convert",
+              "today"
+             ],
+             "stage": "reminder",
+             "describe": "Second reminder, escalating urgency and channel.",
+             "copy": "${customerFirstName}, each day on your current balance adds more interest. Convert to EMI today for a fixed monthly amount instead.",
+             "cta": "Convert to EMI",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Final spacing gap, landing the last message the day before the 7-day request window closes."
+            },
+            {
+             "kind": "send",
+             "name": "Final urgency - interest savings",
+             "objective": [
+              "closes",
+              "soon",
+              "interest",
+              "convert"
+             ],
+             "stage": "outcome",
+             "describe": "Final message before the Pending request is expected to expire.",
+             "copy": "${customerFirstName}, this EMI offer on your outstanding balance closes soon. Convert now to stop paying revolving interest.",
+             "cta": "Convert before it closes",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "exit",
+             "reason": "End of sequence - delivered path, interest-savings arm."
+            }
+           ],
+           "no": [
+            {
+             "kind": "send",
+             "name": "Resend (undelivered) - interest savings",
+             "objective": [
+              "missed",
+              "interest",
+              "convert",
+              "balance"
+             ],
+             "stage": "reminder",
+             "describe": "Functional fallback: first message was not confirmed delivered on EMAIL, so this resends the core message via SMS.",
+             "copy": "${customerFirstName}, in case our last message didn't reach you: your card balance can be converted to a fixed EMI to stop ongoing interest charges.",
+             "cta": "Convert now",
+             "channelPreference": [
+              "SMS"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing before the next reminder."
+            },
+            {
+             "kind": "send",
+             "name": "Reminder 2 - interest savings (recovery path)",
+             "objective": [
+              "interest",
+              "fixed",
+              "convert",
+              "today"
+             ],
+             "stage": "reminder",
+             "describe": "Second reminder for the recovery path, escalating channel.",
+             "copy": "${customerFirstName}, each day on your current balance adds more interest. Convert to EMI today for a fixed monthly amount instead.",
+             "cta": "Convert to EMI",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Final spacing gap before the request window closes."
+            },
+            {
+             "kind": "send",
+             "name": "Final urgency - interest savings (recovery path)",
+             "objective": [
+              "closes",
+              "soon",
+              "interest",
+              "convert"
+             ],
+             "stage": "outcome",
+             "describe": "Final message before the Pending request is expected to expire.",
+             "copy": "${customerFirstName}, this EMI offer on your outstanding balance closes soon. Convert now to stop paying revolving interest.",
+             "cta": "Convert before it closes",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "exit",
+             "reason": "End of sequence - recovery path, interest-savings arm."
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "label": "B - Affordability/simplicity framing",
+         "pct": 50,
+         "steps": [
+          {
+           "kind": "send",
+           "name": "First touch - affordability",
+           "objective": [
+            "easy",
+            "instalments",
+            "simple",
+            "balance"
+           ],
+           "stage": "first-touch",
+           "describe": "Opening message framing the offer around ease and predictability, not interest.",
+           "copy": "Hi ${customerFirstName}, you can split your outstanding card balance into easy fixed monthly instalments in one tap. No paperwork, no branch visit.",
+           "cta": "Set up EMI",
+           "channelPreference": [
+            "EMAIL"
+           ]
+          },
+          {
+           "kind": "wait",
+           "durationHours": 48,
+           "why": "Minimum spacing between messages before checking delivery and following up."
+          },
+          {
+           "kind": "condition",
+           "label": "Was the first-touch email delivered?",
+           "outcomes": [
+            "DELIVERED"
+           ],
+           "yes": [
+            {
+             "kind": "send",
+             "name": "Reminder 1 - affordability",
+             "objective": [
+              "easy",
+              "minute",
+              "predictable",
+              "payment"
+             ],
+             "stage": "reminder",
+             "describe": "Reinforcing reminder for customers who received the first message.",
+             "copy": "${customerFirstName}, setting up EMI on your balance takes less than a minute and gives you one predictable monthly payment.",
+             "cta": "Set up now",
+             "channelPreference": [
+              "SMS"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing before the next reminder."
+            },
+            {
+             "kind": "send",
+             "name": "Reminder 2 - affordability",
+             "objective": [
+              "taps",
+              "easy",
+              "payment",
+              "quick"
+             ],
+             "stage": "reminder",
+             "describe": "Second reminder, escalating channel.",
+             "copy": "${customerFirstName}, a few taps and your balance becomes one easy fixed monthly payment. It's quick to set up.",
+             "cta": "Set up EMI",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Final spacing gap, landing the last message the day before the 7-day request window closes."
+            },
+            {
+             "kind": "send",
+             "name": "Final urgency - affordability",
+             "objective": [
+              "closes",
+              "soon",
+              "minute",
+              "easy"
+             ],
+             "stage": "outcome",
+             "describe": "Final message before the Pending request is expected to expire.",
+             "copy": "${customerFirstName}, this easy-instalment offer on your balance closes soon. It only takes a minute to set up.",
+             "cta": "Set up before it closes",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "exit",
+             "reason": "End of sequence - delivered path, affordability arm."
+            }
+           ],
+           "no": [
+            {
+             "kind": "send",
+             "name": "Resend (undelivered) - affordability",
+             "objective": [
+              "missed",
+              "easy",
+              "instalments",
+              "tap"
+             ],
+             "stage": "reminder",
+             "describe": "Functional fallback: first message was not confirmed delivered on EMAIL, so this resends the core message via SMS.",
+             "copy": "${customerFirstName}, in case you missed it: you can turn your balance into simple fixed instalments in one tap.",
+             "cta": "Set up now",
+             "channelPreference": [
+              "SMS"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing before the next reminder."
+            },
+            {
+             "kind": "send",
+             "name": "Reminder 2 - affordability (recovery path)",
+             "objective": [
+              "taps",
+              "easy",
+              "payment",
+              "quick"
+             ],
+             "stage": "reminder",
+             "describe": "Second reminder for the recovery path, escalating channel.",
+             "copy": "${customerFirstName}, a few taps and your balance becomes one easy fixed monthly payment. It's quick to set up.",
+             "cta": "Set up EMI",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Final spacing gap before the request window closes."
+            },
+            {
+             "kind": "send",
+             "name": "Final urgency - affordability (recovery path)",
+             "objective": [
+              "closes",
+              "soon",
+              "minute",
+              "easy"
+             ],
+             "stage": "outcome",
+             "describe": "Final message before the Pending request is expected to expire.",
+             "copy": "${customerFirstName}, this easy-instalment offer on your balance closes soon. It only takes a minute to set up.",
+             "cta": "Set up before it closes",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "exit",
+             "reason": "End of sequence - recovery path, affordability arm."
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "mechanism": "Reduce whatever is holding the customer back — tested as interest-cost vs simplicity/affordability framing — while the request is still open",
+    "whyChosen": "The user's own success metric is 'EMI Requests reaching Successful' — this architecture sits exactly on that entity and lifecycle, with no proxy involved, and fits inside the real 7-day window (P-003).",
+    "architectureCount": 2,
+    "questions": [
+     "How would IBL judge this campaign as having worked — e.g. number of customers who book an OS-to-EMI conversion, total outstanding value converted to EMI, interest/fee revenue from EMI bookings, or something else? If there's no formal target yet, say so and I'll treat it as a working measure, not a target.",
+     "When you say 'increase OS-to-EMI conversions', do you mean maximising the NUMBER of customers who convert, or the total OUTSTANDING VALUE converted to EMI? The two often favour different customers (many small balances vs fewer large ones), so this changes who the campaign should prioritise.",
+     "Should a separate, earlier-stage campaign be built to nudge customers who have an EMI-eligible outstanding balance but have not yet started any OS-to-EMI request at all — i.e. to grow the Pending pool itself?"
+    ],
+    "transport": [
+     "turn 2 attempt 1: The agent could not complete: Anthropic call timed out."
+    ],
+    "truncated": false
+   },
+   "b": {
+    "label": "value",
+    "phase": "discovery",
+    "reply": "I've confirmed 'OS-to-EMI' is a real, nameable concept on this platform: EMI Request has a Source value literally called 'OS-to-EMI', with a New Status lifecycle (Pending → Successful/Failed/Expired/Cancelled). So the objective maps to something buildable — converting a customer's outstanding/revolving balance into a fixed EMI plan. Before I design anything (audience, entry point, sequence), I need the business's own definition of what winning looks like, because it decides which event is the goal, who should be prioritised, and how the result should be read. This round is deliberately just about the objective and its measure — not yet about audience or cause.",
+    "blueprint": null,
+    "mechanism": "",
+    "whyChosen": "",
+    "architectureCount": 0,
+    "questions": [
+     "What would make you call this campaign a success — e.g. more customers converting an outstanding balance to EMI, more total value of outstanding balance moved onto EMI, interest revenue retained, or something else like reduced revolving-balance risk?",
+     "Within that: is the priority the NUMBER of customers who convert, or the VALUE of outstanding balance converted? These can diverge — customers with small outstanding balances are usually easiest to convert but move the least value, while larger balances matter more financially but may convert less easily."
+    ],
+    "transport": [
+     "turn 2 attempt 1: The agent could not complete: Anthropic call timed out.",
+     "turn 2 attempt 2: The agent could not complete: Anthropic call timed out.",
+     "turn 2 attempt 3: The agent could not complete: Anthropic call timed out.",
+     "turn 2 attempt 4: The agent could not complete: Anthropic call timed out."
+    ],
+    "truncated": true
+   },
+   "divergence": null,
+   "verdict": "inconclusive",
+   "note": "one or both arms did not complete their turns — transport, not reasoning",
+   "aSignature": {
+    "entry": "event:emi events/emi_status_changed",
+    "audience": "new statusequalspending+product typeequalsoutstanding+sourceequalsos-to-emi",
+    "timing": "X[,50:(s:first-touch,w:48,C[delivered:(,s:reminder,w:48,s:reminder,w:48,s:outcome,x,)(,s:reminder,w:48,s:reminder,w:48,s:outcome,x,)]),50:(s:first-touch,w:48,C[delivered:(,s:reminder,w:48,s:reminder,w:48,s:outcome,x,)(,s:reminder,w:48,s:reminder,w:48,s:outcome,x,)]),]",
+    "shape": "experiment,[,(send,wait,condition,[(,send,wait,send,wait,send,exit,)(,send,wait,send,wait,send,exit,)]),(send,wait,condition,[(,send,wait,send,wait,send,exit,)(,send,wait,send,wait,send,exit,)]),]"
+   },
+   "bSignature": {
+    "entry": "none",
+    "audience": "none",
+    "timing": "none",
+    "shape": "none"
+   }
+  }
+ ]
+}

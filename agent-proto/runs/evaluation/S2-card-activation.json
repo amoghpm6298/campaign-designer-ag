@@ -1,0 +1,107 @@
+{
+  "id": "S2-card-activation",
+  "title": "New card activation",
+  "objective": "Too many newly issued cards are never activated. Get more customers to activate the card they have just received.",
+  "reviewerNotes": "Issuance creates the opportunity; activation is the behaviour and the proof. Both exist as card events, so entry and goal are different event types in the same category.",
+  "watchFor": [
+    "an audience pull where a real issuance event exists",
+    "a goal that cannot be observed"
+  ],
+  "turns": [
+    {
+      "phase": "awaiting-confirmation",
+      "toolsUsed": [
+        "Checking available trigger events",
+        "Checking audience attributes",
+        "Checking channel availability",
+        "Checking message template availability",
+        "Checking available journey steps",
+        "Checking channel availability"
+      ],
+      "questions": [
+        "Should virtual cards (which some issuers auto-activate) be messaged the same way as physical cards needing explicit activation, or excluded/handled differently?"
+      ],
+      "strategy": {
+        "summary": "Target customers right after a new card is issued but before it's activated, and nudge them across an escalating, low-to-high-cost channel sequence to complete activation. The behaviour we want is the customer completing the card activation action; the formal goal is the Card Activated event. Entry sits at Card Issued (opportunity appears, activation not yet done), not at any later or earlier event, so there is still time to influence the outcome.",
+        "approach": [
+          "Entry = Card Issued event: this is the earliest point where the behaviour (activation) hasn't happened yet and the card already exists to act on — using 'Card Activated' itself as entry would mean entering after the desired action, which is wrong.",
+          "Goal = Card Activated event: it's the only event that directly proves the behaviour; Card attribute 'Is Ever Activated' describes state but isn't an event, so it can't be a goal.",
+          "Lead with EMAIL (lowest cost) as first-touch, then SMS, then WHATSAPP as reinforcement/recovery — follows the tenant's stated preference to lead low-cost and reserve pricier channels for later nudges.",
+          "Space every message 48h apart (the enforced minimum) and cap at 3 sends out of the allowed 4, trading a theoretical 4th reminder for fewer/better-targeted messages per the bank's conservative risk appetite and fatigue avoidance (P-011).",
+          "Apply a 10% control holdout per tenant preference and P-006, since this campaign implicitly tests whether reminders change activation behaviour and any later lift claim needs a holdout to be credible."
+        ],
+        "rejected": [
+          {
+            "option": "Branch messaging by Card Type (Physical vs Virtual vs Phygital)",
+            "why": "No condition step exists for branching on card attributes mid-journey (Condition step only reads previous send outcome), and Card Events carries no entity-filterable conditions today — building a branch would require a capability that doesn't exist yet. Kept the copy generic enough to fit any card type instead."
+          },
+          {
+            "option": "waitForEvent on an activation-related sub-event (e.g. PIN set)",
+            "why": "No such granular event exists in the vocabulary; Card Activated is binary and already covered by the automatic Goal Check after every send/wait, so an extra wait step would be redundant."
+          },
+          {
+            "option": "Using all 4 allowed messages",
+            "why": "A 4th reminder would push past what the conservative risk appetite and reminder-fatigue hypothesis (P-011) support without any targeting refinement to justify it; 3 escalating touches already cover low/mid/high-cost channels."
+          }
+        ],
+        "assumptions": [
+          "Quiet hours, DNC and NPA exclusion are enforced by the platform automatically and don't need explicit steps.",
+          "All newly issued card types (Physical, Virtual, Phygital) are addressed with the same generic activation message unless told otherwise.",
+          "No performance history exists for this bank, so all effectiveness claims below are explicitly framed as untested hypotheses, not predictions."
+        ],
+        "evidenceNotes": [
+          "Distribution of time-to-activation for past cohorts would help tune the 48h spacing and total window, but no historical data exists for this bank (per knowledge base), so default spacing follows the platform's enforced minimum instead.",
+          "Aggregate activation-rate-by-channel data would help decide channel order with more confidence than the stated cost-based default, but is likewise unavailable."
+        ]
+      },
+      "entry": {
+        "kind": "event",
+        "eventCategory": "Card Events",
+        "eventType": "Card Issued",
+        "conditions": []
+      },
+      "goal": {
+        "eventCategory": "Card Events",
+        "eventType": "Card Activated",
+        "conditions": []
+      },
+      "steps": [
+        {
+          "kind": "send",
+          "name": "Activation first-touch",
+          "copy": "Hi ${customerFirstName}, your new IndusInd Bank card has arrived. Activate it now to start using it for payments and rewards.",
+          "cta": "Activate your card"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 48
+        },
+        {
+          "kind": "send",
+          "name": "Activation reminder 1",
+          "copy": "Hi ${customerFirstName}, your new card is still waiting to be activated. It only takes a minute: ${shortUrl}",
+          "cta": "Activate now"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 48
+        },
+        {
+          "kind": "send",
+          "name": "Activation reminder 2",
+          "copy": "Your IndusInd Bank card is ready and waiting. Activate it today so you can start earning on your spends.",
+          "cta": "Activate card"
+        },
+        {
+          "kind": "exit"
+        }
+      ],
+      "graphReadiness": {
+        "status": "ready",
+        "blockers": [],
+        "limitations": []
+      },
+      "reply": "Target customers right after a new card is issued but before it's activated, and nudge them across an escalating, low-to-high-cost channel sequence to complete activation. The behaviour we want is the customer completing the card activation action; the formal goal is the Card Activated event. Entry sits at Card Issued (opportunity appears, activation not yet done), not at any later or earlier event, so there is still time to influence the outcome.\n\n**Approach**\n- Entry = Card Issued event: this is the earliest point where the behaviour (activation) hasn't happened yet and the card already exists to act on — using 'Card Activated' itself as entry would mean entering after the desired action, which is wrong.\n- Goal = Card Activated event: it's the only event that directly proves the behaviour; Card attribute 'Is Ever Activated' describes state but isn't an event, so it can't be a goal.\n- Lead with EMAIL (lowest cost) as first-touch, then SMS, then WHATSAPP as reinforcement/recovery — follows the tenant's stated preference to lead low-cost and reserve pricier channels for later nudges.\n- Space every message 48h apart (the enforced minimum) and cap at 3 sends out of the allowed 4, trading a theoretical 4th reminder for fewer/better-targeted messages per the bank's conservative risk appetite and fatigue avoidance (P-011).\n- Apply a 10% control holdout per tenant preference and P-006, since this campaign implicitly tests whether reminders change activation behaviour and any later lift claim needs a holdout to be credible.\n\n**Considered and not used**\n- Branch messaging by Card Type (Physical vs Virtual vs Phygital) — No condition step exists for branching on card attributes mid-journey (Condition step only reads previous send outcome), and Card Events carries no entity-filterable conditions today — building a branch would require a capability that doesn't exist yet. Kept the copy generic enough to fit any card type instead.\n- waitForEvent on an activation-related sub-event (e.g. PIN set) — No such granular event exists in the vocabulary; Card Activated is binary and already covered by the automatic Goal Check after every send/wait, so an extra wait step would be redundant.\n- Using all 4 allowed messages — A 4th reminder would push past what the conservative risk appetite and reminder-fatigue hypothesis (P-011) support without any targeting refinement to justify it; 3 escalating touches already cover low/mid/high-cost channels.\n\n**Assumptions**\n- Quiet hours, DNC and NPA exclusion are enforced by the platform automatically and don't need explicit steps.\n- All newly issued card types (Physical, Virtual, Phygital) are addressed with the same generic activation message unless told otherwise.\n- No performance history exists for this bank, so all effectiveness claims below are explicitly framed as untested hypotheses, not predictions.\n\n**Worth settling before this is built**\n- Should virtual cards (which some issuers auto-activate) be messaged the same way as physical cards needing explicit activation, or excluded/handled differently? If virtual cards are typically already active at issuance, including them dilutes targeting and wastes the first-touch message on people who can't act on it further. Until then: Assume all issued card types are in scope with generic copy; the automatic Goal Check will exit anyone who has already activated before the next send.\n\n**Defaults applied**\n- Keep the tenant's default 10% control holdout on this campaign? Without a holdout, any future claim that the campaign moved activation rates can't be separated from what would have happened anyway (P-006). Until then: Default to 10% control, matching stated tenant preference.\n\n**Limitations**\n- Card Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- Card Events category currently exposes no entity-filterable conditions, so entry on 'Card Issued' cannot exclude cards that are already activated at issuance. A small number of customers whose card auto-activates immediately could still receive the first message before the automatic Goal Check removes them from later sends."
+    }
+  ]
+}

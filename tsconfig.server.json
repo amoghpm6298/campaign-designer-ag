@@ -1,0 +1,35 @@
+{
+  // Typechecks everything OUTSIDE src: the agent server, the eval harness, the
+  // agent-proto validators and the tests.
+  //
+  // WHY THIS EXISTS. tsconfig.app.json has `include: ["src"]` and
+  // tsconfig.node.json has `include: ["vite.config.ts"]`, so `tsc --noEmit`
+  // covered neither server/ nor eval/ nor agent-proto/ nor tests/. The server
+  // runs under `node --experimental-strip-types`, which REMOVES types without
+  // checking them, so nothing anywhere verified this code's types.
+  //
+  // What that cost, found the day this file was added: a required field on
+  // EnforceableBankLimits that the orchestrator had stopped passing, three
+  // accesses to `.value` on a union where it may not exist, four property
+  // accesses on a narrowed question type that does not have them, and an
+  // import that was never added for types used in three places. Every one of
+  // those sat behind a green `tsc --noEmit`.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    // Matched to server/tsconfig.json, which is stricter than this file was
+    // and already flagged four pieces of dead code this one let through.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["server/**/*.ts", "eval/**/*.ts", "agent-proto/**/*.ts", "tests/**/*.ts", "docs/**/*.ts"]
+}

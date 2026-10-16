@@ -1046,3 +1046,10 @@ about the path data.
 Verified: 117 unit, 39 e2e, clean build — no test touched icons, so the
 suite passing confirms this changed presentation only.
 
+
+## Where the Campaign Designer is documented
+
+The agentic Campaign Designer is a separate application that shares this
+app's campaign model, reducers, canvas and validators but none of its UI
+shell. It has its own Vite config, entry point and port. Its history and
+its standing design decisions live in `server/CLAUDE.md`, not here.

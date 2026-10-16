@@ -1,0 +1,686 @@
+{
+  "runId": "run-2026-10-12T07-21-25-268Z",
+  "startedAt": "2026-10-12T07:21:25.268Z",
+  "durationMs": 3,
+  "scenario": {
+    "id": "auth-txn-to-emi-consent",
+    "version": "0.1.0",
+    "goalStatement": "When a customer makes a large purchase that is eligible for EMI, get them to convert that transaction to EMI before the request expires."
+  },
+  "versions": {
+    "schemaArtefactVersion": "1.0.0",
+    "schemaContentHash": "f05cce7a3e2e1122",
+    "bankContextVersion": "0.1.0",
+    "principlesVersion": "0.1.0",
+    "plannerKind": "deterministic (no model call in this slice)"
+  },
+  "conversation": [
+    {
+      "role": "user",
+      "text": "When a customer makes a large purchase that is eligible for EMI, get them to convert that transaction to EMI before the request expires."
+    },
+    {
+      "role": "agent",
+      "text": "Understood. I have a few questions before I design this, then I will show you the campaign and what I assumed."
+    },
+    {
+      "role": "agent",
+      "text": "Which programs should this campaign target?"
+    },
+    {
+      "role": "user",
+      "text": "Meridian Platinum only."
+    },
+    {
+      "role": "agent",
+      "text": "Should customers enter on the authorisation event, or on a scheduled audience pull?"
+    },
+    {
+      "role": "user",
+      "text": "On the authorisation event — we want to reach them while the purchase is fresh."
+    },
+    {
+      "role": "agent",
+      "text": "What exactly counts as success?"
+    },
+    {
+      "role": "user",
+      "text": "The EMI request ends up Successful."
+    },
+    {
+      "role": "agent",
+      "text": "How many reminders are acceptable before we stop?"
+    },
+    {
+      "role": "user",
+      "text": "I don't know — whatever is within our messaging policy."
+    },
+    {
+      "role": "agent",
+      "text": "Any channel preference for the first message?"
+    },
+    {
+      "role": "user",
+      "text": "Not sure, you pick."
+    },
+    {
+      "role": "agent",
+      "text": "I have designed a 2-message campaign entering on an EMI-eligible transaction, with a 7-day window to see whether the EMI request resolves. Two things I had to assume because you did not have the information: the channel (I used EMAIL, the lowest-cost available) and the message budget (I used your policy cap of 4). I cannot tell you this will improve conversion — there is no performance data for Meridian Bank (FICTIONAL), and the channel-ordering idea behind my choice is an untested hypothesis, not an established result."
+    }
+  ],
+  "decisions": [
+    {
+      "step": "goal",
+      "decision": "EMI_STATUS_CHANGED where New Status = Successful",
+      "basis": "user-answer",
+      "reference": "simulatedAnswers.goal_event"
+    },
+    {
+      "step": "primary-channel",
+      "decision": "EMAIL for the first message (lowest relative cost among available channels)",
+      "basis": "assumption",
+      "reference": "bank-context.softPreferences.preferLowerCostChannelFirst + P-010",
+      "unknown": "User did not state a channel preference (simulatedAnswers.channel_preference). P-010 is classified a hypothesis — this is a reasoned default, not an evidenced optimisation."
+    },
+    {
+      "step": "message-budget",
+      "decision": "At most 4 messages per customer",
+      "basis": "bank-hard-constraint",
+      "reference": "bank-context.hardConstraints.maxMessagesPerCustomerPerCampaign",
+      "unknown": "User did not state a reminder appetite (simulatedAnswers.reminder_appetite); the bank constraint is used instead."
+    },
+    {
+      "step": "message-spacing",
+      "decision": "48h minimum between messages",
+      "basis": "bank-hard-constraint",
+      "reference": "bank-context.hardConstraints.minHoursBetweenMessages"
+    },
+    {
+      "step": "resolution-window",
+      "decision": "7-day timeout awaiting EMI resolution",
+      "basis": "principle",
+      "reference": "P-003 (verified — IBL-Auth-Txn-to-EMI-Master-PRD.md:129,226)"
+    },
+    {
+      "step": "template",
+      "decision": "Festive Offer Email (CT-3288)",
+      "basis": "assumption",
+      "reference": "first available template for the chosen channel"
+    }
+  ],
+  "assumptions": [
+    {
+      "step": "primary-channel",
+      "decision": "EMAIL for the first message (lowest relative cost among available channels)",
+      "basis": "assumption",
+      "reference": "bank-context.softPreferences.preferLowerCostChannelFirst + P-010",
+      "unknown": "User did not state a channel preference (simulatedAnswers.channel_preference). P-010 is classified a hypothesis — this is a reasoned default, not an evidenced optimisation."
+    },
+    {
+      "step": "template",
+      "decision": "Festive Offer Email (CT-3288)",
+      "basis": "assumption",
+      "reference": "first available template for the chosen channel"
+    }
+  ],
+  "campaign": {
+    "id": "AGENT-auth-txn-to-emi-consent",
+    "name": "Auth Txn to EMI — Consent & Resolution (agent-generated)",
+    "description": "Generated by the agent prototype for Meridian Bank (FICTIONAL). Fictional bank; not a real campaign.",
+    "issuer": "Meridian Bank (FICTIONAL)",
+    "programs": [
+      "Meridian Platinum"
+    ],
+    "goal": {
+      "eventCategory": "EMI Events",
+      "eventType": "EMI_STATUS_CHANGED",
+      "conditions": [
+        {
+          "attribute": "New Status",
+          "operator": "Equals",
+          "value": "Successful"
+        }
+      ]
+    },
+    "controlPct": 10,
+    "status": "DRAFT",
+    "root": {
+      "nodes": {
+        "dcn1": {
+          "id": "dcn1",
+          "type": "ENTRY_EVENT",
+          "label": "Transaction",
+          "meta": "Transaction Events",
+          "_config": {
+            "eventCategory": "Transaction Events",
+            "eventType": "Transaction",
+            "conditions": [
+              {
+                "attribute": "EMI Eligible",
+                "operator": "Equals",
+                "value": "true"
+              }
+            ],
+            "journey": "",
+            "batch": "",
+            "offerType": "",
+            "offerName": ""
+          },
+          "autoGenerated": false
+        },
+        "dcn2": {
+          "id": "dcn2",
+          "type": "SEND",
+          "label": "EMI conversion offer",
+          "meta": "",
+          "_config": {
+            "name": "EMI conversion offer",
+            "channel": "EMAIL",
+            "account": "IBL-Karix-Mktg",
+            "templateId": "CT-3288",
+            "timing": "Relative",
+            "absTime": "11:00",
+            "relativeAnchor": "Entry",
+            "relativeDuration": 0,
+            "relativeUnit": "hours",
+            "fallbackChannel": "",
+            "fallbackAccount": "",
+            "fallbackTemplateId": ""
+          },
+          "autoGenerated": false
+        },
+        "dcn3": {
+          "id": "dcn3",
+          "type": "GOAL_CHECK",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)?",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn4": {
+          "id": "dcn4",
+          "type": "GOAL_EXIT",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn5": {
+          "id": "dcn5",
+          "type": "PAUSE",
+          "label": "Wait 48 hours",
+          "meta": "",
+          "_config": {
+            "duration": 48,
+            "unit": "hours"
+          },
+          "autoGenerated": false
+        },
+        "dcn6": {
+          "id": "dcn6",
+          "type": "GOAL_CHECK",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)?",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn7": {
+          "id": "dcn7",
+          "type": "GOAL_EXIT",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn8": {
+          "id": "dcn8",
+          "type": "SEND",
+          "label": "EMI conversion reminder",
+          "meta": "",
+          "_config": {
+            "name": "EMI conversion reminder",
+            "channel": "EMAIL",
+            "account": "IBL-Karix-Mktg",
+            "templateId": "CT-3288",
+            "timing": "Relative",
+            "absTime": "11:00",
+            "relativeAnchor": "Previous Step",
+            "relativeDuration": 0,
+            "relativeUnit": "hours",
+            "fallbackChannel": "",
+            "fallbackAccount": "",
+            "fallbackTemplateId": ""
+          },
+          "autoGenerated": false
+        },
+        "dcn9": {
+          "id": "dcn9",
+          "type": "GOAL_CHECK",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)?",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn10": {
+          "id": "dcn10",
+          "type": "GOAL_EXIT",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn11": {
+          "id": "dcn11",
+          "type": "WAIT_UNTIL",
+          "label": "EMI_STATUS_CHANGED",
+          "meta": "Timeout after 7 days",
+          "_config": {
+            "eventCategory": "EMI Events",
+            "eventType": "EMI_STATUS_CHANGED",
+            "duration": 7,
+            "unit": "days",
+            "conditions": [
+              {
+                "attribute": "New Status",
+                "operator": "Equals",
+                "value": "Successful"
+              }
+            ],
+            "journey": "",
+            "batch": "",
+            "offerType": "",
+            "offerName": ""
+          },
+          "autoGenerated": false
+        },
+        "dcn12": {
+          "id": "dcn12",
+          "type": "GOAL_CHECK",
+          "label": "New Status = Successful?",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn13": {
+          "id": "dcn13",
+          "type": "GOAL_EXIT",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn14": {
+          "id": "dcn14",
+          "type": "EXIT",
+          "label": "Resolved, but not to the goal outcome (New Status ≠ Successful)",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": false
+        },
+        "dcn15": {
+          "id": "dcn15",
+          "type": "EXIT",
+          "label": "Did not convert in this window",
+          "meta": "",
+          "_config": {
+            "reason": "Did not convert in this window"
+          },
+          "autoGenerated": false
+        },
+        "dcn16": {
+          "id": "dcn16",
+          "type": "EXIT",
+          "label": "Did not convert in this window",
+          "meta": "",
+          "_config": {
+            "reason": "Did not convert in this window"
+          },
+          "autoGenerated": false
+        }
+      },
+      "edges": [
+        {
+          "id": "dce1",
+          "from": "dcn2",
+          "to": "dcn3",
+          "branchLabel": "",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce2",
+          "from": "dcn3",
+          "to": "dcn4",
+          "branchLabel": "Yes",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce3",
+          "from": "dcn3",
+          "to": "dcn5",
+          "branchLabel": "No",
+          "autoGenerated": false
+        },
+        {
+          "id": "dce4",
+          "from": "dcn1",
+          "to": "dcn2",
+          "branchLabel": "",
+          "autoGenerated": false
+        },
+        {
+          "id": "dce5",
+          "from": "dcn5",
+          "to": "dcn6",
+          "branchLabel": "",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce6",
+          "from": "dcn6",
+          "to": "dcn7",
+          "branchLabel": "Yes",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce7",
+          "from": "dcn6",
+          "to": "dcn11",
+          "branchLabel": "No",
+          "autoGenerated": false
+        },
+        {
+          "id": "dce8",
+          "from": "dcn8",
+          "to": "dcn9",
+          "branchLabel": "",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce9",
+          "from": "dcn9",
+          "to": "dcn10",
+          "branchLabel": "Yes",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce10",
+          "from": "dcn9",
+          "to": "dcn15",
+          "branchLabel": "No",
+          "autoGenerated": false
+        },
+        {
+          "id": "dce11",
+          "from": "dcn1",
+          "to": "dcn8",
+          "branchLabel": "",
+          "autoGenerated": false
+        },
+        {
+          "id": "dce12",
+          "from": "dcn11",
+          "to": "dcn12",
+          "branchLabel": "",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce13",
+          "from": "dcn12",
+          "to": "dcn13",
+          "branchLabel": "Yes",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce14",
+          "from": "dcn12",
+          "to": "dcn14",
+          "branchLabel": "No",
+          "autoGenerated": false
+        },
+        {
+          "id": "dce15",
+          "from": "dcn11",
+          "to": "dcn16",
+          "branchLabel": "No",
+          "autoGenerated": false
+        }
+      ],
+      "rootId": "dcn1"
+    },
+    "allowReEntry": false,
+    "guardrails": {
+      "dnc": true,
+      "npa": true
+    }
+  },
+  "validation": {
+    "outcome": "pre-validated",
+    "checks": [
+      {
+        "id": "schema-freshness",
+        "description": "Committed schema artefact matches what the app source currently generates",
+        "status": "pass",
+        "executedBy": "agent-proto/run.task.ts (contentHash comparison)",
+        "detail": "hash f05cce7a3e2e1122 matches committed artefact"
+      },
+      {
+        "id": "node-config",
+        "description": "Every node satisfies its own required-field rules",
+        "status": "pass",
+        "executedBy": "dcAddFormValid (src/reducer/defaultConfig.ts)",
+        "detail": "16 nodes checked (GOAL_CHECK skipped: carries no config)"
+      },
+      {
+        "id": "no-open-branches",
+        "description": "No dangling slot and no non-terminal leaf (the app's Submit gate)",
+        "status": "pass",
+        "executedBy": "dcGraphHasOpenBranches (src/reducer/graphOps.ts)",
+        "detail": "all paths terminate"
+      },
+      {
+        "id": "referential-integrity",
+        "description": "Every edge endpoint and rootId refers to a node that exists",
+        "status": "pass",
+        "executedBy": "agent-proto/validate.ts (structural, not an app rule)",
+        "detail": "15 edges checked"
+      }
+    ],
+    "unverified": [
+      {
+        "id": "app-import-accepts",
+        "description": "The Drip Campaign application actually accepts this JSON and builds the campaign",
+        "status": "not-run",
+        "executedBy": "—",
+        "unverifiedReason": "The application has no JSON import path. Campaigns are seeded in memory and built through the UI. Until an import exists, no run can prove the output would be accepted."
+      },
+      {
+        "id": "bank-constraint-enforcement",
+        "description": "Bank hard constraints (quiet hours, frequency caps, cost ceilings) are enforced",
+        "status": "not-run",
+        "executedBy": "—",
+        "unverifiedReason": "The application holds no cost, quiet-hours or frequency-cap fields — verified by grep across src/. The mock bank context declares them, but nothing in the app enforces them, so they cannot be validated against it."
+      },
+      {
+        "id": "campaign-quality",
+        "description": "The campaign is a good campaign for the stated goal",
+        "status": "not-run",
+        "executedBy": "—",
+        "unverifiedReason": "Not mechanically checkable. A schema-valid campaign is not necessarily a good one. Requires human review; deliberately kept separate from validity."
+      },
+      {
+        "id": "maker-checker-flag",
+        "description": "The campaign routes through the correct approval path for this issuer/program",
+        "status": "not-run",
+        "executedBy": "—",
+        "unverifiedReason": "computeMakerCheckerFlag() exists in the app but is keyed to real issuers (IndusInd, Yes Bank). The fictional Meridian Bank is not in PROGRAM_OPTIONS, so the real function cannot be called for it without inventing a mapping."
+      }
+    ]
+  },
+  "trace": [
+    {
+      "seq": 1,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "context-load",
+      "message": "Loaded bank context: Meridian Bank (FICTIONAL)"
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "context-load",
+      "message": "Loaded scenario: auth-txn-to-emi-consent"
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "question",
+      "message": "Asked: Which programs should this campaign target?",
+      "data": {
+        "key": "which_programs",
+        "resolved": true
+      }
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "question",
+      "message": "Asked: Should customers enter on the authorisation event, or on a scheduled audience pull?",
+      "data": {
+        "key": "entry_trigger",
+        "resolved": true
+      }
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "question",
+      "message": "Asked: What exactly counts as success?",
+      "data": {
+        "key": "goal_event",
+        "resolved": true
+      }
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "question",
+      "message": "Asked: How many reminders are acceptable before we stop?",
+      "data": {
+        "key": "reminder_appetite",
+        "resolved": false
+      }
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "question",
+      "message": "Asked: Any channel preference for the first message?",
+      "data": {
+        "key": "channel_preference",
+        "resolved": false
+      }
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "decision",
+      "message": "goal: EMI_STATUS_CHANGED where New Status = Successful",
+      "data": {
+        "basis": "user-answer",
+        "reference": "simulatedAnswers.goal_event"
+      }
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "decision",
+      "message": "primary-channel: EMAIL for the first message (lowest relative cost among available channels)",
+      "data": {
+        "basis": "assumption",
+        "reference": "bank-context.softPreferences.preferLowerCostChannelFirst + P-010"
+      }
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "decision",
+      "message": "message-budget: At most 4 messages per customer",
+      "data": {
+        "basis": "bank-hard-constraint",
+        "reference": "bank-context.hardConstraints.maxMessagesPerCustomerPerCampaign"
+      }
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "decision",
+      "message": "message-spacing: 48h minimum between messages",
+      "data": {
+        "basis": "bank-hard-constraint",
+        "reference": "bank-context.hardConstraints.minHoursBetweenMessages"
+      }
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "decision",
+      "message": "resolution-window: 7-day timeout awaiting EMI resolution",
+      "data": {
+        "basis": "principle",
+        "reference": "P-003 (verified — IBL-Auth-Txn-to-EMI-Master-PRD.md:129,226)"
+      }
+    },
+    {
+      "seq": 13,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "decision",
+      "message": "template: Festive Offer Email (CT-3288)",
+      "data": {
+        "basis": "assumption",
+        "reference": "first available template for the chosen channel"
+      }
+    },
+    {
+      "seq": 14,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "build",
+      "message": "Entry · Event — Transaction, EMI Eligible = true"
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "build",
+      "message": "Send 1 — EMAIL, immediately after entry"
+    },
+    {
+      "seq": 16,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "build",
+      "message": "Wait 48h — the bank's minimum gap between messages"
+    },
+    {
+      "seq": 17,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "build",
+      "message": "Send 2 — reminder"
+    },
+    {
+      "seq": 18,
+      "at": "2026-10-12T07:21:25.271Z",
+      "kind": "build",
+      "message": "Wait for Event — EMI_STATUS_CHANGED, 7-day timeout (P-003)"
+    },
+    {
+      "seq": 19,
+      "at": "2026-10-12T07:21:25.272Z",
+      "kind": "build",
+      "message": "Closed all remaining open paths with Exit nodes"
+    },
+    {
+      "seq": 20,
+      "at": "2026-10-12T07:21:25.272Z",
+      "kind": "note",
+      "message": "Send count 2 is within the bank cap of 4"
+    }
+  ],
+  "claim": "PRE-VALIDATED ONLY. Checks that ran are listed in validation.checks and were executed by the application's own functions. The application has no JSON import path, so this run cannot prove the campaign would be accepted by it. Not import-ready."
+}

@@ -1,0 +1,580 @@
+{
+ "at": "2026-10-15T10-55-14-662Z",
+ "complete": false,
+ "pairsRun": 1,
+ "pairsPlanned": 3,
+ "results": [
+  {
+   "pair": "barrier-comprehension-vs-price",
+   "title": "The cost is misunderstood vs the cost is genuinely uncompetitive",
+   "a": {
+    "label": "misunderstood",
+    "phase": "awaiting-confirmation",
+    "reply": "Target customers who have an open OS-to-EMI request sitting in 'Pending' status — the moment they are weighing the cost and have not yet confirmed. Use a two-arm experiment that makes the true cost concrete (monthly instalment framing vs total-cost-transparency framing) to test which reading of the 'cost misperception' belief actually moves behaviour, with a held-out control to separate any effect from doing nothing. Success is read as the count of these requests reaching 'Successful', per the user's own definition, against a first baseline since no prior data exists.\n\n**Approaches considered**\n- **Pending-request cost-transparency nudge (experiment)** — chosen\n  Barrier it addresses: Customers who have already opened an OS-to-EMI request pause before confirming because they assume the EMI terms (interest, total payable) are worse than they actually are.\n  What it does about that: Make the real cost concrete and visible before the 7-day request window closes, testing two framings of 'cost' against each other.\n  Entry: EMI Events / EMI_STATUS_CHANGED, EMI Request New Status = Pending, Source = OS-to-EMI\n  Mechanism: Low-cost email opens with a concrete cost figure (monthly amount, arm A) or a transparent cost breakdown (total cost/interest, arm B); SMS and then WhatsApp reinforce as the 7-day window ages, each escalating in cost/urgency.\n  Timing: Fires the moment a Pending OS-to-EMI request exists; paced across the known 7-day expiry window (P-003) with 48h+ spacing.\n  Journey behaviour: experiment\n  How you would know it worked: Count of entrants per arm (and the held-out control) whose linked request reaches EMI_STATUS_CHANGED New Status = Successful, Source = OS-to-EMI. Compare arms against each other and against control to read whether messaging at all moves the count, and which framing moves it more — as a first measurement, not a lift claim.\n  Trade-off: Reaches only customers who already opened a request; it cannot reach people who are eligible but never started one, because no event or account attribute exposes 'has a convertible outstanding balance' before a request exists.\n  Why this one: It is the only entry that matches the objective's own vocabulary at the correct grain — EMI Request's 'Source' attribute has an exact 'OS-to-EMI' value — and it sits precisely at the decision point the user's own hesitation belief describes (terms are visible, confirmation is pending).\n- Pre-request eligibility nudge\n  Barrier it addresses: Customers who have an EMI-eligible outstanding balance but have never opened any conversion request at all — a larger population than the Pending one, and the one most likely to hold the bulk of un-captured conversions.\n  What it does about that: Proactively surface the EMI option and its real cost right after an EMI-eligible transaction/balance event, before any request exists.\n  Entry: Transaction Events / Transaction, EMI Eligible = true\n  Mechanism: Same cost-transparency message, sent earlier in the funnel, to prompt first-time initiation rather than completion of an existing request.\n  Timing: Fires on each EMI-eligible transaction, independent of whether a request is ever opened.\n  Journey behaviour: linear\n  How you would know it worked: Count of exposed customers who subsequently open and complete an OS-to-EMI request.\n  Trade-off: Transaction Events is grain-mismatched for this product: 'EMI Eligible' flags a single transaction, not a customer's revolving outstanding balance, so this would message people about a product (Txn-to-EMI eligibility) that is not necessarily the OS-to-EMI product the user asked about. It is also a 'new-proposed', not-confirmed-live event category, same as the chosen option, and the amount-based grain mismatch is a different and separate risk the chosen option does not carry.\n\n**On those alternatives**\nThese were not materially different approaches. 2 candidates differ in who they reach, when, or what the journey does. This says they are not the same campaign. It does NOT say either is a good idea. The experiment \"Cost-framing test: affordability vs total-cost transparency\" (arms A - Monthly affordability framing / B - Total-cost transparency framing) runs the same journey in every arm. It can show which wording performs better. It cannot show which customer barrier was real.\n\n**Approach**\n- Goal set to EMI_STATUS_CHANGED / New Status = Successful / Source = OS-to-EMI — this is the only event that proves the user's own success definition (count of conversions), per list_event_types and list_audience_attributes.\n- Entry set to EMI_STATUS_CHANGED / New Status = Pending / Source = OS-to-EMI rather than a broader 'opportunity' event, because no eligibility event or outstanding-balance account attribute exists in the exposed schema (list_audience_attributes) — this is a disclosed scope limitation, not a silent substitution.\n- Measure chosen as count (user, confirmed twice) — campaign is NOT built to prioritise larger balances.\n- Cause of hesitation treated as a testable belief (user-belief), not a settled fact — two competing cost-framings are run as true experiment arms rather than picking one on the user's behalf.\n- Channel order EMAIL → SMS → WHATSAPP follows the tenant's stated preference to lead with lower-cost channels and reserve costlier ones for reinforcement (knowledge base P-010).\n- Sequence length (3 sends) is below the 4-message cap by design, not oversight — see Cost and fatigue below.\n- 10% control holdout applied at campaign level per stated preference, since no campaign here may claim incremental effect without one (knowledge base, preferences).\n\n**Options weighed**\n- Segmentation — not applicable here. The chosen audience (Pending OS-to-EMI requests) is intentionally uniform; amount-based segmentation was raised but deferred because no threshold exists to build on, and funnel-stage segmentation was resolved by the entry choice itself rather than left as a further split.\n- Experimentation — used. Two real arms with distinct copy (affordability framing vs total-cost-transparency framing) test competing readings of the user's own hesitation belief, read against each other and against a control holdout.\n- Conditional branching — not applicable here. The only branch condition available is a previous send's delivery outcome, not EMI Request status; the platform's automatic goal-check already exits converters, which covers the one behavioural split that matters here (converted vs not) without a custom condition.\n- Channel fallback — not applicable here. Builder has no fallback-channel field on Send; raised as an operational limitation rather than silently assumed handled.\n- Adaptive sequencing — cannot evaluate yet. Channel escalates EMAIL → SMS → WHATSAPP as the 7-day Pending window ages, trading higher cost for higher urgency/visibility closer to expiry. [Not supported by the proposed journey: the journey is a fixed sequence of sends and waits with no condition or wait-for-event, so nothing in it responds to a signal. Urgency in the wording is not adaptive timing.]\n- Cost and fatigue — used. 3 of the permitted 4 messages used; the weakest is the final WhatsApp reminder (highest cost, latest in a window where many will have already decided), kept because it is the last chance before the request auto-expires at day 7 (P-003) and no other step covers that moment.\n- Measurement and learning — used. Control holdout plus two experiment arms lets the campaign report an observed difference between arms and against doing nothing; without prior baseline data this establishes a first read, not a lift claim.\n\n**Considered and not used**\n- Pre-request eligibility architecture as the primary design — Would reach a larger population but only via a grain-mismatched Transaction attribute (per-transaction eligibility, not outstanding-balance eligibility) and a not-confirmed-live event category; kept as a noted future option rather than the chosen design.\n- A 4th 'outcome' message to customers whose request expires/fails/cancels — Would need a mid-journey condition on EMI Request status, which the builder cannot express (only previous-send delivery outcome is checkable); adding it would either be non-functional or would require re-entering those customers as a separate campaign — scoped out for now.\n\n**Success criteria**\n- The business's own measure, as given: the NUMBER of EMI Requests (Source = OS-to-EMI) reaching New Status = Successful — a count, not a value of balance converted.\n\n**Measurement**\n- Track, per experiment arm and per the held-out control: count of entrants, count reaching EMI_STATUS_CHANGED Successful/OS-to-EMI, and the ratio between them.\n- Compare arm A vs arm B to learn which cost-framing is associated with more completions; compare each arm vs control to see whether messaging at all appears to move the count versus doing nothing.\n- Treat all of this as a first baseline — no prior data exists for this bank (knowledge base, verified), so report it as an observed result, not a lift, and do not forecast a number here.\n- Confirm with engineering whether the EMI Events category is actually live in production before relying on it operationally — it is currently marked 'proposed, not confirmed built' in the platform metadata.\n\n**Assumptions**\n- EMI Request 'Pending' reflects a request a customer could still complete, consistent with the 7-day expiry window described in the knowledge base (P-003).\n- Quiet hours (21:00–09:00) and the 48h minimum spacing are respected by the wait durations chosen; DNC/NPA exclusion is assumed applied globally by the platform as stated in the knowledge base rather than re-specified here.\n\n**Hypotheses for future testing**\n- Showing the concrete monthly instalment amount reduces abandonment of Pending OS-to-EMI requests driven by cost overestimation (arm A).\n- Showing a transparent total-cost/interest breakdown reduces abandonment driven by fear of hidden charges (arm B).\n- Neither framing may matter if the true blocker is something other than cost perception (e.g. authentication friction) — the control arm helps surface this.\n\n**Worth settling before this is built**\n- EMI Events and Transaction Events are both marked 'proposed, not confirmed built in production.' Should this campaign be held until that is confirmed live, or built now and activated when ready? If the category is not actually live, neither entry nor goal will fire at all. Until then: Design proceeds on the assumption it will be confirmed live before activation; flagged clearly rather than hidden.\n\n**Defaults applied**\n- Should outstanding balance size (Transaction Amount) change messaging or eligibility for this campaign? Larger balances may warrant a different tone or a human-assisted channel, but no threshold was supplied. Until then: Apply uniform messaging regardless of balance size.\n\n**Limitations**\n- EMI Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- The platform cannot target customers who have an EMI-eligible outstanding balance but have never opened a request — no eligibility event or outstanding-balance account attribute is exposed. Do you want to commission that event/attribute so a true 'opportunity' stage campaign can be built later? This is likely the larger population for growing the conversion COUNT; today's campaign only reaches people who already opened a request.\n- The builder can only branch on a previous send's delivery outcome, not on EMI Request status, so a customer whose request already failed/expired/was cancelled before day 6 will still receive the final reminder. A small share of recipients will get a 'closes soon' message about a request that is already closed.\n\n**Cannot be generated yet**\n- steps[0].experiment.arms[0][1].wait: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][2].send: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][3].wait: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][4].send: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][5].exit: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[1][1].wait: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[1][2].send: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[1][3].wait: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[1][4].send: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[1][5].exit: 2 open slots exist; the continuation is ambiguous.\n\n**Still unknown**\n- Whether EMI Events / Transaction Events are actually live in production (platform marks both 'new-proposed').\n- Whether the true driver of hesitation is monthly-affordability perception, total-cost perception, fee perception, or limit-impact perception — this is exactly what the experiment is designed to learn, not something assumed here.\n- Whether balance size should change messaging or audience — deferred pending a user-supplied threshold.\n\n**Claims the journey does not support**\n- Adaptive sequencing was marked used, but the journey is a fixed sequence of sends and waits with no condition or wait-for-event, so nothing in it responds to a signal. Urgency in the wording is not adaptive timing.\n\n**Proceeding without an answer on**\n- Do you already have a working definition of 'this campaign worked' (e.g. a target conversion rate, a value target, or simply 'more than the current baseline'), or should this be treated as establishing a first baseline since no historical data exists for this bank? — a default applies. No historical performance data exists for this bank (knowledge base, verified). Treating this campaign as establishing a first baseline count of successful OS-to-EMI requests rather than chasing an invented target.",
+    "blueprint": {
+     "campaignName": "OS-to-EMI: Pending Request Cost-Transparency Nudge",
+     "description": "Targets customers with an open OS-to-EMI request in Pending status and tests two cost-framing messages against a control, nudging completion before the 7-day request window expires.",
+     "controlPct": 10,
+     "goal": {
+      "eventCategory": "EMI Events",
+      "eventType": "EMI_STATUS_CHANGED",
+      "conditions": [
+       {
+        "attribute": "New Status",
+        "operator": "Equals",
+        "value": "Successful"
+       },
+       {
+        "attribute": "Source",
+        "operator": "Equals",
+        "value": "OS-to-EMI"
+       }
+      ]
+     },
+     "entry": {
+      "kind": "event",
+      "eventCategory": "EMI Events",
+      "eventType": "EMI_STATUS_CHANGED",
+      "conditions": [
+       {
+        "attribute": "New Status",
+        "operator": "Equals",
+        "value": "Pending"
+       },
+       {
+        "attribute": "Source",
+        "operator": "Equals",
+        "value": "OS-to-EMI"
+       }
+      ]
+     },
+     "steps": [
+      {
+       "kind": "experiment",
+       "label": "Cost-framing test: affordability vs total-cost transparency",
+       "arms": [
+        {
+         "label": "A - Monthly affordability framing",
+         "pct": 50,
+         "steps": [
+          {
+           "kind": "send",
+           "name": "A1 - Intro affordability",
+           "objective": [
+            "monthly",
+            "affordable",
+            "outstanding",
+            "emi"
+           ],
+           "stage": "first-touch",
+           "describe": "First message after a Pending OS-to-EMI request is opened; makes the monthly cost concrete.",
+           "copy": "Hi ${customerFirstName}, you can move your outstanding balance to easy monthly EMIs, often lower than you'd expect. See your exact monthly amount before you decide. ${shortUrl}",
+           "cta": "See my monthly amount",
+           "channelPreference": [
+            "EMAIL"
+           ]
+          },
+          {
+           "kind": "wait",
+           "durationHours": 48,
+           "why": "Minimum spacing between messages; gives time to view the offer before a follow-up."
+          },
+          {
+           "kind": "send",
+           "name": "A2 - Reminder affordability",
+           "objective": [
+            "reminder",
+            "monthly",
+            "amount",
+            "emi"
+           ],
+           "stage": "reminder",
+           "describe": "Follow-up for those who have not completed the request.",
+           "copy": "Reminder: your EMI conversion is still open. Check your monthly amount before it expires. ${shortUrl}",
+           "cta": "Check now",
+           "channelPreference": [
+            "SMS"
+           ]
+          },
+          {
+           "kind": "wait",
+           "durationHours": 96,
+           "why": "Spaces final reminder close to the end of the 7-day Pending window without exceeding it."
+          },
+          {
+           "kind": "send",
+           "name": "A3 - Final affordability",
+           "objective": [
+            "closes",
+            "soon",
+            "monthly",
+            "amount"
+           ],
+           "stage": "reminder",
+           "describe": "Last-chance reminder before the request expires.",
+           "copy": "Your EMI request closes soon. Your monthly amount is ready to view, no obligation to proceed after you look. ${shortUrl}",
+           "cta": "View before it closes",
+           "channelPreference": [
+            "WHATSAPP"
+           ]
+          },
+          {
+           "kind": "exit",
+           "reason": "Pending window ends without conversion (arm A)."
+          }
+         ]
+        },
+        {
+         "label": "B - Total-cost transparency framing",
+         "pct": 50,
+         "steps": [
+          {
+           "kind": "send",
+           "name": "B1 - Intro total cost",
+           "objective": [
+            "total",
+            "cost",
+            "transparent",
+            "emi"
+           ],
+           "stage": "first-touch",
+           "describe": "First message after a Pending OS-to-EMI request is opened; makes the total cost/interest visible.",
+           "copy": "Hi ${customerFirstName}, converting your outstanding balance to EMI shows the full cost upfront: interest included, no hidden charges. See the total before you decide. ${shortUrl}",
+           "cta": "View total cost",
+           "channelPreference": [
+            "EMAIL"
+           ]
+          },
+          {
+           "kind": "wait",
+           "durationHours": 48,
+           "why": "Minimum spacing between messages; gives time to view the offer before a follow-up."
+          },
+          {
+           "kind": "send",
+           "name": "B2 - Reminder total cost",
+           "objective": [
+            "reminder",
+            "total",
+            "cost",
+            "hidden"
+           ],
+           "stage": "reminder",
+           "describe": "Follow-up for those who have not completed the request.",
+           "copy": "Reminder: you can still see the full, transparent cost of converting to EMI. Nothing hidden. ${shortUrl}",
+           "cta": "See the cost",
+           "channelPreference": [
+            "SMS"
+           ]
+          },
+          {
+           "kind": "wait",
+           "durationHours": 96,
+           "why": "Spaces final reminder close to the end of the 7-day Pending window without exceeding it."
+          },
+          {
+           "kind": "send",
+           "name": "B3 - Final total cost",
+           "objective": [
+            "closes",
+            "soon",
+            "total",
+            "cost"
+           ],
+           "stage": "reminder",
+           "describe": "Last-chance reminder before the request expires.",
+           "copy": "Your EMI request closes soon. The full cost is laid out already, with nothing hidden. ${shortUrl}",
+           "cta": "View before it closes",
+           "channelPreference": [
+            "WHATSAPP"
+           ]
+          },
+          {
+           "kind": "exit",
+           "reason": "Pending window ends without conversion (arm B)."
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "mechanism": "Low-cost email opens with a concrete cost figure (monthly amount, arm A) or a transparent cost breakdown (total cost/interest, arm B); SMS and then WhatsApp reinforce as the 7-day window ages, each escalating in cost/urgency.",
+    "whyChosen": "It is the only entry that matches the objective's own vocabulary at the correct grain — EMI Request's 'Source' attribute has an exact 'OS-to-EMI' value — and it sits precisely at the decision point the user's own hesitation belief describes (terms are visible, confirmation is pending).",
+    "architectureCount": 2,
+    "questions": [
+     "When OS-to-EMI conversions increase, what does the bank actually gain — more customers (count) moving outstanding balance into structured EMI repayment, or more total outstanding value converted (larger balances, more interest/fee revenue)? These can diverge: chasing count rewards many small, easy conversions; chasing value rewards fewer, larger ones.",
+     "Do you already have a working definition of 'this campaign worked' (e.g. a target conversion rate, a value target, or simply 'more than the current baseline'), or should this be treated as establishing a first baseline since no historical data exists for this bank?",
+     "EMI Events and Transaction Events are both marked 'proposed, not confirmed built in production.' Should this campaign be held until that is confirmed live, or built now and activated when ready?"
+    ],
+    "transport": [],
+    "truncated": false
+   },
+   "b": {
+    "label": "uncompetitive",
+    "phase": "awaiting-confirmation",
+    "reply": "Target active, KYC-complete customers who have not started an OS-to-EMI request, and test two competing messaging mechanisms (benefit-awareness vs cost-reassurance) against a holdout, since the survey evidence for 'price is the barrier' comes from a different population than the one being targeted here. Goal is the count of EMI Requests (Source = OS-to-EMI) reaching Successful, per the user's own definition.\n\n**Approaches considered**\n- **Audience-entry, experiment-tested messaging** — chosen\n  Barrier it addresses: Never-started customers haven't been reached at all, and it's unverified whether the blocker is awareness of the option or price-resistance (the only evidence available is from a different, already-engaged population).\n  What it does about that: Enter a broad eligible-proxy audience, split them into two messaging hypotheses (lead with the benefit vs lead with cost reassurance), and hold out a control slice to read whether messaging moves conversions at all versus natural baseline.\n  Entry: Audience entry on Customer: FKYC Status = Completed (closest buildable proxy for 'eligible, compliant customer' — see gap noted below).\n  Mechanism: Two experiment arms carry the same channel-cost-ordered, spaced send sequence but differ in the one variable of message framing (P-005). Each arm includes a delivery-outcome condition so a failed first channel triggers a cheap recovery resend on a different channel rather than silently losing the customer.\n  Timing: No reliable 'opportunity just appeared' event exists for OS-to-EMI eligibility, so timing is calendar-paced from entry: first send, then two spaced reminders (48h / 72h apart), respecting the 4-message cap and quiet hours.\n  Journey behaviour: experiment\n  How you would know it worked: Compare Successful-OS-to-EMI counts between Arm A, Arm B and the 10% holdout. A difference between arms speaks to which message mechanism works; a difference vs holdout speaks to whether messaging works at all.\n  Trade-off: Reaches a broader group than strictly 'never-started, eligible' because no attribute at entry can exclude customers who already have a Pending/prior EMI Request or confirm they actually carry a convertible outstanding balance — some will already be mid-journey or genuinely not eligible.\n  Why this one: Matches the user's confirmed target population (never-started) as closely as the platform allows, and directly tests the one hypothesis offered (price-resistance) against a live alternative (awareness gap) instead of silently designing for one.\n- Transaction-triggered, single-message timing\n  Barrier it addresses: The audience-entry approach messages people at an arbitrary moment unconnected to when a balance situation becomes newly relevant.\n  What it does about that: Enter customers right after a large EMI-eligible transaction (Transaction Events, EMI Eligible = true, Transaction Amount above a threshold), on the theory that recency makes the option more top-of-mind, then send one well-timed message.\n  Entry: Event entry on Transaction Events: Transaction, EMI Eligible = true, Transaction Amount greater than a threshold.\n  Mechanism: Single linear message near the transaction moment, no experiment.\n  Timing: Reactive to the triggering transaction, same spacing/cap rules apply.\n  Journey behaviour: linear\n  How you would know it worked: Successful-OS-to-EMI counts among entrants vs a holdout.\n  Trade-off: A single transaction's amount is not a running outstanding balance, so this is a weaker eligibility proxy than even the audience approach, and it depends on Transaction Events, which is marked new/proposed and not confirmed built in production. It also does not resolve the open question about why never-started customers haven't converted, since it tests nothing.\n\n**On those alternatives**\nThese were not materially different approaches. 2 candidates differ in who they reach, when, or what the journey does. This says they are not the same campaign. It does NOT say either is a good idea. The experiment \"Awareness-first vs Cost-reassurance-first\" (arms A - Awareness-first / B - Cost-reassurance-first) runs the same journey in every arm. It can show which wording performs better. It cannot show which customer barrier was real.\n\n**Approach**\n- Goal set to EMI_STATUS_CHANGED, New Status=Successful, Source=OS-to-EMI — rests on the user's confirmed count-based success definition and the fact that EMI Request exposes a Source value exactly matching OS-to-EMI, verified via list_audience_attributes.\n- Entry built as audience (not event) because the user confirmed the target is people who have NOT yet acted — there is no 'never happened' trigger, so audience-entry on Customer.FKYC Status=Completed is the closest available eligibility/compliance proxy; this is my own judgement, not a verified eligibility signal, flagged below as a reach gap.\n- Two experiment arms instead of one message — rests on the finding that the 'price is the barrier' belief was surveyed from a different (already-started) population than the never-started target; testing rather than assuming is my call, not the user's instruction.\n- Channel order Email→SMS→WhatsApp (cheapest first) per tenant preference (P-010), with recovery resend on non-delivery using a condition+send pair rather than a built-in fallback property, since 'fallback channel on a send' is explicitly not expressible here.\n- 3 messages per customer (within the 4-message cap) chosen deliberately short, matching the tenant's stated conservative preference for fewer, better-targeted messages over broad reach.\n\n**Options weighed**\n- Segmentation — cannot evaluate yet. No attribute exposes outstanding-balance size or utilisation, so I cannot segment this audience by stake size or risk tier even though that would likely matter; would need such an attribute exposed first.\n- Experimentation — used. Two arms with real, distinct copy (awareness-first vs cost-reassurance-first) test the open question of why never-started customers haven't converted, read against a 10% holdout for incremental effect.\n- Conditional branching — used. Each arm branches on the first send's delivery outcome (DELIVERED vs not) to decide whether to proceed to the planned reminder or trigger an immediate recovery resend.\n- Channel fallback — used. Modelled as an explicit condition+send pair (not a Send property, which isn't buildable here) — non-delivery on the cheapest channel triggers a resend on a different channel.\n- Adaptive sequencing — used. Message content shifts across the sequence — opening offer, then reinforcement framed to the arm's hypothesis — and timing/channel step up (cheap→costlier) as the sequence progresses.\n- Cost and fatigue — used. Capped at 3 of the permitted 4 messages per customer, spaced 48–72h apart. The weakest message is the second reminder in each arm (WhatsApp) — kept because it's the only message that reaches customers whose email/SMS never delivered, but it's the first one I'd cut if fatigue becomes a concern.\n- Measurement and learning — used. 10% holdout plus two-arm comparison gives both an incremental-lift read and a which-mechanism-works read; without the holdout only correlation, not causation, could be reported (P-006).\n\n**Considered and not used**\n- Transaction-triggered entry (Architecture B) — Trades a confirmed-state audience definition for a speculative, unconfirmed-event timing mechanism and a weaker single-transaction eligibility proxy, without resolving the open cause question. Could be revisited once Transaction Events is confirmed built and a running-balance attribute exists.\n\n**Success criteria**\n- The business's own measure: the NUMBER of EMI Requests (Source = OS-to-EMI) reaching New Status = Successful increases, counted per occurrence — not the value of balances converted. This is the user's stated definition, not a measurement I've chosen.\n\n**Measurement**\n- Track Successful-OS-to-EMI counts separately for Arm A, Arm B, and the 10% holdout to separate 'did messaging help at all' from 'which framing helped more' (P-006).\n- Also track delivery outcomes per channel per arm, since the recovery-resend branch only has value if non-delivery is actually common enough to matter.\n- No historical performance data exists for this bank (verified), so no lift or conversion number is forecast here; P-001/P-002 give very low base-rate context only, not a target.\n\n**Assumptions**\n- FKYC Status = Completed is used as the closest buildable proxy for 'eligible, compliant customer' at entry — it does not confirm an actual outstanding, convertible balance, nor does it exclude customers with an existing EMI Request.\n- Platform-level DNC/NPA exclusion and quiet-hours enforcement apply automatically as stated in tenant constraints; not something I configure in the blueprint.\n\n**Hypotheses for future testing**\n- Leading with the benefit/awareness framing will convert more never-started customers than leading with cost-reassurance framing, if awareness (not price) is the dominant blocker for this specific population.\n- Conversely, if price-resistance generalises from the surveyed drop-off group to never-started customers too, the reassurance-first arm should perform at least as well.\n\n**Worth settling before this is built**\n- The audience we can build (FKYC Status = Completed) cannot exclude customers who already have a Pending, Failed or Cancelled OS-to-EMI request, and cannot confirm they actually carry an eligible outstanding balance — no attribute exposes EMI Request history or a running balance at entry. So some recipients of a 'you haven't started yet' message will in fact have already started, or have no eligible balance at all. Do you want to accept this broader reach, or is an eligibility/request-history flag worth adding to the platform before launch? This decides whether a real customer who already has a request in flight receives a message that reads as if they haven't acted — a mismatch that reaches the wrong person, not a harmless footnote. Until then: Proceed with FKYC Status = Completed as the entry filter and accept the reach gap as stated; the mismatch is disclosed rather than hidden.\n\n**Defaults applied**\n- Send timing around the 2026-11-07 to 2026-11-21 festive freeze. A customer entering near the freeze could have their sequence paused mid-way. Until then: Assume the scheduler holds all sends during the freeze window and resumes after, per standard tenant calendar handling.\n\n**Limitations**\n- EMI Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- EMI_STATUS_CHANGED (used for the goal) and Transaction (used only in the rejected Architecture B) are both marked 'new/proposed, not confirmed built in production.' If EMI_STATUS_CHANGED isn't actually live, the goal (and the automatic goal-check exit) cannot fire, and the campaign cannot tell who converted.\n\n**Cannot be generated yet**\n- steps[0].experiment.arms[0][1].condition: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[1][1].condition: 2 open slots exist; the continuation is ambiguous.\n\n**Still unknown**\n- Whether never-started customers are actually aware the OS-to-EMI option exists at all — untested, which is exactly why the experiment arms differ on this axis.\n- Whether EMI_STATUS_CHANGED and Transaction Events (both marked new/proposed) are live in production for this tenant.",
+    "blueprint": {
+     "campaignName": "OS-to-EMI First-Conversion Nudge",
+     "description": "Targets eligible, KYC-complete customers who have never started an OS-to-EMI request. Tests benefit-awareness vs cost-reassurance messaging in a 50/50 experiment against a 10% holdout, with channel-cost ordering and a delivery-outcome recovery path.",
+     "controlPct": 10,
+     "goal": {
+      "eventCategory": "EMI Events",
+      "eventType": "EMI_STATUS_CHANGED",
+      "conditions": [
+       {
+        "attribute": "New Status",
+        "operator": "Equals",
+        "value": "Successful"
+       },
+       {
+        "attribute": "Source",
+        "operator": "Equals",
+        "value": "OS-to-EMI"
+       }
+      ]
+     },
+     "entry": {
+      "kind": "audience",
+      "entity": "Customer",
+      "conditions": [
+       {
+        "attribute": "FKYC Status",
+        "operator": "Equals",
+        "value": "Completed"
+       }
+      ]
+     },
+     "steps": [
+      {
+       "kind": "experiment",
+       "label": "Awareness-first vs Cost-reassurance-first",
+       "arms": [
+        {
+         "label": "A - Awareness-first",
+         "pct": 50,
+         "steps": [
+          {
+           "kind": "send",
+           "name": "Arm A - Opening offer",
+           "objective": [
+            "convert",
+            "outstanding",
+            "balance",
+            "emi",
+            "fixed",
+            "eligible"
+           ],
+           "stage": "first-touch",
+           "describe": "Introduces the OS-to-EMI option to a customer who has never started one, leading with the benefit (fixed payments, ease).",
+           "copy": "Hi ${customerFirstName}, you can turn your outstanding balance into fixed monthly EMIs in a few taps. Check what you're eligible for today.",
+           "cta": "See my EMI options",
+           "channelPreference": [
+            "EMAIL"
+           ]
+          },
+          {
+           "kind": "condition",
+           "label": "Did the opening email deliver?",
+           "outcomes": [
+            "DELIVERED"
+           ],
+           "yes": [
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing between messages; lets the first message land before following up."
+            },
+            {
+             "kind": "send",
+             "name": "Arm A - Reminder 1",
+             "objective": [
+              "reminder",
+              "emi",
+              "rate",
+              "tenure",
+              "upfront"
+             ],
+             "stage": "reminder",
+             "describe": "Reinforces the offer with concrete terms shown upfront, on a different channel.",
+             "copy": "Reminder: your outstanding balance can move to a fixed EMI plan. Your rate and tenure are shown before you confirm anything.",
+             "cta": "View my rate",
+             "channelPreference": [
+              "SMS"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 72,
+             "why": "Wider spacing for the final reminder to avoid fatigue (P-011)."
+            },
+            {
+             "kind": "send",
+             "name": "Arm A - Final reminder",
+             "objective": [
+              "last chance",
+              "emi",
+              "fixed",
+              "simple"
+             ],
+             "stage": "reminder",
+             "describe": "Final nudge emphasising simplicity and certainty of terms.",
+             "copy": "Last reminder, ${customerFirstName}: converting to EMI locks in a fixed rate and a clear end date. It takes under 2 minutes.",
+             "cta": "Convert now",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "exit",
+             "reason": "Sequence complete for Arm A, delivered path."
+            }
+           ],
+           "no": [
+            {
+             "kind": "send",
+             "name": "Arm A - Recovery resend",
+             "objective": [
+              "convert",
+              "outstanding",
+              "balance",
+              "emi",
+              "fixed",
+              "eligible"
+             ],
+             "stage": "reminder",
+             "describe": "Re-sends the opening offer on a different channel because the first attempt did not deliver.",
+             "copy": "Hi ${customerFirstName}, you can move your outstanding balance to fixed EMIs in a few taps.",
+             "cta": "See my EMI options",
+             "channelPreference": [
+              "SMS"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing before the next message."
+            },
+            {
+             "kind": "send",
+             "name": "Arm A - Reminder (recovery path)",
+             "objective": [
+              "reminder",
+              "emi",
+              "rate",
+              "tenure",
+              "upfront"
+             ],
+             "stage": "reminder",
+             "describe": "Reinforces the offer with concrete terms on a further channel.",
+             "copy": "Your EMI rate and tenure are fixed and shown upfront, no surprises.",
+             "cta": "View my rate",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "exit",
+             "reason": "Sequence complete for Arm A, recovery path."
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "label": "B - Cost-reassurance-first",
+         "pct": 50,
+         "steps": [
+          {
+           "kind": "send",
+           "name": "Arm B - Opening offer",
+           "objective": [
+            "convert",
+            "emi",
+            "fixed rate",
+            "cost",
+            "compare"
+           ],
+           "stage": "first-touch",
+           "describe": "Introduces the OS-to-EMI option leading with cost certainty, addressing the surveyed price-resistance hypothesis directly.",
+           "copy": "Hi ${customerFirstName}, your EMI rate is fixed from day one and the total is shown before you confirm. See how it compares to what you're paying now.",
+           "cta": "Compare my cost",
+           "channelPreference": [
+            "EMAIL"
+           ]
+          },
+          {
+           "kind": "condition",
+           "label": "Did the opening email deliver?",
+           "outcomes": [
+            "DELIVERED"
+           ],
+           "yes": [
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing between messages."
+            },
+            {
+             "kind": "send",
+             "name": "Arm B - Reminder 1",
+             "objective": [
+              "reminder",
+              "fixed rate",
+              "no change",
+              "predictable"
+             ],
+             "stage": "reminder",
+             "describe": "Reinforces rate certainty as a reason to act now.",
+             "copy": "Still deciding? Converting locks your rate today, no change if market rates move later.",
+             "cta": "See my fixed rate",
+             "channelPreference": [
+              "SMS"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 72,
+             "why": "Wider spacing for the final reminder to avoid fatigue (P-011)."
+            },
+            {
+             "kind": "send",
+             "name": "Arm B - Final reminder",
+             "objective": [
+              "last chance",
+              "predictable",
+              "payment",
+              "end date"
+             ],
+             "stage": "reminder",
+             "describe": "Final nudge emphasising one predictable payment and a known end date.",
+             "copy": "Last reminder, ${customerFirstName}: a fixed EMI gives you one predictable payment and a set end date.",
+             "cta": "Set up my EMI",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "exit",
+             "reason": "Sequence complete for Arm B, delivered path."
+            }
+           ],
+           "no": [
+            {
+             "kind": "send",
+             "name": "Arm B - Recovery resend",
+             "objective": [
+              "convert",
+              "emi",
+              "fixed rate",
+              "cost",
+              "compare"
+             ],
+             "stage": "reminder",
+             "describe": "Re-sends the opening cost-reassurance offer on a different channel because the first attempt did not deliver.",
+             "copy": "Hi ${customerFirstName}, your EMI rate is fixed from day one, and the total is shown before you confirm anything.",
+             "cta": "Compare my cost",
+             "channelPreference": [
+              "SMS"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing before the next message."
+            },
+            {
+             "kind": "send",
+             "name": "Arm B - Reminder (recovery path)",
+             "objective": [
+              "reminder",
+              "fixed rate",
+              "predictable"
+             ],
+             "stage": "reminder",
+             "describe": "Reinforces rate certainty on a further channel.",
+             "copy": "Your EMI rate stays fixed once you convert, whatever happens to market rates.",
+             "cta": "See my fixed rate",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "exit",
+             "reason": "Sequence complete for Arm B, recovery path."
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "mechanism": "Two experiment arms carry the same channel-cost-ordered, spaced send sequence but differ in the one variable of message framing (P-005). Each arm includes a delivery-outcome condition so a failed first channel triggers a cheap recovery resend on a different channel rather than silently losing the customer.",
+    "whyChosen": "Matches the user's confirmed target population (never-started) as closely as the platform allows, and directly tests the one hypothesis offered (price-resistance) against a live alternative (awareness gap) instead of silently designing for one.",
+    "architectureCount": 2,
+    "questions": [
+     "When this campaign 'works', what should move — the NUMBER of outstanding balances converted to EMI, or the total VALUE/amount of outstanding balance converted (or something else, like interest/revenue retained from carrying EMIs)? These can pull in different directions: a count-first read favours whoever converts easiest (often small, low-value balances), while a value-first read favours fewer but larger conversions.",
+     "Is the behaviour you most need more of: customers INITIATING an OS-to-EMI conversion for the first time (balance sits there, un-actioned), or customers who already started a conversion request but did not complete it (e.g. it's sitting Pending and stalling)? These point at different moments in the journey and different entry events.",
+     "Is the behaviour you most need more of: customers who already have a Pending OS-to-EMI request stalling (started, not finished), or customers who have an outstanding balance that's never been put into an EMI request at all (never started)?",
+     "The audience we can build (FKYC Status = Completed) cannot exclude customers who already have a Pending, Failed or Cancelled OS-to-EMI request, and cannot confirm they actually carry an eligible outstanding balance — no attribute exposes EMI Request history or a running balance at entry. So some recipients of a 'you haven't started yet' message will in fact have already started, or have no eligible balance at all. Do you want to accept this broader reach, or is an eligibility/request-history flag worth adding to the platform before launch?"
+    ],
+    "transport": [
+     "turn 2 attempt 1: The agent could not complete: Anthropic call timed out.",
+     "turn 3 attempt 1: The agent could not complete: Anthropic call timed out.",
+     "turn 3 attempt 2: The agent could not complete: Anthropic call timed out."
+    ],
+    "truncated": false
+   },
+   "divergence": {
+    "aspects": [
+     {
+      "aspect": "entry",
+      "differs": true,
+      "a": "event:emi events/emi_status_changed",
+      "b": "audience:customer"
+     },
+     {
+      "aspect": "audience",
+      "differs": true,
+      "a": "new statusequalspending+sourceequalsos-to-emi",
+      "b": "fkyc statusequalscompleted"
+     },
+     {
+      "aspect": "timing",
+      "differs": true,
+      "a": "X[,50:(s:first-touch,w:48,s:reminder,w:96,s:reminder,x),50:(s:first-touch,w:48,s:reminder,w:96,s:reminder,x),]",
+      "b": "X[,50:(s:first-touch,C[delivered:(,w:48,s:reminder,w:72,s:reminder,x,)(,s:reminder,w:48,s:reminder,x,)]),50:(s:first-touch,C[delivered:(,w:48,s:reminder,w:72,s:reminder,x,)(,s:reminder,w:48,s:reminder,x,)]),]"
+     },
+     {
+      "aspect": "shape",
+      "differs": true,
+      "a": "experiment,[,(send:EMAIL,wait,send:SMS,wait,send:WHATSAPP,exit),(send:EMAIL,wait,send:SMS,wait,send:WHATSAPP,exit),]",
+      "b": "experiment,[,(send:EMAIL,condition,[(,wait,send:SMS,wait,send:WHATSAPP,exit,)(,send:SMS,wait,send:WHATSAPP,exit,)]),(send:EMAIL,condition,[(,wait,send:SMS,wait,send:WHATSAPP,exit,)(,send:SMS,wait,send:WHATSAPP,exit,)]),]"
+     }
+    ],
+    "met": [
+     "audience"
+    ],
+    "unmet": [],
+    "identical": false,
+    "verdict": "diverged"
+   },
+   "verdict": "diverged",
+   "note": "",
+   "aSignature": {
+    "entry": "event:emi events/emi_status_changed",
+    "audience": "new statusequalspending+sourceequalsos-to-emi",
+    "timing": "X[,50:(s:first-touch,w:48,s:reminder,w:96,s:reminder,x),50:(s:first-touch,w:48,s:reminder,w:96,s:reminder,x),]",
+    "shape": "experiment,[,(send:EMAIL,wait,send:SMS,wait,send:WHATSAPP,exit),(send:EMAIL,wait,send:SMS,wait,send:WHATSAPP,exit),]"
+   },
+   "bSignature": {
+    "entry": "audience:customer",
+    "audience": "fkyc statusequalscompleted",
+    "timing": "X[,50:(s:first-touch,C[delivered:(,w:48,s:reminder,w:72,s:reminder,x,)(,s:reminder,w:48,s:reminder,x,)]),50:(s:first-touch,C[delivered:(,w:48,s:reminder,w:72,s:reminder,x,)(,s:reminder,w:48,s:reminder,x,)]),]",
+    "shape": "experiment,[,(send:EMAIL,condition,[(,wait,send:SMS,wait,send:WHATSAPP,exit,)(,send:SMS,wait,send:WHATSAPP,exit,)]),(send:EMAIL,condition,[(,wait,send:SMS,wait,send:WHATSAPP,exit,)(,send:SMS,wait,send:WHATSAPP,exit,)]),]"
+   }
+  }
+ ]
+}

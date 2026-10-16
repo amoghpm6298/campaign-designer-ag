@@ -234,6 +234,19 @@ export const EVENT_ATTR_BY_TYPE: Record<string, string> = {
 };
 export const LOCKED_ATTR_OPERATORS = ['Equals', 'Not Equals', 'Greater than', 'Less than', 'Is'];
 
+// Which operators a condition row may use for a given attribute. Extracted
+// verbatim from ConditionRows.tsx, where it had been inline, because the
+// agent's own capability tool needs the SAME answer the builder gives. Two
+// copies of this rule would drift, and the agent proposing an operator the
+// drawer does not offer is exactly the class of defect that forces a person
+// to correct the campaign by hand.
+export function dcOperatorsForAttribute(meta: AttrMeta | null | undefined, opts?: { locked?: boolean }): string[] {
+  if (opts?.locked) return LOCKED_ATTR_OPERATORS;
+  if (meta?.type === 'multiSelect') return ['Any of'];
+  if (meta?.type === 'number' || meta?.type === 'date') return ['Equals', 'Greater than', 'Less than', 'Between'];
+  return ['Equals', 'Not Equals'];
+}
+
 // Journey Events' own scoping selects (shown above its Event Conditions
 // in the source). JOURNEY_OPTIONS above is already the real, reused
 // constant; BATCH_OPTIONS is newly ported here.

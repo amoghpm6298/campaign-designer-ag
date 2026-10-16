@@ -1,0 +1,1361 @@
+<title>Campaign Designer — Product Overview</title>
+
+<style>
+  :root {
+    /* Deliberately a single light theme. Hyperface product surfaces are
+       light only, so this document commits to that rather than shipping a
+       second palette nobody will use. */
+    color-scheme: light;
+    --page:    #f6f7f9;
+    --surface: #ffffff;
+    --ink:     #111a26;
+    --body:    #46556b;
+    --muted:   #7b8a9e;
+    --rule:    #e4e8ee;
+    --rule-sq: #eef1f5;
+    --accent:      #2d5bd7;
+    --accent-soft: #eef3fe;
+    --accent-line: #c9d9fb;
+    --pass:  #15803d;
+    --pass-bg: #f0fdf4;
+    --warn:  #a16207;
+    --warn-bg: #fffbeb;
+    --block: #b42318;
+    --block-bg: #fef3f2;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  /* The viewer's theme toggle stamps data-theme on the root. This page is
+     single-theme by choice, so both values resolve to the same palette and
+     the page can never render half-dark. */
+  :root[data-theme="dark"], :root[data-theme="light"] { color-scheme: light; }
+
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--body);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 28px 100px; }
+  .col  { max-width: 700px; }
+
+  /* ---------- masthead ---------- */
+  header.mast {
+    padding: 64px 0 40px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 52px;
+  }
+  .eyebrow {
+    font-size: 11.5px; font-weight: 700; letter-spacing: 0.13em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 18px;
+  }
+  h1 {
+    font-size: clamp(32px, 5vw, 46px); line-height: 1.1; letter-spacing: -0.028em;
+    font-weight: 680; color: var(--ink); margin: 0 0 20px; text-wrap: balance;
+  }
+  .standfirst {
+    font-family: var(--serif); font-size: 19px; line-height: 1.6;
+    color: var(--body); margin: 0; max-width: 620px;
+  }
+  .mast-meta {
+    display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 30px;
+    font-size: 13px; color: var(--muted);
+  }
+  .mast-meta b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- sections ---------- */
+  section { margin: 0 0 64px; scroll-margin-top: 24px; }
+  .sec-num {
+    font-family: var(--mono); font-size: 12px; color: var(--accent);
+    letter-spacing: 0.04em; display: block; margin-bottom: 8px;
+  }
+  h2 {
+    font-size: 26px; line-height: 1.2; letter-spacing: -0.02em; font-weight: 660;
+    color: var(--ink); margin: 0 0 14px; text-wrap: balance;
+  }
+  h3 {
+    font-size: 16.5px; font-weight: 650; color: var(--ink);
+    margin: 34px 0 10px; letter-spacing: -0.01em;
+  }
+  p { margin: 0 0 16px; }
+  .lede { font-size: 17px; color: var(--body); }
+
+  ul, ol { margin: 0 0 18px; padding-left: 22px; }
+  li { margin: 7px 0; }
+  li::marker { color: var(--muted); }
+
+  strong { color: var(--ink); font-weight: 620; }
+  code {
+    font-family: var(--mono); font-size: 0.875em; background: var(--rule-sq);
+    border-radius: 4px; padding: 1.5px 5px; color: var(--ink);
+  }
+
+  /* ---------- diagrams ---------- */
+  figure {
+    margin: 30px 0 34px; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 12px; padding: 26px 20px 18px;
+    overflow-x: auto;
+  }
+  figure .mermaid { display: flex; justify-content: center; min-width: 0; }
+  figcaption {
+    font-size: 13px; color: var(--muted); text-align: center;
+    margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--rule-sq);
+  }
+
+  /* ---------- tables ---------- */
+  .tbl-wrap { overflow-x: auto; margin: 22px 0 26px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  th {
+    text-align: left; font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em;
+    text-transform: uppercase; color: var(--muted);
+    padding: 0 14px 10px 0; border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  td {
+    padding: 13px 14px 13px 0; border-bottom: 1px solid var(--rule-sq);
+    vertical-align: top; color: var(--body);
+  }
+  td:first-child { color: var(--ink); font-weight: 560; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  /* ---------- callouts ---------- */
+  .note {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0;
+    padding: 18px 22px; margin: 26px 0;
+  }
+  .note.caution { border-left-color: var(--warn); }
+  .note-title {
+    font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 7px;
+  }
+  .note.caution .note-title { color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .pull {
+    font-family: var(--serif); font-size: 20px; line-height: 1.5;
+    color: var(--ink); border-left: 3px solid var(--accent-line);
+    padding: 4px 0 4px 24px; margin: 32px 0; max-width: 620px;
+  }
+
+  /* ---------- status pills ---------- */
+  .pill {
+    display: inline-block; font-size: 11.5px; font-weight: 650;
+    padding: 2.5px 9px; border-radius: 20px; white-space: nowrap;
+    font-family: var(--sans); letter-spacing: 0.01em;
+  }
+  .pill.pass  { background: var(--pass-bg);  color: var(--pass); }
+  .pill.warn  { background: var(--warn-bg);  color: var(--warn); }
+  .pill.block { background: var(--block-bg); color: var(--block); }
+  .pill.info  { background: var(--accent-soft); color: var(--accent); }
+
+  /* ---------- feature grid ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(258px, 1fr)); gap: 16px; margin: 26px 0 30px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 11px; padding: 20px 20px 18px;
+  }
+  .card h4 {
+    font-size: 14.5px; font-weight: 650; color: var(--ink);
+    margin: 0 0 8px; letter-spacing: -0.005em;
+  }
+  .card p { font-size: 14px; margin: 0; color: var(--body); line-height: 1.6; }
+
+  /* ---------- split rows ---------- */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 24px 0 28px; }
+  .split .card h4 { display: flex; align-items: center; gap: 8px; }
+  @media (max-width: 720px) { .split { grid-template-columns: 1fr; } }
+
+  /* ---------- contents ---------- */
+  nav.toc {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 12px; padding: 22px 24px; margin-bottom: 56px;
+  }
+  nav.toc .note-title { color: var(--muted); margin-bottom: 12px; }
+  nav.toc ol { margin: 0; padding-left: 20px; column-count: 2; column-gap: 34px; }
+  @media (max-width: 680px) { nav.toc ol { column-count: 1; } }
+  nav.toc li { margin: 5px 0; break-inside: avoid; }
+  nav.toc a { color: var(--body); text-decoration: none; font-size: 14.5px; }
+  nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+
+  a { color: var(--accent); }
+  a:focus-visible, nav.toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+
+  footer.end {
+    border-top: 1px solid var(--rule); margin-top: 72px; padding-top: 26px;
+    font-size: 13.5px; color: var(--muted);
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="mast">
+    <p class="eyebrow">Hyperface · Product overview</p>
+    <h1>Campaign Designer</h1>
+    <p class="standfirst">
+      A campaign manager describes a business outcome in plain language. The agent establishes what it needs to know
+      first, works out where in the customer's sequence an intervention belongs, then recommends a strategy with its
+      trade-offs and builds the journey using the Drip Campaign platform's own graph engine. Discovery finishes
+      before a design appears. Once it has, any question still open arrives next to the recommendation rather than
+      instead of it.
+    </p>
+    <div class="mast-meta">
+      <span><b>Status</b> Working prototype</span>
+      <span><b>Model</b> Claude Sonnet</span>
+      <span><b>Canvas</b> Existing Drip Campaign builder</span>
+      <span><b>Output</b> Campaign JSON</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <div class="note-title">Contents</div>
+    <ol>
+      <li><a href="#what">What the agent does</a></li>
+      <li><a href="#workflow">The end-to-end workflow</a></li>
+      <li><a href="#method">How the agent designs a campaign</a></li>
+      <li><a href="#discovery">How discovery works</a></li>
+      <li><a href="#findings">The two findings the agent must return</a></li>
+      <li><a href="#prompt">How the prompt is built</a></li>
+      <li><a href="#boundary">The model and application boundary</a></li>
+      <li><a href="#states">The campaign state machine</a></li>
+      <li><a href="#templates">Message templates and the bank's library</a></li>
+      <li><a href="#validation">Validation, export and import readiness</a></li>
+      <li><a href="#screens">The three screens</a></li>
+      <li><a href="#trust">How the system stays honest</a></li>
+      <li><a href="#limits">What is not supported yet</a></li>
+      <li><a href="#changes">What changed in this round</a></li>
+    </ol>
+  </nav>
+
+  <!-- ================================================= -->
+  <section id="what">
+    <span class="sec-num">01</span>
+    <h2>What the agent does</h2>
+    <div class="col">
+      <p class="lede">
+        Building a drip campaign today means knowing the platform. You need the right entry event, the right status
+        values, a goal definition, channels, timing, branching and exit rules. The Campaign Designer removes that
+        requirement. You describe the outcome you want. The agent works out the rest, and asks you only about things
+        it genuinely cannot look up.
+      </p>
+      <p>
+        It behaves like a strategist rather than a form. It reads the platform's own capabilities — including the
+        exact values each field accepts, and it does that before asking you anything. It reasons about where in the customer's
+        sequence an intervention belongs, rather than matching your wording to an event name. And it recommends
+        rather than handing you a list of options: anything still open arrives next to the recommendation, not in
+        place of it.
+      </p>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h4>Understands the objective</h4>
+        <p>Takes a business outcome in chat. It separates that outcome from the formal goal the platform needs.</p>
+      </div>
+      <div class="card">
+        <h4>Investigates before asking</h4>
+        <p>Checks real event types, audience attributes, channels and step types using live tool calls.</p>
+      </div>
+      <div class="card">
+        <h4>Asks what matters</h4>
+        <p>The agent decides what to ask and how to word it. Only what would change the design reaches you, alongside the recommendation.</p>
+      </div>
+      <div class="card">
+        <h4>Requests useful evidence</h4>
+        <p>Asks for specific aggregates when they would settle a real decision. Declining is always a valid answer.</p>
+      </div>
+      <div class="card">
+        <h4>Recommends a strategy</h4>
+        <p>Explains the approach, the rejected alternatives and the assumptions. It makes no claims about lift.</p>
+      </div>
+      <div class="card">
+        <h4>Writes the messages</h4>
+        <p>Drafts copy addressed to the customer, with a call to action, and keeps it on the step for you to work from.</p>
+      </div>
+      <div class="card">
+        <h4>Builds the real campaign</h4>
+        <p>Constructs the journey with the platform's own reducer, then validates it with the platform's validators.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="workflow">
+    <span class="sec-num">02</span>
+    <h2>The end-to-end workflow</h2>
+    <div class="col">
+      <p>
+        The flow has three hard rules. Discovery finishes before a strategy reaches you. The agent states the
+        intervention it wants before it is told what the builder can express, so a requirement you asked for cannot
+        quietly become whatever happened to be buildable. And no campaign is built until you confirm that strategy.
+        All three are enforced in the application, and the canvas stays empty until you say yes.
+      </p>
+    </div>
+
+    <figure>
+      <pre class="mermaid">
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#ffffff','primaryTextColor':'#111a26','primaryBorderColor':'#c9d2de','lineColor':'#8b98aa','textColor':'#111a26','mainBkg':'#ffffff','nodeTextColor':'#111a26','edgeLabelBackground':'#ffffff','clusterBkg':'#f6f7f9','clusterBorder':'#dde3ea'},'flowchart':{'htmlLabels':false,'useMaxWidth':true,'padding':10}}}%%
+flowchart TD
+    A["Describe a business\noutcome"] --> B["Retrieve context and\nplatform metadata"]
+    B --> D["Discovery: agree the outcome,\nfind out who converts and\nwhy the rest do not"]
+    D --> E{"Is discovery finished?"}
+    E -->|"No — you answer, or ask it to proceed"| D
+    E -->|"Yes"| DS["State the intervention:\nwho, when, what it must do"]
+    DS --> CAP{"Can the platform\nmeet each one?"}
+    CAP -->|"A gap in WHO IS REACHED"| GAP["Put to you as a cost,\nbecause it is yours to decide"]
+    CAP -->|"A gap in WHO IS EXCLUDED"| LIMIT["Recorded as a limitation.\nYou are not asked."]
+    CAP -->|"Yes"| F
+    GAP --> F["Recommend a strategy"]
+    LIMIT --> F
+    F --> COV{"Does every message attack\na reason you gave?"}
+    COV -->|"No"| REWORK["Reworked before\nyou see it"]
+    REWORK --> F
+    COV -->|"Yes"| G["What is still open, and what\nthe platform cannot do, is shown"]
+    G --> I{"Confirm this strategy?"}
+    I -->|"Answer, or request a change"| F
+    I -->|"Confirm"| J["Build the journey"]
+
+    J --> K["Validate every condition"]
+    K --> L{"Is the configuration valid?"}
+    L -->|"No"| M["Blocked, with the\nreal alternatives"]
+    L -->|"Yes"| N["Design exportable"]
+
+    M --> O["Correct it in chat"]
+    O --> J
+    N --> P["Copy or download\nthe design"]
+    P --> R["You add the bank's IDs\nbefore upload"]
+    N --> Q["Refine in chat"]
+    Q --> J
+
+    classDef default fill:#ffffff,stroke:#c9d2de,stroke-width:1px,color:#111a26
+    classDef gate fill:#eef3fe,stroke:#2d5bd7,stroke-width:1.5px,color:#111a26
+    classDef build fill:#ffffff,stroke:#2d5bd7,stroke-width:1.5px,color:#111a26
+    classDef warnx fill:#fffbeb,stroke:#a16207,stroke-width:1.2px,color:#111a26
+    classDef blockx fill:#fef3f2,stroke:#b42318,stroke-width:1.2px,color:#111a26
+    classDef done fill:#f0fdf4,stroke:#15803d,stroke-width:1.2px,color:#111a26
+    class D,DS build
+    class E,I,L,CAP,COV gate
+    class J,K build
+    class M blockx
+    class N,P done
+    class R,GAP,LIMIT,REWORK warnx
+      </pre>
+      <figcaption>The complete path from objective to an exportable design. Diamonds are checks made by the application code rather than by the AI. Discovery repeats until it is finished. The agent then states the intervention on its own, and the application answers which parts of it this platform can actually meet. Only then is a strategy recommended, carrying both what is still open and what the platform could not give, rather than delaying on either.</figcaption>
+    </figure>
+
+    <div class="note">
+      <div class="note-title">The confirmation gate</div>
+      <p>
+        Graph construction is reachable from one place only. The application records your confirmation against the
+        current objective and the current strategy version. If either changes afterwards, that confirmation no longer
+        applies and the agent returns to the strategy.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="method">
+    <span class="sec-num">03</span>
+    <h2>How the agent designs a campaign</h2>
+    <div class="col">
+      <p>
+        The agent follows a method rather than filling in a form. It goes deeper where the objective needs it, skips
+        what it does not, and says which parts it skipped. For every real decision it states the decision, what it
+        relied on, and the trade-off it accepted.
+      </p>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Step</th><th>What it settles</th></tr></thead>
+        <tbody>
+          <tr><td>Outcome and behaviour</td><td>What the customer must do differently, named as an action rather than a metric. Then how success would be judged, in the business's own terms.</td></tr>
+          <tr><td>Who converts, and why the rest do not</td><td>Two findings the agent must get from you. The first is who converts today. The second is what stops everyone else. Neither can be invented, and the agent cannot propose a campaign without both.</td></tr>
+          <tr><td>The dimensions</td><td>The three to five things about this objective whose answers could change the campaign. Settled <em>before</em> an entry event is chosen.</td></tr>
+          <tr><td>The sequence</td><td>What happens to the customer in order, and where an intervention can still change it.</td></tr>
+          <tr><td>The hypothesis</td><td>By what mechanism the messages should change the behaviour. A hypothesis, never a prediction.</td></tr>
+          <tr><td>The journey</td><td>The simplest sequence that does the job. There is no per-campaign message cap. That cap was invented data, and it was removed once we recognised that banks do not set one uniform limit for every campaign.</td></tr>
+          <tr><td>The messages</td><td>Copy written to the customer, with a real call to action.</td></tr>
+          <tr><td>What is settled</td><td>Which facts you confirmed, which the agent assumed, and what is still open.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Choosing where the campaign starts</h3>
+    <p class="col">
+      This is the step that most often goes wrong, and the one the method exists for. Several events can mention the
+      same subject while sitting at different points in a customer's sequence. The agent is required to reason about
+      that order rather than match the objective's wording to an event name.
+    </p>
+
+    <figure>
+      <pre class="mermaid">
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#ffffff','primaryTextColor':'#111a26','primaryBorderColor':'#c9d2de','lineColor':'#8b98aa','textColor':'#111a26','mainBkg':'#ffffff','nodeTextColor':'#111a26','edgeLabelBackground':'#ffffff','clusterBkg':'#f6f7f9','clusterBorder':'#dde3ea'},'flowchart':{'htmlLabels':false,'useMaxWidth':true,'padding':10}}}%%
+flowchart LR
+    A["ENTRY\nA purchase is authorised and that\nbalance becomes eligible to convert.\nNo EMI request exists yet."] --> B["The customer raises\nan EMI request"]
+    B --> C["GOAL\nThe request reaches Successful.\nThis event proves it happened."]
+    A -.->|"nobody acts"| D["The chance closes\nThe request expires after 7 days,\nor the balance is paid off."]
+
+    classDef default fill:#ffffff,stroke:#c9d2de,stroke-width:1px,color:#111a26
+    classDef gate fill:#eef3fe,stroke:#2d5bd7,stroke-width:1.5px,color:#111a26
+    classDef done fill:#f0fdf4,stroke:#15803d,stroke-width:1.2px,color:#111a26
+    classDef warnx fill:#fffbeb,stroke:#a16207,stroke-width:1.2px,color:#111a26
+    class A gate
+    class C done
+    class D warnx
+      </pre>
+      <figcaption>Every campaign needs two anchor points, and they are different events. Entry belongs where the behaviour has not happened yet and still can. The goal belongs on the event that proves it did. The example is outstanding balance to EMI. Setting entry on &ldquo;EMI request created&rdquo; would start the campaign after the behaviour you wanted, so it would only reach people who had already converted.</figcaption>
+    </figure>
+
+    <div class="note">
+      <div class="note-title">The same subject, two different campaigns</div>
+      <p>
+        Asked to convert an authorised purchase, the campaign should begin at the authorisation, because the customer
+        has not raised a request yet. Asked to rescue requests already sitting unfinished, it should begin at the
+        request, because they have. Same subject, different point in the sequence, different correct answer. An agent
+        that matches on the word alone gets one of the two wrong.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="discovery">
+    <span class="sec-num">04</span>
+    <h2>How discovery works</h2>
+    <div class="col">
+      <p>
+        A one-line objective is not a campaign brief, so the agent has to find out what it does not know before it
+        designs anything. Discovery coming first is a property of the application, not a request in a prompt: a
+        strategy offered before the investigation is finished is refused, and what the agent wrote is discarded
+        rather than shown.
+      </p>
+      <p>
+        Worth being precise about what that does and does not guarantee. You will not be shown a design before
+        discovery is finished. It does not force the agent to open with a question: the agent is told to discover
+        first, and when it tries to design too early instead, your first reply is a short note saying discovery
+        continues, together with what it is working through. That is the application correcting the agent, and it
+        reads differently from the agent simply asking you something.
+      </p>
+      <p>
+          The opening round is reserved for one thing: what the business would count as this working. That is
+          sequencing rather than etiquette. A count of conversions and a value of conversions pull in opposite
+          directions and produce different campaigns, and the answer decides which of the remaining questions are
+          worth asking at all. Asked in the same breath as the audience and the cause, it arrives too late to
+          direct them.
+        </p>
+        <p>
+          A factor the agent raises is then its own to resolve. It can ask you, check the platform, or proceed on
+          an assumption it states. What it cannot do is name something that could change the campaign, leave it
+          uninvestigated, and design around it anyway. Setting a factor aside is a decision the agent has to make
+          out loud, which is the difference between a judgement and an omission.
+        </p>
+        <p>
+        Five things have to be true before a strategy is accepted. You have taken part at least once, so the agent
+        cannot answer its own questions. Success has been defined, even if the definition is &ldquo;no target yet, so
+        this is the working measure&rdquo;. The agent knows who converts today. It knows at least one real reason the
+        rest do not. And nothing it raised itself is still open. None of these is a round count. A clear brief
+        resolves them quickly. A vague one takes longer.
+      </p>
+    </div>
+
+    <h3>What the agent investigates</h3>
+    <p class="col">
+      The agent names the three to five things about <em>this</em> objective whose answers could change the campaign,
+      and records what became of each. It does this before choosing an entry event, because choosing the trigger first
+      tends to turn every remaining question into a platform question. A dimension is raised first and classified
+      second: one that matters but cannot be built is kept and reported, never dropped for being inconvenient.
+    </p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Status</th><th>What it means</th></tr></thead>
+        <tbody>
+          <tr><td>Open</td><td>Still being investigated. A strategy is not accepted while anything is open.</td></tr>
+          <tr><td>Retained</td><td>Resolved, and used in the design.</td></tr>
+          <tr><td>Deferred</td><td>Could matter, deliberately not pursued now, with the reason recorded. A decision, not an omission.</td></tr>
+          <tr><td>Unavailable</td><td>The platform cannot express it at all. Reported as a limitation rather than quietly abandoned.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="col">
+      Each one also records what its status rests on: a tool result, something you said, an explicit assumption, or
+      nothing yet. The distinction is enforced, not decorative. A dimension closed on an assumption cannot be stored
+      as an investigated finding, and a limitation claimed on an assumption cannot be stored as a verified one &mdash;
+      both are rewritten as deferred, keeping the agent's reason and marking the limitation unverified.
+    </p>
+
+    <div class="note">
+      <div class="note-title">Why an assumption is not a finding</div>
+      <p>
+        &ldquo;We checked and it is not there&rdquo; and &ldquo;we assumed it is not there&rdquo; must never read the
+        same way. The first closes a question; the second is a decision to proceed without evidence. Claiming the
+        platform cannot do something without checking is the more costly of the two mistakes, because it removes a
+        strategy that may have been perfectly buildable.
+      </p>
+    </div>
+
+    <h3>How remaining points are classified</h3>
+
+    <div class="grid">
+      <div class="card">
+        <h4>Strategic ambiguity</h4>
+        <p>
+          A business definition only you can settle, such as which status value means a request converted. It is put
+          to you as a question, next to the strategy rather than instead of it.
+        </p>
+      </div>
+      <div class="card">
+        <h4>Evidence gap</h4>
+        <p>
+          An aggregate that would sharpen a decision. Never a prerequisite. If you do not have it, the agent proceeds
+          and records the limitation.
+        </p>
+      </div>
+      <div class="card">
+        <h4>Optional preference</h4>
+        <p>
+          A detail with a sensible default, such as send time. The agent states the default it applied instead of
+          asking you to choose.
+        </p>
+      </div>
+      <div class="card">
+        <h4>Operational limitation</h4>
+        <p>
+          Something the platform cannot confirm either way, such as a Smart Tag value it has no list for. Stated, not
+          quietly assumed.
+        </p>
+      </div>
+    </div>
+
+    <h3>Who writes the questions</h3>
+    <p class="col">
+      The agent does. It decides what it does not know, how important that is, and how to word it, and you see its
+      wording. The application's job is narrower: it drops anything you have already answered, it shows only the
+      points the agent marked as genuinely strategic, and it caps a round at three so a design conversation cannot
+      turn into an interview.
+    </p>
+    <p class="col">
+      There is one exception, and it is deliberate. When you state a value the platform cannot represent, the
+      application raises that itself, because it is the only party that knows the real alternatives. That question is
+      written from platform metadata rather than by the agent, and it names the values you can actually use.
+    </p>
+
+    <div class="note">
+      <div class="note-title">Once discovery is done, the strategy is never withheld</div>
+      <p>
+        These two rules sound opposed and are not. While the investigation is unfinished there is nothing to
+        recommend yet, so the agent keeps asking. Once it is finished, an honest open question never costs you the
+        design: the recommendation and the question arrive together, which an earlier version got wrong by returning
+        a question instead of the campaign you asked for.
+      </p>
+    </div>
+
+    <figure>
+      <pre class="mermaid">
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#ffffff','primaryTextColor':'#111a26','primaryBorderColor':'#c9d2de','lineColor':'#8b98aa','textColor':'#111a26','mainBkg':'#ffffff','nodeTextColor':'#111a26','edgeLabelBackground':'#ffffff','clusterBkg':'#f6f7f9','clusterBorder':'#dde3ea'},'flowchart':{'htmlLabels':false,'useMaxWidth':true,'padding':10}}}%%
+flowchart TD
+    S["The agent proposes a campaign"] --> G1{"Have you answered\nanything yet?"}
+    G1 -->|"No"| MORE["Refused.\nDiscovery continues."]
+    G1 -->|"Yes"| G2{"Is there an agreed\nmeasure of success?"}
+    G2 -->|"No"| MORE
+    G2 -->|"Yes"| G3{"Do we know who\nconverts today?"}
+    G3 -->|"No"| MORE
+    G3 -->|"Nobody knows"| G3B{"Has it offered two segments\nand heard back from you?"}
+    G3B -->|"No"| MORE
+    G3B -->|"Yes"| G4
+    G3 -->|"Yes"| G4{"Do we know why\nthe rest do not?"}
+    G4 -->|"No, or the agent\nmade it up"| MORE
+    G4 -->|"Yes"| G5{"Did it raise something\nand then leave it hanging?"}
+    G5 -->|"Yes"| MORE
+    G5 -->|"No"| G6{"Is a question that would change\nthe campaign still unanswered?"}
+    G6 -->|"Yes, asked once"| MORE
+    G6 -->|"Asked twice"| FB["Its stated default applies,\nand the strategy says so"]
+    G6 -->|"No"| G7
+    FB --> G7{"Does every message name\na problem it solves?"}
+    G7 -->|"No"| MORE
+    G7 -->|"Yes"| G8{"Can this campaign\nlearn who converts?"}
+    G8 -->|"No"| MORE
+    G8 -->|"Yes"| G9{"Can the experiment settle\nwhat it claims to test?"}
+    G9 -->|"No"| MORE
+    G9 -->|"Yes"| W{"What kind of open\npoint is it?"}
+    W -->|"Strategic ambiguity"| ASK["Put to you in the\nagent's own words"]
+    W -->|"Evidence gap"| NOTE["Noted.\nDoes not block."]
+    W -->|"Optional preference"| DEF["Default applied\nand stated"]
+    W -->|"Operational limitation"| LIM["Stated as\nunverifiable"]
+    ASK --> READY["Strategy shown, awaiting\nyour confirmation"]
+    NOTE --> READY
+    DEF --> READY
+    LIM --> READY
+    MORE -.->|"you answer, or ask it to proceed"| S
+
+    classDef default fill:#ffffff,stroke:#c9d2de,stroke-width:1px,color:#111a26
+    classDef gate fill:#eef3fe,stroke:#2d5bd7,stroke-width:1.5px,color:#111a26
+    classDef build fill:#ffffff,stroke:#2d5bd7,stroke-width:1.5px,color:#111a26
+    classDef warnx fill:#fffbeb,stroke:#a16207,stroke-width:1.2px,color:#111a26
+    classDef blockx fill:#fef3f2,stroke:#b42318,stroke-width:1.2px,color:#111a26
+    classDef done fill:#f0fdf4,stroke:#15803d,stroke-width:1.2px,color:#111a26
+    class G1,G2,G3,G3B,G4,G5,G6,G7,G8,G9,W,ASK gate
+    class READY done
+    class NOTE,DEF,LIM,FB warnx
+    class MORE blockx
+      </pre>
+      <figcaption>Every diamond here is a check made by the application code, not by the AI. The agent writes the questions, chooses the segments and decides the campaign. The application only decides whether what it produced is enough to carry on, so the agent cannot answer its own questions and call discovery finished. Once every check passes, the kind of an open item decides how it is presented, not whether you see a recommendation at all. Asking the agent to proceed overrides all of it.</figcaption>
+    </figure>
+
+    <h3>The working brief</h3>
+    <p class="col">
+      Everything established during discovery is kept in a working brief. It is sent back to the agent on every turn,
+      which is what stops it repeating a question or contradicting an earlier answer.
+    </p>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>Held in the brief</th><th>Why it is kept</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Original objective</td><td>Kept even when you clarify it. Clarifying withdraws the approval, it does not erase the brief.</td></tr>
+          <tr><td>Success criteria</td><td>How the business would judge the campaign. Required before a strategy is accepted.</td></tr>
+          <tr><td>The dimensions</td><td>What was investigated, what became of each, and what that rests on.</td></tr>
+          <tr><td>Questions and answers</td><td>Nothing already answered is asked again.</td></tr>
+          <tr><td>Established facts</td><td>Each one is tagged with where it came from.</td></tr>
+          <tr><td>Evidence requests</td><td>Marked as pending, supplied or unavailable.</td></tr>
+          <tr><td>Limitations</td><td>Missing evidence is carried into the strategy honestly.</td></tr>
+          <tr><td>Values you stated</td><td>Checked against platform metadata, and kept in your own words.</td></tr>
+          <tr><td>Unresolved conflicts</td><td>A value the platform cannot hold is raised, never quietly swapped.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note caution">
+      <div class="note-title">Discovery ends on resolution, with a ceiling behind it</div>
+      <p>
+        Discovery finishes when the material questions are resolved or explicitly handled &mdash; not after a set
+        number of exchanges. Behind that sits a ceiling: a round asks at most three questions, and discovery runs for
+        at most eight rounds. You can ask the agent to proceed at any point, and both the ceiling and your request
+        override everything above; whatever is still unknown is then carried into the strategy as a stated assumption
+        or an open unknown rather than dropped.
+      </p>
+    </div>
+
+    <h3>What a strategy contains</h3>
+    <p class="col">
+      The strategy is a read-back of the whole investigation, not just a journey. Sections appear only when the agent
+      has something to put in them.
+    </p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Section</th><th>What it holds</th></tr></thead>
+        <tbody>
+          <tr><td>Summary and approach</td><td>The design and the reason for each decision.</td></tr>
+          <tr><td>Considered and not used</td><td>What was rejected, and why. Often the most useful part.</td></tr>
+          <tr><td>Success criteria</td><td>How the business would judge this campaign, in its own terms.</td></tr>
+          <tr><td>Measurement</td><td>What to track, how to evaluate it, and what would be needed to measure it properly. It is qualitative only. There is no target, no history and no forecast, because no performance data exists.</td></tr>
+          <tr><td>Assumptions</td><td>What the agent proceeded on without confirmation.</td></tr>
+          <tr><td>Hypotheses for future testing</td><td>Worth investigating later. Explicitly not claimed now.</td></tr>
+          <tr><td>Worth settling, and defaults applied</td><td>Open questions with the default the agent used until you answer.</td></tr>
+          <tr><td>Limitations</td><td>What the platform cannot express or cannot verify.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="findings">
+    <span class="sec-num">05</span>
+    <h2>The two findings the agent has to come back with</h2>
+    <div class="col">
+      <p>
+        A campaign to raise conversion needs two things that no system here can look up. The first is who converts
+        today. The second is what stops everyone else. The agent has to get both from the conversation. It cannot
+        design a campaign until it has them.
+      </p>
+      <p>
+        This was added because the agent kept designing the wrong thing. Across thirty-five recorded runs it never
+        once asked either question. It asked instead about KYC completeness, suppression lists and account standing.
+        That is not a failure of tone. Those were the only kind of question available to it. Everything the agent is
+        given is operational. It has a list of fields it can filter on, a list of rules it must not break, and a
+        description of how the builder works. None of the eleven campaign principles says anything about why a
+        customer converts. The knowledge base states plainly that no performance history exists. Asked to raise
+        conversion with only that to go on, audience plumbing is the only thing it can reason about.
+      </p>
+    </div>
+
+    <h3>Nothing is pre-loaded, and that is the mechanism</h3>
+    <p class="col">
+      An earlier version of this shipped a list of five likely reasons customers do not convert. That was wrong and
+      it was removed. A ready-made list turns the conversation into multiple choice. The agent stops listening and
+      starts matching what you said to the nearest item on the list. It also caps the answer at whatever the list's
+      author happened to think of. A real reason outside the list gets forced into the closest available box.
+      Working out the reason is the job. An empty slot that must be filled is what forces the question. A pre-filled
+      one removes the task.
+    </p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Rule</th><th>How it is enforced</th></tr></thead>
+        <tbody>
+          <tr><td>A reason must trace to something you actually said</td><td>The agent has to quote you. The application checks that quote against your real replies. If it does not match, the reason is recorded as the agent's own assumption, and no campaign may be built on it.</td></tr>
+          <tr><td>Paraphrasing is allowed</td><td>The check compares meaningful words rather than demanding an exact quote. A model repeating a conversation drops filler and fixes grammar. Demanding a literal match would reject honest attributions more often than dishonest ones.</td></tr>
+          <tr><td>Every message names the reason it attacks</td><td>Checked against the built journey. A message that attacks nothing is not a message. It is another contact.</td></tr>
+          <tr><td>Every reason you raised must be attacked by something</td><td>Also checked against the journey. This is the worse failure of the two. You raised it, and the campaign quietly did nothing about it.</td></tr>
+          <tr><td>&ldquo;Nothing can fix this&rdquo; is a real answer</td><td>The agent can mark a reason as one a drip campaign cannot address. That is a legitimate finding. It previously had no way to say it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>When nobody knows who converts</h3>
+    <p class="col">
+      A fresh campaign has nobody who has converted yet. A running one may have converters without anyone knowing
+      who they are. This is the case where the agent has to work hardest, so it is the case the rules are strictest
+      about.
+    </p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Situation</th><th>What the campaign has to do</th></tr></thead>
+        <tbody>
+          <tr><td>You can describe who converts</td><td>Two strategies are worth comparing. Double down on that profile, or go after everyone else. The agent builds both and says which it chose and why.</td></tr>
+          <tr><td>Nobody has converted yet</td><td>There is nothing to double down on, so the campaign's job changes. It has to find out who converts.</td></tr>
+          <tr><td>Conversions happen but nobody knows who</td><td>The same. The campaign has to find out.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="col">
+      In the last two cases the agent cannot accept &ldquo;we have no data&rdquo; and move on. That used to be
+      allowed. It meant the one situation needing the most thought was the one the agent was permitted to skip. It
+      now has to put forward at least two candidate segments, each with its reasoning, and ask which you would back.
+      One candidate is a guess. Two or more is something you can argue with or rule out. It then has to wait for your
+      reply before designing around any of them. An agent that proposes a target and treats its own suggestion as
+      agreed is the easiest mistake to make here.
+    </p>
+    <p class="col">
+      The design itself is checked too. A journey that treats everyone the same cannot learn who converts. The result
+      would be one undifferentiated number, and the next campaign would start as ignorant as this one. So the
+      campaign has to separate the candidate segments. It can use a test that compares audiences, or a branch that
+      treats them differently.
+    </p>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="prompt">
+    <span class="sec-num">06</span>
+    <h2>How the prompt is built</h2>
+    <div class="col">
+      <p>
+        The agent is driven by one instruction document of about thirty-three thousand characters. It is worth
+        understanding how that document is organised, because its shape decides what the agent can think about.
+      </p>
+      <p>
+        Roughly half of it is the design method, written as nine numbered steps in a deliberate order. About a
+        quarter is the exact shape of the answers the agent is allowed to return. The rest is ground rules.
+      </p>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Part of the prompt</th><th>Share</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>The design method</td><td>about half</td><td>Nine steps in sequence, from the outcome through to the messages. The order is the point. Settling the objective before the audience, and the audience before the platform, is what stops the platform deciding the strategy.</td></tr>
+          <tr><td>The answer shapes</td><td>about a quarter</td><td>The exact JSON the agent may reply with. There is one shape for asking questions, one for stating the intervention, and one for proposing a campaign.</td></tr>
+          <tr><td>Ground rules</td><td>a small part</td><td>What it must never claim. It also states that the agent is writing to a campaign manager and not to an engineer.</td></tr>
+          <tr><td>The step vocabulary</td><td>a small part</td><td>Every kind of step the agent may design with. Widening this list is the single change that has most improved the output.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>The length limit is a test, not a guideline</h3>
+    <p class="col">
+      A test fails the build if the prompt grows past its limit. A second test fails the build if the method section
+      shrinks below forty per cent of the whole. Together they stop the prompt filling up with rules while the
+      method itself gets squeezed. The limit has been raised deliberately and rarely, and only for new capability.
+      Adding the two findings and teaching the agent that entry can combine several entities was one such time.
+    </p>
+
+    <h3>The schema matters more than the wording</h3>
+    <p class="col">
+      The clearest lesson from building this is that the shape of what the agent is asked for changes what it thinks
+      about, and the wording mostly does not. One example makes the point better than the general claim. The agent
+      used to state its intervention as a list of needs. Each need sat next to &ldquo;the attribute that expresses
+      it&rdquo; and &ldquo;the event it could wait for&rdquo;. That shape only comfortably accepts needs that have an
+      attribute. A real requirement such as &ldquo;they think it is expensive, so the first message has to reframe
+      the cost&rdquo; has neither, so the schema quietly pushed it out. Three of the four requirements the agent
+      stated came back as audience plumbing. Nothing in the wording asked for that. The slots did.
+    </p>
+
+    <div class="note">
+      <div class="note-title">Three rounds of rules changed nothing</div>
+      <p>
+        Guards, required contingencies and feedback loops were added over three rounds. They made the agent more
+        honest about what it did not know. They did not change what it designed. Two changes did move the output.
+        Widening the list of steps it could design with took a campaign from two messages to ten and produced the
+        first real branch. Making the application refuse an experiment whose arms were identical stopped it claiming
+        tests it had not built. Both are structural. Neither is a sentence in the prompt.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="boundary">
+    <span class="sec-num">07</span>
+    <h2>The model and application boundary</h2>
+    <div class="col">
+      <p>
+          There is a step between asking and building that is easy to miss and does most of the work. The agent
+          states the <strong>intervention</strong> on its own first. That means who it wants to reach, at what moment, and
+          what the journey has to do. It states all of that before it is told what the builder can express. Only then does the
+          application answer, from the platform's real metadata, which of those requirements can be met where the
+          campaign starts, which would need a different starting point, which the journey can wait for instead, and
+          which nothing supports at all.
+        </p>
+        <p>
+          The ordering is the point. The agent reads the platform's vocabulary during discovery, so an agent asked
+          for an intervention and a campaign in one breath describes an intervention that happens to match what it
+          could already build. A requirement you asked for disappears with nobody deciding to drop it. Stating
+          the intervention first makes that gap the application's finding rather than the agent's prose, and it
+          arrives in front of you as a cost you can weigh.
+        </p>
+        <p>
+        The model does business reasoning. The application does everything structural, and it checks the model's
+        work rather than trusting it. The model never gets to invent a node type, an event, a field name, an
+        identifier — or a value. Every condition is validated against the platform's own definitions before a
+        campaign is built, so a filter that would match nobody is rejected with the real alternatives attached.
+      </p>
+    </div>
+
+    <figure>
+      <pre class="mermaid">
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#ffffff','primaryTextColor':'#111a26','primaryBorderColor':'#c9d2de','lineColor':'#8b98aa','textColor':'#111a26','mainBkg':'#ffffff','nodeTextColor':'#111a26','edgeLabelBackground':'#ffffff','clusterBkg':'#f6f7f9','clusterBorder':'#dde3ea'},'flowchart':{'htmlLabels':false,'useMaxWidth':true,'padding':10}}}%%
+flowchart TB
+    subgraph MODEL["Claude Sonnet decides"]
+      direction TB
+      M1["Reading the objective"] ~~~ M2["Where in the sequence to intervene"] ~~~ M3["The campaign strategy"] ~~~ M4["Which questions are worth asking, and their wording"] ~~~ M5["Customer-facing copy and CTA"]
+    end
+
+    MODEL --> CHECK{"Is every value one the platform accepts?"}
+    CHECK -->|"No"| REJ["Rejected with a reason"]
+    CHECK -->|"Yes"| CODE
+
+    subgraph CODE["Application decides"]
+      direction TB
+      C1["Which capabilities and values exist"] ~~~ C2["Whether every condition is valid"] ~~~ C3["Which questions reach you, and how many"] ~~~ C4["Graph construction, validation and readiness"] ~~~ C5["Whether a reason traces to something you said"] ~~~ C6["State transitions"]
+    end
+
+    CODE --> OUT["Campaign JSON"]
+
+    classDef default fill:#ffffff,stroke:#c9d2de,stroke-width:1px,color:#111a26
+    classDef gate fill:#eef3fe,stroke:#2d5bd7,stroke-width:1.5px,color:#111a26
+    classDef blockx fill:#fef3f2,stroke:#b42318,stroke-width:1.2px,color:#111a26
+    classDef done fill:#f0fdf4,stroke:#15803d,stroke-width:1.2px,color:#111a26
+    class CHECK gate
+    class REJ blockx
+    class OUT done
+      </pre>
+      <figcaption>The model proposes intent. The application validates it against real platform definitions, then builds.</figcaption>
+    </figure>
+
+    <h3>Tools the agent can call</h3>
+    <p class="col">
+      Before committing to a design, the agent inspects the platform directly. Every tool reads the application's own
+      source, so the answers are current by construction, and they carry the allowed values rather than just the
+      field names — which is what stops the agent guessing a status or a product type. You can watch each call run
+      and open its result.
+    </p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Tool</th><th>What it answers</th></tr></thead>
+        <tbody>
+          <tr><td><code>list_event_types</code></td><td>Which events exist, which entity each category's conditions filter, and whether a category is marked new and not yet built.</td></tr>
+          <tr><td><code>list_audience_attributes</code></td><td>Every entity and attribute, with its type, the operators it accepts and the exact values it allows.</td></tr>
+          <tr><td><code>list_channels</code></td><td>Which channels this tenant has, in relative cost order, and the delivery statuses each can report.</td></tr>
+          <tr><td><code>check_template_availability</code></td><td>Whether the bank's message template library can be reached.</td></tr>
+          <tr><td><code>list_step_types</code></td><td>Which journey step types the builder supports.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="states">
+    <span class="sec-num">08</span>
+    <h2>The campaign state machine</h2>
+    <div class="col">
+      <p>
+        Every design session moves through explicit states. Transitions are validated. Discovery cannot jump to
+        generation, and a strategy cannot be built without a confirmation recorded for the current brief.
+      </p>
+    </div>
+
+    <figure>
+      <pre class="mermaid">
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#ffffff','primaryTextColor':'#111a26','primaryBorderColor':'#c9d2de','lineColor':'#8b98aa','textColor':'#111a26','mainBkg':'#ffffff','nodeTextColor':'#111a26','edgeLabelBackground':'#ffffff','clusterBkg':'#f6f7f9','clusterBorder':'#dde3ea'},'flowchart':{'htmlLabels':false,'useMaxWidth':true,'padding':10}}}%%
+flowchart TD
+    A(["Understanding the goal"]) --> B(["Discovering"])
+    A --> E(["Strategy ready"])
+    B --> C(["Awaiting your answer"])
+    C --> B
+    C --> E
+    B --> E
+    E --> F(["Awaiting confirmation"])
+    F -->|"You confirm"| G(["Generating campaign"])
+    F -->|"You ask for a change"| B
+    G --> H(["Configuration incomplete"])
+    G --> I(["Export eligible"])
+    H -->|"IDs supplied"| I
+    H -->|"Refine"| G
+    I -->|"Refine"| G
+
+    classDef default fill:#ffffff,stroke:#c9d2de,stroke-width:1px,color:#111a26
+    classDef gate fill:#eef3fe,stroke:#2d5bd7,stroke-width:1.5px,color:#111a26
+    classDef build fill:#ffffff,stroke:#2d5bd7,stroke-width:1.5px,color:#111a26
+    classDef warnx fill:#fffbeb,stroke:#a16207,stroke-width:1.2px,color:#111a26
+    classDef blockx fill:#fef3f2,stroke:#b42318,stroke-width:1.2px,color:#111a26
+    classDef done fill:#f0fdf4,stroke:#15803d,stroke-width:1.2px,color:#111a26
+    class F gate
+    class G build
+    class H warnx
+    class I done
+      </pre>
+      <figcaption>Discovering and Awaiting your answer have no path to Generating campaign. That rule is enforced in code.</figcaption>
+    </figure>
+
+    <div class="note">
+      <div class="note-title">Why confirmations expire</div>
+      <p>
+        A confirmation is bound to the objective and the strategy version it was given for. If you materially change
+        the objective, the agent restarts discovery and the earlier confirmation stops authorising anything. This
+        prevents a campaign being built for a brief you have since moved on from.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="templates">
+    <span class="sec-num">09</span>
+    <h2>Message templates and the bank's library</h2>
+    <div class="col">
+      <p>
+        Communication templates live in the bank's own systems. Hyperface does not mirror them, and we do not want a
+        duplicate catalogue. The agent therefore designs the message without needing the template, and you supply the
+        real identifiers.
+      </p>
+    </div>
+
+    <div class="split">
+      <div class="card">
+        <h4>The agent provides</h4>
+        <p>
+          The communication objective, draft copy written to the customer, a call to action, personalisation tokens
+          and a recommended channel. All of it is stored on the Send step itself, so it is still there when you open
+          the step to prepare the real message.
+        </p>
+      </div>
+      <div class="card">
+        <h4>You provide</h4>
+        <p>
+          The real account and the real template ID from your own ecosystem, when you prepare the upload. The agent
+          never invents either one, and never implies its draft has been approved.
+        </p>
+      </div>
+    </div>
+
+    <figure>
+      <pre class="mermaid">
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#ffffff','primaryTextColor':'#111a26','primaryBorderColor':'#c9d2de','lineColor':'#8b98aa','textColor':'#111a26','mainBkg':'#ffffff','nodeTextColor':'#111a26','edgeLabelBackground':'#ffffff','clusterBkg':'#f6f7f9','clusterBorder':'#dde3ea'},'flowchart':{'htmlLabels':false,'useMaxWidth':true,'padding':10}}}%%
+flowchart TD
+    A["A message step is needed"] --> B{"Is the template library reachable?"}
+    B -->|"No"| C["Availability cannot be verified"]
+    B -->|"Demo library"| D{"Anything suitable in it?"}
+    D -->|"Yes"| E["Use the matched template"]
+    D -->|"No"| F["No suitable template found"]
+
+    C --> G["Keep the step. Propose copy, CTA and tokens."]
+    F --> G
+    G --> H["Suggestion saved on the step"]
+    H --> I["Account and template ID left empty"]
+    I --> J["Design still exports"]
+    J --> K["You enter the real values before upload"]
+    K --> L["Revalidate"]
+    E --> L
+
+    classDef default fill:#ffffff,stroke:#c9d2de,stroke-width:1px,color:#111a26
+    classDef gate fill:#eef3fe,stroke:#2d5bd7,stroke-width:1.5px,color:#111a26
+    classDef build fill:#ffffff,stroke:#2d5bd7,stroke-width:1.5px,color:#111a26
+    classDef warnx fill:#fffbeb,stroke:#a16207,stroke-width:1.2px,color:#111a26
+    classDef blockx fill:#fef3f2,stroke:#b42318,stroke-width:1.2px,color:#111a26
+    classDef done fill:#f0fdf4,stroke:#15803d,stroke-width:1.2px,color:#111a26
+    class B,D gate
+    class C,F,G,I warnx
+    class H,J done
+    class E,L,K done
+      </pre>
+      <figcaption>A missing template never discards the design or the agent's suggested message. The step survives, the suggestion is saved on it, and the gap stays visible.</figcaption>
+    </figure>
+
+    <p class="col">
+      Three situations are kept distinct, because telling a bank that no suitable template exists when we simply
+      cannot see their library would be false.
+    </p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>State</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td>Library unreachable</td><td>We cannot confirm or deny that a template exists.</td></tr>
+          <tr><td>No suitable template</td><td>A reachable library was searched and nothing matched.</td></tr>
+          <tr><td>Awaiting input</td><td>Partially supplied. The remaining value is still needed.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="validation">
+    <span class="sec-num">10</span>
+    <h2>Validation, export and import readiness</h2>
+    <div class="col">
+      <p>
+        Validation runs against the Drip Campaign platform's own validators. These are the same functions the manual builder
+        uses. Three different things are kept apart, because they are genuinely different: a design that was
+        generated, an artefact that can be exported, and a campaign the target platform would accept.
+      </p>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>State</th><th>What it confirms</th><th>Typical result</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Design generated</td>
+            <td>The agent produced a journey from the confirmed strategy.</td>
+            <td><span class="pill pass">Pass</span></td>
+          </tr>
+          <tr>
+            <td>Journey valid</td>
+            <td>Every path connects and terminates. No orphan steps.</td>
+            <td><span class="pill pass">Pass</span></td>
+          </tr>
+          <tr>
+            <td>Bank details supplied</td>
+            <td>Account and template IDs from your own systems are filled in.</td>
+            <td><span class="pill warn">Outstanding, and does not block the export</span></td>
+          </tr>
+          <tr>
+            <td>Operational checks</td>
+            <td>Message cap and channel availability are verified against tenant config.</td>
+            <td><span class="pill warn">Partly unverified</span></td>
+          </tr>
+          <tr>
+            <td>Design exportable</td>
+            <td>The journey is valid and complete as a design, so the JSON can be copied or downloaded.</td>
+            <td><span class="pill pass">Pass</span></td>
+          </tr>
+          <tr>
+            <td>Import ready</td>
+            <td>Whether the campaign builder would accept this JSON.</td>
+            <td><span class="pill info">Unverified — never asserted</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note caution">
+      <div class="note-title">Import readiness is unverified, not true and not false</div>
+      <p>
+        The campaign builder has no JSON import, so there is no import contract to check anything against. The
+        product therefore never claims import readiness. It reports it as unverified and lists what you still have
+        to prepare by hand: the bank's account and template IDs, any campaign field left for a person to decide, and
+        every operational check it could not run. Message spacing, quiet hours and freeze windows are among those.
+        A valid design is not evidence that the platform would accept it.
+      </p>
+    </div>
+
+    <div class="note">
+      <div class="note-title">Blocked means the configuration is wrong, not merely unfinished</div>
+      <p>
+        A condition naming an attribute the entity does not have, or a value the platform does not define, stops the
+        campaign being generated at all. The real alternatives named. Missing bank IDs are a different thing
+        entirely: they are something only you can supply, so they are tracked for the upload rather than treated as
+        a fault in the design.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="screens">
+    <span class="sec-num">11</span>
+    <h2>The three screens</h2>
+    <div class="col">
+      <p>
+        The Campaign Designer is a standalone application with its own shell and a global tenant selector. It has
+        three screens and no more.
+      </p>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h4>Design</h4>
+        <p>
+          The live campaign canvas on the left and the conversation on the right. The canvas is the real Drip Campaign
+          builder canvas, with the same node cards, edges and node editor.
+        </p>
+      </div>
+      <div class="card">
+        <h4>Knowledge Base</h4>
+        <p>
+          Upload documents the agent should treat as context. Brand guidance, campaign learnings, product rules. Each
+          document is scoped to all tenants or to one.
+        </p>
+      </div>
+      <div class="card">
+        <h4>Run Logs</h4>
+        <p>
+          A readable history of every run. The objective, the context retrieved, each tool call and result, the
+          strategy, the build and the validation outcome.
+        </p>
+      </div>
+    </div>
+
+    <h3>You can watch the agent work</h3>
+    <p class="col">
+      The response streams as it is written. Alongside it, an activity timeline shows what is actually happening.
+      Context retrieval, each tool request, each tool result with its duration, then graph construction and
+      validation. Once the run finishes the timeline collapses to a single line, so the strategy is what you read.
+    </p>
+
+    <figure>
+      <pre class="mermaid">
+%%{init: {'theme':'base','themeVariables':{'actorBkg':'#eef3fe','actorBorder':'#2d5bd7','actorTextColor':'#111a26','actorLineColor':'#c9d2de','signalColor':'#46556b','signalTextColor':'#111a26','labelBoxBkgColor':'#ffffff','labelBoxBorderColor':'#c9d2de','labelTextColor':'#111a26','noteBkgColor':'#fffbeb','noteBorderColor':'#e8cf8a','noteTextColor':'#111a26','sequenceNumberColor':'#ffffff','activationBkgColor':'#eef3fe','activationBorderColor':'#2d5bd7'}}}%%
+sequenceDiagram
+    autonumber
+    participant U as Campaign manager
+    participant A as Application
+    participant M as Claude Sonnet
+    participant P as Platform source
+
+    U->>A: Describes the objective
+    A->>P: Retrieve capabilities and context
+    P-->>A: Events, attributes, channels, documents
+    A->>M: Objective, working brief, context
+    M-->>A: Requests a tool
+    A->>P: Execute the tool
+    P-->>A: Real result
+    A->>M: Tool result
+    M-->>A: Streams text as it writes
+    A-->>U: Questions, or a strategy
+    U->>A: Answers, then confirms
+    A->>A: Build journey, then validate
+    A-->>U: Canvas, status and export state
+      </pre>
+      <figcaption>One design turn. Every tool call is executed by the application and its real result is returned.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="trust">
+    <span class="sec-num">12</span>
+    <h2>How the system stays honest</h2>
+    <div class="col">
+      <p>
+        An agent that quietly guesses is worse than no agent. Several rules are enforced in code rather than asked
+        for in a prompt.
+      </p>
+    </div>
+
+    <p class="pull">
+      Nothing is invented. Not an account, not a template identifier, not a performance figure, not a bank policy.
+    </p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Rule</th><th>How it is enforced</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>No campaign before confirmation</td>
+            <td>Graph construction has one entry point, guarded by the state machine.</td>
+          </tr>
+          <tr>
+            <td>No strategy before discovery</td>
+            <td>A proposal is refused while you have not taken part, success is undefined, or the agent's own dimensions are still open. Enforced in the application, not asked for in the prompt.</td>
+          </tr>
+          <tr>
+            <td>An assumption is never a finding</td>
+            <td>A dimension closed on an assumption is recorded as deferred, not retained. A limitation claimed on an assumption is recorded as deferred and marked unverified.</td>
+          </tr>
+          <tr>
+            <td>A failed turn loses nothing</td>
+            <td>When a turn fails, the brief and the conversation state come back unchanged, so a retry resumes instead of starting over.</td>
+          </tr>
+          <tr>
+            <td>Clarifying does not erase</td>
+            <td>Asking about your own objective withdraws the approval, which you can give again. It never deletes what discovery established.</td>
+          </tr>
+          <tr>
+            <td>No invented identifiers</td>
+            <td>Unresolved fields use the platform's own empty value, so its validator rejects them.</td>
+          </tr>
+          <tr>
+            <td>No invented capabilities</td>
+            <td>Anything outside the real vocabulary is rejected with a reason rather than corrected.</td>
+          </tr>
+          <tr>
+            <td>No unsupported claims</td>
+            <td>There is no performance data, so the agent is instructed never to claim lift or savings.</td>
+          </tr>
+          <tr>
+            <td>Synthetic data is labelled</td>
+            <td>Prototype tenants and sample bank context are marked synthetic wherever they appear.</td>
+          </tr>
+          <tr>
+            <td>Credentials stay server side</td>
+            <td>The API key is read on the server only. It never reaches the browser bundle or the logs.</td>
+          </tr>
+          <tr>
+            <td>No value the platform cannot hold</td>
+            <td>Conditions are checked against the platform's own definitions, and a mismatch is reported with the real alternatives rather than swapped for something similar.</td>
+          </tr>
+          <tr>
+            <td>Your words are not rewritten</td>
+            <td>A value you state that the platform cannot represent is raised as a question. The agent does not pick a different attribute on your behalf.</td>
+          </tr>
+          <tr>
+            <td>No hidden reasoning exposed</td>
+            <td>The model's private reasoning is passed between its own API calls and nowhere else. It is never shown, never logged and never written to a run record, which hold decisions, durations and results only.</td>
+          </tr>
+          <tr>
+            <td>Unbuilt capabilities are flagged</td>
+            <td>Event categories the platform marks as proposed rather than built are raised during the strategy, before anything is generated.</td>
+          </tr>
+          <tr>
+            <td>Success is settled first</td>
+            <td>The opening round may ask about the objective and nothing else. That answer decides which other questions are worth asking, so putting them alongside it wastes them.</td>
+          </tr>
+          <tr>
+            <td>A factor raised cannot be abandoned</td>
+            <td>A dimension the agent named itself may not reach a proposal unresolved. It must be answered, checked against the platform, or carried as a stated assumption. An assumption with nothing actually assumed counts as unresolved.</td>
+          </tr>
+          <tr>
+            <td>A question asked twice falls back</td>
+            <td>A decision-changing question blocks a proposal. Asked twice without an answer, its own stated default applies and the proposal says which, rather than asking a third time. Where no default was given it stays an open decision, not a quiet choice.</td>
+          </tr>
+          <tr>
+            <td>Alternatives are really alternatives</td>
+            <td>Two candidate approaches are compared on who they reach, when, and what the journey does. Two descriptions of one campaign are reported as one, whatever they are called.</td>
+          </tr>
+          <tr>
+            <td>A test cannot claim more than it can settle</td>
+            <td>An experiment declares what it is able to establish. If its variants run the identical journey it can show which message performs better, and it is refused if it claims to explain why customers behave as they do.</td>
+          </tr>
+          <tr>
+            <td>The built campaign is the one described</td>
+            <td>The journey behaviour the agent chose is read back off the campaign actually constructed. A mismatch is reported rather than left for the reader to notice.</td>
+          </tr>
+          <tr>
+            <td>What the platform cannot do is stated</td>
+            <td>The agent states the intervention it wants before being told what the builder supports. Anything the platform cannot meet is listed against the proposal in the words of the original request, instead of being narrowed into whatever happened to be buildable.</td>
+          </tr>
+          <tr>
+            <td>The reply is written for you</td>
+            <td>Internal identifiers such as question ids, rule codes and raw event names and paths into the data are detected in anything shown to you and sent back to the agent to rewrite. They are never silently stripped, because that changes the meaning rather than the wording.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="limits">
+    <span class="sec-num">13</span>
+    <h2>What is not supported yet</h2>
+    <div class="col">
+      <p>
+        This is a working prototype. The following are genuine gaps rather than rough edges, and the product does not
+        pretend otherwise.
+      </p>
+      <ul>
+        <li><strong>Tenant context is synthetic.</strong> Tenants, channel costs, message caps and quiet hours are sample data. They are not a real bank's configuration.</li>
+        <li><strong>No import path.</strong> Campaign JSON is transferred manually. Nothing is saved or activated in the campaign builder.</li>
+        <li><strong>Three operational checks are unverified.</strong> Message spacing, quiet hours and freeze windows are reported as unchecked.</li>
+        <li><strong>Document support is limited.</strong> Plain text, Markdown, CSV and JSON are read. PDF and Word are refused rather than silently ignored.</li>
+        <li><strong>No analytics engine.</strong> Supplied evidence is read as text. There is no query capability and no connection to bank systems.</li>
+        <li><strong>Design quality is judged by a person.</strong> The validators prove a campaign is buildable, never that it is a good campaign. A ten-objective evaluation set and a written rubric exist for that, and a human applies them.</li>
+        <li><strong>Suggested copy is unreviewed.</strong> No brand check, no compliance check, no channel length limits. It is a starting point for the real message, not an approved one.</li>
+        <li><strong>Live runs are not perfectly reliable.</strong> A small share of turns still fail to return a usable answer and have to be retried. The failure is reported plainly rather than hidden behind a generic message, and nothing already established is lost when it happens.</li>
+        <li><strong>Discovery quality is not yet proven end to end.</strong> The rules in the previous section are enforced and covered by tests. Whether the resulting conversation reaches the standard we set for it, asking about the business outcome and investigating the audience rather than the plumbing, has not yet been demonstrated in a completed live run.</li>
+        <li><strong>The dimension record can repeat itself.</strong> Restating a dimension in different words adds a second entry instead of updating the first, so a long conversation can hold the same question twice. Known, and deliberately not fixed yet.</li>
+        <li><strong>Evidence is self-reported.</strong> The agent states whether a status rests on a tool result, on something you said, or on an assumption. Nothing yet cross-checks a claimed tool result against the tools actually consulted.</li>
+        <li><strong>Questions are prose, not choices.</strong> A clarifying question cannot yet be offered as a short list of options to pick from.</li>
+        <li><strong>No sight of past campaigns.</strong> The agent cannot read campaigns already built, so it cannot reuse an existing segmentation or tell you whether something similar has been tried.</li>
+        <li><strong>Deployment is local.</strong> The API runs inside the development server. A hosted deployment would need a server function.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================================================= -->
+  <section id="changes">
+    <span class="sec-num">14</span>
+    <h2>What changed in this round, and why</h2>
+    <div class="col">
+      <p>
+        This round started from a specific complaint. The agent was asked to raise conversion from outstanding
+        balance to EMI, and it spent both of its most valuable questions asking whether it was acceptable to message
+        customers whose KYC might be incomplete, and whether to hold the campaign until a suppression list could be
+        built. Neither question is about EMI conversion.
+      </p>
+      <p>
+        Two things turned out to be true. The agent had nothing to reason about customers with, which is covered in
+        section 05. And two of the platform limits it described to the user were not real.
+      </p>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Change</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>The agent must establish who converts and why the rest do not</td><td>It had asked neither question in thirty-five runs. Both are now required before it can propose anything.</td></tr>
+          <tr><td>A reason must be traceable to something you said</td><td>Without this, the label saying &ldquo;the user told me&rdquo; was just a label the agent applied to its own invention. The quote is now checked against your real replies.</td></tr>
+          <tr><td>&ldquo;Nobody knows who converts&rdquo; now demands more work, not less</td><td>It used to close the question. The agent must now propose at least two candidate segments with its reasoning, wait for your reaction, and build a campaign that can tell them apart.</td></tr>
+          <tr><td>Every message must name the problem it solves</td><td>Checked against the built journey rather than asked for in the prompt.</td></tr>
+          <tr><td>The platform no longer puts eligibility questions to you</td><td>One sentence was responsible. The application used to tell the agent that any unmet requirement was &ldquo;the user's decision, not yours&rdquo;. It now separates the two kinds. A gap that changes who gets reached is still yours to decide. A gap in who gets excluded is plumbing, and becomes a stated limitation instead.</td></tr>
+          <tr><td>Entry can combine several entities, and can require that a record does not exist</td><td>The agent did not know either was possible, so it described both as limitations to the user. The builder has supported combining entities since October and has always supported checking for absence over a time window. The honest caveat is that absence is measured over a window rather than over all time, and the campaign now says so.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Two problems found in our own checks</h3>
+    <p class="col">
+      Both are worth recording, because in each case something that looked verified was not.
+    </p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Problem</th><th>What it meant</th></tr></thead>
+        <tbody>
+          <tr><td>The agent server was not being typechecked</td><td>A typecheck existed for it but was never run, and the command being used covered only the user interface. The server itself runs in a mode that removes types without checking them. Pointing the checker at it found fifteen errors on the first run. The server is now clean, and the check is part of the build.</td></tr>
+          <tr><td>A hard constraint was reporting a pass it had not earned</td><td>When the invented per-campaign message cap was removed, the check that enforced it kept running with no cap to compare against. It recorded a pass for a rule it had never evaluated. A test was holding that behaviour in place. It now correctly reports the rule as unverified.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <div class="note-title">What this round does not claim</div>
+      <p>
+        These are changes to what the application requires and refuses. They raise the floor on what can reach you.
+        They do not guarantee that any particular campaign is good. Whether the segments the agent proposes are
+        sensible, and whether its messages are worth sending, is still a judgement you have to make. Every run is
+        recorded in the run log so that judgement can be made from evidence rather than from a description.
+      </p>
+    </div>
+  </section>
+
+  <footer class="end">
+    Campaign Designer runs as a standalone application alongside the existing Drip Campaign builder. It shares the
+    same campaign model, reducers, canvas and validators, so a generated campaign is the same kind of object as a
+    hand built one.
+  </footer>
+</div>

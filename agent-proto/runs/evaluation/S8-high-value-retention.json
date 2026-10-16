@@ -1,0 +1,133 @@
+{
+  "id": "S8-high-value-retention",
+  "title": "High-value customer retention",
+  "objective": "Our highest-spending customers are going quiet. Keep them active before we lose them.",
+  "reviewerNotes": "'High value' and 'going quiet' have no platform definition. Both are genuine strategic ambiguities, and spend thresholds are not available as attributes. The honest answer names the limitation.",
+  "watchFor": [
+    "inventing a spend tier or an engagement score",
+    "proceeding as if 'high value' were defined"
+  ],
+  "turns": [
+    {
+      "phase": "awaiting-confirmation",
+      "toolsUsed": [
+        "Checking available trigger events",
+        "Checking audience attributes",
+        "Checking channel availability",
+        "Checking message template availability",
+        "Checking available journey steps"
+      ],
+      "questions": [
+        "There are two different bank names in what I was given — the tenant header says IndusInd Bank (IBL), the knowledge base says Meridian Bank (fictional). I have not put either name in customer-facing copy to avoid misattribution. Which is correct for template binding and branding?",
+        "How should 'highest-spending' and 'going quiet' be operationalised — a specific Smart Tag name already maintained by the bank, or a threshold (e.g., top-X percentile of trailing-90-day spend, N days since last transaction) that needs a new tag built?"
+      ],
+      "strategy": {
+        "summary": "Target customers already flagged as high-value whose accounts are still active but not yet dormant, and nudge them toward one more customer-initiated transaction before they lapse further. The platform has no 'spend tier' or 'days-since-last-transaction' attribute, so the segment has to ride on an issuer-configured Account Smart Tag rather than a verifiable numeric threshold. The goal is proven by a genuine customer-initiated settled transaction, using the Transaction event category, which is flagged by the platform as proposed/not-yet-confirmed-built. The journey is three low-to-high cost messages spaced to avoid fatigue, inside the 4-message cap, with a 10% holdout per the bank's stated preference.",
+        "approach": [
+          "Entry on an audience segment (Account Status = Active, plus a Smart Tag identifying high-value/declining-activity customers) rather than an event, because 'going quiet' is an absence of activity, not a discrete event — no entry event can fire on something that didn't happen.",
+          "Goal = a customer-initiated, settled Transaction. This is the only event that proves the behaviour (resumed spend) actually happened, as opposed to just viewing a message.",
+          "Exclude Account Status = Dormant/Closed/Charge off from entry: by the time an account is formally Dormant the opportunity to 'keep them active before we lose them' may already be gone, and a win-back for a closed/charged-off account is a different campaign with different mechanics.",
+          "Lead with EMAIL (cheapest), reinforce with SMS, escalate to WHATSAPP only if still silent — cheaper channel first, higher-cost channel reserved for recovery (P-010), 3 of the 4 allowed messages used so there is headroom without forcing a 4th.",
+          "10% control group per stated preference, so if the bank later wants to claim this campaign moved the needle, there's a holdout to compare against (P-006) — no lift is claimed now, since no performance history exists."
+        ],
+        "rejected": [
+          {
+            "option": "Entering on a high-value Transaction event (e.g., Transaction Amount > X) to define 'high spending'",
+            "why": "That event fires when a transaction just happened, i.e. the customer is NOT quiet at that moment. Using it as entry would enrol people the moment they're active, missing exactly the quiet customers the brief cares about."
+          },
+          {
+            "option": "A/B testing channel order or copy variant",
+            "why": "Conservative risk appetite and P-005 (change one variable) argue against stacking an untested segment definition with an untested channel experiment in the same campaign. Simplicity first; revisit experimentation once the base journey has any real-world signal."
+          },
+          {
+            "option": "Waiting on EMI_STATUS_CHANGED or an EMI-request opportunity",
+            "why": "Nothing in the brief ties this objective to an EMI product journey; forcing it in would be inventing a mechanism the objective didn't ask for."
+          }
+        ],
+        "assumptions": [
+          "Account Smart Tag can carry a bank-maintained 'high spend, declining activity' cohort; the platform cannot verify this tag or its values exist (type is modeled, values are not enumerable here).",
+          "DNC and NPA exclusion are enforced by the platform as hard constraints and do not need to be re-expressed as entry conditions.",
+          "Campaign scheduling will avoid the 2026-11-07 to 2026-11-21 festive freeze and the 2026-12-01 statement-cycle high-volume window; this is a launch-timing note, not a blueprint field.",
+          "Minimum 48h spacing is a floor; 72–96h gaps are used instead to reduce fatigue per P-011 (hypothesis, not proven)."
+        ],
+        "evidenceNotes": [
+          "No performance history exists for this bank (verified absence), so channel/copy choices here are hypotheses, not predictions of lift.",
+          "Aggregate distribution of the candidate Smart Tag (how many customers it covers, how it was derived) would sharpen eligibility sizing, but is not a prerequisite to proposing the structure."
+        ]
+      },
+      "entry": {
+        "kind": "audience",
+        "entity": "Account",
+        "conditions": [
+          {
+            "attribute": "Status",
+            "operator": "Equals",
+            "value": "Active"
+          },
+          {
+            "attribute": "Smart Tag",
+            "operator": "Equals",
+            "value": "High Value - Declining Activity"
+          }
+        ]
+      },
+      "goal": {
+        "eventCategory": "Transaction Events",
+        "eventType": "Transaction",
+        "conditions": [
+          {
+            "attribute": "Transaction Status",
+            "operator": "Any of",
+            "value": [
+              "SETTLED"
+            ]
+          },
+          {
+            "attribute": "Initiated By",
+            "operator": "Equals",
+            "value": "CUSTOMER_INITIATED"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "kind": "send",
+          "name": "Opening nudge",
+          "copy": "${customerFirstName}, there are rewards sitting on your card that haven't been used yet. Take a look at what's available.",
+          "cta": "View my rewards"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 72
+        },
+        {
+          "kind": "send",
+          "name": "Reminder with specific offer",
+          "copy": "${customerFirstName}, this month's cashback categories are live on your card. A couple of minutes could get you money back on things you already buy.",
+          "cta": "See my offers"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 96
+        },
+        {
+          "kind": "send",
+          "name": "Final reinforcement",
+          "copy": "${customerFirstName}, your exclusive cashback window is still open. Here's where to use it before it closes: ${shortUrl}",
+          "cta": "Explore cashback"
+        },
+        {
+          "kind": "exit"
+        }
+      ],
+      "graphReadiness": {
+        "status": "ready",
+        "blockers": [],
+        "limitations": [
+          "Smart Tag is an issuer-configured Smart Tag. The platform metadata holds no list of real tag values, so \"High Value - Declining Activity\" cannot be verified here."
+        ]
+      },
+      "reply": "Target customers already flagged as high-value whose accounts are still active but not yet dormant, and nudge them toward one more customer-initiated transaction before they lapse further. The platform has no 'spend tier' or 'days-since-last-transaction' attribute, so the segment has to ride on an issuer-configured Account Smart Tag rather than a verifiable numeric threshold. The goal is proven by a genuine customer-initiated settled transaction, using the Transaction event category, which is flagged by the platform as proposed/not-yet-confirmed-built. The journey is three low-to-high cost messages spaced to avoid fatigue, inside the 4-message cap, with a 10% holdout per the bank's stated preference.\n\n**Approach**\n- Entry on an audience segment (Account Status = Active, plus a Smart Tag identifying high-value/declining-activity customers) rather than an event, because 'going quiet' is an absence of activity, not a discrete event — no entry event can fire on something that didn't happen.\n- Goal = a customer-initiated, settled Transaction. This is the only event that proves the behaviour (resumed spend) actually happened, as opposed to just viewing a message.\n- Exclude Account Status = Dormant/Closed/Charge off from entry: by the time an account is formally Dormant the opportunity to 'keep them active before we lose them' may already be gone, and a win-back for a closed/charged-off account is a different campaign with different mechanics.\n- Lead with EMAIL (cheapest), reinforce with SMS, escalate to WHATSAPP only if still silent — cheaper channel first, higher-cost channel reserved for recovery (P-010), 3 of the 4 allowed messages used so there is headroom without forcing a 4th.\n- 10% control group per stated preference, so if the bank later wants to claim this campaign moved the needle, there's a holdout to compare against (P-006) — no lift is claimed now, since no performance history exists.\n\n**Considered and not used**\n- Entering on a high-value Transaction event (e.g., Transaction Amount > X) to define 'high spending' — That event fires when a transaction just happened, i.e. the customer is NOT quiet at that moment. Using it as entry would enrol people the moment they're active, missing exactly the quiet customers the brief cares about.\n- A/B testing channel order or copy variant — Conservative risk appetite and P-005 (change one variable) argue against stacking an untested segment definition with an untested channel experiment in the same campaign. Simplicity first; revisit experimentation once the base journey has any real-world signal.\n- Waiting on EMI_STATUS_CHANGED or an EMI-request opportunity — Nothing in the brief ties this objective to an EMI product journey; forcing it in would be inventing a mechanism the objective didn't ask for.\n\n**Assumptions**\n- Account Smart Tag can carry a bank-maintained 'high spend, declining activity' cohort; the platform cannot verify this tag or its values exist (type is modeled, values are not enumerable here).\n- DNC and NPA exclusion are enforced by the platform as hard constraints and do not need to be re-expressed as entry conditions.\n- Campaign scheduling will avoid the 2026-11-07 to 2026-11-21 festive freeze and the 2026-12-01 statement-cycle high-volume window; this is a launch-timing note, not a blueprint field.\n- Minimum 48h spacing is a floor; 72–96h gaps are used instead to reduce fatigue per P-011 (hypothesis, not proven).\n\n**Worth settling before this is built**\n- There are two different bank names in what I was given — the tenant header says IndusInd Bank (IBL), the knowledge base says Meridian Bank (fictional). I have not put either name in customer-facing copy to avoid misattribution. Which is correct for template binding and branding? Wrong brand name in a live send is a compliance and trust problem, not a cosmetic one. Until then: Copy stays brand-neutral ('your card') until this is resolved; no bank name is inserted.\n- How should 'highest-spending' and 'going quiet' be operationalised — a specific Smart Tag name already maintained by the bank, or a threshold (e.g., top-X percentile of trailing-90-day spend, N days since last transaction) that needs a new tag built? This directly determines who enters the campaign; a wrong or missing tag means the campaign either enrols nobody or enrols the wrong cohort. Until then: I will assume a placeholder tag (e.g. \"High Value - Declining Activity\") exists or will be configured before launch; the entry condition is written against it but cannot be validated from here.\n\n**Defaults applied**\n- Is 3 messages (Email → SMS → WhatsApp) over ~1 week the right pace, or should the sequence stretch longer given these are high-value relationship customers? Faster pacing risks fatigue on a conservative, relationship-sensitive segment; slower pacing risks the window closing unnoticed. Until then: Default to 72h then 96h spacing, 3 messages, well inside the 4-message cap and 48h floor.\n\n**Limitations**\n- Transaction Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- Is the Transaction Events category (used for both entry exclusions and the goal) confirmed live in production, or still the 'proposed, not yet built' version? If it is not live, the goal cannot fire and the campaign cannot prove the behaviour happened.\n\n**Cannot be verified by the platform**\n- Smart Tag is an issuer-configured Smart Tag. The platform metadata holds no list of real tag values, so \"High Value - Declining Activity\" cannot be verified here."
+    }
+  ]
+}

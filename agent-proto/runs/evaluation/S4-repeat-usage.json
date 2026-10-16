@@ -1,0 +1,138 @@
+{
+  "id": "S4-repeat-usage",
+  "title": "Repeat card usage",
+  "objective": "Customers who used the card once have not come back. Encourage a second and third transaction.",
+  "reviewerNotes": "There is no 'used once' event, so this is an audience question answered with transaction history, not an event entry. The agent should notice the difference.",
+  "watchFor": [
+    "an invented 'first transaction' event",
+    "no acknowledgement that recency must be expressed as a lookback"
+  ],
+  "turns": [
+    {
+      "phase": "awaiting-confirmation",
+      "toolsUsed": [
+        "Checking available trigger events",
+        "Checking audience attributes",
+        "Checking channel availability",
+        "Checking available journey steps",
+        "Checking message template availability"
+      ],
+      "questions": [
+        "The objective names both a second AND a third transaction, but a campaign has one goal and auto-exits once it's reached. Should this build target only the 2nd transaction (recommended, with a separate mirrored campaign later for 2nd→3rd), or do you want a different structure?"
+      ],
+      "strategy": {
+        "summary": "Target customers whose only recorded activity is one customer-initiated, settled transaction, and nudge them toward a second use with a short, escalating-channel sequence. The platform can't prove 'used exactly once' directly (no transaction-count attribute exists), so entry fires on any qualifying transaction and relies on single-enrollment-per-campaign behaviour to approximate first-time users. The goal is the next qualifying transaction, which proves the comeback behaviour; driving a third transaction is a separate, follow-on concern since one campaign has one goal and exits on reaching it.",
+        "approach": [
+          "Entry on a customer-initiated, settled/approved Transaction event rather than Card Activated — activation proves the card works, not that spend happened, so it would enter people too early and miss the actual gap (one txn, no more).",
+          "Goal is the next customer-initiated settled/approved Transaction — that is the only event that proves 'came back', and it sits on a different occurrence of the same event type than entry, so it is not trivially pre-satisfied.",
+          "Lead with EMAIL (lowest cost) for the first-touch, move to SMS for the reminder, reserve WHATSAPP (highest cost) for the final recovery nudge, per the lead-with-lower-cost preference.",
+          "Cap at 3 sends (within the 4-message limit) with 48h+ spacing, reflecting the conservative 'fewer, better-targeted messages' preference rather than maxing out the cap.",
+          "10% control group held out, since any read of 'did this help' needs a holdout; no lift numbers are claimed anywhere in this design."
+        ],
+        "rejected": [
+          {
+            "option": "Entry on Card Activated/Card Issued",
+            "why": "Proves the card is usable, not that only one transaction has occurred; would enter people before or regardless of the actual single-use problem."
+          },
+          {
+            "option": "An experiment (A/B) on channel order",
+            "why": "Conservative risk appetite prefers fewer, targeted messages; with no performance history to compare against, an experiment adds complexity without a clear decision it would inform yet."
+          },
+          {
+            "option": "Using the full 4-message cap",
+            "why": "A fourth message this soon risks fatigue (P-011) for an outcome that has no deadline forcing urgency; 3 is enough to test the hypothesis."
+          }
+        ],
+        "assumptions": [
+          "The campaign platform enrolls each customer once per campaign (does not re-trigger entry on every subsequent transaction); this is what makes 'first transaction' targeting workable at all given no count attribute exists.",
+          "A 2-week messaging window (first send ~48h after the qualifying transaction, final nudge by day ~9-10) is a reasonable test horizon with no hard deadline forcing urgency, unlike an EMI offer.",
+          "This campaign's single goal is the second transaction; prompting a third transaction is treated as a separate, mirrored follow-on campaign rather than a 4th step after this goal, since reaching the goal auto-exits the journey."
+        ],
+        "evidenceNotes": [
+          "No performance history exists for this bank (stated in brief), so channel order, spacing and copy are hypotheses, not predictions.",
+          "Aggregated time-to-second-transaction data, if it existed, would help size the wait/window better than the 2-week default assumed here — noted as a gap, not a blocker."
+        ]
+      },
+      "entry": {
+        "kind": "event",
+        "eventCategory": "Transaction Events",
+        "eventType": "Transaction",
+        "conditions": [
+          {
+            "attribute": "Transaction Status",
+            "operator": "Any of",
+            "value": [
+              "APPROVED",
+              "SETTLED"
+            ]
+          },
+          {
+            "attribute": "Initiated By",
+            "operator": "Equals",
+            "value": "CUSTOMER_INITIATED"
+          }
+        ]
+      },
+      "goal": {
+        "eventCategory": "Transaction Events",
+        "eventType": "Transaction",
+        "conditions": [
+          {
+            "attribute": "Transaction Status",
+            "operator": "Any of",
+            "value": [
+              "APPROVED",
+              "SETTLED"
+            ]
+          },
+          {
+            "attribute": "Initiated By",
+            "operator": "Equals",
+            "value": "CUSTOMER_INITIATED"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "kind": "wait",
+          "durationHours": 48
+        },
+        {
+          "kind": "send",
+          "name": "Welcome back nudge",
+          "copy": "Hi ${customerFirstName}, thanks for making your first purchase with your IndusInd card! Keep using it and you start earning rewards on everyday spends. See what you could earn next.",
+          "cta": "View my rewards"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 96
+        },
+        {
+          "kind": "send",
+          "name": "Reminder nudge",
+          "copy": "${customerFirstName}, your IndusInd card has more to give. Use it again on everyday spends like groceries or dining to start earning cashback.",
+          "cta": "Shop now"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 120
+        },
+        {
+          "kind": "send",
+          "name": "Final recovery nudge",
+          "copy": "Still haven't used your card again, ${customerFirstName}? Pick up where you left off, groceries, dining and more all earn rewards every time you pay with it.",
+          "cta": "Use my card"
+        },
+        {
+          "kind": "exit"
+        }
+      ],
+      "graphReadiness": {
+        "status": "ready",
+        "blockers": [],
+        "limitations": []
+      },
+      "reply": "Target customers whose only recorded activity is one customer-initiated, settled transaction, and nudge them toward a second use with a short, escalating-channel sequence. The platform can't prove 'used exactly once' directly (no transaction-count attribute exists), so entry fires on any qualifying transaction and relies on single-enrollment-per-campaign behaviour to approximate first-time users. The goal is the next qualifying transaction, which proves the comeback behaviour; driving a third transaction is a separate, follow-on concern since one campaign has one goal and exits on reaching it.\n\n**Approach**\n- Entry on a customer-initiated, settled/approved Transaction event rather than Card Activated — activation proves the card works, not that spend happened, so it would enter people too early and miss the actual gap (one txn, no more).\n- Goal is the next customer-initiated settled/approved Transaction — that is the only event that proves 'came back', and it sits on a different occurrence of the same event type than entry, so it is not trivially pre-satisfied.\n- Lead with EMAIL (lowest cost) for the first-touch, move to SMS for the reminder, reserve WHATSAPP (highest cost) for the final recovery nudge, per the lead-with-lower-cost preference.\n- Cap at 3 sends (within the 4-message limit) with 48h+ spacing, reflecting the conservative 'fewer, better-targeted messages' preference rather than maxing out the cap.\n- 10% control group held out, since any read of 'did this help' needs a holdout; no lift numbers are claimed anywhere in this design.\n\n**Considered and not used**\n- Entry on Card Activated/Card Issued — Proves the card is usable, not that only one transaction has occurred; would enter people before or regardless of the actual single-use problem.\n- An experiment (A/B) on channel order — Conservative risk appetite prefers fewer, targeted messages; with no performance history to compare against, an experiment adds complexity without a clear decision it would inform yet.\n- Using the full 4-message cap — A fourth message this soon risks fatigue (P-011) for an outcome that has no deadline forcing urgency; 3 is enough to test the hypothesis.\n\n**Assumptions**\n- The campaign platform enrolls each customer once per campaign (does not re-trigger entry on every subsequent transaction); this is what makes 'first transaction' targeting workable at all given no count attribute exists.\n- A 2-week messaging window (first send ~48h after the qualifying transaction, final nudge by day ~9-10) is a reasonable test horizon with no hard deadline forcing urgency, unlike an EMI offer.\n- This campaign's single goal is the second transaction; prompting a third transaction is treated as a separate, mirrored follow-on campaign rather than a 4th step after this goal, since reaching the goal auto-exits the journey.\n\n**Worth settling before this is built**\n- The objective names both a second AND a third transaction, but a campaign has one goal and auto-exits once it's reached. Should this build target only the 2nd transaction (recommended, with a separate mirrored campaign later for 2nd→3rd), or do you want a different structure? Determines whether this is one campaign or two, and what 'success' means for this build. Until then: Proceed with this campaign's goal as the second transaction; propose a follow-on campaign for the third transaction as a later, separate build.\n\n**Defaults applied**\n- Is there a natural deadline or seasonal window for this reactivation push (e.g., tie to a statement cycle), or is a flat ~2-week window fine? A real deadline would let the copy say something more concrete (e.g., 'before your next statement') and could compress or extend spacing. Until then: Default to a ~2-week window with 3 messages at 48h+/96h+/120h+ spacing, with no explicit deadline language in copy.\n\n**Limitations**\n- Transaction Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- No attribute exposes a customer's transaction count, so the platform cannot literally filter 'exactly one transaction ever' at entry — it can only trigger on a qualifying transaction event and rely on single-entry-per-campaign enrollment to approximate first-time users. If this campaign is re-enterable, customers well past their second or third transaction could also receive 'come back' messaging that doesn't match their situation."
+    }
+  ]
+}

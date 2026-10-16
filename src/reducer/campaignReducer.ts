@@ -220,7 +220,19 @@ export function dcConfirmEditNode(graph: DripGraph, nodeId: string, type: DcNode
   const { label, meta } = dcRecomputeLabelMeta(type, p, goal);
   node.label = label;
   node.meta = meta;
+  // The form owns every field it renders, so its config replaces the old one
+  // wholesale. The ONE exception is the agent's suggested messaging on a
+  // Send: the drawer shows it read-only and never submits it, so a wholesale
+  // replace silently erased it the first time anyone edited a channel or a
+  // template id — exactly when they were most likely to want it. Carried
+  // forward only when the incoming config does not set it, so clearing it
+  // deliberately still works. Nothing else is preserved: a stale value that
+  // no form owns is a bug, not a feature.
+  const previousMessaging = (node._config as { agentMessaging?: unknown } | null | undefined)?.agentMessaging;
   node._config = structuredClone(p);
+  if (type === 'SEND' && previousMessaging !== undefined && !('agentMessaging' in (p ?? {}))) {
+    (node._config as Record<string, unknown>).agentMessaging = structuredClone(previousMessaging);
+  }
 
   // Random Split / Decision Split branches are real outgoing edges —
   // whatever's been built under each arm must survive an edit, including

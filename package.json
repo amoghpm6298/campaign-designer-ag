@@ -8,8 +8,18 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test": "VITE_CONFIG_NATIVE_IGNORE_WARNING=true vitest run",
+    "test:e2e": "playwright test",
+    "agent:schema": "vitest run --config agent-proto/vitest.config.ts agent-proto/schema/writeSchema.task.ts",
+    "agent:run": "vitest run --config agent-proto/vitest.config.ts agent-proto/run.task.ts",
+    "agent:e2e": "vitest run --config agent-proto/vitest.config.ts agent-proto/endToEnd.regression.task.ts",
+    "agent:typecheck": "tsc -p agent-proto/tsconfig.json",
+    "agent:test": "vitest run --config agent-proto/vitest.config.ts agent-proto/planner.regression.task.ts agent-proto/templateSelect.regression.task.ts agent-proto/bankConstraints.regression.task.ts agent-proto/quietHours.regression.task.ts agent-proto/hardConstraints.regression.task.ts agent-proto/channelAvailability.regression.task.ts agent-proto/campaignFields.regression.task.ts agent-proto/endToEnd.regression.task.ts",
+    "server:typecheck": "tsc -p server/tsconfig.json",
+    "dev:designer": "vite --config vite.designer.config.ts",
+    "build:designer": "tsc -b && vite build --config vite.designer.config.ts",
+    "preview:designer": "vite preview --config vite.designer.config.ts",
+    "check:server": "tsc --noEmit -p tsconfig.server.json"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",

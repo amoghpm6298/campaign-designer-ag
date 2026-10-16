@@ -1,0 +1,450 @@
+/* Campaign Designer — two panels. The canvas is the primary visual focus,
+   so it takes the larger share and the chat is a fixed-width column. */
+/* 100% not 100vh: this sits inside the app shell, below its 56px header.
+   100vh overflowed by exactly that much and stopped the composer anchoring
+   to the bottom of the chat column. */
+.cd-wrap { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+
+.cd-top {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 18px; border-bottom: 1px solid var(--gray-200);
+  background: #fff; flex: 0 0 auto;
+}
+.cd-top h1 { font-size: 14.5px; font-weight: 640; margin: 0; letter-spacing: -0.01em; color: var(--gray-800, #1f2937); }
+.cd-top .cd-sub { font-size: 12px; color: var(--gray-600); margin-top: 2px; }
+.cd-tabs { display: flex; gap: 2px; margin-left: auto; }
+.cd-tab {
+  font-size: 12.5px; font-weight: 550; padding: 6px 12px; border-radius: 7px;
+  border: 1px solid transparent; background: none; cursor: pointer; color: var(--gray-600);
+}
+.cd-tab:hover { background: var(--gray-100); }
+.cd-tab.on { background: var(--blue-50, #eff4ff); color: var(--blue-cta); border-color: var(--blue-200, #c7d8fe); }
+
+.cd-body { display: flex; flex: 1 1 auto; min-height: 0; }
+.cd-canvas { flex: 1 1 auto; min-width: 0; position: relative; background: var(--gray-50, #fafafa); }
+.cd-chat {
+  flex: 0 0 420px; display: flex; flex-direction: column;
+  border-left: 1px solid var(--gray-200); background: #fff; min-height: 0;
+}
+
+/* --- canvas states --- */
+.cd-state {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 40px;
+}
+.cd-state-title { font-size: 14px; font-weight: 600; color: var(--gray-700); }
+.cd-state-sub { font-size: 12.5px; color: var(--gray-500); max-width: 380px; line-height: 1.55; }
+.cd-spinner {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2.5px solid var(--gray-200); border-top-color: var(--blue-cta);
+  animation: cd-spin 0.7s linear infinite;
+}
+@keyframes cd-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cd-spinner { animation-duration: 2.4s; } }
+
+/* --- chat --- */
+.cd-msgs { flex: 1 1 auto; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.cd-msg { font-size: 13px; line-height: 1.6; }
+.cd-msg-role { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gray-400); margin-bottom: 4px; }
+.cd-msg.user .cd-msg-bubble { background: var(--blue-50, #eff4ff); border: 1px solid var(--blue-200, #c7d8fe); }
+.cd-msg-bubble { background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; }
+.cd-msg-bubble strong { font-weight: 650; }
+.cd-msg-bubble ul { margin: 6px 0 0; padding-left: 18px; }
+.cd-msg-bubble li { margin: 2px 0; }
+
+.cd-qs { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.cd-q { font-size: 12.5px; background: #fff; border: 1px solid var(--gray-200); border-radius: 8px; padding: 8px 10px; }
+.cd-q-n { font-weight: 700; color: var(--blue-cta); margin-right: 6px; }
+
+.cd-compose { flex: 0 0 auto; border-top: 1px solid var(--gray-200); padding: 12px; background: #fff; }
+.cd-compose textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 64px;
+  font: inherit; font-size: 13px; padding: 9px 10px;
+  border: 1px solid var(--gray-300); border-radius: 8px;
+}
+.cd-compose textarea:focus-visible { outline: 2px solid var(--blue-cta); outline-offset: 1px; border-color: var(--blue-cta); }
+.cd-actions { display: flex; gap: 8px; align-items: center; margin-top: 9px; flex-wrap: wrap; }
+.cd-hint { font-size: 11.5px; color: var(--gray-500); }
+.cd-rounds { font-size: 11.5px; color: var(--gray-500); margin-left: auto; font-variant-numeric: tabular-nums; }
+
+.cd-btn {
+  font: inherit; font-size: 12.5px; font-weight: 600; padding: 7px 13px; border-radius: 8px;
+  border: 1px solid var(--gray-300); background: #fff; cursor: pointer; color: var(--gray-700);
+}
+.cd-btn:hover:not(:disabled) { background: var(--gray-50, #fafafa); }
+.cd-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.cd-btn.pri { background: var(--blue-cta); border-color: var(--blue-cta); color: #fff; }
+/* A real colour change, not a 5% filter. brightness(0.95) on a saturated
+   blue is close to imperceptible, so the primary button read as having no
+   hover state at all when measured. */
+.cd-btn.pri:hover:not(:disabled) { background: #0a57cc; }
+
+/* --- config error --- */
+.cd-configerr {
+  margin: 18px; border: 1px solid #fecaca; background: #fef2f2; color: #991b1b;
+  border-radius: 10px; padding: 14px 16px; font-size: 13px; line-height: 1.6;
+}
+.cd-configerr code { background: #fff; border: 1px solid #fecaca; border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+
+/* --- Knowledge Base + Run Logs --- */
+.cd-page { padding: 22px 26px; overflow-y: auto; height: 100vh; box-sizing: border-box; }
+.cd-page h1 { font-size: 19px; margin: 0 0 4px; letter-spacing: -0.015em; }
+.cd-page .cd-lede { font-size: 13px; color: var(--gray-600); max-width: 760px; line-height: 1.6; margin: 0 0 18px; }
+.cd-kb-label { font-size: 12.5px; font-weight: 600; color: var(--gray-700); }
+.cd-kb-src { font-size: 11px; color: var(--gray-400); margin-top: 3px; word-break: break-word; }
+
+.cd-logs { display: flex; gap: 18px; height: calc(100vh - 150px); min-height: 0; }
+.cd-loglist { flex: 0 0 300px; overflow-y: auto; border-right: 1px solid var(--gray-200); padding-right: 12px; }
+.cd-logrow { padding: 9px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+.cd-logrow:hover { background: var(--gray-50, #fafafa); }
+.cd-logrow.on { background: var(--blue-50, #eff4ff); border-color: var(--blue-200, #c7d8fe); }
+.cd-logrow-t { font-size: 12.5px; font-weight: 600; color: var(--gray-700); }
+.cd-logrow-m { font-size: 11px; color: var(--gray-500); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.cd-logdetail { flex: 1 1 auto; overflow-y: auto; min-width: 0; }
+.cd-event { border-left: 2px solid var(--gray-200); padding: 0 0 14px 14px; position: relative; }
+.cd-event-k { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--blue-cta); }
+.cd-event-s { font-size: 12.5px; color: var(--gray-700); margin: 2px 0; line-height: 1.5; }
+.cd-event-t { font-size: 11px; color: var(--gray-400); font-variant-numeric: tabular-nums; }
+.cd-event pre { font-size: 11px; background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200); border-radius: 7px; padding: 8px 10px; overflow-x: auto; margin: 6px 0 0; max-height: 240px; }
+.cd-empty { font-size: 13px; color: var(--gray-500); padding: 30px 0; }
+
+/* --- Send steps awaiting the bank's real account / template id --- */
+.cd-sends { flex: 0 0 auto; max-height: 42vh; overflow-y: auto; border-top: 1px solid var(--gray-200); padding: 12px; background: #fffdf7; }
+.cd-sends-h { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #92400e; margin-bottom: 9px; }
+.cd-send { border: 1px solid #fde68a; background: #fff; border-radius: 9px; padding: 10px; margin-bottom: 9px; }
+.cd-send-t { font-size: 12.5px; font-weight: 650; color: var(--gray-700); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.cd-send-meta { font-size: 11px; font-weight: 500; color: var(--gray-500); }
+.cd-send-why { font-size: 11.5px; color: #92400e; margin: 5px 0 7px; line-height: 1.5; }
+.cd-send-copy { background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200); border-radius: 7px; padding: 8px; font-size: 12px; line-height: 1.5; }
+.cd-send-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--gray-400); margin-bottom: 4px; }
+.cd-send-cta { font-size: 11px; color: var(--gray-500); margin-top: 5px; }
+.cd-send-fields { display: flex; gap: 9px; margin-top: 9px; }
+.cd-send-fields label { flex: 1; font-size: 11px; font-weight: 600; color: var(--gray-600); display: flex; flex-direction: column; gap: 3px; }
+.cd-send-fields input { font: inherit; font-size: 12.5px; padding: 6px 8px; border: 1px solid var(--gray-300); border-radius: 6px; }
+.cd-send-fields input:focus-visible { outline: 2px solid var(--blue-cta); outline-offset: 1px; }
+
+/* ===================================================================
+   Shared design language. One scale for type, spacing and status, so
+   Design, Knowledge Base and Run Logs read as one product.
+   =================================================================== */
+
+/* --- page frame --- */
+.cd-page { padding: 26px 30px 44px; overflow-y: auto; height: 100%; box-sizing: border-box; max-width: 1180px; }
+.cd-page h1 { font-size: 20px; font-weight: 660; margin: 0 0 5px; letter-spacing: -0.02em; color: var(--gray-800, #1f2937); }
+.cd-page .cd-lede { font-size: 13.5px; color: var(--gray-600); max-width: 680px; line-height: 1.6; margin: 0; }
+.cd-page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+
+/* --- status strip: the five campaign states, one row --- */
+.cd-status {
+  position: absolute; left: 16px; right: 16px; top: 14px; z-index: 5;
+  background: #fff; border: 1px solid var(--gray-200); border-radius: 10px;
+  padding: 10px 14px; box-shadow: 0 1px 3px rgba(16, 24, 40, 0.05);
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+}
+.cd-stage { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 550; color: var(--gray-400); }
+.cd-stage-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gray-300); flex: none; }
+.cd-stage.done { color: #15803d; }
+.cd-stage.done .cd-stage-dot { background: #16a34a; }
+.cd-stage.partial { color: #a16207; }
+.cd-stage.partial .cd-stage-dot { background: #ca8a04; }
+.cd-stage.blocked { color: #b91c1c; }
+.cd-stage.blocked .cd-stage-dot { background: #dc2626; }
+.cd-status-detail {
+  flex: 1 1 100%; font-size: 12.5px; line-height: 1.55; color: var(--gray-600);
+  border-top: 1px solid var(--gray-100, #f3f4f6); padding-top: 9px;
+}
+.cd-status-detail b { color: var(--gray-800, #1f2937); font-weight: 620; }
+.cd-status-next { color: var(--blue-cta); font-weight: 550; }
+
+/* --- status pills, shared --- */
+.cd-pill {
+  display: inline-block; font-size: 11px; font-weight: 620; padding: 2.5px 9px;
+  border-radius: 20px; white-space: nowrap; letter-spacing: 0.01em;
+}
+.cd-pill.ok { background: #f0fdf4; color: #15803d; }
+.cd-pill.info { background: #eff6ff; color: #1d4ed8; }
+.cd-pill.warn { background: #fffbeb; color: #a16207; }
+.cd-pill.bad { background: #fef2f2; color: #b91c1c; }
+
+/* --- alerts: one per concern, not one per field --- */
+.cd-alert { border-radius: 9px; padding: 11px 14px; font-size: 13px; line-height: 1.6; margin: 0 0 18px; border: 1px solid; }
+.cd-alert.note { background: var(--gray-50, #fafafa); border-color: var(--gray-200); color: var(--gray-600); }
+.cd-alert.bad { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+.cd-alert ul { margin: 7px 0 0; padding-left: 18px; }
+.cd-alert li { margin: 3px 0; }
+
+/* --- empty states --- */
+.cd-empty-panel {
+  border: 1px dashed var(--gray-300); border-radius: 12px; padding: 36px 30px;
+  text-align: center; background: var(--gray-50, #fafafa); max-width: 620px;
+}
+.cd-empty-title { font-size: 15px; font-weight: 620; color: var(--gray-700); margin-bottom: 6px; }
+.cd-empty-panel p { font-size: 13px; color: var(--gray-600); line-height: 1.65; margin: 0 auto 18px; max-width: 440px; }
+
+/* --- upload bar --- */
+.cd-upload-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.cd-upload-bar label { font-size: 12px; font-weight: 600; color: var(--gray-600); display: flex; align-items: center; gap: 8px; }
+.cd-upload-bar select { font: inherit; font-size: 13px; padding: 6px 9px; border: 1px solid var(--gray-300); border-radius: 7px; background: #fff; }
+.cd-upload-bar select:focus-visible { outline: 2px solid var(--blue-cta); outline-offset: 1px; }
+
+/* --- tables --- */
+.cd-table-meta { font-size: 12.5px; color: var(--gray-500); margin-bottom: 9px; }
+.cd-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cd-table th {
+  text-align: left; font-size: 11px; font-weight: 680; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--gray-500); padding: 0 12px 9px; border-bottom: 1px solid var(--gray-200);
+}
+.cd-table td { padding: 12px; border-bottom: 1px solid var(--gray-100, #f3f4f6); vertical-align: middle; color: var(--gray-700); }
+.cd-table tr:hover td { background: var(--gray-50, #fafafa); }
+.cd-doc-name { font-weight: 580; color: var(--gray-800, #1f2937); }
+.cd-doc-sub { font-size: 11.5px; color: var(--gray-500); margin-top: 2px; }
+.cd-row-actions { text-align: right; white-space: nowrap; }
+
+.cd-link {
+  font: inherit; font-size: 12.5px; font-weight: 580; background: none; border: none;
+  color: var(--blue-cta); cursor: pointer; padding: 3px 6px; border-radius: 5px;
+}
+.cd-link:hover:not(:disabled) { background: var(--blue-50, #eff4ff); }
+.cd-link:disabled { color: var(--gray-400); cursor: not-allowed; }
+.cd-link.danger { color: #b91c1c; }
+.cd-link.danger:hover { background: #fef2f2; }
+.cd-btn.danger { background: #dc2626; border-color: #dc2626; color: #fff; }
+
+/* --- disclosure + definition lists --- */
+.cd-disclosure {
+  font: inherit; font-size: 13px; font-weight: 580; background: none; border: none; cursor: pointer;
+  color: var(--gray-600); padding: 8px 0; margin-top: 30px; display: block;
+}
+.cd-disclosure:hover { color: var(--blue-cta); }
+.cd-context { border-top: 1px solid var(--gray-200); padding-top: 14px; }
+.cd-deflist { display: grid; grid-template-columns: 190px 1fr; gap: 9px 20px; margin: 14px 0; font-size: 13px; }
+.cd-deflist dt { font-weight: 600; color: var(--gray-600); }
+.cd-deflist dd { margin: 0; color: var(--gray-700); line-height: 1.6; }
+.cd-deflist.compact { grid-template-columns: 96px 1fr; gap: 5px 16px; font-size: 12.5px; margin: 8px 0 0; }
+
+/* --- modal --- */
+.cd-modal-back { position: fixed; inset: 0; background: rgba(16, 24, 40, 0.42); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 30px; }
+.cd-modal { background: #fff; border-radius: 12px; width: min(760px, 100%); max-height: 80vh; display: flex; flex-direction: column; padding: 18px; box-shadow: 0 12px 32px rgba(16, 24, 40, 0.18); }
+.cd-modal.small { width: min(430px, 100%); }
+.cd-modal-h { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin-bottom: 12px; }
+.cd-modal-body { flex: 1; overflow: auto; font-size: 12px; line-height: 1.6; background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200); border-radius: 8px; padding: 12px; white-space: pre-wrap; margin: 0; }
+
+/* --- run logs --- */
+.cd-logs { display: flex; gap: 22px; align-items: flex-start; }
+.cd-loglist { flex: 0 0 290px; display: flex; flex-direction: column; gap: 3px; max-height: calc(100vh - 210px); overflow-y: auto; }
+.cd-logrow { text-align: left; font: inherit; background: none; border: 1px solid transparent; padding: 10px 11px; border-radius: 9px; cursor: pointer; width: 100%; }
+.cd-logrow:hover { background: var(--gray-50, #fafafa); }
+.cd-logrow.on { background: var(--blue-50, #eff4ff); border-color: var(--blue-200, #c7d8fe); }
+.cd-logrow-t { font-size: 12.5px; font-weight: 580; color: var(--gray-800, #1f2937); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cd-logrow-m { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11.5px; color: var(--gray-500); }
+.cd-logrow-s { font-size: 11px; color: var(--gray-400); margin-top: 3px; }
+.cd-logdetail { flex: 1 1 auto; min-width: 0; max-height: calc(100vh - 210px); overflow-y: auto; }
+.cd-logdetail-h { border-bottom: 1px solid var(--gray-200); padding-bottom: 14px; margin-bottom: 18px; }
+.cd-logdetail-t { font-size: 15px; font-weight: 620; color: var(--gray-800, #1f2937); line-height: 1.45; }
+.cd-timeline { display: flex; flex-direction: column; }
+.cd-event { border-left: 2px solid var(--gray-200); padding: 0 0 16px 16px; position: relative; }
+.cd-event.bad { border-left-color: #fecaca; }
+.cd-event-k { font-size: 11px; font-weight: 680; letter-spacing: 0.04em; text-transform: uppercase; color: var(--gray-500); }
+.cd-event.bad .cd-event-k { color: #b91c1c; }
+.cd-event-s { font-size: 13px; color: var(--gray-700); margin: 3px 0 5px; line-height: 1.55; }
+.cd-event-foot { display: flex; align-items: center; gap: 10px; }
+.cd-event-t { font-size: 11.5px; color: var(--gray-400); font-variant-numeric: tabular-nums; }
+.cd-event pre { font-size: 11.5px; background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200); border-radius: 8px; padding: 10px; overflow-x: auto; margin: 8px 0 0; max-height: 260px; line-height: 1.5; }
+
+/* --- chat examples --- */
+.cd-examples { margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
+.cd-examples-h { font-size: 11px; font-weight: 680; letter-spacing: 0.05em; text-transform: uppercase; color: var(--gray-400); margin-bottom: 2px; }
+.cd-example { text-align: left; font: inherit; background: #fff; border: 1px solid var(--gray-200); border-radius: 9px; padding: 10px 12px; cursor: pointer; display: block; width: 100%; }
+.cd-example:hover { border-color: var(--blue-200, #c7d8fe); background: var(--blue-50, #eff4ff); }
+.cd-example-t { display: block; font-size: 12.5px; font-weight: 620; color: var(--gray-800, #1f2937); margin-bottom: 3px; }
+.cd-example-s { display: block; font-size: 12px; color: var(--gray-600); line-height: 1.5; }
+
+/* --- contrast + focus --- */
+.cd-hint { font-size: 12px; color: var(--gray-600); }
+.cd-state-sub { font-size: 13px; color: var(--gray-600); max-width: 400px; line-height: 1.65; }
+.cd-state-title { font-size: 14.5px; font-weight: 620; color: var(--gray-700); }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible {
+  outline: 2px solid var(--blue-cta); outline-offset: 2px;
+}
+@media (max-width: 1280px) {
+  .cd-chat { flex-basis: 370px; }
+  .cd-loglist { flex-basis: 250px; }
+  .cd-deflist { grid-template-columns: 150px 1fr; }
+}
+
+/* --- live activity timeline: what the agent is doing, as it happens --- */
+.cd-activity {
+  border: 1px solid var(--gray-200); border-radius: 10px; background: #fff;
+  padding: 4px 2px; display: flex; flex-direction: column;
+}
+.cd-act {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  padding: 6px 10px; font-size: 12.5px; line-height: 1.5; color: var(--gray-700);
+}
+.cd-act + .cd-act { border-top: 1px solid var(--gray-100, #f3f4f6); }
+.cd-act-icon { flex: none; width: 14px; text-align: center; font-size: 11px; color: var(--gray-400); }
+.cd-act.done .cd-act-icon { color: #16a34a; }
+.cd-act.failed .cd-act-icon { color: #dc2626; }
+.cd-act.running .cd-act-title { color: var(--gray-500); }
+.cd-act-title { font-weight: 560; }
+.cd-act-detail { color: var(--gray-500); font-size: 12px; }
+.cd-act-ms { color: var(--gray-400); font-size: 11.5px; font-variant-numeric: tabular-nums; margin-left: auto; }
+.cd-act-pre {
+  flex: 1 1 100%; font-size: 11px; line-height: 1.5; margin: 6px 0 2px;
+  background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200);
+  border-radius: 7px; padding: 8px; max-height: 220px; overflow: auto;
+}
+.cd-spinner.tiny { width: 11px; height: 11px; border-width: 1.6px; display: inline-block; vertical-align: middle; }
+
+/* --- streaming message --- */
+.cd-streaming { font-weight: 500; color: var(--blue-cta); text-transform: none; letter-spacing: 0; }
+.cd-caret {
+  display: inline-block; width: 2px; height: 13px; background: var(--blue-cta);
+  margin-left: 2px; vertical-align: text-bottom; animation: cd-blink 1s step-end infinite;
+}
+@keyframes cd-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .cd-caret { animation: none; } }
+
+/* --- the confirmation gate --- */
+.cd-confirm {
+  border: 1px solid var(--blue-200, #c7d8fe); background: var(--blue-50, #eff4ff);
+  border-radius: 10px; padding: 13px 14px;
+}
+.cd-confirm-t { font-size: 13px; font-weight: 640; color: var(--gray-800, #1f2937); }
+.cd-confirm p { font-size: 12.5px; color: var(--gray-600); line-height: 1.55; margin: 5px 0 11px; }
+.cd-confirm-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cd-event-d { color: var(--gray-500); }
+.cd-act-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; font: inherit; font-size: 12.5px;
+  background: none; border: none; cursor: pointer; padding: 7px 10px; color: var(--gray-600); text-align: left;
+}
+.cd-act-head:hover { background: var(--gray-50, #fafafa); }
+.cd-act-head + .cd-act { border-top: 1px solid var(--gray-100, #f3f4f6); }
+.cd-act-chev { margin-left: 6px; color: var(--gray-400); font-size: 10px; }
+.cd-act-head .cd-act-ms { margin-left: auto; }
+
+/* --- data request: structured, and visibly optional --- */
+.cd-evidence { border: 1px solid var(--blue-200, #c7d8fe); background: var(--blue-50, #eff4ff); border-radius: 10px; padding: 12px; }
+.cd-evidence-h { font-size: 11px; font-weight: 680; letter-spacing: 0.05em; text-transform: uppercase; color: var(--blue-cta); margin-bottom: 9px; }
+.cd-ev { background: #fff; border: 1px solid var(--gray-200); border-radius: 8px; padding: 10px; }
+.cd-ev + .cd-ev { margin-top: 8px; }
+.cd-ev-q { font-size: 12.5px; font-weight: 620; color: var(--gray-800, #1f2937); margin-bottom: 7px; line-height: 1.45; }
+.cd-ev-fields { display: grid; grid-template-columns: 78px 1fr; gap: 3px 10px; margin: 0; font-size: 12px; }
+.cd-ev-fields dt { color: var(--gray-500); font-weight: 600; }
+.cd-ev-fields dd { margin: 0; color: var(--gray-700); line-height: 1.5; }
+.cd-ev-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.cd-ev-actions .cd-hint { flex: 1 1 200px; }
+
+/* ===================================================================
+   PHASE-AWARE LAYOUT
+
+   The problem this fixes, seen in a screenshot rather than reasoned
+   about: the canvas held roughly seventy per cent of the screen and was
+   empty, while the conversation was pinned to a 420px rail. But there is
+   no journey to draw until discovery finishes, and discovery is most of
+   the session. The tool was laid out as a canvas with a chat sidebar when
+   it is really a conversation that eventually produces a canvas.
+
+   So the layout follows the phase. Before a journey exists the
+   conversation takes the middle of the screen at a comfortable reading
+   width. Once one exists the canvas takes over and the conversation moves
+   to the rail, which is the right shape for reviewing and refining.
+
+   Taken from the propensity-agent, which had already solved this: its
+   chat is a centred `max-w-3xl` column and its canvas is a panel that
+   arrives when there is something to show, rather than a permanent half
+   of the screen. Its dark sidebar is deliberately NOT carried over, since
+   these surfaces stay light.
+   =================================================================== */
+
+.cd-body.cd-no-journey .cd-canvas { display: none; }
+
+.cd-body.cd-no-journey .cd-chat {
+  flex: 1 1 auto;
+  border-left: none;
+  align-items: center;
+}
+
+/* The reading column. 760px keeps lines near 65 characters, which is
+   where prose stops being tiring to read. */
+.cd-body.cd-no-journey .cd-msgs,
+.cd-body.cd-no-journey .cd-compose {
+  width: 100%;
+  max-width: 760px;
+  box-sizing: border-box;
+}
+
+.cd-body.cd-no-journey .cd-msgs {
+  padding: 32px 24px 24px;
+  gap: 18px;
+}
+
+.cd-body.cd-no-journey .cd-compose {
+  border-top: none;
+  padding: 0 24px 28px;
+}
+
+/* A first message is a real description of a business problem, not a
+   one-line search query, so the box should invite one. */
+.cd-body.cd-no-journey .cd-compose textarea {
+  min-height: 104px;
+  font-size: 14px;
+  padding: 12px 14px;
+}
+
+/* The examples were stranded at the top of a tall empty column. Side by
+   side they read as a row of choices instead. */
+.cd-body.cd-no-journey .cd-examples {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+/* A quick reply under the agent's questions. Quiet by default, because it
+   is a shortcut and not the main path: typing a real answer is. */
+.cd-quick {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 5px 11px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--gray-700, #374151);
+  background: #fff;
+  border: 1px solid var(--gray-300, #d1d5db);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.cd-quick:hover:not(:disabled) { background: var(--gray-50, #f9fafb); border-color: var(--gray-400, #9ca3af); }
+.cd-quick:disabled { opacity: 0.5; cursor: default; }
+
+/* The heading is a grid child, so it took a cell and pushed the cards into a
+   ragged row with a hole in it. Span it. */
+.cd-body.cd-no-journey .cd-examples-h { grid-column: 1 / -1; }
+
+/* The reading column still needs to scroll once there is a conversation. */
+.cd-body.cd-no-journey:not(.cd-empty) .cd-msgs { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+
+/* Hold the OPENING state together as one block instead of stretching the
+   message area and stranding the input three hundred pixels below the
+   examples.
+
+   Scoped to .cd-empty, and that scoping is the whole point. An earlier
+   version applied it to the whole no-journey phase, which killed the scroll
+   container the moment a conversation existed: the panel grew past the
+   viewport with no way to reach the top of it. It was invisible in an empty
+   screenshot, which is the only state it was checked in. A layout rule that
+   depends on there being no content has to be conditioned on there being no
+   content. */
+.cd-body.cd-no-journey.cd-empty .cd-chat { justify-content: center; }
+.cd-body.cd-no-journey.cd-empty .cd-msgs { flex: 0 0 auto; overflow: visible; }
+
+/* Run Logs: the conversation, read end to end. */
+.cd-transcript { margin: 18px 0 8px; }
+.cd-transcript-h {
+  font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--gray-500, #6b7280); margin-bottom: 10px;
+}
+.cd-tturn { border-left: 2px solid var(--gray-200, #e5e7eb); padding: 2px 0 14px 14px; margin-bottom: 4px; }
+.cd-tturn-n { font-size: 11px; color: var(--gray-400, #9ca3af); margin-bottom: 6px; }
+.cd-tturn .cd-msg-bubble { white-space: pre-wrap; }
+.cd-tturn-missing { font-size: 12.5px; color: var(--gray-500, #6b7280); font-style: italic; }

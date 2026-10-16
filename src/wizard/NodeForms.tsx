@@ -16,7 +16,7 @@ import {
   type Channel,
   type PrevStepSend,
 } from '../data/sharedConstants';
-import type { DripGoal, DripMilestoneCondition } from '../data/graphTypes';
+import type { DripGoal, DripMilestoneCondition, DripAgentMessaging } from '../data/graphTypes';
 import { dcOrdinal, dcRecurrenceLabel, dcGoalLabel, dcSelectedMulti } from '../reducer/labelMeta';
 import { dcNewBranchId } from '../reducer/idGen';
 import { dcDefaultTxnHistory, dcDefaultMilestone } from '../reducer/defaultConfig';
@@ -437,7 +437,60 @@ export function SendForm({ p, onChange }: FormProps) {
           </p>
         </>
       )}
+      <AgentMessagingPanel messaging={p.agentMessaging} />
     </>
+  );
+}
+
+/**
+ * The agent's suggested message, shown read-only.
+ *
+ * Read-only on purpose. This is a draft the campaign manager copies into the
+ * bank's own template tooling. It is not a registered template and nothing
+ * here is sent, so making it editable would imply it feeds a real send.
+ * Renders nothing for a Send that no agent proposed.
+ */
+export function AgentMessagingPanel({ messaging }: { messaging?: DripAgentMessaging | null }) {
+  if (!messaging) return null;
+  const tokens = messaging.personalisationTokens ?? [];
+  return (
+    <div className="f-group agent-msg">
+      <label className="f-label">Suggested message — draft</label>
+      <p className="f-hint">
+        Written by the agent. It has not been reviewed or approved by the bank and it is not a registered template. Use
+        it as a starting point when you prepare the real message.
+      </p>
+      <dl className="agent-msg-dl">
+        <dt>Purpose</dt>
+        <dd>{messaging.objective}</dd>
+        {messaging.suggestedCopy && (
+          <>
+            <dt>{messaging.copySource === 'generated-placeholder' ? 'Placeholder' : 'Draft copy'}</dt>
+            <dd>
+              {messaging.suggestedCopy}
+              {messaging.copySource === 'generated-placeholder' && (
+                <span className="f-hint" style={{ display: 'block', marginTop: 4 }}>
+                  The agent did not supply copy for this step, so this is a placeholder built from the purpose above.
+                  Write the real message yourself.
+                </span>
+              )}
+            </dd>
+          </>
+        )}
+        {messaging.cta && (
+          <>
+            <dt>Call to action</dt>
+            <dd>{messaging.cta}</dd>
+          </>
+        )}
+        {tokens.length > 0 && (
+          <>
+            <dt>Personalisation</dt>
+            <dd>{tokens.map((t) => `\${${t}}`).join(', ')}</dd>
+          </>
+        )}
+      </dl>
+    </div>
   );
 }
 

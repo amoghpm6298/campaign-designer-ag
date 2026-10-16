@@ -1,0 +1,350 @@
+{
+ "at": "2026-10-15T10-25-11-814Z",
+ "complete": true,
+ "pairsRun": 1,
+ "pairsPlanned": 1,
+ "results": [
+  {
+   "pair": "cause-customer-vs-operational",
+   "title": "The customer stalls vs the bank stalls",
+   "a": {
+    "label": "customer-stalls",
+    "phase": "awaiting-confirmation",
+    "reply": "Customers stuck mid-KYC on their card application are nudged back with up to 3 messages (of a 4 allowed), escalating from EMAIL to SMS to WHATSAPP, with a goal of reaching Approved status. Because we cannot verify an event string for 'just abandoned at KYC', entry uses the verified Customer attribute FKYC Status = Pending as a proxy — a state snapshot rather than a real-time abandonment signal. A 50/50 message-mechanism test (generic resume vs name-the-KYC-step) and a 10% control holdout are built in, since no performance history exists to size an effect in advance.\n\n**Approaches considered**\n- **State-based KYC recovery (verified attribute entry)** — chosen\n  Entry: Audience entry: Customer.FKYC Status Equals 'Pending'\n  Mechanism: Message-mechanism A/B test (generic resume vs explicit 'complete your KYC') with a post-first-touch branch on email engagement (CLICKED vs not) to tailor tone and channel of the next reminder.\n  Timing: Up to 3 touches, 48h apart, channel escalating EMAIL → SMS → WHATSAPP as the opportunity ages.\n  Trade-off: Catches everyone currently sitting in Pending KYC, including people who stalled days/weeks ago or are mid-session right now — lower timing precision — but every condition value is confirmed against the platform's enumerated attribute list, so it will actually fire.\n  Why this one: The only entry option whose values are verifiable against list_audience_attributes; the alternative risks a silently empty audience.\n- Event-triggered real-time KYC nudge\n  Entry: Event entry: Journey Events / Journey Progress, Status = a value meaning 'reached KYC, did not complete'\n  Mechanism: Same experiment and branching logic as Architecture 1.\n  Timing: First touch fires near-immediately after the abandonment signal, while intent is freshest.\n  Trade-off: Likely better timing and relevance, but the Journey Progress 'Status' locked attribute has no published value list anywhere the tools expose — we cannot verify the literal to write, so the condition could match nobody or the wrong step.\n\n**Approach**\n- Goal set to Offer Events/Outcome Issuance/Outcome Status=Approved, matching the user's explicit finish line — basis: user statement. The literal 'Approved' is not from any enumerated list the tools expose, so it is flagged as unverified, not presented as confirmed.\n- Audience entry built on Customer.FKYC Status=Pending — basis: tool (list_audience_attributes, confirmed allowed value) plus the user's belief that KYC is where people stall. Trade-off accepted: a current-state proxy, not a real-time abandonment event.\n- Success read as a count of Approved-reach, not value-weighted — basis: user.\n- Channel order EMAIL → SMS → WHATSAPP, ascending cost, as the sequence progresses — basis: tenant preference (lead with lower-cost channel; reserve higher-cost for reinforcement/recovery).\n- 10% control holdout applied — basis: tenant preference (preferred control % = 10) and the stated requirement that any claimed effect needs a holdout.\n- 50/50 first-touch split testing two message mechanisms — basis: own judgement, because the 'KYC step' cause is a stated belief rather than a confirmed single friction and no performance history exists to decide between framings in advance.\n- Conditional branch on the first EMAIL's CLICKED outcome — basis: tool (list_channels confirms EMAIL reports CLICKED) plus own judgement that engaged vs unengaged customers warrant a different tone/channel for the next touch.\n\n**Options weighed**\n- Segmentation — cannot evaluate yet. FKYC Method (CKYC vs VKYC) is a confirmed attribute and a defensible axis — document check vs live video appointment are different frictions — but this single journey can only send one message per customer and can't branch content on a customer attribute mid-journey. Executing it would need a second, method-specific campaign; flagged as an open item rather than silently dropped.\n- Experimentation — used. 50/50 arms compare a generic 'resume' nudge against an explicit 'complete your KYC' nudge, read against the 10% control to separate message-mechanism effect from any incremental lift.\n- Conditional branching — used. Branches on the first email's CLICKED outcome to send a softer reminder to engaged-but-unfinished customers and a more direct one to unengaged customers.\n- Channel fallback — cannot evaluate yet. The builder cannot express a failure-triggered fallback channel on a single send; this blueprint uses channel escalation across separate scheduled touches instead, which is sequencing, not fallback.\n- Adaptive sequencing — used. Channel escalates EMAIL → SMS → WHATSAPP as the opportunity ages and as engagement signals come in, rather than repeating the same channel.\n- Cost and fatigue — used. Capped at 3 of the 4 allowed messages. Weakest message is the final WHATSAPP touch — highest cost, and sent to people who already didn't respond to two prior nudges — but kept as the last chance before the application is assumed cold; the 4th permitted slot is deliberately left unused given the conservative, fewer-better-targeted preference.\n- Measurement and learning — used. 10% control isolates incremental lift on Approved-reach; the two experiment arms isolate which message framing to prefer. No historical baseline exists, so this round reads direction, not magnitude.\n\n**Considered and not used**\n- Event-triggered real-time entry (Architecture 2) — Would likely time the first nudge better, but the Journey Progress status value for 'stalled at KYC' isn't verifiable here; building against a guessed value risks a campaign that silently matches nobody.\n- Single blanket message with no test or branch — Two live uncertainties exist (which framing works, how to treat engaged vs unengaged customers) and the builder supports experiment/condition steps at no extra customer cost, so skipping them would waste a learning opportunity.\n\n**Success criteria**\n- An increase in the NUMBER of recovered applications reaching Approved status, counted per the business's own definition — not weighted by application size, credit limit, or applicant value (user's explicit choice).\n\n**Measurement**\n- Compare Approved-reach rate between the treated audience and the 10% control holdout to read incremental effect, since no historical baseline exists for this bank.\n- Compare Approved-reach rate between the two message-mechanism arms (generic resume vs name-the-KYC-step) to learn which framing to prefer going forward.\n- Track EMAIL CLICKED rate as a diagnostic signal for the conditional branch, not as a success measure itself.\n- To measure this properly over time, log the specific KYC sub-step where drop-off actually happens (document upload, VKYC scheduling, OTP, manual review) so future campaigns can target the real friction instead of the whole KYC step.\n\n**Assumptions**\n- Quiet hours (21:00–09:00) and DNC/NPA exclusions are enforced automatically by the platform's send infrastructure; no explicit condition for them is encoded in this blueprint.\n- Audience-entry conditions are evaluated on an ongoing basis (new Pending customers are swept in over time), not only once at campaign launch.\n- 'Approved' is assumed to be the correct Outcome Status literal for the goal event; this is not confirmed against any enumerated list.\n\n**Hypotheses for future testing**\n- Naming the KYC step explicitly (Arm B) converts better than a generic 'resume' nudge (Arm A), because it removes ambiguity about what is actually left to do.\n- Customers who click the first email but don't finish are closer to completing than those who never open it, so a softer reminder may suffice for the former while a more direct one helps the latter.\n\n**Worth settling before this is built**\n- FKYC Method (CKYC vs VKYC) looks like a real driver of different frictions — document checks vs a live video appointment. Do you want a second, method-specific campaign, and do you already suspect one method causes more drop-off than the other? If the methods differ materially, one generic message under-serves both; a method-specific build would change the audience split and the copy. Until then: Ship one campaign with generic copy covering both methods, accepting it may under-address whichever friction is larger.\n\n**Data that would improve this**\n- How long an application realistically stays viable before the opportunity is gone. Would let the sequence length and final-message timing be sized to the real window instead of a judgement call.\n\n**Defaults applied**\n- Should the first touch fire immediately on reaching Pending status, or after a short grace period, so we don't nudge someone who is actively completing the step right now? Affects how many 'false positive' nudges go to people who were about to finish anyway. Until then: Default to firing immediately; the 48h minimum spacing and quiet-hours guardrail already prevent the most disruptive timing.\n\n**Limitations**\n- Customers on the 'Small KYC' track have no verified equivalent of FKYC Status in the attribute list, so this campaign's entry condition cannot see them even if they are equally stuck. They would simply never enter this campaign. A whole segment of stalled applicants could be silently excluded from recovery, not because they're ineligible but because the data model doesn't expose a stall signal for that track.\n- The goal's Outcome Status value ('Approved') is not from any enumerated list the available tools expose. If the literal is wrong, the goal will never fire, the automatic goal-exit never triggers, and recovered customers keep receiving messages after they've already succeeded.\n\n**Cannot be generated yet**\n- steps[0].experiment.arms[0][1].condition: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[1][1].condition: 2 open slots exist; the continuation is ambiguous.\n\n**Still unknown**\n- Whether 'Approved' is the exact Outcome Status literal used by real Outcome Issuance events.\n- Whether customers on the 'Small KYC' track (as opposed to 'FKYC') have any equivalent 'stalled' signal anywhere in the platform — if not, this campaign will miss them entirely.\n- How long a card application realistically stays open before the opportunity is effectively gone — no expiry event exists for it, so the 3-touch, 6-day window is a judgement call, not a measured window.\n- Whether audience-entry conditions re-evaluate continuously or only at launch.",
+    "blueprint": {
+     "campaignName": "Card Application – KYC Stall Recovery",
+     "description": "Re-engages customers currently sitting in a pending KYC state on their card application, nudging them to complete KYC and reach an Approved decision. Includes a message-mechanism test and a 10% holdout for incremental read.",
+     "controlPct": 10,
+     "goal": {
+      "eventCategory": "Offer Events",
+      "eventType": "Outcome Issuance",
+      "conditions": [
+       {
+        "attribute": "Outcome Status",
+        "operator": "Equals",
+        "value": "Approved"
+       }
+      ]
+     },
+     "entry": {
+      "kind": "audience",
+      "entity": "Customer",
+      "conditions": [
+       {
+        "attribute": "FKYC Status",
+        "operator": "Equals",
+        "value": "Pending"
+       }
+      ]
+     },
+     "steps": [
+      {
+       "kind": "experiment",
+       "label": "Message mechanism test",
+       "arms": [
+        {
+         "label": "Generic resume nudge",
+         "pct": 50,
+         "steps": [
+          {
+           "kind": "send",
+           "name": "First touch - generic resume (EMAIL)",
+           "objective": [
+            "resume",
+            "application",
+            "finish"
+           ],
+           "stage": "first-touch",
+           "describe": "Opening nudge inviting the customer back to finish their already-started application, without naming KYC specifically.",
+           "copy": "Hi ${customerFirstName}, you started a card application with us and it's still open. Pick up right where you left off: ${shortUrl}",
+           "cta": "Resume application",
+           "channelPreference": [
+            "EMAIL"
+           ]
+          },
+          {
+           "kind": "condition",
+           "label": "Engaged with first email?",
+           "outcomes": [
+            "CLICKED"
+           ],
+           "yes": [
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing between messages."
+            },
+            {
+             "kind": "send",
+             "name": "Reminder - soft (SMS)",
+             "objective": [
+              "finish",
+              "kyc",
+              "close"
+             ],
+             "stage": "reminder",
+             "describe": "Soft reminder for someone who engaged with the first email but has not yet completed KYC.",
+             "copy": "Hi ${customerFirstName}, you're close to finishing your card application. Complete your KYC to keep it moving: ${shortUrl}",
+             "cta": "Continue KYC",
+             "channelPreference": [
+              "SMS"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing before the final nudge."
+            },
+            {
+             "kind": "send",
+             "name": "Final reminder (WhatsApp)",
+             "objective": [
+              "finish",
+              "kyc",
+              "last chance"
+             ],
+             "stage": "reminder",
+             "describe": "Final higher-attention nudge before the campaign stops contacting this customer.",
+             "copy": "Hi ${customerFirstName}, your card application is still waiting on KYC. Finish it now so it doesn't go to waste: ${shortUrl}",
+             "cta": "Finish now",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "exit",
+             "reason": "End of sequence for engaged-but-not-yet-approved customers."
+            }
+           ],
+           "no": [
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing before escalating."
+            },
+            {
+             "kind": "send",
+             "name": "Reminder - direct (SMS)",
+             "objective": [
+              "finish",
+              "kyc",
+              "continue"
+             ],
+             "stage": "reminder",
+             "describe": "Direct reminder naming the KYC step for someone who did not engage with the first email.",
+             "copy": "Hi ${customerFirstName}, your card application is still open. Complete your KYC step to continue: ${shortUrl}",
+             "cta": "Complete KYC",
+             "channelPreference": [
+              "SMS"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing before the final nudge."
+            },
+            {
+             "kind": "send",
+             "name": "Final reminder (WhatsApp)",
+             "objective": [
+              "finish",
+              "application",
+              "last chance"
+             ],
+             "stage": "reminder",
+             "describe": "Final higher-attention nudge before the campaign stops contacting this customer.",
+             "copy": "Hi ${customerFirstName}, this is your last reminder. Finish your card application in a few minutes: ${shortUrl}",
+             "cta": "Finish application",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "exit",
+             "reason": "End of sequence for unengaged customers."
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "label": "Name-the-step nudge",
+         "pct": 50,
+         "steps": [
+          {
+           "kind": "send",
+           "name": "First touch - KYC-specific (EMAIL)",
+           "objective": [
+            "kyc",
+            "complete",
+            "application"
+           ],
+           "stage": "first-touch",
+           "describe": "Opening nudge naming the KYC step explicitly as the one thing left to do.",
+           "copy": "Hi ${customerFirstName}, your card application is almost done. One step left: complete your KYC verification. ${shortUrl}",
+           "cta": "Complete KYC",
+           "channelPreference": [
+            "EMAIL"
+           ]
+          },
+          {
+           "kind": "condition",
+           "label": "Engaged with first email?",
+           "outcomes": [
+            "CLICKED"
+           ],
+           "yes": [
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing between messages."
+            },
+            {
+             "kind": "send",
+             "name": "Reminder - soft (SMS)",
+             "objective": [
+              "finish",
+              "kyc",
+              "close"
+             ],
+             "stage": "reminder",
+             "describe": "Soft reminder for someone who engaged with the first email but has not yet completed KYC.",
+             "copy": "Hi ${customerFirstName}, you're nearly there. Complete your KYC to move your card application forward: ${shortUrl}",
+             "cta": "Continue KYC",
+             "channelPreference": [
+              "SMS"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing before the final nudge."
+            },
+            {
+             "kind": "send",
+             "name": "Final reminder (WhatsApp)",
+             "objective": [
+              "finish",
+              "kyc",
+              "last chance"
+             ],
+             "stage": "reminder",
+             "describe": "Final higher-attention nudge before the campaign stops contacting this customer.",
+             "copy": "Hi ${customerFirstName}, your KYC is the only thing left on your card application. Finish it now: ${shortUrl}",
+             "cta": "Finish now",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "exit",
+             "reason": "End of sequence for engaged-but-not-yet-approved customers."
+            }
+           ],
+           "no": [
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing before escalating."
+            },
+            {
+             "kind": "send",
+             "name": "Reminder - direct (SMS)",
+             "objective": [
+              "finish",
+              "kyc",
+              "continue"
+             ],
+             "stage": "reminder",
+             "describe": "Direct reminder for someone who did not engage with the first email.",
+             "copy": "Hi ${customerFirstName}, your card application needs one more step: KYC verification. Complete it here: ${shortUrl}",
+             "cta": "Complete KYC",
+             "channelPreference": [
+              "SMS"
+             ]
+            },
+            {
+             "kind": "wait",
+             "durationHours": 48,
+             "why": "Minimum spacing before the final nudge."
+            },
+            {
+             "kind": "send",
+             "name": "Final reminder (WhatsApp)",
+             "objective": [
+              "finish",
+              "kyc",
+              "last chance"
+             ],
+             "stage": "reminder",
+             "describe": "Final higher-attention nudge before the campaign stops contacting this customer.",
+             "copy": "Hi ${customerFirstName}, last reminder: complete your KYC to finish your card application: ${shortUrl}",
+             "cta": "Complete KYC",
+             "channelPreference": [
+              "WHATSAPP"
+             ]
+            },
+            {
+             "kind": "exit",
+             "reason": "End of sequence for unengaged customers."
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "mechanism": "Message-mechanism A/B test (generic resume vs explicit 'complete your KYC') with a post-first-touch branch on email engagement (CLICKED vs not) to tailor tone and channel of the next reminder.",
+    "whyChosen": "The only entry option whose values are verifiable against list_audience_attributes; the alternative risks a silently empty audience.",
+    "architectureCount": 2,
+    "questions": [
+     "When you say 'recover' an abandoned application, where does recovery end for you — is it the customer finishing and submitting the application, the card actually being issued, or the card being activated/used? Each is a different finish line for the campaign.",
+     "When judging success, do you care most about the NUMBER of abandoners who come back and finish, or the VALUE of who comes back (e.g. recovering a few higher-limit or higher-propensity applicants matters more than recovering many small ones)? These can favour different customers, so I want to know which you're optimising for.",
+     "FKYC Method (CKYC vs VKYC) looks like a real driver of different frictions — document checks vs a live video appointment. Do you want a second, method-specific campaign, and do you already suspect one method causes more drop-off than the other?"
+    ],
+    "transport": [
+     "turn 2 attempt 1: The agent could not complete: Anthropic call timed out."
+    ],
+    "truncated": false
+   },
+   "b": {
+    "label": "bank-stalls",
+    "phase": "discovery",
+    "reply": "Before designing anything, I need to know what 'recovering' an abandoned card application actually means for the business, and how you'd judge whether this campaign worked. The platform can show me which events exist (Journey Progress, Pageload, Button Click, Outcome Issuance, Card Issued/Activated), but it cannot tell me which of those the business considers the finish line, or whether a raw count of completions is what you want versus the value of who completes. Those are objective-level decisions, not implementation ones, so I'm asking them now before touching audience, cause, or channel.",
+    "blueprint": null,
+    "mechanism": "",
+    "whyChosen": "",
+    "architectureCount": 0,
+    "questions": [
+     "When you say 'recover' an abandoned application, how far do you want the customer to get: back into the application and submitting it, or further downstream (e.g. card issued, card activated)? This decides what the campaign's finish line actually is.",
+     "How would you (the business) judge whether this campaign worked — what's your own measure of success (e.g. number of applications completed, number of cards issued/activated, something else)?",
+     "Is the priority to maximise the NUMBER of customers who complete, or the VALUE/quality of who completes (e.g. higher-limit approvals, specific card products, a particular customer segment)? These can pull in different directions, so it changes who the campaign should prioritise."
+    ],
+    "transport": [
+     "turn 2 attempt 1: The agent could not complete: Anthropic call timed out.",
+     "turn 2 attempt 2: The agent could not complete: Anthropic call timed out.",
+     "turn 2 attempt 3: The agent could not complete: Anthropic call timed out.",
+     "turn 2 attempt 4: The agent could not complete: Anthropic call timed out."
+    ],
+    "truncated": true
+   },
+   "divergence": null,
+   "verdict": "inconclusive",
+   "note": "one or both arms did not complete their turns — transport, not reasoning",
+   "aSignature": {
+    "entry": "audience:customer",
+    "audience": "fkyc statusequalspending",
+    "timing": "X[,50:(s:first-touch,C[clicked:(,w:48,s:reminder,w:48,s:reminder,x,)(,w:48,s:reminder,w:48,s:reminder,x,)]),50:(s:first-touch,C[clicked:(,w:48,s:reminder,w:48,s:reminder,x,)(,w:48,s:reminder,w:48,s:reminder,x,)]),]",
+    "shape": "experiment,[,(send,condition,[(,wait,send,wait,send,exit,)(,wait,send,wait,send,exit,)]),(send,condition,[(,wait,send,wait,send,exit,)(,wait,send,wait,send,exit,)]),]"
+   },
+   "bSignature": {
+    "entry": "none",
+    "audience": "none",
+    "timing": "none",
+    "shape": "none"
+   }
+  }
+ ]
+}

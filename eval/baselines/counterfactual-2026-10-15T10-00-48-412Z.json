@@ -1,0 +1,66 @@
+{
+ "at": "2026-10-15T10-00-48-412Z",
+ "complete": false,
+ "pairsRun": 1,
+ "pairsPlanned": 3,
+ "results": [
+  {
+   "pair": "barrier-comprehension-vs-price",
+   "title": "The cost is misunderstood vs the cost is genuinely uncompetitive",
+   "a": {
+    "label": "misunderstood",
+    "phase": "discovery",
+    "reply": "The audience fork is now resolved: never-started-only, confirmed twice. The remaining blocker is the success-measure fork (count of EMI Requests reaching Successful vs. value converted). This isn't a formality — I checked the platform and the only 'outstanding balance' signal it exposes is a per-transaction EMI Eligible flag and a per-transaction amount on the Transaction entity. There is no attribute holding a customer's aggregated outstanding balance. So a count-based read is clean to build (goal = EMI Request status Successful, full stop), but a value-based read can only be approximated by one transaction's amount, which is not the same thing as the customer's outstanding position — I'd be quietly substituting a different measure if I built that without flagging it. I need your answer before choosing the goal definition and before deciding whether balance-size segmentation is worth proposing at all.",
+    "blueprint": null,
+    "mechanism": "",
+    "whyChosen": "",
+    "architectureCount": 0,
+    "questions": [
+     "How should we judge whether this campaign is working: by the NUMBER of OS-to-EMI conversions, or by the VALUE converted (e.g. total outstanding balance moved to EMI, or average ticket size)? These can pull in different directions — optimising for count favours many small, easy conversions; optimising for value favours fewer, larger ones.",
+     "Should this campaign target customers who have an eligible outstanding balance but have NOT yet started an OS-to-EMI request, customers who started a request (Pending) but didn't complete it, or both as separate tracks? This decides which event we enter on and what the message says.",
+     "Do you already have a sense of why eligible customers aren't converting — unaware the option exists, hesitant about interest cost, or dropping off mid-process in the app? This shapes whether the lead message is an awareness nudge, a cost-reassurance message, or a 'finish what you started' reminder.",
+     "Should this campaign enter customers who have an eligible outstanding balance but have NOT yet started an OS-to-EMI request, customers who started a request (EMI Request status Pending, Source OS-to-EMI) and stalled, or both as separate tracks with different messages? This decides the entry event and the audience entirely.",
+     "Should we read success by the NUMBER of EMI Requests reaching Successful, or by the VALUE converted (total outstanding balance moved to EMI, or average ticket size)? Optimising for count favours many small, easy conversions; optimising for value favours fewer, larger ones — these can genuinely conflict.",
+     "When you say people overestimate the cost, which part — the interest rate, the total amount payable over the tenure, how long they'd be paying, or the hit to their available credit limit? If you don't know, I'll default to addressing total-amount-payable and interest rate together, since those are the two a generic reassurance message can state without a specific product config.",
+     "Should this campaign's success be read by the NUMBER of EMI Requests reaching Successful, or by VALUE (e.g. total balance converted or average ticket size)? Flagging again because the platform can only truly support a count-based read cleanly — a value-based read would rely on a single transaction's amount as a stand-in for a customer's outstanding balance, which is not the same thing, so I want you choosing that trade-off, not me."
+    ],
+    "transport": [],
+    "truncated": false
+   },
+   "b": {
+    "label": "uncompetitive",
+    "phase": "discovery",
+    "reply": "Before I design anything: \"How should success be judged: the NUMBER of OS-to-EMI conversions, or the VALUE of outstanding balance converted to EMI? (These can pull in different directions — maximising count favours easy, small-balance conversions.)\" and \"Should success be read as the NUMBER of OS-to-EMI requests reaching Successful, or the total VALUE of outstanding balance converted? These can favour different customers (many small balances vs fewer large ones).\" I flagged this as the question that changes which campaign this is, not just how it is built. Your reply did not cover it, and I was about to pick one for you. I would rather ask.\n\nWhat I am working through:\n- Funnel stage targeted (already-initiated vs never-initiated) (retained): Determines entry event, audience, and whether the campaign is buildable at all with a confirmed signal — these are two different campaigns, not a shaping detail.\n- Success measure: conversion count vs converted value (retained): Given the stated belief (customers switch to cheaper credit), count-optimising and value-optimising campaigns would target and message different customers.\n- Belief about why customers don't convert/finish (retained): Explains the cause of drop-off; narrows message content away from cost-education and toward reasons to still prefer EMI despite a higher rate (predictability, limit relief, no cost-justification needed since they already understand it).\n- Outstanding balance size at the customer (unavailable): No attribute exposes a balance figure on Account or Customer; Transaction Amount exists only per-transaction. Relevant only if value-based success or balance-tiered segmentation is chosen.\n\nCorrect anything that is wrong here, or tell me to go ahead anyway.",
+    "blueprint": null,
+    "mechanism": "",
+    "whyChosen": "",
+    "architectureCount": 0,
+    "questions": [
+     "How should success be judged: the NUMBER of OS-to-EMI conversions, or the VALUE of outstanding balance converted to EMI? (These can pull in different directions — maximising count favours easy, small-balance conversions.)",
+     "Which audience is this campaign for: customers who already opened an OS-to-EMI request but haven't completed it (reduce drop-off inside the request's open window), or customers with an outstanding balance who haven't started a request at all (drive initiation)? The platform can reliably target the first group today; the second has no confirmed signal to enter on.",
+     "Do you have a hypothesis for why customers don't convert or don't finish — e.g. worried about interest/fees, unsure of the EMI amount, simply unaware the option exists, or something else?",
+     "Should this campaign target customers who already have an OPEN OS-to-EMI request and haven't finished it (the only audience I can reliably build today), or customers with an outstanding balance who haven't started a request at all (no confirmed event exists for this yet — I'd need to flag it as a platform gap rather than build it)?",
+     "Should success be read as the NUMBER of OS-to-EMI requests reaching Successful, or the total VALUE of outstanding balance converted? These can favour different customers (many small balances vs fewer large ones).",
+     "The buildable audience (Account Status = Active) is broader than 'eligible, never-initiated': it will also reach customers who already have a Pending, Failed, Expired or Cancelled OS-to-EMI request, since the builder can't exclude on a second entity at audience entry. Do you want to proceed with this broader reach, or hold this campaign until an exclusion/eligibility signal is confirmed?"
+    ],
+    "transport": [],
+    "truncated": false
+   },
+   "divergence": null,
+   "verdict": "needs-human",
+   "note": "an arm produced no campaign, which this pair allows as correct — a human must read the reply and decide whether it declined for the right reason",
+   "aSignature": {
+    "entry": "none",
+    "audience": "none",
+    "timing": "none",
+    "shape": "none"
+   },
+   "bSignature": {
+    "entry": "none",
+    "audience": "none",
+    "timing": "none",
+    "shape": "none"
+   }
+  }
+ ]
+}

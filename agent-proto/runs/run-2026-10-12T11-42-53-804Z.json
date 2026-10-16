@@ -1,0 +1,797 @@
+{
+  "runId": "run-2026-10-12T11-42-53-804Z",
+  "startedAt": "2026-10-12T11:42:53.804Z",
+  "durationMs": 4,
+  "scenario": {
+    "id": "auth-txn-to-emi-consent",
+    "version": "0.1.0",
+    "goalStatement": "When a customer makes a large purchase that is eligible for EMI, get them to convert that transaction to EMI before the request expires."
+  },
+  "versions": {
+    "schemaArtefactVersion": "1.0.0",
+    "schemaContentHash": "f05cce7a3e2e1122",
+    "bankContextVersion": "0.1.0",
+    "principlesVersion": "0.1.0",
+    "plannerKind": "deterministic (no model call in this slice)"
+  },
+  "conversation": [
+    {
+      "role": "user",
+      "text": "When a customer makes a large purchase that is eligible for EMI, get them to convert that transaction to EMI before the request expires."
+    },
+    {
+      "role": "agent",
+      "text": "Understood. I have a few questions before I design this, then I will show you the campaign and what I assumed."
+    },
+    {
+      "role": "agent",
+      "text": "Which programs should this campaign target?"
+    },
+    {
+      "role": "user",
+      "text": "Meridian Platinum only."
+    },
+    {
+      "role": "agent",
+      "text": "Should customers enter on the authorisation event, or on a scheduled audience pull?"
+    },
+    {
+      "role": "user",
+      "text": "On the authorisation event — we want to reach them while the purchase is fresh."
+    },
+    {
+      "role": "agent",
+      "text": "What exactly counts as success?"
+    },
+    {
+      "role": "user",
+      "text": "The EMI request ends up Successful."
+    },
+    {
+      "role": "agent",
+      "text": "How many reminders are acceptable before we stop?"
+    },
+    {
+      "role": "user",
+      "text": "I don't know — whatever is within our messaging policy."
+    },
+    {
+      "role": "agent",
+      "text": "Any channel preference for the first message?"
+    },
+    {
+      "role": "user",
+      "text": "Not sure, you pick."
+    },
+    {
+      "role": "agent",
+      "text": "I have designed a 2-message campaign entering on an EMI-eligible transaction, with a 7-day window to see whether the EMI request resolves. Two things I had to assume because you did not have the information: the channel (I used SMS) and the message budget (I used your policy cap of 4). I cannot tell you this will improve conversion — there is no performance data for Meridian Bank (FICTIONAL), and the channel-ordering idea behind my choice is an untested hypothesis, not an established result."
+    }
+  ],
+  "routingIntent": {
+    "fanOut": []
+  },
+  "decisions": [
+    {
+      "step": "goal",
+      "decision": "EMI_STATUS_CHANGED where New Status = Successful",
+      "basis": "user-answer",
+      "reference": "simulatedAnswers.goal_event"
+    },
+    {
+      "step": "primary-channel",
+      "decision": "EMAIL for the first message (lowest relative cost among available channels)",
+      "basis": "assumption",
+      "reference": "bank-context.softPreferences.preferLowerCostChannelFirst + P-010",
+      "unknown": "User did not state a channel preference (simulatedAnswers.channel_preference). P-010 is classified a hypothesis — this is a reasoned default, not an evidenced optimisation."
+    },
+    {
+      "step": "message-budget",
+      "decision": "At most 4 messages per customer",
+      "basis": "bank-hard-constraint",
+      "reference": "bank-context.hardConstraints.maxMessagesPerCustomerPerCampaign",
+      "unknown": "User did not state a reminder appetite (simulatedAnswers.reminder_appetite); the bank constraint is used instead."
+    },
+    {
+      "step": "message-spacing",
+      "decision": "48h minimum between messages",
+      "basis": "bank-hard-constraint",
+      "reference": "bank-context.hardConstraints.minHoursBetweenMessages"
+    },
+    {
+      "step": "resolution-window",
+      "decision": "7-day timeout awaiting EMI resolution",
+      "basis": "principle",
+      "reference": "P-003 (verified — IBL-Auth-Txn-to-EMI-Master-PRD.md:129,226)"
+    },
+    {
+      "step": "template-first-touch",
+      "decision": "EMI Conversion SMS (CT-3301) on SMS",
+      "basis": "principle",
+      "reference": "\"EMI Conversion SMS\" (CT-3301) matches on objective:emi, objective:convert, stage:convert. Preferred channel EMAIL skipped: no template there matches this message (EMAIL: CT-3288 is about festive marketing)."
+    },
+    {
+      "step": "template-reminder",
+      "decision": "EMI Conversion SMS (CT-3301) on SMS",
+      "basis": "principle",
+      "reference": "\"EMI Conversion SMS\" (CT-3301) matches on objective:emi, objective:convert. Preferred channel EMAIL skipped: no template there matches this message (EMAIL: CT-3288 is about festive marketing). Matches the objective but not the \"reminder\" stage, so its copy is not stage-specific. Auth-to-EMI Reminder WhatsApp (CT-3311) on WHATSAPP would fit the stage better, at that channel's cost."
+    }
+  ],
+  "assumptions": [
+    {
+      "step": "primary-channel",
+      "decision": "EMAIL for the first message (lowest relative cost among available channels)",
+      "basis": "assumption",
+      "reference": "bank-context.softPreferences.preferLowerCostChannelFirst + P-010",
+      "unknown": "User did not state a channel preference (simulatedAnswers.channel_preference). P-010 is classified a hypothesis — this is a reasoned default, not an evidenced optimisation."
+    }
+  ],
+  "campaign": {
+    "id": "AGENT-auth-txn-to-emi-consent",
+    "name": "Auth Txn to EMI — Consent & Resolution (agent-generated)",
+    "description": "Generated by the agent prototype for Meridian Bank (FICTIONAL). Fictional bank; not a real campaign.",
+    "issuer": "Meridian Bank (FICTIONAL)",
+    "programs": [
+      "Meridian Platinum"
+    ],
+    "goal": {
+      "eventCategory": "EMI Events",
+      "eventType": "EMI_STATUS_CHANGED",
+      "conditions": [
+        {
+          "attribute": "New Status",
+          "operator": "Equals",
+          "value": "Successful"
+        }
+      ]
+    },
+    "controlPct": 10,
+    "status": "DRAFT",
+    "root": {
+      "nodes": {
+        "dcn1": {
+          "id": "dcn1",
+          "type": "ENTRY_EVENT",
+          "label": "Transaction",
+          "meta": "Transaction Events",
+          "_config": {
+            "eventCategory": "Transaction Events",
+            "eventType": "Transaction",
+            "conditions": [
+              {
+                "attribute": "EMI Eligible",
+                "operator": "Equals",
+                "value": "true"
+              }
+            ],
+            "journey": "",
+            "batch": "",
+            "offerType": "",
+            "offerName": ""
+          },
+          "autoGenerated": false
+        },
+        "dcn2": {
+          "id": "dcn2",
+          "type": "SEND",
+          "label": "EMI conversion offer",
+          "meta": "",
+          "_config": {
+            "name": "EMI conversion offer",
+            "channel": "SMS",
+            "account": "IBL-Karix-Txns",
+            "templateId": "CT-3301",
+            "timing": "Relative",
+            "absTime": "11:00",
+            "relativeAnchor": "Entry",
+            "relativeDuration": 0,
+            "relativeUnit": "hours",
+            "fallbackChannel": "",
+            "fallbackAccount": "",
+            "fallbackTemplateId": ""
+          },
+          "autoGenerated": false
+        },
+        "dcn3": {
+          "id": "dcn3",
+          "type": "GOAL_CHECK",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)?",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn4": {
+          "id": "dcn4",
+          "type": "GOAL_EXIT",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn5": {
+          "id": "dcn5",
+          "type": "PAUSE",
+          "label": "Wait 48 hours",
+          "meta": "",
+          "_config": {
+            "duration": 48,
+            "unit": "hours"
+          },
+          "autoGenerated": false
+        },
+        "dcn6": {
+          "id": "dcn6",
+          "type": "GOAL_CHECK",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)?",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn7": {
+          "id": "dcn7",
+          "type": "GOAL_EXIT",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn8": {
+          "id": "dcn8",
+          "type": "SEND",
+          "label": "EMI conversion reminder",
+          "meta": "",
+          "_config": {
+            "name": "EMI conversion reminder",
+            "channel": "SMS",
+            "account": "IBL-Karix-Txns",
+            "templateId": "CT-3301",
+            "timing": "Relative",
+            "absTime": "11:00",
+            "relativeAnchor": "Previous Step",
+            "relativeDuration": 0,
+            "relativeUnit": "hours",
+            "fallbackChannel": "",
+            "fallbackAccount": "",
+            "fallbackTemplateId": ""
+          },
+          "autoGenerated": false
+        },
+        "dcn9": {
+          "id": "dcn9",
+          "type": "GOAL_CHECK",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)?",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn10": {
+          "id": "dcn10",
+          "type": "GOAL_EXIT",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn11": {
+          "id": "dcn11",
+          "type": "WAIT_UNTIL",
+          "label": "EMI_STATUS_CHANGED",
+          "meta": "Timeout after 7 days",
+          "_config": {
+            "eventCategory": "EMI Events",
+            "eventType": "EMI_STATUS_CHANGED",
+            "duration": 7,
+            "unit": "days",
+            "conditions": [
+              {
+                "attribute": "New Status",
+                "operator": "Equals",
+                "value": "Successful"
+              }
+            ],
+            "journey": "",
+            "batch": "",
+            "offerType": "",
+            "offerName": ""
+          },
+          "autoGenerated": false
+        },
+        "dcn12": {
+          "id": "dcn12",
+          "type": "GOAL_CHECK",
+          "label": "New Status = Successful?",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn13": {
+          "id": "dcn13",
+          "type": "GOAL_EXIT",
+          "label": "EMI_STATUS_CHANGED (New Status = Successful)",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": true
+        },
+        "dcn14": {
+          "id": "dcn14",
+          "type": "EXIT",
+          "label": "Resolved, but not to the goal outcome (New Status ≠ Successful)",
+          "meta": "",
+          "_config": null,
+          "autoGenerated": false
+        },
+        "dcn15": {
+          "id": "dcn15",
+          "type": "EXIT",
+          "label": "Did not convert in this window",
+          "meta": "",
+          "_config": {
+            "reason": "Did not convert in this window"
+          },
+          "autoGenerated": false
+        }
+      },
+      "edges": [
+        {
+          "id": "dce1",
+          "from": "dcn2",
+          "to": "dcn3",
+          "branchLabel": "",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce2",
+          "from": "dcn3",
+          "to": "dcn4",
+          "branchLabel": "Yes",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce3",
+          "from": "dcn3",
+          "to": "dcn5",
+          "branchLabel": "No",
+          "autoGenerated": false
+        },
+        {
+          "id": "dce4",
+          "from": "dcn1",
+          "to": "dcn2",
+          "branchLabel": "",
+          "autoGenerated": false
+        },
+        {
+          "id": "dce5",
+          "from": "dcn5",
+          "to": "dcn6",
+          "branchLabel": "",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce6",
+          "from": "dcn6",
+          "to": "dcn7",
+          "branchLabel": "Yes",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce7",
+          "from": "dcn6",
+          "to": "dcn8",
+          "branchLabel": "No",
+          "autoGenerated": false
+        },
+        {
+          "id": "dce8",
+          "from": "dcn8",
+          "to": "dcn9",
+          "branchLabel": "",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce9",
+          "from": "dcn9",
+          "to": "dcn10",
+          "branchLabel": "Yes",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce10",
+          "from": "dcn9",
+          "to": "dcn11",
+          "branchLabel": "No",
+          "autoGenerated": false
+        },
+        {
+          "id": "dce11",
+          "from": "dcn11",
+          "to": "dcn12",
+          "branchLabel": "",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce12",
+          "from": "dcn12",
+          "to": "dcn13",
+          "branchLabel": "Yes",
+          "autoGenerated": true
+        },
+        {
+          "id": "dce13",
+          "from": "dcn12",
+          "to": "dcn14",
+          "branchLabel": "No",
+          "autoGenerated": false
+        },
+        {
+          "id": "dce14",
+          "from": "dcn11",
+          "to": "dcn15",
+          "branchLabel": "No",
+          "autoGenerated": false
+        }
+      ],
+      "rootId": "dcn1"
+    },
+    "allowReEntry": false,
+    "guardrails": {
+      "dnc": true,
+      "npa": true
+    }
+  },
+  "validation": {
+    "outcome": "incomplete",
+    "checks": [
+      {
+        "id": "schema-freshness",
+        "description": "Committed schema artefact matches what the app source currently generates",
+        "status": "pass",
+        "executedBy": "agent-proto/run.task.ts (contentHash comparison)",
+        "detail": "hash f05cce7a3e2e1122 matches committed artefact"
+      },
+      {
+        "id": "node-config",
+        "description": "Every node satisfies its own required-field rules",
+        "status": "pass",
+        "executedBy": "dcAddFormValid (src/reducer/defaultConfig.ts)",
+        "detail": "15 nodes checked (GOAL_CHECK skipped: carries no config)"
+      },
+      {
+        "id": "no-open-branches",
+        "description": "No dangling slot and no non-terminal leaf (the app's Submit gate)",
+        "status": "pass",
+        "executedBy": "dcGraphHasOpenBranches (src/reducer/graphOps.ts)",
+        "detail": "all paths terminate"
+      },
+      {
+        "id": "fan-out-intent",
+        "description": "Every multi-path node is either a routing node or a fan-out the planner declared",
+        "status": "pass",
+        "executedBy": "dcIsRoutingNode / dcCanFanOut (src/data/nodeMeta.ts) + planner routingIntent",
+        "detail": "checked 15 nodes; 0 declared fan-out point(s)"
+      },
+      {
+        "id": "referential-integrity",
+        "description": "Every edge endpoint and rootId refers to a node that exists",
+        "status": "pass",
+        "executedBy": "agent-proto/validate.ts (structural, not an app rule)",
+        "detail": "14 edges checked"
+      },
+      {
+        "id": "channel-availability",
+        "description": "Every Send delivers only on channels the issuer has available",
+        "status": "pass",
+        "hardConstraint": true,
+        "executedBy": "assessChannels (agent-proto/channelAvailability.ts) + issuer channels.available configuration",
+        "detail": "all 2 channel use(s) across the campaign's Sends are marked available: dcn2/primary=SMS, dcn8/primary=SMS"
+      },
+      {
+        "id": "message-cap",
+        "description": "No single customer can receive more messages than the bank's per-campaign cap",
+        "status": "pass",
+        "hardConstraint": true,
+        "executedBy": "maxSendsOnAnyPath (agent-proto/graphPaths.ts) + bank-context.hardConstraints.maxMessagesPerCustomerPerCampaign",
+        "detail": "max 2 message(s) on any one of 6 customer path(s), cap 4"
+      }
+    ],
+    "unverified": [
+      {
+        "id": "app-import-accepts",
+        "description": "The Drip Campaign application actually accepts this JSON and builds the campaign",
+        "status": "not-run",
+        "executedBy": "—",
+        "unverifiedReason": "The application has no JSON import path. Campaigns are seeded in memory and built through the UI. Until an import exists, no run can prove the output would be accepted."
+      },
+      {
+        "id": "campaign-quality",
+        "description": "The campaign is a good campaign for the stated goal",
+        "status": "not-run",
+        "executedBy": "—",
+        "unverifiedReason": "Not mechanically checkable. A schema-valid campaign is not necessarily a good one. Requires human review; deliberately kept separate from validity."
+      },
+      {
+        "id": "quiet-hours",
+        "description": "No Send is configured to fire inside the issuer's quiet-hours window",
+        "status": "not-run",
+        "hardConstraint": true,
+        "executedBy": "—",
+        "unverifiedReason": "2 of 2 Send(s) have no determinable send time, so compliance with the window 21:00–09:00 (issuer configuration; INVENTED in this prototype) cannot be established either way — not that it is satisfied. dcn2 \"EMI conversion offer\": relative timing — fires 0 hours after Entry, whose wall-clock time is set by when the trigger occurs, so the send time is not knowable from the graph; dcn8 \"EMI conversion reminder\": relative timing — fires 0 hours after Previous Step, whose wall-clock time is set by when the trigger occurs, so the send time is not knowable from the graph. Determining these would require resolving the trigger's wall-clock time, which is a runtime fact, not a design-time one."
+      }
+    ],
+    "hardConstraints": [
+      {
+        "id": "channel-availability",
+        "name": "Every Send delivers only on channels the issuer has available",
+        "source": "bank-context.channels.available[].available",
+        "status": "pass",
+        "executedBy": "assessChannels (agent-proto/channelAvailability.ts) + issuer channels.available configuration",
+        "detail": "all 2 channel use(s) across the campaign's Sends are marked available: dcn2/primary=SMS, dcn8/primary=SMS"
+      },
+      {
+        "id": "message-cap",
+        "name": "No single customer receives more messages than the per-campaign cap",
+        "source": "bank-context.hardConstraints.maxMessagesPerCustomerPerCampaign",
+        "status": "pass",
+        "executedBy": "maxSendsOnAnyPath (agent-proto/graphPaths.ts) + bank-context.hardConstraints.maxMessagesPerCustomerPerCampaign",
+        "detail": "max 2 message(s) on any one of 6 customer path(s), cap 4"
+      },
+      {
+        "id": "message-spacing",
+        "name": "Consecutive messages to one customer are at least the minimum gap apart",
+        "source": "bank-context.hardConstraints.minHoursBetweenMessages",
+        "status": "not-run",
+        "executedBy": "—",
+        "detail": "No check implemented. The planner inserts a Pause of the configured length (planner.ts), so the spacing holds by construction only — nothing verifies it against the graph, and an edited or differently-shaped campaign would not be caught."
+      },
+      {
+        "id": "quiet-hours",
+        "name": "No Send is configured to fire inside the issuer's quiet-hours window",
+        "source": "bank-context.hardConstraints.quietHours (issuer configuration; INVENTED in this prototype)",
+        "status": "not-run",
+        "executedBy": "—",
+        "detail": "2 of 2 Send(s) have no determinable send time, so compliance with the window 21:00–09:00 (issuer configuration; INVENTED in this prototype) cannot be established either way — not that it is satisfied. dcn2 \"EMI conversion offer\": relative timing — fires 0 hours after Entry, whose wall-clock time is set by when the trigger occurs, so the send time is not knowable from the graph; dcn8 \"EMI conversion reminder\": relative timing — fires 0 hours after Previous Step, whose wall-clock time is set by when the trigger occurs, so the send time is not knowable from the graph. Determining these would require resolving the trigger's wall-clock time, which is a runtime fact, not a design-time one."
+      },
+      {
+        "id": "dnc",
+        "name": "The campaign honours the Do Not Contact list",
+        "source": "bank-context.hardConstraints.dncRequired",
+        "status": "not-run",
+        "executedBy": "—",
+        "detail": "No check implemented. run.task.ts sets guardrails.dnc on the campaign as a literal true rather than reading dncRequired, so the value is correct by coincidence and nothing verifies it."
+      },
+      {
+        "id": "npa",
+        "name": "The campaign applies the NPA exclusion list",
+        "source": "bank-context.hardConstraints.npaExclusionRequired",
+        "status": "not-run",
+        "executedBy": "—",
+        "detail": "No check implemented. run.task.ts sets guardrails.npa as a literal true rather than reading npaExclusionRequired, so the value is correct by coincidence and nothing verifies it."
+      },
+      {
+        "id": "event-freeze",
+        "name": "The campaign does not run inside a freeze window on the issuer's events calendar",
+        "source": "bank-context.eventsCalendar.entries[] where type = freeze",
+        "status": "not-run",
+        "executedBy": "—",
+        "detail": "No check implemented, and the input is missing too: the generated campaign carries no startDate or endDate, so there is no schedule to compare against the calendar. Both would be needed."
+      },
+      {
+        "id": "maker-checker",
+        "name": "The campaign routes through the correct approval path for this issuer and programs",
+        "source": "computeMakerCheckerFlag (src/data/sharedConstants.ts) — real mechanism, real issuers only",
+        "status": "not-applicable",
+        "executedBy": "—",
+        "detail": "Not applicable in this prototype: the real mechanism is keyed to real issuers, and Meridian Bank is fictional and absent from PROGRAM_OPTIONS. Nothing was verified — this is not a pass. Becomes applicable, and must be re-classified, as soon as a real issuer is used."
+      }
+    ],
+    "unverifiedHardConstraints": [
+      "message-spacing",
+      "quiet-hours",
+      "dnc",
+      "npa",
+      "event-freeze"
+    ]
+  },
+  "trace": [
+    {
+      "seq": 1,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "context-load",
+      "message": "Loaded bank context: Meridian Bank (FICTIONAL)"
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "context-load",
+      "message": "Loaded scenario: auth-txn-to-emi-consent"
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "question",
+      "message": "Asked: Which programs should this campaign target?",
+      "data": {
+        "key": "which_programs",
+        "resolved": true
+      }
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "question",
+      "message": "Asked: Should customers enter on the authorisation event, or on a scheduled audience pull?",
+      "data": {
+        "key": "entry_trigger",
+        "resolved": true
+      }
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "question",
+      "message": "Asked: What exactly counts as success?",
+      "data": {
+        "key": "goal_event",
+        "resolved": true
+      }
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "question",
+      "message": "Asked: How many reminders are acceptable before we stop?",
+      "data": {
+        "key": "reminder_appetite",
+        "resolved": false
+      }
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "question",
+      "message": "Asked: Any channel preference for the first message?",
+      "data": {
+        "key": "channel_preference",
+        "resolved": false
+      }
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "decision",
+      "message": "goal: EMI_STATUS_CHANGED where New Status = Successful",
+      "data": {
+        "basis": "user-answer",
+        "reference": "simulatedAnswers.goal_event"
+      }
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "decision",
+      "message": "primary-channel: EMAIL for the first message (lowest relative cost among available channels)",
+      "data": {
+        "basis": "assumption",
+        "reference": "bank-context.softPreferences.preferLowerCostChannelFirst + P-010"
+      }
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "decision",
+      "message": "message-budget: At most 4 messages per customer",
+      "data": {
+        "basis": "bank-hard-constraint",
+        "reference": "bank-context.hardConstraints.maxMessagesPerCustomerPerCampaign"
+      }
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "decision",
+      "message": "message-spacing: 48h minimum between messages",
+      "data": {
+        "basis": "bank-hard-constraint",
+        "reference": "bank-context.hardConstraints.minHoursBetweenMessages"
+      }
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "decision",
+      "message": "resolution-window: 7-day timeout awaiting EMI resolution",
+      "data": {
+        "basis": "principle",
+        "reference": "P-003 (verified — IBL-Auth-Txn-to-EMI-Master-PRD.md:129,226)"
+      }
+    },
+    {
+      "seq": 13,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "decision",
+      "message": "template-first-touch: EMI Conversion SMS (CT-3301) on SMS",
+      "data": {
+        "basis": "principle",
+        "reference": "\"EMI Conversion SMS\" (CT-3301) matches on objective:emi, objective:convert, stage:convert. Preferred channel EMAIL skipped: no template there matches this message (EMAIL: CT-3288 is about festive marketing)."
+      }
+    },
+    {
+      "seq": 14,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "decision",
+      "message": "template-reminder: EMI Conversion SMS (CT-3301) on SMS",
+      "data": {
+        "basis": "principle",
+        "reference": "\"EMI Conversion SMS\" (CT-3301) matches on objective:emi, objective:convert. Preferred channel EMAIL skipped: no template there matches this message (EMAIL: CT-3288 is about festive marketing). Matches the objective but not the \"reminder\" stage, so its copy is not stage-specific. Auth-to-EMI Reminder WhatsApp (CT-3311) on WHATSAPP would fit the stage better, at that channel's cost."
+      }
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "note",
+      "message": "Weak stage fit at template-reminder: CT-3301 is not stage-specific",
+      "data": {
+        "betterStageFitElsewhere": {
+          "id": "CT-3311",
+          "name": "Auth-to-EMI Reminder WhatsApp",
+          "channel": "WHATSAPP"
+        }
+      }
+    },
+    {
+      "seq": 16,
+      "at": "2026-10-12T11:42:53.806Z",
+      "kind": "note",
+      "message": "Primary channel changed EMAIL -> SMS for template suitability"
+    },
+    {
+      "seq": 17,
+      "at": "2026-10-12T11:42:53.807Z",
+      "kind": "build",
+      "message": "Entry · Event — Transaction, EMI Eligible = true"
+    },
+    {
+      "seq": 18,
+      "at": "2026-10-12T11:42:53.807Z",
+      "kind": "build",
+      "message": "Send 1 — SMS / CT-3301, immediately after entry"
+    },
+    {
+      "seq": 19,
+      "at": "2026-10-12T11:42:53.807Z",
+      "kind": "build",
+      "message": "Wait 48h — the bank's minimum gap between messages"
+    },
+    {
+      "seq": 20,
+      "at": "2026-10-12T11:42:53.807Z",
+      "kind": "build",
+      "message": "Send 2 — reminder, SMS / CT-3301"
+    },
+    {
+      "seq": 21,
+      "at": "2026-10-12T11:42:53.807Z",
+      "kind": "build",
+      "message": "Wait for Event — EMI_STATUS_CHANGED, 7-day timeout (P-003)"
+    },
+    {
+      "seq": 22,
+      "at": "2026-10-12T11:42:53.807Z",
+      "kind": "build",
+      "message": "Closed all remaining open paths with Exit nodes"
+    },
+    {
+      "seq": 23,
+      "at": "2026-10-12T11:42:53.807Z",
+      "kind": "note",
+      "message": "Sends use relative timing anchored to the entry event, so their wall-clock send time is not knowable at design time. Quiet-hours compliance is therefore unverifiable here and is reported as not-run, not as satisfied."
+    },
+    {
+      "seq": 24,
+      "at": "2026-10-12T11:42:53.807Z",
+      "kind": "note",
+      "message": "Max messages on a single customer path is 2, within the bank cap of 4"
+    }
+  ],
+  "claim": "OUTCOME: INCOMPLETE. Checks that ran are listed in validation.checks and were executed by the application's own functions. NOT compliant-by-verification: the hard constraint(s) [message-spacing, quiet-hours, dnc, npa, event-freeze] could not be verified and are NOT treated as passed. Checks that pass are design-time only; enforcing operational restrictions at send time is the Drip Campaign runtime's responsibility. The application has no JSON import path, so this run cannot prove the campaign would be accepted by it. Not import-ready."
+}

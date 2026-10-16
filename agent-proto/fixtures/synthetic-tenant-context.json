@@ -1,0 +1,17 @@
+{
+  "$comment": "SYNTHETIC TEST FIXTURE. This exists ONLY so the usable end-to-end path can be exercised. It is not platform output, not configuration, and not evidence of anything. Nothing reads this file outside the end-to-end regression test.",
+  "status": "SYNTHETIC_TEST_FIXTURE",
+  "notProductionData": true,
+  "whyThisExists": "The production-like sample scenario (scenarios/auth-txn-to-emi.json) deliberately carries NO tenant context, because this prototype has no platform integration. That run is blocked, which is the honest result. Without a second fixture the usable path would have no end-to-end coverage at all, so this supplies the tenant the platform would have supplied.",
+  "tenantContext": {
+    "tenantId": "SYNTH-TENANT-0001",
+    "issuer": "IndusInd Bank (IBL)",
+    "$issuerNote": "A REAL issuer from the application's own PROGRAM_OPTIONS (src/data/sharedConstants.ts), chosen so the proposal is not blocked by an unknown-issuer mapping. Using a real issuer name here does NOT mean the tenant-to-issuer mapping has been verified in production — no production mapping exists, and nothing here establishes one.",
+    "$mappingNote": "tenantId and issuer are kept SEPARATE and neither is derived from the other. In production the platform asserts this mapping; here the fixture asserts it, which is a test convenience and nothing more."
+  },
+  "notVerified": [
+    "That SYNTH-TENANT-0001 corresponds to IndusInd Bank (IBL), or to any real tenant.",
+    "That the platform would supply tenant context in this shape.",
+    "That issuer-dependent functionality (Smart Tags and others) resolves correctly for this issuer — the application models no issuer keying for it."
+  ]
+}

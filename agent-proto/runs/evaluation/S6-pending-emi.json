@@ -1,0 +1,118 @@
+{
+  "id": "S6-pending-emi",
+  "title": "Pending EMI requests",
+  "objective": "EMI requests are sitting in a pending state and never completing. Move them to completion.",
+  "reviewerNotes": "Unlike S1 the customer HAS acted, so the EMI request lifecycle is the right entry here. The contrast with S1 is the point: the same subject, a different point in the sequence.",
+  "watchFor": [
+    "treating this identically to S1",
+    "entry on the transaction when the request already exists"
+  ],
+  "turns": [
+    {
+      "phase": "awaiting-confirmation",
+      "toolsUsed": [
+        "Checking available trigger events",
+        "Checking audience attributes",
+        "Checking channel availability",
+        "Checking available journey steps",
+        "Checking message template availability"
+      ],
+      "questions": [
+        "Should messaging differ by EMI Product Type or Source (e.g. a Txn-to-EMI conversion vs an Onboarding-originated request), since the 'last step' a customer needs to do may differ?"
+      ],
+      "strategy": {
+        "summary": "EMI requests enter a 'Pending' state and often stall before completion. The campaign enters the moment a request becomes Pending (the opportunity point) and nudges the customer, via increasingly higher-touch channels, to finish it before the request auto-expires at day 7. The goal is the request's own status flipping to Successful, checked automatically after every step so converted customers stop receiving messages immediately.",
+        "approach": [
+          "Entry on EMI_STATUS_CHANGED / New Status = Pending — this is the exact moment the opportunity exists and hasn't yet resolved, which is the only entity/event that represents 'an open EMI request'.",
+          "Goal on EMI_STATUS_CHANGED / New Status = Successful — the only event that proves the behaviour (completion), on the same entity so it's a valid comparison.",
+          "Three sends spaced 48h apart (0h/48h/96h), channel order EMAIL → SMS → WHATSAPP: lead with the cheapest channel per preference, reserve WhatsApp as a higher-touch recovery attempt closer to the 7-day expiry (P-010 hypothesis, P-009/P-011 constraints respected).",
+          "Deliberately used only 3 of the 4 allowed messages, finishing by hour 96 — leaves buffer before the day-7 Expired cutoff (P-003) and favours the stated conservative preference for fewer, better-targeted messages over maxing out the cap.",
+          "10% control group applied per stated preference, so any later read of this journey's effect (even informally) isn't confounded with 'what would have happened anyway' (P-006) — though no lift claim is made here given no historical data exists."
+        ],
+        "rejected": [
+          {
+            "option": "Audience (segment) entry on currently-pending requests",
+            "why": "Would only catch a snapshot of existing pending requests, not continuously catch newly-created ones, and risks re-entering the same customer repeatedly outside the event-driven model."
+          },
+          {
+            "option": "Branching mid-journey on Failed/Expired/Cancelled via a condition step",
+            "why": "The condition/SPLIT step type only reads a previous SEND's delivery outcome (e.g. DELIVERED/FAILED), not a business event like EMI status — there is no supported way to fork the journey on Failed/Cancelled mid-flight. Flagged as an operational limitation below rather than invented around."
+          },
+          {
+            "option": "Using all 4 allowed messages / tighter 24-36h spacing",
+            "why": "Would reduce buffer before the 7-day expiry and increase fatigue risk; conservative risk appetite and P-011 favour fewer, well-spaced messages."
+          },
+          {
+            "option": "A/B testing channel order now",
+            "why": "P-005 says change one variable at a time, and there's no baseline to compare against yet. One coherent hypothesis-driven sequence is the simpler, defensible first iteration; an experiment can follow once there's a baseline."
+          }
+        ],
+        "assumptions": [
+          "No segmentation by EMI Product Type (Single-Txn/Multi-Txn/Outstanding) or Source — one generic message set applies to all pending requests. Default chosen for simplicity; flagged below.",
+          "EMI_STATUS_CHANGED (EMI Request entity) is marked 'new-proposed' in platform metadata — i.e. not confirmed built in production. The whole entry/goal/branch design above depends on this event actually firing; this is a stated limitation, not a verified capability.",
+          "DNC and NPA exclusion are applied as hard constraints per tenant policy; quiet hours (21:00–09:00) govern actual send timing even though step waits are specified in hours."
+        ],
+        "evidenceNotes": [
+          "No historical data exists on why pending EMI requests stall (OTP drop-off, document step, manual review, etc.). That data would sharpen message content (e.g. naming the specific blocking step) but isn't a prerequisite — proceeding with a generic 'finish the last step' message and noting this as a gap."
+        ]
+      },
+      "entry": {
+        "kind": "event",
+        "eventCategory": "EMI Events",
+        "eventType": "EMI_STATUS_CHANGED",
+        "conditions": [
+          {
+            "attribute": "New Status",
+            "operator": "Equals",
+            "value": "Pending"
+          }
+        ]
+      },
+      "goal": {
+        "eventCategory": "EMI Events",
+        "eventType": "EMI_STATUS_CHANGED",
+        "conditions": [
+          {
+            "attribute": "New Status",
+            "operator": "Equals",
+            "value": "Successful"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "kind": "send",
+          "name": "Initial completion nudge",
+          "copy": "Hi ${customerFirstName}, your EMI request just needs one more step to go through. Finish it now so your purchase can be converted to easy instalments.",
+          "cta": "Complete your EMI request"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 48
+        },
+        {
+          "kind": "send",
+          "name": "Mid-window reminder",
+          "copy": "Reminder: your EMI request is still pending and only stays open for a limited time. Complete the last step today.",
+          "cta": "Finish now"
+        },
+        {
+          "kind": "wait",
+          "durationHours": 48
+        },
+        {
+          "kind": "send",
+          "name": "Final reminder before expiry",
+          "copy": "Last reminder: your EMI request closes soon if it isn't completed. Finish it today to keep your instalment plan.",
+          "cta": "Act now"
+        }
+      ],
+      "graphReadiness": {
+        "status": "ready",
+        "blockers": [],
+        "limitations": []
+      },
+      "reply": "EMI requests enter a 'Pending' state and often stall before completion. The campaign enters the moment a request becomes Pending (the opportunity point) and nudges the customer, via increasingly higher-touch channels, to finish it before the request auto-expires at day 7. The goal is the request's own status flipping to Successful, checked automatically after every step so converted customers stop receiving messages immediately.\n\n**Approach**\n- Entry on EMI_STATUS_CHANGED / New Status = Pending — this is the exact moment the opportunity exists and hasn't yet resolved, which is the only entity/event that represents 'an open EMI request'.\n- Goal on EMI_STATUS_CHANGED / New Status = Successful — the only event that proves the behaviour (completion), on the same entity so it's a valid comparison.\n- Three sends spaced 48h apart (0h/48h/96h), channel order EMAIL → SMS → WHATSAPP: lead with the cheapest channel per preference, reserve WhatsApp as a higher-touch recovery attempt closer to the 7-day expiry (P-010 hypothesis, P-009/P-011 constraints respected).\n- Deliberately used only 3 of the 4 allowed messages, finishing by hour 96 — leaves buffer before the day-7 Expired cutoff (P-003) and favours the stated conservative preference for fewer, better-targeted messages over maxing out the cap.\n- 10% control group applied per stated preference, so any later read of this journey's effect (even informally) isn't confounded with 'what would have happened anyway' (P-006) — though no lift claim is made here given no historical data exists.\n\n**Considered and not used**\n- Audience (segment) entry on currently-pending requests — Would only catch a snapshot of existing pending requests, not continuously catch newly-created ones, and risks re-entering the same customer repeatedly outside the event-driven model.\n- Branching mid-journey on Failed/Expired/Cancelled via a condition step — The condition/SPLIT step type only reads a previous SEND's delivery outcome (e.g. DELIVERED/FAILED), not a business event like EMI status — there is no supported way to fork the journey on Failed/Cancelled mid-flight. Flagged as an operational limitation below rather than invented around.\n- Using all 4 allowed messages / tighter 24-36h spacing — Would reduce buffer before the 7-day expiry and increase fatigue risk; conservative risk appetite and P-011 favour fewer, well-spaced messages.\n- A/B testing channel order now — P-005 says change one variable at a time, and there's no baseline to compare against yet. One coherent hypothesis-driven sequence is the simpler, defensible first iteration; an experiment can follow once there's a baseline.\n\n**Assumptions**\n- No segmentation by EMI Product Type (Single-Txn/Multi-Txn/Outstanding) or Source — one generic message set applies to all pending requests. Default chosen for simplicity; flagged below.\n- EMI_STATUS_CHANGED (EMI Request entity) is marked 'new-proposed' in platform metadata — i.e. not confirmed built in production. The whole entry/goal/branch design above depends on this event actually firing; this is a stated limitation, not a verified capability.\n- DNC and NPA exclusion are applied as hard constraints per tenant policy; quiet hours (21:00–09:00) govern actual send timing even though step waits are specified in hours.\n\n**Worth settling before this is built**\n- Should messaging differ by EMI Product Type or Source (e.g. a Txn-to-EMI conversion vs an Onboarding-originated request), since the 'last step' a customer needs to do may differ? Would change the entry conditions (splitting into multiple entry variants) and the copy for each variant, likely improving relevance. Until then: Launch with one generic message set covering all EMI Request sources/product types.\n\n**Data that would improve this**\n- What does the drop-off funnel look like by day within the 7-day pending window (e.g. most expirations happen on day 2 vs day 6)? Would let reminder timing cluster around the actual drop-off point rather than even 48h spacing.\n\n**Limitations**\n- EMI Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- The platform cannot branch this journey mid-flight on the EMI request later turning Failed/Cancelled (only a prior SEND's delivery outcome is branchable). Is it acceptable that a customer whose request fails or is cancelled still receives the remaining scheduled reminders (generic copy, not claiming the request is still open)? Determines whether we accept some wasted/slightly-mistimed sends to Failed/Cancelled customers, or whether a separate exclusion mechanism needs to be built outside this journey."
+    }
+  ]
+}

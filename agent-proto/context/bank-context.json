@@ -1,0 +1,133 @@
+{
+ "$comment": "ENTIRELY FICTIONAL. Meridian Bank does not exist. Every value below is an invented placeholder created to exercise the prototype \u2014 none of it is a real bank policy, a real cost, or a verified fact about IndusInd Bank, Yes Bank or any other issuer. A deliberately fictional name is used so this can never be mistaken for real issuer data. The only fields traceable to the real application are marked with sourcedFrom.",
+ "contextVersion": "0.1.0",
+ "status": "FICTIONAL_MOCK",
+ "bank": {
+  "id": "MERIDIAN",
+  "displayName": "Meridian Bank (FICTIONAL)",
+  "note": "Invented for prototype testing. Not a real institution.",
+  "programs": [
+   {
+    "id": "MER-PLAT",
+    "name": "Meridian Platinum",
+    "note": "fictional"
+   },
+   {
+    "id": "MER-REWARDS",
+    "name": "Meridian Rewards",
+    "note": "fictional"
+   }
+  ]
+ },
+ "channels": {
+  "$comment": "Channel names and the delivery-status vocabulary are real (from the app). Costs, caps and availability below are INVENTED. relativeCost is an ordinal placeholder, not a currency amount, precisely so it cannot be misread as a real rate card.",
+  "sourcedFrom": "channel names: src/data/sharedConstants.ts CHANNEL_CONFIG_LABELS (real). All cost/limit values: invented.",
+  "available": [
+   {
+    "channel": "WHATSAPP",
+    "relativeCost": 3,
+    "available": true,
+    "assumption": "INVENTED"
+   },
+   {
+    "channel": "SMS",
+    "relativeCost": 2,
+    "available": true,
+    "assumption": "INVENTED"
+   },
+   {
+    "channel": "EMAIL",
+    "relativeCost": 1,
+    "available": true,
+    "assumption": "INVENTED"
+   },
+   {
+    "channel": "RCS",
+    "relativeCost": 2,
+    "available": false,
+    "assumption": "INVENTED",
+    "note": "modelled as unavailable to exercise the agent's constraint handling"
+   }
+  ]
+ },
+ "hardConstraints": {
+  "$comment": "INVENTED. Modelled as hard so the prototype can exercise 'constraint must win over preference'. A real deployment would source these from the issuer and have them approved. A per-campaign message cap was removed: it is not an issuer policy. How many messages a campaign sends is a design decision that differs per campaign \u2014 a two-week nurture and a three-day expiry reminder are not the same number \u2014 and carrying one here made the agent budget against it ('two sends against a permitted four') instead of designing for the goal.",
+  "quietHours": {
+   "from": "21:00",
+   "to": "09:00",
+   "assumption": "INVENTED",
+   "$comment": "INVENTED window, retained ONLY to exercise the prototype. Not a verified issuer policy. Quiet hours are issuer-level configuration owned by the Drip Campaign system; the agent reads a window it is given and must never define one. A real deployment must source this from that system, not from here.",
+   "ownedBy": "Drip Campaign system (issuer configuration)",
+   "enforcedBy": "Drip Campaign runtime at send time. The agent only validates the campaign's configured send times at design time.",
+   "sourceNote": "Quiet hours exist as a real implemented guardrail in the nudges platform's Frequency Limits step (see principles P-004). These from/to VALUES are invented."
+  },
+  "minHoursBetweenMessages": {
+   "value": 48,
+   "assumption": "INVENTED"
+  },
+  "dncRequired": {
+   "value": true,
+   "assumption": "INVENTED"
+  },
+  "npaExclusionRequired": {
+   "value": true,
+   "assumption": "INVENTED"
+  }
+ },
+ "softPreferences": {
+  "$comment": "INVENTED. Preferences, not constraints \u2014 the agent may trade these off and must say when it does.",
+  "preferLowerCostChannelFirst": {
+   "value": true,
+   "assumption": "INVENTED"
+  },
+  "preferredControlGroupPct": {
+   "value": 10,
+   "assumption": "INVENTED"
+  }
+ },
+ "riskAppetite": {
+  "$comment": "INVENTED.",
+  "level": "conservative",
+  "notes": [
+   "Prefers fewer, better-targeted messages over broad reach.",
+   "Requires an explicit control group on any campaign claiming incremental lift."
+  ],
+  "assumption": "INVENTED"
+ },
+ "eventsCalendar": {
+  "$comment": "INVENTED dates for a fictional bank. Not a real festive/promotional calendar.",
+  "entries": [
+   {
+    "date": "2026-11-07",
+    "label": "Festive campaign freeze begins",
+    "type": "freeze",
+    "assumption": "INVENTED"
+   },
+   {
+    "date": "2026-11-21",
+    "label": "Festive campaign freeze ends",
+    "type": "freeze",
+    "assumption": "INVENTED"
+   },
+   {
+    "date": "2026-12-01",
+    "label": "Quarter-end statement cycle",
+    "type": "high-volume",
+    "assumption": "INVENTED"
+   }
+  ]
+ },
+ "makerChecker": {
+  "$comment": "The MECHANISM is real \u2014 computeMakerCheckerFlag() in the app decides this from issuer and program flags. The value below is an invented stand-in for the fictional bank.",
+  "sourcedFrom": "src/data/sharedConstants.ts computeMakerCheckerFlag (real mechanism)",
+  "required": true,
+  "assumption": "INVENTED value, real mechanism"
+ },
+ "knownGaps": [
+  "No real channel costs \u2014 relativeCost is ordinal and invented.",
+  "No real send-volume ceiling.",
+  "No real events calendar.",
+  "No campaign performance history for this bank (none exists anywhere in the prototype).",
+  "The app itself holds no cost, quiet-hours or frequency-cap fields at all \u2014 verified by grep. Nothing here is enforced by the application today."
+ ]
+}

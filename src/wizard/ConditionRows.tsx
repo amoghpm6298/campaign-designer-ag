@@ -3,7 +3,7 @@
 // dcCondUpdate / dcCondToggleMulti — React-idiomatic version: takes the
 // conditions array + an onChange callback instead of a global containerKey
 // lookup (dcCondArrayFor), since each caller now owns its own local state.
-import { ELIGIBILITY_META, DC_PROMOTED_ATTR, LOCKED_ATTR_OPERATORS, type AttrType } from '../data/sharedConstants';
+import { ELIGIBILITY_META, DC_PROMOTED_ATTR, dcOperatorsForAttribute, type AttrType } from '../data/sharedConstants';
 import type { DripGoalCondition } from '../data/graphTypes';
 import { MultiSelectDropdown } from '../components/MultiSelectDropdown';
 
@@ -127,13 +127,9 @@ export function ConditionRows({
     <>
       {conditions.map((c, i) => {
         const attrMeta = meta ? meta[c.attribute] : null;
-        const opOptions: string[] = lockedAttribute
-          ? LOCKED_ATTR_OPERATORS
-          : attrMeta?.type === 'multiSelect'
-            ? ['Any of']
-            : attrMeta?.type === 'number' || attrMeta?.type === 'date'
-              ? ['Equals', 'Greater than', 'Less than', 'Between']
-              : ['Equals', 'Not Equals'];
+        // The rule itself lives in sharedConstants so the agent's capability
+        // tool answers exactly what this drawer offers.
+        const opOptions: string[] = dcOperatorsForAttribute(attrMeta, { locked: Boolean(lockedAttribute) });
         // multiSelect only has one real operator — rendered as already
         // selected rather than making someone pick from a 1-option list,
         // same precedent used throughout this file. The underlying

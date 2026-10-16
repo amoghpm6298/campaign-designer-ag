@@ -1,0 +1,104 @@
+{
+  "id": "S3-first-purchase",
+  "title": "First purchase after activation",
+  "objective": "Customers activate the card and then never use it. Get them to make a first purchase soon after activation.",
+  "reviewerNotes": "Activation is the entry; the first transaction is the goal. The window is a judgement call the agent should state rather than ask about.",
+  "watchFor": [
+    "entry on issuance rather than activation",
+    "asking the user to choose the window"
+  ],
+  "turns": [
+    {
+      "phase": "awaiting-confirmation",
+      "toolsUsed": [
+        "Checking available trigger events",
+        "Checking audience attributes",
+        "Checking channel availability",
+        "Checking available journey steps",
+        "Checking message template availability"
+      ],
+      "questions": [
+        "Should 'first purchase' count any customer-initiated approved/settled transaction, or only specific types (e.g. excluding EMI-related postings, cash-equivalent transactions)?"
+      ],
+      "strategy": {
+        "summary": "Trigger immediately on card activation, since that is the moment the opportunity to convert a dormant card into a user exists and has not yet closed. Prove success on a genuine customer-initiated purchase transaction, not on activation itself. Use a short, spaced sequence of up to 4 messages that escalates channel cost only as reinforcement, and carve out a 10% holdout so any future read on this campaign isn't confounded with normal activation-to-usage behaviour.",
+        "approach": [
+          "Entry on Card Activated (Card Events) rather than Card Issued or Card Loaded, because activation is the exact point the 'never use it' gap begins and the behaviour is still fully open to change.",
+          "Goal on a Transaction event with Transaction Status in {APPROVED, SETTLED} and Initiated By = CUSTOMER_INITIATED, so the goal proves a real customer purchase rather than a system-generated posting (fees, reversals, EMI postings etc.) that would falsely look like 'first use'.",
+          "Lead with EMAIL (lowest cost) for the first touch, step up to SMS then WHATSAPP for reminders as reinforcement, per the lower-cost-first preference, then close on a low-cost channel again rather than escalating indefinitely.",
+          "Space every message at the 48h minimum, using 4 total sends (the cap) spread across roughly 10 days, since there is no hard external deadline (unlike an EMI offer) that would force a tighter window.",
+          "Add a 10% holdout (no messages) per the stated preference, so if this campaign is later used to claim incremental lift there is a group to compare against — without a holdout, any difference in purchase-within-10-days could just be normal post-activation behaviour."
+        ],
+        "rejected": [
+          {
+            "option": "Entry on Card Issued",
+            "why": "Issuance can happen well before activation; messaging here would reach people who haven't even activated yet, diluting relevance to the stated problem (activated-but-unused)."
+          },
+          {
+            "option": "Goal on Card Activated or on any Transaction without Initiated By filter",
+            "why": "Activation is the entry condition, not the success condition, and unfiltered transactions would count system-generated postings as a 'first purchase', which the data doesn't support."
+          },
+          {
+            "option": "waitForEvent step waiting explicitly for the purchase before any reminder",
+            "why": "The platform already runs an automatic goal check after every send/wait and exits converters immediately (P-008), so a manual waitForEvent would duplicate that logic without adding control."
+          },
+          {
+            "option": "A longer 6+ message drip",
+            "why": "The message cap is 4 and minimum spacing is 48h; more messages would either break the cap or compress spacing below the floor, and a conservative risk appetite favours fewer, better-targeted messages."
+          }
+        ],
+        "assumptions": [
+          "DNC suppression and NPA exclusion are applied automatically by the platform as standing guardrails, not as conditions I need to author.",
+          "This campaign is not scheduled to launch inside the 2026-11-07 to 11-21 festive freeze window; if it is, sends would need to pause or shift.",
+          "No activation-based condition narrows which card product/type qualifies, since Card Events conditions resolve no entity today — all activations enter."
+        ],
+        "evidenceNotes": [
+          "P-001/P-002 already tell us expected conversion is low (roughly 2% of landing-page reachers, ~0.5% of base overall) — this sets expectations, not a target, and I'm not promising any lift.",
+          "Aggregated time-to-first-purchase-after-activation data (e.g. what % purchase within 2/5/10 days with no messaging) would sharpen the wait-step timing, but per the brief no performance history exists for this bank, so I'm proceeding on the 48h-minimum/4-message cap as the binding constraint instead."
+        ]
+      },
+      "entry": {
+        "kind": "event",
+        "eventCategory": "Card Events",
+        "eventType": "Card Activated",
+        "conditions": []
+      },
+      "goal": {
+        "eventCategory": "Transaction Events",
+        "eventType": "Transaction",
+        "conditions": [
+          {
+            "attribute": "Transaction Status",
+            "operator": "Equals",
+            "value": "APPROVED"
+          },
+          {
+            "attribute": "Initiated By",
+            "operator": "Equals",
+            "value": "CUSTOMER_INITIATED"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "kind": "experiment"
+        }
+      ],
+      "graphReadiness": {
+        "status": "blocked",
+        "blockers": [
+          "goal.conditions: \"Equals\" is not an operator Transaction Status accepts. Accepted operators: Any of.",
+          "steps[0].experiment.arms[0][1].wait: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][2].send: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][3].wait: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][4].send: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][5].wait: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][6].send: 2 open slots exist; the continuation is ambiguous.",
+          "steps[0].experiment.arms[0][7].exit: 2 open slots exist; the continuation is ambiguous."
+        ],
+        "limitations": []
+      },
+      "reply": "Trigger immediately on card activation, since that is the moment the opportunity to convert a dormant card into a user exists and has not yet closed. Prove success on a genuine customer-initiated purchase transaction, not on activation itself. Use a short, spaced sequence of up to 4 messages that escalates channel cost only as reinforcement, and carve out a 10% holdout so any future read on this campaign isn't confounded with normal activation-to-usage behaviour.\n\n**Approach**\n- Entry on Card Activated (Card Events) rather than Card Issued or Card Loaded, because activation is the exact point the 'never use it' gap begins and the behaviour is still fully open to change.\n- Goal on a Transaction event with Transaction Status in {APPROVED, SETTLED} and Initiated By = CUSTOMER_INITIATED, so the goal proves a real customer purchase rather than a system-generated posting (fees, reversals, EMI postings etc.) that would falsely look like 'first use'.\n- Lead with EMAIL (lowest cost) for the first touch, step up to SMS then WHATSAPP for reminders as reinforcement, per the lower-cost-first preference, then close on a low-cost channel again rather than escalating indefinitely.\n- Space every message at the 48h minimum, using 4 total sends (the cap) spread across roughly 10 days, since there is no hard external deadline (unlike an EMI offer) that would force a tighter window.\n- Add a 10% holdout (no messages) per the stated preference, so if this campaign is later used to claim incremental lift there is a group to compare against — without a holdout, any difference in purchase-within-10-days could just be normal post-activation behaviour.\n\n**Considered and not used**\n- Entry on Card Issued — Issuance can happen well before activation; messaging here would reach people who haven't even activated yet, diluting relevance to the stated problem (activated-but-unused).\n- Goal on Card Activated or on any Transaction without Initiated By filter — Activation is the entry condition, not the success condition, and unfiltered transactions would count system-generated postings as a 'first purchase', which the data doesn't support.\n- waitForEvent step waiting explicitly for the purchase before any reminder — The platform already runs an automatic goal check after every send/wait and exits converters immediately (P-008), so a manual waitForEvent would duplicate that logic without adding control.\n- A longer 6+ message drip — The message cap is 4 and minimum spacing is 48h; more messages would either break the cap or compress spacing below the floor, and a conservative risk appetite favours fewer, better-targeted messages.\n\n**Assumptions**\n- DNC suppression and NPA exclusion are applied automatically by the platform as standing guardrails, not as conditions I need to author.\n- This campaign is not scheduled to launch inside the 2026-11-07 to 11-21 festive freeze window; if it is, sends would need to pause or shift.\n- No activation-based condition narrows which card product/type qualifies, since Card Events conditions resolve no entity today — all activations enter.\n\n**Worth settling before this is built**\n- Should 'first purchase' count any customer-initiated approved/settled transaction, or only specific types (e.g. excluding EMI-related postings, cash-equivalent transactions)? The goal event's conditions determine who is marked converted and exits the journey early; too broad a definition could mark non-retail activity as success, too narrow could miss genuine first-use. Until then: I will use Transaction Status in {APPROVED, SETTLED} and Initiated By = CUSTOMER_INITIATED with no MCC/type restriction, i.e. any genuine customer-initiated spend counts.\n\n**Defaults applied**\n- Is a 10-day, 4-message window the right size, or is a shorter 2-message nudge preferred for a conservative risk appetite? Changes total message volume and spend; fewer messages reduces fatigue risk but also reduces the number of chances to prompt the behaviour. Until then: I will use the full 4-message cap spaced at the 48h floor plus wider gaps later, since nothing in the brief caps volume below the stated maximum.\n\n**Limitations**\n- Card Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- Transaction Events is marked new in the platform metadata: proposed, not confirmed as built in production. This campaign depends on it, so it cannot be presented as a verified platform capability.\n- Card Events and Transaction Events are both marked 'new / proposed, not confirmed built in production' in this platform's metadata. Both the entry trigger and the goal depend on these categories; if they are not actually live, neither entry nor goal will fire and the campaign cannot run as designed.\n\n**Cannot be generated yet**\n- goal.conditions: \"Equals\" is not an operator Transaction Status accepts. Accepted operators: Any of.\n- steps[0].experiment.arms[0][1].wait: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][2].send: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][3].wait: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][4].send: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][5].wait: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][6].send: 2 open slots exist; the continuation is ambiguous.\n- steps[0].experiment.arms[0][7].exit: 2 open slots exist; the continuation is ambiguous."
+    }
+  ]
+}

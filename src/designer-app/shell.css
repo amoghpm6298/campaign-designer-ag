@@ -1,0 +1,45 @@
+/* Standalone Campaign Designer shell. Its own header and navigation — this
+   app has no sidebar, no Communication Hub and no dependency on the
+   ib-face-mock chrome. */
+#designer-root { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+.ds-header {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 20px;
+  padding: 0 22px; height: 56px;
+  background: #fff; border-bottom: 1px solid var(--gray-200);
+}
+.ds-brand { display: flex; align-items: baseline; gap: 9px; }
+.ds-brand-name { font-size: 15px; font-weight: 680; letter-spacing: -0.02em; color: var(--gray-800, #1f2937); }
+.ds-brand-sub { font-size: 11.5px; color: var(--gray-500); letter-spacing: 0.01em; }
+
+.ds-nav { display: flex; gap: 2px; margin-left: 10px; }
+.ds-navitem {
+  font: inherit; font-size: 13px; font-weight: 560; padding: 7px 13px; border-radius: 7px;
+  border: 1px solid transparent; background: none; cursor: pointer; color: var(--gray-600);
+}
+.ds-navitem:hover { background: var(--gray-100); }
+.ds-navitem.on { background: var(--blue-50, #eff4ff); color: var(--blue-cta); border-color: var(--blue-200, #c7d8fe); }
+
+.ds-tenant { margin-left: auto; display: flex; align-items: center; gap: 9px; }
+.ds-tenant-label { font-size: 11px; font-weight: 680; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gray-500); }
+.ds-tenant select {
+  font: inherit; font-size: 13px; padding: 6px 9px; border-radius: 7px;
+  border: 1px solid var(--gray-300); background: #fff; color: var(--gray-700); max-width: 340px;
+}
+.ds-tenant select:focus-visible { outline: 2px solid var(--blue-cta); outline-offset: 1px; }
+/* Synthetic is a fact to state once, not an alarm to repeat. Neutral, not red. */
+.ds-synth {
+  font-size: 10.5px; font-weight: 650; letter-spacing: 0.03em;
+  background: var(--gray-100, #f3f4f6); color: var(--gray-600); border: 1px solid var(--gray-200);
+  padding: 3px 8px; border-radius: 20px; white-space: nowrap;
+}
+.ds-body { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+
+.ds-switch-warn {
+  background: #fffbeb; border-bottom: 1px solid #fde68a; color: #92400e;
+  font-size: 12.5px; padding: 9px 18px; display: flex; gap: 10px; align-items: center;
+}
+.ds-switch-warn button {
+  font: inherit; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 6px;
+  border: 1px solid #fde68a; background: #fff; color: #92400e; cursor: pointer;
+}

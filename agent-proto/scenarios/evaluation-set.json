@@ -1,0 +1,86 @@
+{
+  "$comment": "TEST DATA ONLY. Ten business objectives used to assess campaign-design QUALITY, which no deterministic check can measure (see agent-proto/validate.ts, check 'campaign-quality': 'Not mechanically checkable'). Nothing here is read by production code, and none of the expectations below may become a rule in the agent: they are what a reviewer looks for, not what the application enforces. The 'reasoning' notes describe the kind of thinking a competent strategist would show; a different but well-argued design is a pass.",
+  "setVersion": "0.1.0",
+  "rubric": {
+    "$comment": "Each scenario is scored against these. All six must hold for a pass. A successful HTTP response or well-formed JSON proves none of them.",
+    "objective": "The business outcome and the customer behaviour are read correctly, not just restated.",
+    "causal": "The entry event sits where the behaviour has not happened yet and can still change; the goal sits on the event that proves it did. The entry is not chosen by name-matching the objective.",
+    "grounded": "Every event, attribute, operator and value exists in the platform metadata. No invented capability, template, benchmark or performance number.",
+    "proportionate": "The journey is the simplest that does the job. Every branch, reminder or experiment has a stated reason, and rejected options are named.",
+    "questions": "Only questions that would change the design are asked. No question about message copy or CTA wording. Defaults are stated for the rest.",
+    "messaging": "Each Send carries copy written to the customer, a real CTA, and is never implied to be bank-approved."
+  },
+  "scenarios": [
+    {
+      "id": "S1-auth-txn-to-emi",
+      "title": "Auth transaction to EMI conversion",
+      "objective": "Customers authorised for an EMI-eligible purchase are not converting. Get more of them to convert before the request expires.",
+      "clarification": "Entry comes from a Transaction event, not an EMI Request event. Initiated By = customer_initiated, Transaction Type = authorize, Transaction Status = approved. Product type is Auth and new status is successful. The problem is silent non-conversion.",
+      "reasoning": "The authorisation creates the opportunity; the EMI request is what the customer has not yet raised. Entry belongs on the transaction, the goal on the EMI status reaching its successful value. 'Product type is Auth' matches no value the platform defines and must be raised, not translated into a different attribute.",
+      "watchFor": ["entry chosen on the EMI side because the objective says EMI", "the Product Type mismatch absorbed silently"]
+    },
+    {
+      "id": "S2-card-activation",
+      "title": "New card activation",
+      "objective": "Too many newly issued cards are never activated. Get more customers to activate the card they have just received.",
+      "reasoning": "Issuance creates the opportunity; activation is the behaviour and the proof. Both exist as card events, so entry and goal are different event types in the same category.",
+      "watchFor": ["an audience pull where a real issuance event exists", "a goal that cannot be observed"]
+    },
+    {
+      "id": "S3-first-purchase",
+      "title": "First purchase after activation",
+      "objective": "Customers activate the card and then never use it. Get them to make a first purchase soon after activation.",
+      "reasoning": "Activation is the entry; the first transaction is the goal. The window is a judgement call the agent should state rather than ask about.",
+      "watchFor": ["entry on issuance rather than activation", "asking the user to choose the window"]
+    },
+    {
+      "id": "S4-repeat-usage",
+      "title": "Repeat card usage",
+      "objective": "Customers who used the card once have not come back. Encourage a second and third transaction.",
+      "reasoning": "There is no 'used once' event, so this is an audience question answered with transaction history, not an event entry. The agent should notice the difference.",
+      "watchFor": ["an invented 'first transaction' event", "no acknowledgement that recency must be expressed as a lookback"]
+    },
+    {
+      "id": "S5-abandoned-onboarding",
+      "title": "Abandoned onboarding",
+      "objective": "People start onboarding and drop out before finishing KYC. Bring them back to complete it.",
+      "reasoning": "Journey progress and KYC status are the available handles. Whether a usable 'dropped out' signal exists at all is the first thing to establish; if it does not, say so.",
+      "watchFor": ["asserting a drop-off cause", "inventing an abandonment event"]
+    },
+    {
+      "id": "S6-pending-emi",
+      "title": "Pending EMI requests",
+      "objective": "EMI requests are sitting in a pending state and never completing. Move them to completion.",
+      "reasoning": "Unlike S1 the customer HAS acted, so the EMI request lifecycle is the right entry here. The contrast with S1 is the point: the same subject, a different point in the sequence.",
+      "watchFor": ["treating this identically to S1", "entry on the transaction when the request already exists"]
+    },
+    {
+      "id": "S7-offer-led-spend",
+      "title": "Offer-led card spend",
+      "objective": "We issue offers that customers never use. Drive spend against an offer a customer has been given.",
+      "reasoning": "Offer issuance is the opportunity; a qualifying transaction is the proof. Offer events narrow on one locked attribute, which constrains how the entry can be filtered.",
+      "watchFor": ["filtering an offer event with attributes it does not have"]
+    },
+    {
+      "id": "S8-high-value-retention",
+      "title": "High-value customer retention",
+      "objective": "Our highest-spending customers are going quiet. Keep them active before we lose them.",
+      "reasoning": "'High value' and 'going quiet' have no platform definition. Both are genuine strategic ambiguities, and spend thresholds are not available as attributes. The honest answer names the limitation.",
+      "watchFor": ["inventing a spend tier or an engagement score", "proceeding as if 'high value' were defined"]
+    },
+    {
+      "id": "S9-emi-adoption",
+      "title": "EMI feature adoption",
+      "objective": "Most customers have never used EMI at all. Introduce the feature to people who have never tried it.",
+      "reasoning": "This is awareness, not recovery: there is no triggering moment, so an audience entry is correct. 'Never used EMI' must be expressed with what exists, or flagged as unexpressible.",
+      "watchFor": ["forcing an event entry where no trigger exists"]
+    },
+    {
+      "id": "S10-fatigue",
+      "title": "Campaign fatigue and duplicate messaging",
+      "objective": "Customers are getting too many messages from us and some get the same thing twice. Fix it without losing reach.",
+      "reasoning": "This is not a campaign. The honest answer is that message caps and spacing are issuer configuration and cross-campaign arbitration does not exist here, so a drip campaign cannot solve it.",
+      "watchFor": ["designing a campaign anyway", "claiming the platform can deduplicate across campaigns"]
+    }
+  ]
+}

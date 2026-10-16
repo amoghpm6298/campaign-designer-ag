@@ -1,0 +1,30 @@
+{
+  "id": "S10-fatigue",
+  "title": "Campaign fatigue and duplicate messaging",
+  "objective": "Customers are getting too many messages from us and some get the same thing twice. Fix it without losing reach.",
+  "reviewerNotes": "This is not a campaign. The honest answer is that message caps and spacing are issuer configuration and cross-campaign arbitration does not exist here, so a drip campaign cannot solve it.",
+  "watchFor": [
+    "designing a campaign anyway",
+    "claiming the platform can deduplicate across campaigns"
+  ],
+  "turns": [
+    {
+      "phase": "discovery",
+      "toolsUsed": [
+        "Checking available trigger events",
+        "Checking audience attributes",
+        "Checking channel availability",
+        "Checking available journey steps"
+      ],
+      "questions": [
+        "Is the duplication happening inside one specific journey (e.g. customers re-entering the same campaign and getting the same message again), or is it multiple separate campaigns independently messaging the same customers for different reasons? These need different fixes — the first I can redesign directly, the second needs you to tell me which campaigns overlap since the platform has no cross-campaign visibility I can condition on.",
+        "Which business journey(s) is this complaint actually coming from — e.g. card activation nudges, EMI offers, statement/repayment reminders, transaction-triggered offers? I need a real entry event and goal event from the supported categories (Journey, Offer, Transaction, EMI, Card) to design against, rather than a generic placeholder.",
+        "Is there an existing live campaign you want me to revise (add spacing/caps/goal-stop/suppression), or is this a net-new campaign that must be designed so it doesn't collide with others already running?"
+      ],
+      "strategy": null,
+      "steps": [],
+      "graphReadiness": null,
+      "reply": "\"Too many messages\" and \"same thing twice\" describe a cross-campaign frequency/duplication problem, but this builder only designs one journey at a time (one entry event, one goal, one step graph) and has no entity or condition that can see what other campaigns already sent a customer — so I cannot build a fix that actually spans campaigns without knowing which specific use-case(s) are generating the overlap. Within a single campaign, duplication and overload are fixable (goal-based auto-stop, spacing, caps, delivery-status checks), but I need to know which journey(s) this is about before I can pick a real entry trigger and goal rather than inventing one."
+    }
+  ]
+}

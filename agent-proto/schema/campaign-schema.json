@@ -1,0 +1,902 @@
+{
+  "schemaArtefactVersion": "1.1.0",
+  "generatedAt": "2026-10-12T12:50:16.247Z",
+  "contentHash": "b2f698e4af658a92",
+  "source": {
+    "note": "Generated from the application source. Do not edit by hand — regenerate with `npm run agent:schema` after changing node definitions, default configs or shared vocabulary.",
+    "modules": [
+      "src/data/nodeMeta.ts",
+      "src/data/typeSub.ts",
+      "src/reducer/defaultConfig.ts (dcDefaultConfig)",
+      "src/data/sharedConstants.ts",
+      "src/data/graphTypes.ts (DripCampaign fields, DripCampaignStatus)"
+    ],
+    "validatorsNotSerialised": [
+      "dcAddFormValid (src/reducer/defaultConfig.ts) — per-node required-field rules",
+      "dcGraphHasOpenBranches (src/reducer/graphOps.ts) — submit gate",
+      "dcConfirmAddNode (src/reducer/campaignReducer.ts) — wiring/auto-child rules"
+    ]
+  },
+  "campaignFields": {
+    "fields": [
+      {
+        "name": "id",
+        "optional": false
+      },
+      {
+        "name": "name",
+        "optional": false
+      },
+      {
+        "name": "description",
+        "optional": true
+      },
+      {
+        "name": "issuer",
+        "optional": false
+      },
+      {
+        "name": "applyToAllPrograms",
+        "optional": true
+      },
+      {
+        "name": "programs",
+        "optional": false
+      },
+      {
+        "name": "goal",
+        "optional": false
+      },
+      {
+        "name": "controlPct",
+        "optional": false
+      },
+      {
+        "name": "status",
+        "optional": false
+      },
+      {
+        "name": "root",
+        "optional": false
+      },
+      {
+        "name": "startDate",
+        "optional": true
+      },
+      {
+        "name": "endDate",
+        "optional": true
+      },
+      {
+        "name": "versionOf",
+        "optional": true
+      },
+      {
+        "name": "allowReEntry",
+        "optional": true
+      },
+      {
+        "name": "reEntryCooloffDuration",
+        "optional": true
+      },
+      {
+        "name": "reEntryCooloffUnit",
+        "optional": true
+      },
+      {
+        "name": "guardrails",
+        "optional": true
+      }
+    ],
+    "statuses": [
+      "DRAFT",
+      "PENDING_REVIEW",
+      "ACTIVE",
+      "SCHEDULED",
+      "PAUSED",
+      "KILLED",
+      "CHANGES_REQUESTED"
+    ]
+  },
+  "nodeTypes": {
+    "ENTRY_SEGMENT": {
+      "category": "entry",
+      "label": "Entry · Audience",
+      "size": "standard",
+      "subLabel": "Cohort snapshot — once or on a repeating schedule",
+      "addableFromPicker": false,
+      "usableAsEntry": true,
+      "routesOneWay": false,
+      "canFanOut": true,
+      "terminal": false,
+      "defaultConfig": {
+        "cohortDesc": "All eligible customers",
+        "entity": "Customer",
+        "conditions": [],
+        "repeat": false,
+        "recurrenceType": "Monthly",
+        "dayOfMonth": "1",
+        "weekInterval": "1",
+        "dayOfWeek": "Monday",
+        "dayInterval": "1",
+        "timeOfDay": "09:00",
+        "lookbackDuration": 90,
+        "lookbackUnit": "days",
+        "existence": "exists",
+        "extraEntityGroups": []
+      }
+    },
+    "ENTRY_EVENT": {
+      "category": "entry",
+      "label": "Entry · Event",
+      "size": "standard",
+      "subLabel": "Start when an event occurs",
+      "addableFromPicker": false,
+      "usableAsEntry": true,
+      "routesOneWay": false,
+      "canFanOut": true,
+      "terminal": false,
+      "defaultConfig": {
+        "eventCategory": "Journey Events",
+        "eventType": "",
+        "conditions": [],
+        "journey": "",
+        "batch": "",
+        "offerType": "",
+        "offerName": ""
+      }
+    },
+    "SEND": {
+      "category": "send",
+      "label": "Send",
+      "size": "standard",
+      "subLabel": "Send a message through a selected channel",
+      "addableFromPicker": true,
+      "usableAsEntry": false,
+      "routesOneWay": false,
+      "canFanOut": true,
+      "terminal": false,
+      "defaultConfig": {
+        "name": "Send Message",
+        "channel": "WHATSAPP",
+        "account": "",
+        "templateId": "",
+        "timing": "Absolute",
+        "absTime": "11:00",
+        "relativeAnchor": "Previous Step",
+        "relativeDuration": 1,
+        "relativeUnit": "days",
+        "fallbackChannel": "",
+        "fallbackAccount": "",
+        "fallbackTemplateId": ""
+      }
+    },
+    "PAUSE": {
+      "category": "flow",
+      "label": "Wait",
+      "size": "compact",
+      "subLabel": "Wait for a fixed duration",
+      "addableFromPicker": true,
+      "usableAsEntry": false,
+      "routesOneWay": false,
+      "canFanOut": true,
+      "terminal": false,
+      "defaultConfig": {
+        "duration": 2,
+        "unit": "days"
+      }
+    },
+    "WAIT_UNTIL": {
+      "category": "flow",
+      "label": "Wait for Event",
+      "size": "standard",
+      "subLabel": "Wait until an event occurs",
+      "addableFromPicker": true,
+      "usableAsEntry": false,
+      "routesOneWay": true,
+      "canFanOut": false,
+      "terminal": false,
+      "defaultConfig": {
+        "eventCategory": "Journey Events",
+        "eventType": "",
+        "duration": 7,
+        "unit": "days",
+        "conditions": [],
+        "journey": "",
+        "batch": "",
+        "offerType": "",
+        "offerName": ""
+      }
+    },
+    "SPLIT": {
+      "category": "split",
+      "label": "Condition",
+      "size": "standard",
+      "subLabel": "Splits into Yes or No, based on conditions you set",
+      "addableFromPicker": true,
+      "usableAsEntry": false,
+      "routesOneWay": true,
+      "canFanOut": false,
+      "terminal": false,
+      "defaultConfig": {
+        "customSource": "Previous step outcome",
+        "outcome": "",
+        "outcomes": [],
+        "customConditions": [],
+        "txnHistory": {
+          "filters": [],
+          "lookbackDuration": 90,
+          "lookbackUnit": "days",
+          "existence": "exists"
+        }
+      }
+    },
+    "DECISION_SPLIT": {
+      "category": "split",
+      "label": "Branch",
+      "size": "standard",
+      "subLabel": "Splits into multiple paths, one per attribute value",
+      "addableFromPicker": true,
+      "usableAsEntry": false,
+      "routesOneWay": true,
+      "canFanOut": false,
+      "terminal": false,
+      "defaultConfig": {
+        "name": "Decision",
+        "source": "Account attribute",
+        "attribute": "",
+        "outcome": "",
+        "branches": [
+          {
+            "id": "<generated>",
+            "label": "Branch 1",
+            "operator": "Equals",
+            "value": "",
+            "value2": ""
+          },
+          {
+            "id": "<generated>",
+            "label": "Branch 2",
+            "operator": "Equals",
+            "value": "",
+            "value2": ""
+          }
+        ]
+      }
+    },
+    "RANDOM_SPLIT": {
+      "category": "experiment",
+      "label": "Experiment",
+      "size": "standard",
+      "subLabel": "Split traffic between variants",
+      "addableFromPicker": true,
+      "usableAsEntry": false,
+      "routesOneWay": true,
+      "canFanOut": false,
+      "terminal": false,
+      "defaultConfig": {
+        "name": "Channel test",
+        "branches": [
+          {
+            "id": "<generated>",
+            "label": "A",
+            "pct": 50
+          },
+          {
+            "id": "<generated>",
+            "label": "B",
+            "pct": 50
+          }
+        ]
+      }
+    },
+    "GOAL_CHECK": {
+      "category": "goalcheck",
+      "label": "Goal Check",
+      "size": "compact",
+      "subLabel": "Has the campaign goal been achieved? (system-generated, not addable)",
+      "addableFromPicker": true,
+      "usableAsEntry": false,
+      "routesOneWay": true,
+      "canFanOut": false,
+      "terminal": false,
+      "defaultConfig": null
+    },
+    "GOAL_EXIT": {
+      "category": "goal",
+      "label": "Goal Reached",
+      "size": "compact",
+      "subLabel": "Mark the goal as achieved",
+      "addableFromPicker": true,
+      "usableAsEntry": false,
+      "routesOneWay": false,
+      "canFanOut": false,
+      "terminal": true,
+      "defaultConfig": {
+        "reason": "Goal achieved"
+      }
+    },
+    "EXIT": {
+      "category": "exit",
+      "label": "Exit",
+      "size": "compact",
+      "subLabel": "End the journey",
+      "addableFromPicker": true,
+      "usableAsEntry": false,
+      "routesOneWay": false,
+      "canFanOut": false,
+      "terminal": true,
+      "defaultConfig": {
+        "reason": "Sequence exhausted"
+      }
+    }
+  },
+  "pickerCategories": [
+    {
+      "label": "Actions",
+      "types": [
+        "SEND"
+      ]
+    },
+    {
+      "label": "Wait",
+      "types": [
+        "PAUSE",
+        "WAIT_UNTIL"
+      ]
+    },
+    {
+      "label": "Decisions",
+      "types": [
+        "SPLIT",
+        "DECISION_SPLIT",
+        "GOAL_CHECK"
+      ]
+    },
+    {
+      "label": "Experiment",
+      "types": [
+        "RANDOM_SPLIT"
+      ]
+    },
+    {
+      "label": "End the Journey",
+      "types": [
+        "EXIT",
+        "GOAL_EXIT"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "channels": {
+      "SMS": "SMS",
+      "EMAIL": "E-mail",
+      "RCS": "RCS",
+      "WHATSAPP": "WhatsApp"
+    },
+    "commsTemplates": [
+      {
+        "id": "CT-3301",
+        "name": "EMI Conversion SMS",
+        "channelType": "SMS",
+        "accountName": "IBL-Karix-Txns",
+        "partnerName": "IndusInd Bank (IBL)"
+      },
+      {
+        "id": "CT-3288",
+        "name": "Festive Offer Email",
+        "channelType": "EMAIL",
+        "accountName": "IBL-Karix-Mktg",
+        "partnerName": "IndusInd Bank (IBL)"
+      },
+      {
+        "id": "CT-3270",
+        "name": "Activation Reminder WhatsApp",
+        "channelType": "WHATSAPP",
+        "accountName": "YES-Gupshup-Onb",
+        "partnerName": "Yes Bank"
+      },
+      {
+        "id": "CT-3255",
+        "name": "OS-to-EMI RCS Push",
+        "channelType": "RCS",
+        "accountName": "IBL-Karix-Txns",
+        "partnerName": "IndusInd Bank (IBL)"
+      },
+      {
+        "id": "CT-3310",
+        "name": "Auth-to-EMI Consent WhatsApp",
+        "channelType": "WHATSAPP",
+        "accountName": "IBL-Karix-Txns",
+        "partnerName": "IndusInd Bank (IBL)"
+      },
+      {
+        "id": "CT-3311",
+        "name": "Auth-to-EMI Reminder WhatsApp",
+        "channelType": "WHATSAPP",
+        "accountName": "IBL-Karix-Txns",
+        "partnerName": "IndusInd Bank (IBL)"
+      },
+      {
+        "id": "CT-3312",
+        "name": "EMI Outcome Notification WhatsApp",
+        "channelType": "WHATSAPP",
+        "accountName": "IBL-Karix-Txns",
+        "partnerName": "IndusInd Bank (IBL)"
+      },
+      {
+        "id": "CT-3313",
+        "name": "Card Activation WhatsApp",
+        "channelType": "WHATSAPP",
+        "accountName": "IBL-Karix-Onb",
+        "partnerName": "IndusInd Bank (IBL)"
+      },
+      {
+        "id": "CT-3314",
+        "name": "PIN Setup Reminder WhatsApp",
+        "channelType": "WHATSAPP",
+        "accountName": "IBL-Karix-Onb",
+        "partnerName": "IndusInd Bank (IBL)"
+      }
+    ],
+    "programsByIssuer": {
+      "IndusInd Bank (IBL)": [
+        "Platinum Aura",
+        "Signature Rewards"
+      ],
+      "Yes Bank": [
+        "Prosperity Card"
+      ]
+    },
+    "eventCategories": {
+      "Journey Events": {
+        "events": [
+          "Journey Progress",
+          "Pageload",
+          "Button Click"
+        ]
+      },
+      "Offer Events": {
+        "events": [
+          "Outcome Issuance"
+        ]
+      },
+      "Transaction Events": {
+        "events": [
+          "Transaction"
+        ],
+        "isNew": true
+      },
+      "EMI Events": {
+        "events": [
+          "EMI_STATUS_CHANGED"
+        ],
+        "isNew": true
+      },
+      "Card Events": {
+        "events": [
+          "Card Issued",
+          "Card Activated",
+          "Card Loaded",
+          "Card Inactive"
+        ],
+        "isNew": true
+      }
+    },
+    "eventEntityByCategory": {
+      "Transaction Events": "Transaction",
+      "EMI Events": "EMI Request"
+    },
+    "promotedAttrByEntity": {
+      "EMI Request": "New Status"
+    },
+    "lockedAttrByEventType": {
+      "Journey Progress": "Status",
+      "Pageload": "Page Name",
+      "Button Click": "Button Name",
+      "Outcome Issuance": "Outcome Status"
+    },
+    "lockedAttrOperators": [
+      "Equals",
+      "Not Equals",
+      "Greater than",
+      "Less than",
+      "Is"
+    ],
+    "eligibilityAttributes": {
+      "Customer": {
+        "Date of Birth": {
+          "type": "date"
+        },
+        "KYC Status": {
+          "type": "select",
+          "options": [
+            "Small KYC",
+            "FKYC"
+          ]
+        },
+        "FKYC Method": {
+          "type": "select",
+          "options": [
+            "CKYC",
+            "VKYC"
+          ]
+        },
+        "FKYC Status": {
+          "type": "select",
+          "options": [
+            "Not Initiated",
+            "Pending",
+            "Rejected",
+            "Completed"
+          ]
+        },
+        "Created On": {
+          "type": "date"
+        },
+        "Last Updated On": {
+          "type": "date"
+        }
+      },
+      "Account": {
+        "Status": {
+          "type": "select",
+          "options": [
+            "Active",
+            "Charge off",
+            "Pending closure",
+            "Closed",
+            "Dormant",
+            "Suspended",
+            "Forced suspended"
+          ]
+        },
+        "Smart Tag": {
+          "type": "smartTag"
+        },
+        "Statement Due Date": {
+          "type": "date"
+        },
+        "Created On": {
+          "type": "date"
+        },
+        "Last Updated On": {
+          "type": "date"
+        },
+        "Account Block Codes": {
+          "type": "list"
+        }
+      },
+      "Card": {
+        "Status": {
+          "type": "select",
+          "options": [
+            "Active",
+            "Inactive"
+          ]
+        },
+        "Smart Tag": {
+          "type": "smartTag"
+        },
+        "Card Expiry": {
+          "type": "date"
+        },
+        "Card Type": {
+          "type": "select",
+          "options": [
+            "Physical",
+            "Virtual",
+            "Virtual Upgrade To Physical",
+            "Phygital"
+          ]
+        },
+        "Physically Issued": {
+          "type": "bool"
+        },
+        "Virtually Issued": {
+          "type": "bool"
+        },
+        "Physical Card Activated": {
+          "type": "bool"
+        },
+        "Virtual Card Activated": {
+          "type": "bool"
+        },
+        "Is Ever Activated": {
+          "type": "bool"
+        },
+        "Locked": {
+          "type": "bool"
+        },
+        "Blocked": {
+          "type": "bool"
+        },
+        "Created On": {
+          "type": "date"
+        },
+        "Last Updated On": {
+          "type": "date"
+        },
+        "Card Block Codes": {
+          "type": "list"
+        }
+      },
+      "Transaction": {
+        "Transaction Type": {
+          "type": "multiSelect",
+          "options": [
+            "ADD_FUND",
+            "ADD_FUND_REVERSAL",
+            "REVERSAL",
+            "SWEEP_IN",
+            "SWEEP_OUT",
+            "AUTHORIZATION_REVERSAL",
+            "AUTHORIZE",
+            "CASHBACK",
+            "CASHBACK_REVERSAL",
+            "CHARGEBACK",
+            "CHARGEBACK_REVERSAL",
+            "EMI_PRINCIPAL",
+            "EMI_INTEREST",
+            "EMI_FORECLOSURE_DEBIT",
+            "FEE",
+            "FEE_REVERSAL",
+            "INTEREST",
+            "INTEREST_REVERSAL",
+            "REFUND",
+            "REFUND_REVERSAL",
+            "REMITTANCE",
+            "REMITTANCE_REVERSAL",
+            "REPAYMENT",
+            "REPAYMENT_REVERSAL",
+            "SETTLEMENT_CREDIT",
+            "SETTLEMENT_CREDIT_CASH",
+            "SETTLEMENT_DEBIT",
+            "SETTLEMENT_DEBIT_CASH",
+            "EFT_WITHDRAWAL",
+            "EFT_WITHDRAWAL_REVERSAL",
+            "SURCHARGE",
+            "SURCHARGE_REVERSAL",
+            "TAX",
+            "TAX_REVERSAL"
+          ]
+        },
+        "Transaction Status": {
+          "type": "multiSelect",
+          "options": [
+            "APPROVED",
+            "SETTLED",
+            "PARTIALLY_SETTLED",
+            "EXPIRED",
+            "CANCELED"
+          ]
+        },
+        "EMI Eligible": {
+          "type": "bool"
+        },
+        "Transaction Amount": {
+          "type": "number"
+        },
+        "MCC": {
+          "type": "list"
+        },
+        "Initiated By": {
+          "type": "select",
+          "options": [
+            "CUSTOMER_INITIATED",
+            "SYSTEM_GENERATED"
+          ]
+        }
+      },
+      "EMI Request": {
+        "New Status": {
+          "type": "select",
+          "options": [
+            "Pending",
+            "Successful",
+            "Failed",
+            "Expired",
+            "Cancelled"
+          ]
+        },
+        "Product Type": {
+          "type": "select",
+          "options": [
+            "Single-Txn",
+            "Multi-Txn",
+            "Outstanding"
+          ]
+        },
+        "Source": {
+          "type": "select",
+          "options": [
+            "PWA",
+            "Txn-to-EMI",
+            "Multi-Txn-to-EMI",
+            "OS-to-EMI",
+            "Onboarding",
+            "Card Activation"
+          ]
+        }
+      }
+    },
+    "milestoneBenefits": [
+      {
+        "id": "MS-1001",
+        "name": "Spend ₹25,000 in first 30 days"
+      },
+      {
+        "id": "MS-1002",
+        "name": "Spend ₹75,000 in first 90 days"
+      },
+      {
+        "id": "MS-1003",
+        "name": "Spend ₹1,50,000 in first 180 days"
+      },
+      {
+        "id": "MS-1004",
+        "name": "Spend ₹3,00,000 in first 365 days"
+      }
+    ],
+    "milestoneOperators": [
+      {
+        "value": "GT",
+        "label": "Greater than"
+      },
+      {
+        "value": "GTE",
+        "label": "Greater than or equal to"
+      },
+      {
+        "value": "LT",
+        "label": "Less than"
+      },
+      {
+        "value": "LTE",
+        "label": "Less than or equal to"
+      },
+      {
+        "value": "BETWEEN",
+        "label": "Between"
+      },
+      {
+        "value": "GTE_PCT",
+        "label": "Greater than or equal to percentage"
+      },
+      {
+        "value": "LTE_PCT",
+        "label": "Less than or equal to percentage"
+      },
+      {
+        "value": "IS",
+        "label": "Is"
+      }
+    ],
+    "deliveryStatuses": {
+      "common": [
+        "SENT_TO_SERVICE_PROVIDER",
+        "FAILED",
+        "UN_CATEGORISED",
+        "FAILED_ON_UPLOAD",
+        "FAILED_TO_CONNECT",
+        "FAILED_SYSTEM_ISSUES"
+      ],
+      "byChannel": {
+        "SMS": [
+          "SENT",
+          "DELIVERED",
+          "UNKNOWN",
+          "FAILED_DND",
+          "FAILED_BLACKLIST",
+          "FAILED_CALL_BARRED",
+          "FAILED_EXPIRED",
+          "FAILED_INBOX_FULL",
+          "FAILED_SUBSCRIBER_ABSENT",
+          "FAILED_SUBSCRIBER_UNKNOWN",
+          "FAILED_TEMPLATE_MISMATCH",
+          "FAILED_URL_MISMATCH",
+          "FAILED_DLT_FAILURE",
+          "FAILED_SYSTEM_ISSUES",
+          "FAILED_PENDING",
+          "FAILED_OTHER"
+        ],
+        "EMAIL": [
+          "SENT",
+          "DELIVERED",
+          "PENDING",
+          "QUEUED",
+          "OPENED",
+          "CLICKED",
+          "HARD_BOUNCE",
+          "SOFT_BOUNCE",
+          "SPAM",
+          "SUPPRESSED",
+          "NOT_SENT",
+          "NOT_DELIVERED",
+          "FAILED"
+        ],
+        "WHATSAPP": [
+          "QUEUED",
+          "SENT",
+          "DELIVERED",
+          "READ",
+          "DELETED",
+          "FAILED",
+          "UNKNOWN"
+        ],
+        "RCS": [
+          "SENT",
+          "DELIVERED",
+          "READ",
+          "CLICKED",
+          "REJECTED",
+          "NOT_SENT",
+          "NOT_DELIVERED",
+          "DND",
+          "FAILED",
+          "FAILED_EXPIRED",
+          "FAILED_TO_CONNECT",
+          "FAILED_TEMPLATE_MISMATCH",
+          "FAILED_SYSTEM_ISSUES",
+          "FAILED_OTHER"
+        ]
+      }
+    },
+    "journeys": [
+      "Txn-to-EMI",
+      "Multi-Txn-to-EMI",
+      "OS-to-EMI",
+      "Onboarding",
+      "Card Activation"
+    ],
+    "batches": [
+      "Aug Festive Batch",
+      "Sep Reactivation Batch",
+      "Q3 Consolidation Batch"
+    ],
+    "offerTypes": [
+      "CVP",
+      "Campaign Offers",
+      "3rd Party Offers",
+      "Merchant Offers",
+      "Bank Offers",
+      "Activation Offers"
+    ],
+    "transactionSubtypes": [
+      "ADD_FUND",
+      "ADD_FUND_REVERSAL",
+      "REVERSAL",
+      "SWEEP_IN",
+      "SWEEP_OUT",
+      "AUTHORIZATION_REVERSAL",
+      "AUTHORIZE",
+      "CASHBACK",
+      "CASHBACK_REVERSAL",
+      "CHARGEBACK",
+      "CHARGEBACK_REVERSAL",
+      "EMI_PRINCIPAL",
+      "EMI_INTEREST",
+      "EMI_FORECLOSURE_DEBIT",
+      "FEE",
+      "FEE_REVERSAL",
+      "INTEREST",
+      "INTEREST_REVERSAL",
+      "REFUND",
+      "REFUND_REVERSAL",
+      "REMITTANCE",
+      "REMITTANCE_REVERSAL",
+      "REPAYMENT",
+      "REPAYMENT_REVERSAL",
+      "SETTLEMENT_CREDIT",
+      "SETTLEMENT_CREDIT_CASH",
+      "SETTLEMENT_DEBIT",
+      "SETTLEMENT_DEBIT_CASH",
+      "EFT_WITHDRAWAL",
+      "EFT_WITHDRAWAL_REVERSAL",
+      "SURCHARGE",
+      "SURCHARGE_REVERSAL",
+      "TAX",
+      "TAX_REVERSAL"
+    ]
+  }
+}

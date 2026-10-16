@@ -1,0 +1,49 @@
+{
+  "$comment": "One test scenario. The 'simulatedAnswers' block is what a user would reply — pre-written so the whole conversation runs with no human present. Deliberately includes two unknowns, because 'the user doesn't have that information' is the realistic case and the agent must handle it without stalling.",
+  "scenarioId": "auth-txn-to-emi-consent",
+  "scenarioVersion": "0.1.0",
+  "bankContextId": "MERIDIAN",
+  "goalStatement": "When a customer makes a large purchase that is eligible for EMI, get them to convert that transaction to EMI before the request expires.",
+  "simulatedAnswers": {
+    "which_programs": {
+      "question": "Which programs should this campaign target?",
+      "answer": "Meridian Platinum only.",
+      "resolved": true
+    },
+    "entry_trigger": {
+      "question": "Should customers enter on the authorisation event, or on a scheduled audience pull?",
+      "answer": "On the authorisation event — we want to reach them while the purchase is fresh.",
+      "resolved": true
+    },
+    "goal_event": {
+      "question": "What exactly counts as success?",
+      "answer": "The EMI request ends up Successful.",
+      "resolved": true
+    },
+    "reminder_appetite": {
+      "question": "How many reminders are acceptable before we stop?",
+      "answer": "I don't know — whatever is within our messaging policy.",
+      "resolved": false,
+      "note": "Deliberately unanswered. Agent must fall back to the bank's hard constraint and say so."
+    },
+    "channel_preference": {
+      "question": "Any channel preference for the first message?",
+      "answer": "Not sure, you pick.",
+      "resolved": false,
+      "note": "Deliberately unanswered. Agent must state its choice as an assumption, not as an optimisation claim."
+    }
+  },
+  "expectations": {
+    "$comment": "What a reviewer should check. These are NOT assertions the harness enforces as pass/fail quality gates — campaign quality is assessed separately from schema validity.",
+    "shouldUse": [
+      "Entry · Event on Transaction Events (purchase authorisation)",
+      "A defined Goal on EMI Events so Goal Checks are auto-inserted",
+      "A Wait for Event with a 7-day timeout, per P-003",
+      "No more messages than the bank's hard cap allows, per the INVENTED constraint"
+    ],
+    "shouldNotClaim": [
+      "That the campaign will increase conversions by any amount",
+      "That the chosen channel order is optimal"
+    ]
+  }
+}

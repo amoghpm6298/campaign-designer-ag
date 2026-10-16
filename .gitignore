@@ -28,3 +28,18 @@ dist-ssr
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Secrets — never commit
+.env
+.env.local
+
+# Standalone designer build output
+dist-designer
+
+# Generated run transcripts from eval/showOne.ts. Regenerable, ~47MB and
+# growing, so they stay out of history. Baselines ARE tracked: they are the
+# reference the counterfactuals compare against.
+eval/runs/
+
+# Stray local screenshots.
+shot-*.png

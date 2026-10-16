@@ -12,10 +12,20 @@ export default defineConfig({
     channel: 'chrome',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chrome' } }],
-  webServer: {
-    command: 'npx vite --port 5183',
-    url: 'http://localhost:5183/drip-campaigns/',
-    reuseExistingServer: true,
-    timeout: 30000,
-  },
+  // Two servers: the mock app, and the standalone Campaign Designer on its
+  // own port with its own config. They are separate applications.
+  webServer: [
+    {
+      command: 'npx vite --port 5183',
+      url: 'http://localhost:5183/drip-campaigns/',
+      reuseExistingServer: true,
+      timeout: 30000,
+    },
+    {
+      command: 'npx vite --config vite.designer.config.ts --port 5174',
+      url: 'http://localhost:5174/designer.html',
+      reuseExistingServer: true,
+      timeout: 30000,
+    },
+  ],
 });
