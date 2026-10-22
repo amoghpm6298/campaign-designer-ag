@@ -163,7 +163,7 @@ describe('a proposal cannot quietly drop an unanswered question', () => {
   it('refuses a strategy that says nothing about one', () => {
     expect(gateSrc2).toMatch(/code: 'awaiting-reply'/);
     // One decider now; the four vetoes ORed with it are deleted.
-    expect(src).toMatch(/if \(!decision\.proceed\) \{/);
+    expect(src).toMatch(/if \(!decision\.proceed && !approvedPlan\) \{/);
   });
 
   it('is satisfied only by a reason naming that specific question', () => {

@@ -521,8 +521,29 @@ export const OUTPUT_TOOL_NAMES = OUTPUT_TOOLS.map((t) => t.name);
  * brittle source-text assertions and were in fact guarding the standing
  * decision that the strategy comes first and the platform second.
  */
+/**
+ * A build turn builds. It does not propose again.
+ *
+ * `propose_strategy` used to travel on a Confirm turn, and its own
+ * description says "Do not call build_campaign in the same turn: the manager
+ * approves the plan first." So the one turn that exists to build carried a
+ * tool telling the model not to build — alongside a prompt line asking for a
+ * JSON blob and a `tool_choice: none` that forbade every call. Measured
+ * live: the agent replied that its role stops at proposing and the tool was
+ * not available to it. It was reading what we sent.
+ *
+ * The plan is already approved by then. Offering to propose it again is not
+ * a capability, it is an invitation to go round once more.
+ *
+ * The record tools stay: a build turn still discovers things worth writing
+ * down — a barrier the journey turned out to need, a question the build
+ * raised — and losing those would quietly empty the record on the last turn
+ * of the conversation.
+ */
 export const outputToolsForPhase = (isBuildTurn: boolean) =>
-  isBuildTurn ? OUTPUT_TOOLS : OUTPUT_TOOLS.filter((t) => t.name !== 'build_campaign');
+  isBuildTurn
+    ? OUTPUT_TOOLS.filter((t) => t.name !== 'propose_strategy')
+    : OUTPUT_TOOLS.filter((t) => t.name !== 'build_campaign');
 
 // So the activity timeline shows "Recording what you told me about customers"
 // rather than "Running record_findings".
@@ -582,6 +603,36 @@ export interface ApplyResult {
  * normalises an assumption to `deferred`. Those rules were each measured into
  * place and are not re-litigated here.
  */
+/**
+ * A list, whatever the model actually sent.
+ *
+ * `?? []` ONLY REPLACES null AND undefined, which is the hole that crashed a
+ * live OS-to-EMI turn: the model sent `barriers` as a STRING, `barriers ?? []`
+ * kept the string, `.length` worked, and `.some(...)` did not exist. The
+ * TypeError escaped as the assistant's message. Same class as the Confirm
+ * crash an hour earlier — a type annotation read as a guarantee about data
+ * arriving from outside the program.
+ *
+ * `record_dimensions` three cases below already used `Array.isArray`. This
+ * one did not, and the difference was invisible until a model chose the other
+ * shape.
+ *
+ * ONE OBJECT BECOMES A LIST OF ONE. That is a near-miss worth accepting: the
+ * model found a single barrier and sent it, rather than a list containing it.
+ *
+ * ANYTHING ELSE BECOMES EMPTY — never iterated. A string would otherwise
+ * yield one "barrier" per character, which is worse than the crash: it would
+ * have been recorded.
+ */
+const asList = <T>(value: unknown): T[] => {
+  if (Array.isArray(value)) return value as T[];
+  if (value && typeof value === 'object') return [value as T];
+  return [];
+};
+
+/** Was something sent at all, as opposed to omitted? */
+const wasSent = (value: unknown): boolean => value !== undefined && value !== null;
+
 export function applyOutputTool(brief: WorkingBrief, name: string, input: unknown): ApplyResult {
   const obj = (input ?? {}) as Record<string, unknown>;
 
@@ -617,9 +668,42 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
     case 'record_findings': {
       let next = brief;
       const notes: string[] = [];
-      const converters = obj.converters as Converters | undefined;
-      const barriers = obj.barriers as Barrier[] | undefined;
-      if (!converters && !(barriers ?? []).length) {
+      // COERCED, NOT CAST. Every list here goes through `asList`, and
+      // `converters` has to be an object before anything reads `.shape` off
+      // it — a string there throws just as readily as the one in `barriers`
+      // did.
+      const rawConverters = obj.converters;
+      const converters =
+        rawConverters && typeof rawConverters === 'object' && !Array.isArray(rawConverters)
+          ? ({
+              ...(rawConverters as Converters),
+              // The same hole one level down: `recordConverters` does
+              // `(c.candidates ?? []).filter(...)`.
+              candidates: asList<NonNullable<Converters['candidates']>[number]>(
+                (rawConverters as Converters).candidates,
+              ),
+            } as Converters)
+          : undefined;
+      const barriers = asList<Barrier>(obj.barriers);
+
+      // A WRONG SHAPE IS A TOOL ERROR, NOT A CRASH, and it is reported
+      // separately from "you sent nothing" so the model can tell the two
+      // apart and fix the right thing.
+      if (wasSent(obj.barriers) && !barriers.length && !Array.isArray(obj.barriers)) {
+        return {
+          brief,
+          error:
+            '"barriers" must be a list of objects, each with an "id", a "statement", a "basis" and a "lever". Send it again as a list — a bare string cannot be recorded as a barrier.',
+        };
+      }
+      if (wasSent(obj.converters) && !converters) {
+        return {
+          brief,
+          error:
+            '"converters" must be an object with "shape", "basis" and "knowledge". Send it again in that form.',
+        };
+      }
+      if (!converters && !barriers.length) {
         return {
           brief,
           error:
@@ -630,14 +714,14 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
         next = recordConverters(next, converters);
         notes.push('who converts');
       }
-      if ((barriers ?? []).length) {
+      if (barriers.length) {
         const before = (next.barriers ?? []).length;
         next = recordBarriers(next, barriers);
         const after = (next.barriers ?? []);
         notes.push(`${after.length - before} barrier(s)`);
         // Attribution is verified, not trusted, and the model is told when a
         // quote did not check out. Silently downgrading taught it nothing.
-        const downgraded = after.filter((b) => b.basis === 'assumption' && (barriers ?? []).some((x) => x.id === b.id && x.basis !== 'assumption'));
+        const downgraded = after.filter((b) => b.basis === 'assumption' && barriers.some((x) => x.id === b.id && x.basis !== 'assumption'));
         if (downgraded.length) {
           notes.push(
             `${downgraded.length} recorded as your own inference rather than theirs, because the quote did not match what they typed — design against it, but say it is untested`,
@@ -655,13 +739,15 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       }
       let next = recordDimensions(brief, usable);
       const notes = [`${usable.length} line(s) of enquiry`];
-      const checked = obj.contextChecked as { source: string; found: boolean }[] | undefined;
-      if (checked?.length) {
+      // Same hole as `barriers`: a string here has `.length` and is then
+      // iterated by `recordContextChecked`.
+      const checked = asList<{ source: string; found: boolean }>(obj.contextChecked);
+      if (checked.length) {
         next = recordContextChecked(next, checked);
         notes.push(`${checked.length} source(s) consulted`);
       }
-      const resolutions = obj.questionResolutions as QuestionResolution[] | undefined;
-      if (resolutions?.length) {
+      const resolutions = asList<QuestionResolution>(obj.questionResolutions);
+      if (resolutions.length) {
         next = recordQuestionResolutions(next, resolutions);
         notes.push(`${resolutions.length} question decision(s)`);
       }
@@ -693,7 +779,8 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       // the experiment-arms check: the application cannot judge whether two
       // barriers are meaningfully different, but it can insist they are not
       // the same string.
-      const arch = strategy.architectures ?? [];
+      // `.map` below, so a string reaches it the same way `.some` did.
+      const arch = asList<NonNullable<Strategy['architectures']>[number]>(strategy.architectures);
       if (arch.length < 2) {
         return {
           brief,

@@ -207,16 +207,28 @@ export const mustTestBarriers = (bs: Barrier[] | undefined): boolean => {
 };
 
 /**
- * Barriers the manager raised that the agent may not quietly ignore.
+ * Barriers THE MANAGER RAISED that the agent may not quietly ignore.
  *
- * Same list as `designableBarriers` minus the ones it has judged
- * unaddressable. A barrier the agent marked `not-addressable` has been
- * answered — with "a drip campaign cannot fix this", which is a legitimate
- * answer and one the agent previously had no way to give. A barrier it simply
- * did not act on has not.
+ * Two exclusions, and they are different kinds of thing.
+ *
+ * `not-addressable` has been ANSWERED — with "a drip campaign cannot fix
+ * this", which is a legitimate answer and one the agent previously had no way
+ * to give. A barrier it simply did not act on has not.
+ *
+ * `assumption` was never the manager's, and that is the fix for a live
+ * failure. Confirm refused with "You told me: Customers may notice individual
+ * eligible-purchase pings but tune out…" — a rival theory the AGENT had
+ * named, quoted back to the manager as their own words, blocking a build they
+ * had approved. An invented barrier is a hypothesis worth testing; it is not
+ * a promise anyone made.
+ *
+ * This does NOT weaken the design rules around assumptions. `isDesignable`
+ * still admits them, so a campaign may be built on one, and `mustTestBarriers`
+ * still requires the journey to TEST them when they are all it has. What
+ * changes is only that the application stops attributing them to the manager.
  */
 export const mustBeAddressed = (bs: Barrier[] | undefined): Barrier[] =>
-  designableBarriers(bs).filter((b) => b.lever !== 'not-addressable');
+  designableBarriers(bs).filter((b) => b.lever !== 'not-addressable' && b.basis !== 'assumption');
 
 /**
  * Has the agent established who converts today?
@@ -230,18 +242,51 @@ export const mustBeAddressed = (bs: Barrier[] | undefined): Barrier[] =>
 export const convertersSettled = (c: Converters | null | undefined): boolean => {
   if (!c) return false;
 
-  // The manager described them. Their own account of their own book.
-  if (c.knowledge === 'known') {
-    return c.basis === 'user' && c.shape.trim().length > 0;
-  }
+  // THE MANAGER DESCRIBED THEM, and `knowledge` does not get a veto over that.
+  //
+  // Measured on the activation run, 2026-10-22, turn 3. They had said: treat
+  // every newly issued card that has not transacted as one group, one track,
+  // do not split. The record held it faithfully — shape exactly that, basis
+  // `user` — and wrote `knowledge: 'none-yet'`, which is also a fair reading:
+  // nobody can point at a sub-group that activates faster. Both statements are
+  // true at once. The gate then took the second one, fell through to the
+  // candidate path with zero candidates, refused the proposal, and told them
+  // "I do not yet know who does this today, so I cannot say who the campaign
+  // should go after" — about an audience they had just defined in one
+  // sentence, and then asked again who converts.
+  //
+  // `knowledge` answers "can anyone say who converts faster today". The
+  // AUDIENCE question is "who is this campaign for", and a user-stated shape
+  // answers it whichever way the first one went. Keying on `knowledge` made
+  // the answer depend on which of two true things the model wrote down.
+  //
+  // The protection the old ordering was reaching for is unchanged:
+  // `mustLearnAudience` is still true whenever `knowledge !== 'known'`, so a
+  // campaign that cannot say who converts still has finding out as part of its
+  // job. It is now carried as a limitation rather than a refusal, which is the
+  // right place for it — see the audience-coverage entry in server/CLAUDE.md.
+  if (c.basis === 'user' && c.shape.trim().length > 0) return true;
 
-  // Nobody knows, which is where the work actually is.
+  // Nobody knows AND they did not describe the audience either, which is where
+  // the work actually is.
   //
   // THE DEFECT THIS FIXES. The first version returned true here on the
   // strength of `basis: 'user'` and any non-empty text, so "they have no data
   // on this" closed the question and the agent went straight to a design with
   // no view at all on who it was for. "We cannot know" is a fact about the
   // data, not an answer about the audience.
+  //
+  // THE RESIDUAL, STATED RATHER THAN HIDDEN. The user-shape clause above does
+  // accept `basis: 'user'` plus any non-empty text, so a shape that merely
+  // reports the absence — "nobody can say who converts" and nothing else —
+  // settles this finding with no candidates. That is the old hole, narrowed:
+  // it now needs the model to record a non-answer as the shape, rather than
+  // merely to pick the wrong one of two true `knowledge` values. Code cannot
+  // tell "every newly issued card, one track" from "nobody can say" without
+  // reading the prose, and judging their words to RAISE a block is the one
+  // thing `record.ts` forbids. So this is caught on the design instead:
+  // `mustLearnAudience` holds, and a journey that learns nothing about who
+  // converts is reported as a limitation on the campaign.
   //
   // So two things are required instead, both checkable:
   //  - at least TWO candidate segments, each with the agent's reasoning. One

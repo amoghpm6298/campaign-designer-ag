@@ -10,7 +10,7 @@
 // A tool result the model cannot act on produces the same loop as a refusal
 // the user cannot act on, one level down.
 import { describe, it, expect } from 'vitest';
-import { newBrief, briefDimensions, type WorkingBrief } from '../../server/discovery';
+import { newBrief, briefDimensions, recordAnswer, type WorkingBrief } from '../../server/discovery';
 import { recordReply, recordAsked, outstanding } from '../../server/record';
 import { OUTPUT_TOOLS, OUTPUT_TOOL_NAMES, isOutputTool, applyOutputTool, outputToolsForPhase } from '../../server/outputTools';
 import { blocksFor } from '../../server/gate';
@@ -303,5 +303,145 @@ describe('building is separate from proposing', () => {
   it('names each missing piece specifically', () => {
     expect(applyOutputTool(started(), 'build_campaign', { ...journey, campaignName: '' }).error).toMatch(/"campaignName"/);
     expect(applyOutputTool(started(), 'build_campaign', { ...journey, entry: undefined }).error).toMatch(/"entry"/);
+  });
+});
+
+// The tool boundary has to survive a shape the schema did not get.
+//
+// THE LIVE FAILURE. An OS-to-EMI turn died with "(barriers ?? []).some is not
+// a function" after the manager mapped click to page-open/button-click. The
+// model sent `barriers` as a STRING. `?? []` only replaces null and
+// undefined, so the string survived: `.length` worked, `.some` did not, and
+// the TypeError escaped as the assistant's message. No canvas.
+//
+// Second time in one day. The Confirm crash was `describe.replace` on a field
+// the schema does not require; this is `.some` on a field whose schema says
+// array. A declared type is a statement about what callers should pass. Data
+// arriving from a model is not a caller.
+//
+// `record_dimensions`, three cases below in the same function, already used
+// `Array.isArray`. The difference was invisible until a model chose the other
+// shape.
+describe('record_findings survives a wrong shape', () => {
+  const brief = () => newBrief('Convert outstanding balances to EMI.');
+  const barrier = {
+    id: 'cost-perception',
+    statement: 'Customers believe converting to EMI is expensive.',
+    basis: 'user-belief' as const,
+    lever: 'message' as const,
+    quote: 'they think the interest is too expensive',
+  };
+
+  it('does not throw when barriers is a string', () => {
+    const out = applyOutputTool(brief(), 'record_findings', { barriers: 'unknown-stall-point' });
+    expect(out.error).toBeTruthy();
+    expect(out.error).toMatch(/must be a list of objects/);
+    expect(out.brief.barriers ?? []).toHaveLength(0);
+  });
+
+  it('never iterates a string into one barrier per character', () => {
+    // The outcome worse than the crash: it would have been RECORDED.
+    const out = applyOutputTool(brief(), 'record_findings', { barriers: 'cost' });
+    const ids = (out.brief.barriers ?? []).map((b) => b.id);
+    expect(ids).not.toContain('c');
+    expect(out.brief.barriers ?? []).toHaveLength(0);
+  });
+
+  it('accepts a single object where a list was meant', () => {
+    // A near-miss worth accepting: the model found one barrier and sent it,
+    // rather than a list containing it.
+    const answered = recordAnswer(brief(), 'they think the interest is too expensive');
+    const out = applyOutputTool(answered, 'record_findings', { barriers: barrier });
+    expect(out.error).toBeUndefined();
+    expect(out.brief.barriers ?? []).toHaveLength(1);
+    expect((out.brief.barriers ?? [])[0].id).toBe('cost-perception');
+  });
+
+  it('is unchanged for the shape the schema asks for', () => {
+    const answered = recordAnswer(brief(), 'they think the interest is too expensive');
+    const out = applyOutputTool(answered, 'record_findings', { barriers: [barrier] });
+    expect(out.error).toBeUndefined();
+    expect(out.brief.barriers ?? []).toHaveLength(1);
+  });
+
+  it('does not throw when converters is a string', () => {
+    // `recordConverters` reads `.shape.trim()`, so this is the same hole one
+    // field over.
+    const out = applyOutputTool(brief(), 'record_findings', { converters: 'big spenders' });
+    expect(out.error).toMatch(/must be an object/);
+    expect(out.brief.converters ?? null).toBeNull();
+  });
+
+  it('does not throw when converters.candidates is a string', () => {
+    // And the same hole one level DOWN: `(c.candidates ?? []).filter(...)`.
+    const out = applyOutputTool(brief(), 'record_findings', {
+      converters: { shape: 'nobody knows yet', basis: 'user', knowledge: 'none-yet', candidates: 'high spenders' },
+    });
+    expect(out.error).toBeUndefined();
+    expect(out.brief.converters?.candidates ?? []).toHaveLength(0);
+  });
+
+  it('still reports an empty call as empty, not as malformed', () => {
+    // The two are different problems and the model can only fix the right
+    // one if it is told which.
+    const out = applyOutputTool(brief(), 'record_findings', {});
+    expect(out.error).toMatch(/recorded nothing/);
+  });
+
+  it('keeps the brief untouched on every malformed call', () => {
+    // The turn continues. A tool error is a sentence the model can act on;
+    // a throw is the end of the conversation.
+    const before = recordAnswer(brief(), 'they think the interest is too expensive');
+    for (const input of [{ barriers: 'x' }, { converters: 'y' }, {}]) {
+      const out = applyOutputTool(before, 'record_findings', input);
+      expect(out.brief).toBe(before);
+    }
+  });
+});
+
+// The hole was in four places, not one.
+//
+// `barriers` crashed live. `contextChecked`, `questionResolutions` and
+// `architectures` had the identical `?? []`-on-model-data shape in the same
+// function, each one line from a `.map` or an iteration. `record_dimensions`
+// and `ask_questions` already used `Array.isArray` — so the function had both
+// habits side by side, and which one a field got was down to who wrote it.
+//
+// Beyond the brief for the barriers fix, deliberately: the stated goal is
+// that the tool BOUNDARY survives a wrong shape, and a boundary with three
+// known holes left in it does not.
+describe('every list at the tool boundary is coerced, not cast', () => {
+  const brief = () => newBrief('Convert outstanding balances to EMI.');
+
+  it('does not throw when contextChecked is a string', () => {
+    const out = applyOutputTool(brief(), 'record_dimensions', {
+      dimensions: [{ name: 'Balance size', rationale: 'r', status: 'open', basis: 'none' }],
+      contextChecked: 'the knowledge base',
+    });
+    expect(out.error).toBeUndefined();
+    expect(out.ok).toBeTruthy();
+  });
+
+  it('does not throw when questionResolutions is a single object', () => {
+    const out = applyOutputTool(brief(), 'record_dimensions', {
+      dimensions: [{ name: 'Balance size', rationale: 'r', status: 'open', basis: 'none' }],
+      questionResolutions: { questionId: 'q1-0', kind: 'deferred', why: 'A default applies.' },
+    });
+    expect(out.error).toBeUndefined();
+  });
+
+  it('does not throw when architectures is a string', () => {
+    // `.map` over a string would throw exactly as `.some` did.
+    const out = applyOutputTool(brief(), 'propose_strategy', {
+      summary: 'A plan.',
+      approach: [],
+      assumptions: [],
+      unknowns: [],
+      touches: [{ day: 0 }, { day: 3 }],
+      architectures: 'double down versus expand',
+    });
+    // Refused for having fewer than two candidates — which is the right
+    // refusal, and a refusal rather than a crash is the point.
+    expect(out.error).toMatch(/two candidate architectures/);
   });
 });

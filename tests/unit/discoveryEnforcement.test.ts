@@ -278,20 +278,20 @@ describe('the orchestrator honours the outcome instead of falling through', () =
     // WITHOUT this branch the change is inert: outcomes are if-chains with
     // early returns, and an unhandled one falls straight through to the
     // strategy the gate had just refused.
-    const i = src.indexOf("if (!decision.proceed) {");
+    const i = src.indexOf("if (!decision.proceed && !approvedPlan) {");
     expect(i).toBeGreaterThan(-1);
     // The belief override shares this branch deliberately: a refusal for an
     // untreated user belief must return exactly what a gate refusal returns,
     // or it would leak a strategy the application just declined to accept.
     // One decider now; the four vetoes ORed with it are deleted.
-    expect(src).toMatch(/if \(!decision\.proceed\) \{/);
+    expect(src).toMatch(/if \(!decision\.proceed && !approvedPlan\) \{/);
     // It must come BEFORE the proposal is read and built.
     expect(i).toBeLessThan(src.indexOf('// Discovery is complete. If the model only asked questions'));
   });
 
   it('returns no strategy, no blueprint and nothing to confirm', () => {
     const branch = src.slice(
-      src.indexOf('if (!decision.proceed) {'),
+      src.indexOf('if (!decision.proceed && !approvedPlan) {'),
       src.indexOf('// Discovery is complete. If the model only asked questions'),
     );
     expect(branch).toMatch(/strategy: null/);

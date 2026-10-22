@@ -328,7 +328,11 @@ describe('the propose turn puts the schematic in the left pane only', () => {
   });
 
   it('holds the template-id panel back until something is built', () => {
-    expect(designer).toMatch(/last\?\.sendProposals\.length && phase !== 'awaiting-confirmation'/);
+    // `sendProposals?.length` since 2026-10-22: the chain stopped at `last`,
+    // so a stored response without the field took the whole designer down.
+    // The condition under test — held back until something is built — is
+    // unchanged.
+    expect(designer).toMatch(/last\?\.sendProposals\?\.length && phase !== 'awaiting-confirmation'/);
   });
 
   it('keeps the schematic up while the journey is being built', () => {

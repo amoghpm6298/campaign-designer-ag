@@ -173,7 +173,7 @@ describe('the orchestrator enforces the three outcomes', () => {
   it('routes an unanswered fork away from the strategy path', () => {
     expect(recordSource).toMatch(/export const REOPEN_LIMIT = 1;/);
     expect(recordSource).toMatch(/if \(\(q\.reopened \?\? 0\) >= REOPEN_LIMIT\) return q;/);
-    expect(src).toMatch(/if \(!decision\.proceed\) \{/);
+    expect(src).toMatch(/if \(!decision\.proceed && !approvedPlan\) \{/);
   });
 
   it('no longer lets any assumption discharge every question', () => {
@@ -199,7 +199,7 @@ describe('the orchestrator enforces the three outcomes', () => {
 
   it('returns no strategy through the fork branch', () => {
     const branch = src.slice(
-      src.indexOf('if (!decision.proceed) {'),
+      src.indexOf('if (!decision.proceed && !approvedPlan) {'),
       src.indexOf('// Discovery is complete. If the model only asked questions'),
     );
     expect(branch).toMatch(/strategy: null/);

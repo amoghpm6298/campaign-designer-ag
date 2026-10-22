@@ -37,10 +37,12 @@ import { orchestrateStream, renderBuildSummary, renderStrategy } from '../../ser
 import { seedKnowledgeBase } from '../../server/knowledge';
 import { canTransition } from '../../server/campaignState';
 import { cadenceBlocks } from '../../server/gate';
+import { outputToolsForPhase } from '../../server/outputTools';
+import { saysBuildNow } from '../../server/record';
 import { longestSendPath } from '../../server/journeySummary';
-import { newBrief, recordDimensions, recordSuccessCriteria } from '../../server/discovery';
+import { newBrief, recordConverters, recordDimensions, recordSuccessCriteria } from '../../server/discovery';
 import { decide } from '../../server/gate';
-import { discovered } from './support/findings';
+import { discovered, WHY_THEY_DO_NOT } from './support/findings';
 
 const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
 const stream = readFileSync(new URL('../../src/designer/stream.ts', import.meta.url), 'utf8');
@@ -119,6 +121,58 @@ const UNFINISHED = [
   { kind: 'condition', label: 'Did they read it?', yes: [{ ...send, name: 'Follow-up' }], no: [{ kind: 'exit', reason: 'Done.' }] },
 ];
 
+/**
+ * The turn that produced the live failure: a lookup, a record, and prose.
+ *
+ * This is what a Confirm looked like when it went wrong — the model checked
+ * the attribute catalogue, wrote findings down, said "The journey is built"
+ * and never called `build_campaign`. Both tool calls matter:
+ *
+ *  - the LOOKUP is why the empty-round recovery could not fire. It was gated
+ *    on `!toolUses.length`, and build turns are allowed to look things up.
+ *  - the RECORD is why the turn was not treated as a failure either:
+ *    `recordedViaTools` makes prose a success, which is the shape we ask for.
+ *
+ * The barrier id matches the fixture's, because `recordBarriers` replaces the
+ * list and a send citing a barrier that is no longer recorded is refused by
+ * `checkBarrierCoverage` before any of this is reached.
+ */
+const lookupAndRecordTurn = () =>
+  sse([
+    {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'l1', name: 'list_audience_attributes', input: {} },
+    },
+    { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{}' } },
+    { type: 'content_block_stop', index: 0 },
+    {
+      type: 'content_block_start',
+      index: 1,
+      content_block: { type: 'tool_use', id: 'r1', name: 'record_findings', input: {} },
+    },
+    {
+      type: 'content_block_delta',
+      index: 1,
+      delta: {
+        type: 'input_json_delta',
+        partial_json: JSON.stringify({
+          barriers: [
+            {
+              id: 'cost-perception',
+              statement: 'Customers believe converting to EMI is expensive.',
+              basis: 'user-belief',
+              lever: 'message',
+              quote: WHY_THEY_DO_NOT,
+            },
+          ],
+        }),
+      },
+    },
+    { type: 'content_block_stop', index: 1 },
+    { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 120 } },
+  ]);
+
 const proseTurn = (text: string) =>
   sse([
     { type: 'content_block_start', index: 0, content_block: { type: 'text', text } },
@@ -156,14 +210,14 @@ const settled = () => {
 };
 
 /** A Confirm exactly as the client sends one: no `confirmedBlueprint`. */
-async function confirm(steps: unknown[] = COMPLETE) {
+async function confirm(steps: unknown[] = COMPLETE, withBrief?: unknown) {
   script([buildTurn(steps), proseTurn('Built.')]);
   const gen = orchestrateStream({
     sessionId: 'confirm-crash',
     tenantId: 'TEN-IBL',
     knowledge,
     discoveryRounds: 3,
-    brief: settled(),
+    brief: withBrief ?? settled(),
     intent: 'confirm',
     // THE WHOLE POINT. The client has nothing to send here, because a propose
     // turn carries no blueprint. Supplying one takes the short-circuit and
@@ -579,5 +633,349 @@ describe('Confirm compares path density, not totals', () => {
     const nodes = { root: { type: 'ENTRY_SEGMENT' }, s: { type: 'SEND' }, g: { type: 'GOAL_EXIT' } };
     const edges = [{ from: 'root', to: 's' }, { from: 's', to: 'g' }];
     expect(longestSendPath({ rootId: 'root', nodes, edges })).toBe(1);
+  });
+});
+
+// "I cannot build this. My role stops at proposing."
+//
+// THE LIVE FAILURE, after the compiler crash was fixed. The manager pressed
+// Confirm and the agent replied that it could not build, that its role
+// stopped at proposing, and that the tool was not available to it. No
+// canvas. The compiler never ran.
+//
+// It was reading exactly what we sent. On that one turn it received, all at
+// once:
+//
+//   - `tool_choice: 'none'` — a rule written to stop catalogue re-fetches,
+//     which also forbade `build_campaign`;
+//   - `propose_strategy`, whose own description says "Do not call
+//     build_campaign in the same turn";
+//   - a prompt line asking it to "Return ONLY {action:'propose', blueprint}"
+//     as text rather than call the tool;
+//   - a SYSTEM prompt saying deterministic code builds the graph.
+//
+// Four instructions, three of them saying do not build. The honest reading
+// of that is the reply it gave.
+describe('a Confirm turn can actually build', () => {
+  const orchSrc = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+
+  it('never forbids every tool on a build turn', () => {
+    // The withdrawal is about LOOKUPS. A build turn keeps its one tool.
+    expect(orchSrc).toMatch(/const withdrawLookups = stopLookingUp && !isBuildTurn;/);
+    expect(orchSrc).toMatch(/toolChoice: withdrawLookups\s*\?\s*\{ type: 'none' \}/);
+  });
+
+  it('forces the build once there is nothing left to look up', () => {
+    // A turn whose entire purpose is to build has nothing else to decide.
+    expect(orchSrc).toMatch(/\{ type: 'tool', name: 'build_campaign' \}/);
+  });
+
+  it('keeps lookups available until they are exhausted, then drops only them', () => {
+    // The output tools always travel. Sending a history of tool_use and
+    // tool_result blocks with NO tools attached made the model answer with
+    // an empty turn and killed three evaluation scenarios — that is the
+    // failure this must not reintroduce.
+    expect(orchSrc).toMatch(/\.\.\.\(stopLookingUp \? \[\] : toolsForPhase\(designSeen \|\| isBuildTurn\)\)/);
+    expect(orchSrc).toMatch(/\.\.\.outputToolsForPhase\(isBuildTurn\),/);
+  });
+
+  it('does not offer to propose the plan the manager already approved', () => {
+    const confirmTools = outputToolsForPhase(true).map((t) => t.name);
+    expect(confirmTools).not.toContain('propose_strategy');
+    expect(confirmTools).toContain('build_campaign');
+    // The record tools stay: a build turn still finds things worth writing
+    // down, and losing them would empty the record on the last turn.
+    expect(confirmTools).toContain('record_findings');
+    // And a propose turn is unchanged.
+    expect(outputToolsForPhase(false)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'propose_strategy' })]),
+    );
+    expect(outputToolsForPhase(false).map((t) => t.name)).not.toContain('build_campaign');
+  });
+
+  it('asks for the tool, not for a blueprint pasted into the message', () => {
+    expect(orchSrc).toMatch(/CALL build_campaign NOW/);
+    expect(orchSrc).toMatch(/never tell them the build is unavailable to you/);
+    expect(orchSrc).not.toMatch(/Return ONLY \{"action":"propose","strategy"/);
+  });
+
+  it('recovers a build turn by building, not by explaining', () => {
+    // MOVED out of the empty-round recovery, 2026-10-22. That recovery was
+    // gated on `!toolUses.length`, so a Confirm that looked anything up — which
+    // build turns are allowed to do — could never reach it.
+    expect(orchSrc).toMatch(/if \(isBuildTurn && !toolBlueprint\) \{/);
+    expect(orchSrc).toMatch(/Your previous turn did not build the campaign/);
+    expect(orchSrc).toMatch(/toolChoice: \{ type: 'tool', name: 'build_campaign' \},/);
+  });
+
+  it('APPLIES what the forced build returns, which the old one did not', () => {
+    // THE DEFECT THIS PINS. The previous forced build read `chunk.text` and
+    // `chunk.done` and then broke out of the loop. `chunk.toolUse` was never
+    // collected, so the `build_campaign` call it had just forced was discarded
+    // unread and `toolBlueprint` stayed null. It forced a build and threw the
+    // result away, which is indistinguishable from never having asked.
+    //
+    // Three things have to be true together, so the block cannot half-work:
+    // collect the tool use, run it through the one boundary that turns model
+    // output into application state, and keep the blueprint.
+    const block = orchSrc.slice(
+      orchSrc.indexOf('if (isBuildTurn && !toolBlueprint) {'),
+      orchSrc.indexOf('// A PLAN THE MANAGER ACTUALLY APPROVED'),
+    );
+    expect(block).toMatch(/if \(chunk\.toolUse\) forced\.push\(chunk\.toolUse\);/);
+    expect(block).toMatch(/applyOutputTool\(brief, tu\.name, tu\.input\)/);
+    expect(block).toMatch(/if \(applied\.blueprint\) toolBlueprint = applied\.blueprint;/);
+  });
+
+  it('never dresses a failed build as a success', () => {
+    // An approved plan with no journey is an error return, not the discovery
+    // pane and not a graph. The live symptom was the opposite: the model's
+    // "The journey is built…" printed beside the brief, with no graph in the
+    // response at all.
+    const block = orchSrc.slice(
+      orchSrc.indexOf('// AN APPROVED PLAN THAT PRODUCED NO JOURNEY IS A FAILURE'),
+      orchSrc.indexOf('// THE RECORD MOVED, SO THE TURN WORKED.'),
+    );
+    expect(block).toMatch(/phase: 'error'/);
+    expect(block).toMatch(/graph: null/);
+    expect(block).toMatch(/The journey could not be built from the approved plan/);
+    expect(block).not.toMatch(/phase: 'discovery'/);
+  });
+
+  it('does not let the gate throw away an approved build', () => {
+    // The second half of the same failure. The forced build gets a journey;
+    // `if (!decision.proceed)` sat in front of the build tail and could still
+    // discard it — and did, on a live Confirm, over `belief-untested`.
+    expect(orchSrc).toMatch(/if \(!decision\.proceed && !approvedPlan\) \{/);
+    // Narrow by construction: a typed "Confirmed. Build this campaign." during
+    // discovery has no approved plan behind it and is still held.
+    expect(orchSrc).toMatch(/\(req\.intent \?\? 'converse'\) === 'confirm' \|\| isRefinement \|\| session\.state === 'AWAITING_STRATEGY_CONFIRMATION'/);
+    // NOT `req.confirmedStrategy`. The client reads `next.pendingStrategy` off
+    // the response, no response has ever carried that field, so what it posts
+    // back is always empty. Keying the branch on it would have made it a no-op
+    // in the app while passing any test that supplied the field by hand.
+    expect(orchSrc).not.toMatch(/approvedPlan = isBuildTurn && \(!!req\.confirmedStrategy/);
+    // And the cost is carried, not dropped: a skipped refusal that said
+    // nothing would lose the gap on the one turn that produces a campaign.
+    expect(orchSrc).toMatch(/if \(!decision\.proceed && approvedPlan\) \{/);
+    expect(orchSrc).toMatch(/designWarnings: \[\.\.\.\(strategy\.designWarnings \?\? \[\]\), \.\.\.carried\]/);
+  });
+
+  it('treats the typed sentence exactly like the button', async () => {
+    // The button posts `intent: 'confirm'` AND the words. Someone who types
+    // the words — reasonably, since they are on screen in their own
+    // transcript — sent no intent, and the turn quietly became a
+    // conversation about a plan they had just approved.
+    expect(saysBuildNow('Confirmed. Build this campaign.')).toBe(true);
+    expect(saysBuildNow('  confirmed. build this campaign.  ')).toBe(true);
+    // NOT a loose match. `saysProceed` is deliberately generous because a
+    // false positive there costs a stated assumption; starting a BUILD on a
+    // loose match is a different risk entirely.
+    expect(saysBuildNow('do not build it yet')).toBe(false);
+    expect(saysBuildNow('go ahead')).toBe(false);
+    expect(orchSrc).toMatch(/isRefinement \|\| saysBuildNow\(latestUserText\)/);
+  });
+
+  it('builds on the typed sentence with no intent set', async () => {
+    script([buildTurn(COMPLETE), proseTurn('Built.')]);
+    const gen = orchestrateStream({
+      sessionId: 'typed-confirm',
+      tenantId: 'TEN-IBL',
+      knowledge,
+      discoveryRounds: 3,
+      brief: settled(),
+      // No `intent` at all — this is the composer, not the button.
+      confirmedBlueprint: null,
+      session: { state: 'AWAITING_STRATEGY_CONFIRMATION', strategyVersion: 1, confirmation: null },
+      messages: [
+        { role: 'user', content: 'Get new cardholders activated.' },
+        { role: 'assistant', content: 'Here is the plan.' },
+        { role: 'user', content: 'Confirmed. Build this campaign.' },
+      ],
+    } as never);
+    let out = await gen.next();
+    while (!out.done) out = await gen.next();
+    const res = out.value as unknown as Record<string, unknown>;
+    expect(res.graph, 'the typed sentence must reach the compiler').toBeTruthy();
+    expect((res.session as { state: string }).state).toBe('EXPORT_ELIGIBLE');
+  });
+});
+
+// One track, because they said one track.
+//
+// THE LIVE FAILURE. On an EMI campaign the manager said every eligible
+// purchase, one track, do not split. Confirm refused:
+//
+//   "Nobody could say which customers convert today, so this campaign has to
+//    find out… Separate the candidate segments"
+//
+// and asked "Which groups should this campaign treat differently, so we can
+// see who actually converts?" — the exact question discovery was rewritten
+// never to ask, arriving at the moment the manager has least power to refuse
+// it.
+//
+// `mustLearnAudience` is true whenever converters are not `known`, and
+// `checkAudienceLearning` then refused any flat journey. A design rule that
+// overrules an explicit instruction is not a rule; it is the application
+// designing the campaign. It also contradicts the segmentation principle
+// outright — a dimension changes the PATH, and they had said there is no
+// dimension.
+//
+// The cost is real and is still reported. It is a limitation now, not a veto.
+describe('an unknown audience is a limitation, not a refusal', () => {
+  const unknownConverters = () => {
+    let b = settled();
+    b = recordConverters(b, {
+      shape: 'Nobody can say which customers convert today.',
+      basis: 'user',
+      knowledge: 'unknown',
+      candidates: [
+        { segment: 'Large-ticket buyers', restsOn: 'purchase size', why: 'A bigger balance costs more to carry.' },
+        { segment: 'Helpline callers', restsOn: 'called the helpline', why: 'They already asked about repayment.' },
+      ],
+    });
+    return b;
+  };
+
+  it('builds the one-track journey they asked for', async () => {
+    const res = await confirm(COMPLETE, unknownConverters());
+    expect(res.graph, 'a flat journey must still reach the canvas').toBeTruthy();
+    expect(res.phase).not.toBe('discovery');
+  });
+
+  it('never asks which groups to treat differently', async () => {
+    // The question itself is the defect. Discovery does not ask the manager
+    // to pick a targeting group out of guesses, and Confirm must not either.
+    const res = await confirm(COMPLETE, unknownConverters());
+    const asked = ((res.questions ?? []) as string[]).join(' ');
+    expect(asked).not.toMatch(/treat differently/i);
+    expect(String(res.reply)).not.toMatch(/Separate the candidate segments/i);
+  });
+
+  it('still says what the flat journey costs', async () => {
+    // Downgrading the guard must not delete the finding: a campaign that
+    // cannot tell its audiences apart returns one undifferentiated number.
+    const res = await confirm(COMPLETE, unknownConverters());
+    const brief = res.brief as { verdicts?: { warnings?: string[] }[] };
+    const onBrief = (brief.verdicts ?? []).flatMap((v) => v.warnings ?? []).join(' ');
+    expect(onBrief, 'recorded on the brief').toMatch(/convert/i);
+    // And SHOWN. A cost recorded where nobody reads it has been dropped.
+    const shown = ((res.strategy as { designWarnings?: string[] })?.designWarnings ?? []).join(' ');
+    expect(shown, 'printed under "What this design cannot do"').toMatch(/convert/i);
+  });
+
+  it('the source no longer returns discovery for an audience gap', () => {
+    const orchSrc = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+    expect(orchSrc).not.toMatch(/Which groups should this campaign treat differently/);
+    expect(orchSrc).toMatch(/A FLAT JOURNEY IS A COST, NOT A REFUSAL/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2026-10-22 — the Confirm that looked things up, wrote prose, and built
+// nothing.
+//
+// THE LIVE FAILURE, and it is a different one from the crash above. The model
+// replied "The journey is built…" and the left pane stayed on "What I have so
+// far". No graph in the response. The activity panel showed lookups.
+// Underneath the sentence, gate text: "That settled one of the things I was
+// waiting on", plus a `belief-untested` block about a PIN/app dimension the
+// manager had explicitly rejected.
+//
+// The canvas draws `res.graph` and there was none, because the compiler never
+// ran. A real build says "It is on the canvas now" from `renderBuildSummary`;
+// the agent's own prose is not evidence that a campaign exists.
+// ---------------------------------------------------------------------------
+
+/** A Confirm with a scripted sequence of model turns. */
+async function confirmScripted(bodies: string[], brief?: unknown) {
+  script(bodies);
+  const gen = orchestrateStream({
+    sessionId: 'confirm-prose',
+    tenantId: 'TEN-IBL',
+    knowledge,
+    discoveryRounds: 3,
+    brief: brief ?? settled(),
+    intent: 'confirm',
+    confirmedBlueprint: null,
+    session: { state: 'AWAITING_STRATEGY_CONFIRMATION', strategyVersion: 1, confirmation: null },
+    messages: [
+      { role: 'user', content: 'Get new cardholders activated.' },
+      { role: 'assistant', content: 'Here is the plan.' },
+      { role: 'user', content: 'Confirmed. Build this campaign.' },
+    ],
+  } as never);
+  let out = await gen.next();
+  while (!out.done) out = await gen.next();
+  return out.value as unknown as Record<string, unknown>;
+}
+
+/** The exact prose that was accepted as a built campaign. Deliberately not
+ *  containing any wording `renderBuildSummary` produces, so a test cannot
+ *  pass by finding the model's sentence and calling it the summary. */
+const FALSE_SUCCESS = 'The journey is built and running from today.';
+
+describe('a Confirm that looks things up and forgets to build still builds', () => {
+  it('ends with a graph, not with the brief pane', async () => {
+    const res = await confirmScripted([
+      lookupAndRecordTurn(),
+      proseTurn(FALSE_SUCCESS),
+      buildTurn(COMPLETE),
+      proseTurn('Built.'),
+    ]);
+    expect(res.graph, 'the journey has to reach the canvas').toBeTruthy();
+    expect(res.phase).not.toBe('discovery');
+    expect(res.stage).not.toBe('discovery');
+    expect(res.campaign).toBeTruthy();
+  });
+
+  it('does not pass the model prose off as the build', async () => {
+    const res = await confirmScripted([
+      lookupAndRecordTurn(),
+      proseTurn(FALSE_SUCCESS),
+      buildTurn(COMPLETE),
+      proseTurn('Built.'),
+    ]);
+    // The reply is the application's own account of what it built. The
+    // model's claim is not it.
+    expect(String(res.reply ?? '')).not.toBe(FALSE_SUCCESS);
+    expect(String(res.reply ?? '')).toMatch(/canvas/i);
+  });
+
+  it('reports a failure, not a success, when no journey comes back at all', async () => {
+    // The forced build is asked for and the model still does not call the
+    // tool. There is nothing to compile, so the honest answer is the one the
+    // compiler's own failure gives — never a graph and never the brief pane.
+    const res = await confirmScripted([
+      lookupAndRecordTurn(),
+      proseTurn(FALSE_SUCCESS),
+      proseTurn('I cannot do that.'),
+      proseTurn('I cannot do that.'),
+    ]);
+    expect(res.phase).toBe('error');
+    expect(res.graph ?? null).toBeNull();
+    expect(String(res.reply ?? '')).toMatch(/could not be built from the approved plan/);
+    expect(res.brief, 'the record survives a failure').toBeTruthy();
+  });
+
+  it('builds through a block the gate would have refused, and says what it cost', async () => {
+    // The second half of the live failure. `success-unsettled` stands in for
+    // `belief-untested`: both are blocks that were raised on the propose turn,
+    // and refusing on the Confirm leaves the manager with an approval that
+    // did nothing and nothing they can do about it.
+    const held = discovered(newBrief('Get new cardholders activated.'));
+    expect(decide(held).proceed, 'fixture must actually be held').toBe(false);
+    const res = await confirmScripted(
+      [lookupAndRecordTurn(), proseTurn(FALSE_SUCCESS), buildTurn(COMPLETE), proseTurn('Built.')],
+      held,
+    );
+    expect(res.graph, 'an approved build is not thrown away by the gate').toBeTruthy();
+    expect(res.phase).not.toBe('discovery');
+    // And the cost is on the record rather than silently dropped.
+    const verdicts = (res.brief as { verdicts?: { warnings: string[] }[] }).verdicts ?? [];
+    const said = verdicts.flatMap((v) => v.warnings).join(' ');
+    const reasons = decide(held).blocks.map((b) => b.reason);
+    expect(reasons.length).toBeGreaterThan(0);
+    expect(said, 'every block the gate stopped refusing must be stated').toContain(reasons[0]);
   });
 });

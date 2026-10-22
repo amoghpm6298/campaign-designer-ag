@@ -6,6 +6,7 @@
 import { fmtDay, fmtTime, fmtStamp } from './time';
 import { useMemo, useState } from 'react';
 import { clearRunLogs, deleteSession, listSessions } from './storage';
+import { DripCanvas } from '../canvas/DripCanvas';
 import { detailsText, friendlyEvent } from './status';
 import type { RunLog } from './types';
 import './designer.css';
@@ -181,7 +182,16 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
    * actually do" — and a tab each lets you hold one while checking the
    * other.
    */
-  const [tab, setTab] = useState<'resume' | 'logs'>('resume');
+  const [tab, setTab] = useState<'resume' | 'logs' | 'journey'>('resume');
+  /**
+   * Which TURN's log you are reading.
+   *
+   * The Logs tab rendered `current` — the newest turn — and nothing else, so
+   * a five-turn conversation had four turns of events that no screen could
+   * reach. The Conversation tab has always listed every turn; this is the
+   * same record on the other side of the same chat. Null means the newest.
+   */
+  const [turnSel, setTurnSel] = useState<string | null>(null);
   /** Chats that exist in storage, so one that never logged a run still lists. */
   const [stored, setStored] = useState(() => listSessions());
 
@@ -203,6 +213,10 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
     for (const s of stored) if (!by.has(s.sessionId)) by.set(s.sessionId, []);
     const resumable = new Set(stored.filter((s) => s.messages?.length).map((s) => s.sessionId));
     const titles = new Map(stored.map((s) => [s.sessionId, s.messages?.[0]?.content ?? '']));
+    // THE CONVERSATION'S OWN MESSAGES, carried so the transcript does not
+    // depend on the logs surviving. They are two different stores with two
+    // different lifetimes, and the chat is the one worth keeping.
+    const said = new Map(stored.map((s) => [s.sessionId, s.messages ?? []]));
     const times = new Map(stored.map((s) => [s.sessionId, s.updatedAt ?? '']));
     return [...by.entries()]
       .map(([sessionId, turns]) => ({
@@ -212,6 +226,7 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
         canResume: resumable.has(sessionId),
         title: turns[0]?.title || titles.get(sessionId) || 'Untitled campaign',
         at: turns[turns.length - 1]?.startedAt || times.get(sessionId) || '',
+        messages: said.get(sessionId) ?? [],
       }))
       .sort((a, b) => b.at.localeCompare(a.at));
   }, [logs, stored]);
@@ -220,9 +235,34 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
   // the page always opened mid-conversation in something you had not asked
   // for; with a table the list IS the landing state.
   const session = sel ? sessions.find((g) => g.sessionId === sel) ?? null : null;
-  const current = session?.turns[session.turns.length - 1] ?? null;
+  const newest = session?.turns[session.turns.length - 1] ?? null;
+  /** The turn being read: the one picked, else the newest. */
+  const current = (turnSel ? session?.turns.find((t) => t.runId === turnSel) : null) ?? newest;
 
-  if (!logs.length) {
+  /**
+   * THE JOURNEY THIS CHAT BUILT, if it built one.
+   *
+   * `campaignSnapshot` is the campaign as it stood at the end of a turn and
+   * `DripCampaign.root` is the graph, so the canvas needs nothing that is not
+   * already stored. Read from the newest turn that HAS one rather than from
+   * the newest turn: a chat often continues after the build, and those later
+   * turns carry no snapshot.
+   *
+   * Showing it is not a nicety. A chat whose whole point was to produce a
+   * journey could be opened and read and never show the journey — the one
+   * artefact the conversation existed to create.
+   */
+  const built = useMemo(() => {
+    for (const t of [...(session?.turns ?? [])].reverse()) {
+      if (t.campaignSnapshot?.root?.rootId) return t.campaignSnapshot;
+    }
+    return null;
+  }, [session]);
+
+  // STORED CHATS COUNT TOO. This was `!logs.length`, so clearing the logs —
+  // or any chat that exists in storage with no completed run — showed "No
+  // chats yet" over a list that was about to render rows.
+  if (!sessions.length) {
     return (
       <div className="cd-page">
         <h1>Chats</h1>
@@ -317,7 +357,7 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
                 ? OUTCOME[last.status] ?? { label: last.status, cls: 'info' }
                 : { label: 'Not run yet', cls: 'info' };
               return (
-                <tr key={g.sessionId} className="cd-row-click" onClick={() => { setSel(g.sessionId); setTab('resume'); }}>
+                <tr key={g.sessionId} className="cd-row-click" onClick={() => { setSel(g.sessionId); setTab('resume'); setTurnSel(null); }}>
                   <td className="cd-row-title">{g.title}</td>
                   <td>
                     <span className={`cd-pill ${o.cls}`}>{o.label}</span>
@@ -416,6 +456,19 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
                 >
                   Logs
                 </button>
+                {/* Only when there is one. A tab that opens onto "no journey
+                    was built" is a worse answer than the tab's absence, and
+                    most chats never reach a build. */}
+                {built && (
+                  <button
+                    role="tab"
+                    aria-selected={tab === 'journey'}
+                    className={`cd-subtab ${tab === 'journey' ? 'on' : ''}`}
+                    onClick={() => setTab('journey')}
+                  >
+                    Journey
+                  </button>
+                )}
               </div>
 
               {/* The conversation, in order. This is the part that was
@@ -424,7 +477,27 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
               {tab === 'resume' && (
               <div className="cd-transcript">
                 <div className="cd-transcript-h">Conversation</div>
-                {!session.turns.length && (
+                {/* NO TURNS, BUT THERE MAY STILL BE A CONVERSATION.
+                    This said "no completed turn yet" for a chat whose five
+                    turns had all completed and whose logs had been evicted —
+                    while the messages sat in the session store, unread. The
+                    transcript is the conversation, so it comes from whichever
+                    store still has it. */}
+                {!session.turns.length && session.messages.length > 0 && (
+                  <>
+                    <div className="cd-tturn-note">
+                      The detailed logs for this chat have been discarded to save space. This is the conversation as it
+                      was saved.
+                    </div>
+                    {session.messages.map((m, i) => (
+                      <div className={`cd-msg ${m.role}`} key={i}>
+                        <div className="cd-msg-role">{m.role === 'user' ? 'You' : 'Agent'}</div>
+                        <div className="cd-msg-bubble">{m.content}</div>
+                      </div>
+                    ))}
+                  </>
+                )}
+                {!session.turns.length && !session.messages.length && (
                   <div className="cd-tturn-missing">
                     This chat has no completed turn yet. Continue it to pick up where you left off.
                   </div>
@@ -472,9 +545,51 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
                   the plan it chose — read straight off the turn that produced
                   them, newest turn first. The raw timeline follows, and the
                   JSON is still behind every row. */}
+              {/* THE BUILT JOURNEY, on the real canvas.
+                  `DripCanvas` is the same component the builder and the
+                  read-only campaign view use, fed the graph the application's
+                  own reducer produced. READ-ONLY here, deliberately: this is
+                  a record of what was built, and editing a past chat's canvas
+                  from a log page would change a campaign with no conversation
+                  around it. Continue the chat to change it.
+                  This is NOT the propose-time preview, which is a schematic
+                  precisely because no journey exists yet. Here one does. */}
+              {tab === 'journey' && built && (
+                <div className="cd-chat-journey">
+                  <div className="cd-transcript-h">{built.name || 'The journey this chat built'}</div>
+                  <div className="cd-chat-canvas">
+                    <DripCanvas graph={built.root!} editable={false} goal={built.goal ?? null} />
+                  </div>
+                </div>
+              )}
+
+              {/* EVERY TURN'S LOG, not just the last one. */}
+              {tab === 'logs' && session.turns.length > 1 && (
+                <div className="cd-turnpicker" role="tablist" aria-label="Turn">
+                  {session.turns.map((t, n) => (
+                    <button
+                      key={t.runId}
+                      role="tab"
+                      aria-selected={t.runId === current?.runId}
+                      className={`cd-turnpick ${t.runId === current?.runId ? 'on' : ''}`}
+                      onClick={() => setTurnSel(t.runId)}
+                    >
+                      Turn {n + 1}
+                    </button>
+                  ))}
+                </div>
+              )}
               {tab === 'logs' && current && <RunSummary turn={current} />}
+              {/* TWO DIFFERENT STATES, and saying the wrong one is how a
+                  working chat came to look broken. A chat with messages and
+                  no logs HAS run; its detail was evicted. A chat with
+                  neither genuinely has not run yet. */}
               {tab === 'logs' && !current && (
-                <div className="cd-tturn-missing">No run has completed in this chat yet, so there is nothing to show.</div>
+                <div className="cd-tturn-missing">
+                  {session.messages.length
+                    ? 'The detailed logs for this chat have been discarded to save space. The conversation is still on the Conversation tab, and continuing the chat records new turns again.'
+                    : 'No run has completed in this chat yet, so there is nothing to show.'}
+                </div>
               )}
               {tab === 'logs' && current && (
               <div className="cd-timeline">

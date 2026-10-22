@@ -22,7 +22,7 @@ import {
 import { runTool, toolTitle, toolsForPhase } from './agentTools';
 import { outputToolsForPhase, isOutputTool, toolKind, applyOutputTool } from './outputTools';
 import { decide, blockDelta, renderBlocks } from './gate';
-import { saysProceed, REOPEN_LIMIT } from './record';
+import { saysProceed, saysBuildNow, REOPEN_LIMIT } from './record';
 import { EventEmitterSeq, type RunEvent } from './runEvents';
 import { auditOptions, applyAudit, unsupportedClaims, copyOnlyExperiments, type OptionAudit } from './optionAudit';
 import { compareArchitectures, checkFidelity, checkExperimentClaims, checkAudienceLearning, checkBarrierCoverage, checkBarrierTesting, JOURNEY_BEHAVIOURS } from './architectureAudit';
@@ -460,10 +460,10 @@ FIRST, FIND OUT WHO CONVERTS AND WHY THE REST DO NOT, and send "converters" and 
    BUT DO NOT ONLY RECORD WHAT THEY RAISED. Proposing a factor they did not name is your job, not theirs: a user who could already name every factor that mattered would not need you. Put two or three customer differences on the table yourself and ask which one they would back. Differences that describe a PERSON, not a field: whether they have already started and stopped, how big a limit they were given, whether the app is on their phone, how they were sourced, whether they have another product with the bank. Name the factor and say why it might matter. Do not invent a cutoff, a band or a rupee figure — that is the manager's to give, and a made-up number invites them to argue with the number instead of the idea.
    UNCERTAINTY WIDENS THE SEARCH, IT DOES NOT NARROW IT. When the user says they are not sure what the barrier is, that is the moment to put MORE candidate factors on the table, not to accept their hunch and move on. Another factor may correlate far more strongly than the one they guessed.
    A FACTOR YOU WILL NOT OPTIMISE FOR MAY STILL PREDICT THE OUTCOME. "They told me success is counted, not valued" is a reason not to PRIORITISE large balances. It is not a reason to ignore balance size, because large and small balances may convert at completely different rates. Only set a factor aside when it cannot be expressed at all, or when you have said plainly why it could not change who should get what.
-   This is not licence to fill the slots with platform concerns. "Which event do I enter on", "which channels exist", "is this event confirmed live" remain implementation questions and are still barred from the 3-5 slots. The test is whether the answer describes a CUSTOMER, not a configuration.
    - Could the answer change the campaign? If not, do not raise it.
    - Does the user already know, believe or suspect something about it? Then ASK — set status "open" and put the question to them. A hypothesis of theirs is worth more than a guess of yours.
    - Have you already been told, or does the retrieved context already say? Then do not ask again; record it with basis "user" or "tool".
+   This is not licence to fill the slots with platform concerns. "Which event do I enter on", "which channels exist", "is this event confirmed live" remain implementation questions and are still barred from the 3-5 slots. The test is whether the answer describes a CUSTOMER, not a configuration.
    NEVER close a dimension because the platform cannot express it. Ask the user whether it matters first, record what they say, and carry the unbuildability as a limitation for the mapping stage. A business factor that turns out to be unbuildable is still a finding the user needs; silently dropping it is the one outcome that is never acceptable, and do not substitute a loosely related attribute for the one that is missing or imply the targeting is possible. Missing numbers are likewise not a reason to drop a dimension — a strategically important factor with no data behind it stays in the record as a hypothesis.
    status is one of "open" (still investigating), "retained" (resolved and used), "deferred" (you chose not to pursue it, and the note says why) or "unavailable" (the platform cannot act on it — use this only AFTER the user has given their view, and keep that view in the note). basis is what the status rests on: "tool", "user", "user-belief", "assumption" or "none" — never claim "tool" or "user" for something you assumed. "user" is for what they OWN and are the authority on: their definition, their target, their decision. "user-belief" is for their explanation of WHY customers behave as they do — a conjecture about cause, which they cannot actually know and which competing explanations may contradict. Record a stated cause as "user-belief" every time, however confidently it was put to you; calling it "user" turns their guess into the finding your campaign rests on. Never invent a threshold, a bucket, a distribution or a rate to close one out.
    WEIGH EVERY QUESTION BEFORE YOU ASK IT, AND SAY HOW MUCH RIDES ON IT. Give each one an "impact": "fork" if two different answers mean two different campaigns — a different goal, a different audience, a different entry moment, a different core intervention; "shaping" if it changes how the campaign is built rather than what it is; "detail" if a sensible default exists and stating it costs nothing. Decide this when you ASK, not later: by the time you want to design, an awkward question is tempting to call a detail.
@@ -599,9 +599,13 @@ export async function* orchestrateStream(
   // Defined once, here, and passed down. A turn either BUILDS something or it
   // does not, and the context builder and the propose path must never
   // disagree about which this is.
-  const isBuildTurn = (req.intent ?? 'converse') === 'confirm' || isRefinement;
-  const intent = req.intent ?? 'converse';
   const latestUserText = [...req.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+  // The button sends `intent: 'confirm'` and a sentence. Typing that same
+  // sentence sends only the sentence, and the turn quietly became a
+  // conversation instead of a build. Same words, same outcome.
+  const isBuildTurn =
+    (req.intent ?? 'converse') === 'confirm' || isRefinement || saysBuildNow(latestUserText);
+  const intent = req.intent ?? 'converse';
   const firstUserText = req.messages.find((m) => m.role === 'user')?.content ?? latestUserText;
 
   // The accumulated brief and the state machine. Both are the APPLICATION's
@@ -1036,10 +1040,28 @@ export async function* orchestrateStream(
     assistantText = '';
 
     try {
+      // STOP RE-FETCHING THE CATALOGUE. DO NOT STOP THE BUILD.
+      //
+      // `stopLookingUp` existed to end a loop where the model re-read results
+      // it already had. It did that by forbidding EVERY tool — and on a
+      // Confirm turn the tool it forbade was `build_campaign`.
+      //
+      // Measured live, after the compiler crash was fixed: the manager
+      // approved the plan and the agent replied that it could not build,
+      // that its role stopped at proposing, and that the tool was not
+      // available to it. That was a correct reading of what it had been
+      // sent. The compiler never ran.
+      //
+      // So the withdrawal now applies to LOOKUPS only. On a build turn the
+      // output tools always travel and `build_campaign` is forced, because a
+      // turn whose entire purpose is to build has nothing else to decide.
+      const withdrawLookups = stopLookingUp && !isBuildTurn;
       for await (const chunk of streamClaude({
-        system: stopLookingUp
+        system: withdrawLookups
           ? `${systemForPhase(isBuildTurn)}\n\nSTOP CALLING TOOLS. Every lookup you need has already been made and the results are above. Answer now with the JSON object, using what you already know.`
-          : systemForPhase(isBuildTurn),
+          : stopLookingUp
+            ? `${systemForPhase(isBuildTurn)}\n\nSTOP LOOKING THINGS UP. Every lookup you need has already been made and the results are above. Call build_campaign now with what you have.`
+            : systemForPhase(isBuildTurn),
         messages: conversation,
         // Once there is nothing left to look up, tool USE is withdrawn rather
         // than discouraged. Asking a model to stop calling tools is a request
@@ -1066,8 +1088,17 @@ export async function* orchestrateStream(
         // Discovery is untouched: with `isBuildTurn` false and `designSeen` false
         // the lookup set is still empty, which is the rule that stops turn one
         // being a channel inventory.
-        tools: [...toolsForPhase(designSeen || isBuildTurn), ...outputToolsForPhase(isBuildTurn)].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
-        toolChoice: stopLookingUp ? { type: 'none' } : undefined,
+        tools: [
+          // The lookups go when they are exhausted; the output tools never do.
+          ...(stopLookingUp ? [] : toolsForPhase(designSeen || isBuildTurn)),
+          ...outputToolsForPhase(isBuildTurn),
+        ].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+        toolChoice: withdrawLookups
+          ? { type: 'none' }
+          : stopLookingUp
+            ? // One thing left to do, so it is required rather than offered.
+              { type: 'tool', name: 'build_campaign' }
+            : undefined,
         // The round that must produce the answer runs WITHOUT thinking. See
         // `disableThinking` in anthropic.ts for the measurement: with it on,
         // this round returned a thinking block and no text 3 times out of 3.
@@ -1170,6 +1201,22 @@ export async function* orchestrateStream(
     // answer". The turn had already succeeded.
     const unusable =
       !assistantText.trim() || (!extractJson(assistantText, stopReason).ok && !recordedViaTools);
+    // THE BUILD IS NOT RECOVERED HERE ANY MORE, since 2026-10-22.
+    //
+    // This condition used to read `(unusable || mustBuild)`, with
+    // `mustBuild = isBuildTurn && !toolBlueprint`, and ask for
+    // `build_campaign` by `tool_choice`. Two things were wrong with that, and
+    // the second is the worse one:
+    //
+    //  - `!toolUses.length` meant a Confirm that looked anything up — which
+    //    build turns are allowed to do — could never reach it.
+    //  - the retry below reads `chunk.text` and `chunk.done` and then breaks.
+    //    It never collected `chunk.toolUse`, so the `build_campaign` call it
+    //    forced was discarded unread.
+    //
+    // The forced build lives after the loop now, where its result is applied.
+    // This recovery keeps the job it can actually do: a round that produced
+    // nothing usable gets one more chance to answer.
     if (!toolUses.length && unusable && emptyRecoveries < MAX_EMPTY_RECOVERIES) {
       emptyRecoveries++;
       em.emit('model.started', isRefinement ? 'review' : 'discovery', 'That reply came back empty, asking again', {
@@ -1434,6 +1481,98 @@ export async function* orchestrateStream(
     conversation.push({ role: 'user', content: results });
   }
 
+  // THE BUILD IS FORCED HERE, AFTER THE ROUNDS, AND THE RESULT IS APPLIED.
+  //
+  // THE LIVE FAILURE. A Confirm on the activation campaign: the model looked
+  // the catalogue up, recorded findings, wrote "The journey is built…" as
+  // prose, and never called `build_campaign`. The compiler never ran. The
+  // manager read that sentence with the brief pane still beside it, because
+  // the canvas draws `res.graph` and there was no graph — and underneath it,
+  // gate text, since the held branch is the only place that prints the
+  // model's prose next to a block. A real build says "It is on the canvas
+  // now" from `renderBuildSummary`; the agent's own prose is not evidence
+  // that anything exists.
+  //
+  // WHY THE EXISTING RECOVERY DID NOT CATCH IT, twice over:
+  //
+  //  - It was gated on `!toolUses.length`. Lookups came back to build turns
+  //    on purpose — the one turn where entity names and operators have to be
+  //    exact is the turn that should be allowed to check them — so from that
+  //    moment a Confirm that looked anything up could never qualify as an
+  //    empty round, however little it built.
+  //  - It consumed only `chunk.text` and `chunk.done` and then broke out of
+  //    the loop. So even when it did fire with `tool_choice: build_campaign`,
+  //    the `tool_use` block it asked for was read by nobody and the blueprint
+  //    was thrown away. It was forcing a build and discarding it.
+  //
+  // So the build no longer belongs to that recovery, which exists for a turn
+  // that produced nothing usable. It belongs here: after every round is
+  // finished, where the one question left is whether a journey arrived, and
+  // where the answer can be acted on.
+  //
+  // NOTHING IS INVENTED. This asks the model for the journey a second time
+  // and compiles what comes back. It does not synthesise a blueprint, it does
+  // not promote the prose, and a call that throws or returns no journey
+  // leaves `toolBlueprint` null — handled below as a build failure, which is
+  // the honest outcome and the one the manager can act on.
+  if (isBuildTurn && !toolBlueprint) {
+    const forcedStart = Date.now();
+    em.emit('model.started', 'generating', 'Asking for the journey itself', {
+      status: 'running',
+      correlationId: 'forced-build',
+      detail: 'The plan is approved and the turn sent no journey. Asking for it directly.',
+    });
+    yield* drain();
+    const forced: { id: string; name: string; input: Record<string, unknown> }[] = [];
+    try {
+      for await (const chunk of streamClaude({
+        system: `${systemForPhase(true)}\n\nYour previous turn did not build the campaign. The manager has already approved this plan and is waiting for the journey. Call build_campaign NOW with what you have. If part of the plan cannot be expressed, build the rest and record the gap in "openItems".`,
+        messages: conversation,
+        // THE OUTPUT TOOLS ONLY. `tool_choice` forces `build_campaign`, so no
+        // lookup could be called from here even if it travelled — and the
+        // catalogue has already been read in the rounds above, which are in
+        // this same conversation. Sending it again would be prompt weight for
+        // a tool that cannot fire.
+        tools: outputToolsForPhase(true).map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+        toolChoice: { type: 'tool', name: 'build_campaign' },
+        disableThinking: true,
+        maxTokens: 32000,
+      })) {
+        if (chunk.toolUse) forced.push(chunk.toolUse);
+        // `usage` is carried for cost reporting. `stopReason` and
+        // `assistantText` are deliberately NOT touched: the manager's reply is
+        // whatever the model already wrote, and re-reading this call's stop
+        // reason against that text would change how the earlier turn parses.
+        if (chunk.done) usage = chunk.done.usage;
+      }
+    } catch {
+      // Fall through with no blueprint. The build-failure return below is the
+      // honest outcome, and it keeps the provider's own text.
+    }
+    for (const tu of forced) {
+      if (!isOutputTool(tu.name)) continue;
+      const applied = applyOutputTool(brief, tu.name, tu.input);
+      brief = applied.brief;
+      if (applied.strategy) toolStrategy = applied.strategy;
+      if (applied.blueprint) toolBlueprint = applied.blueprint;
+      if (applied.openItems?.length) toolOpenItems = applied.openItems as OpenItem[];
+      if (!applied.error) recordedViaTools = true;
+      em.emit(applied.error ? 'model.tool_call.failed' : 'model.tool_call.completed', 'generating', toolTitle(tu.name), {
+        status: applied.error ? 'failed' : 'ok',
+        detail: applied.error ?? applied.ok,
+        correlationId: tu.id,
+        data: { tool: tu.name, kind: 'output' as const },
+      });
+    }
+    em.emit('model.completed', 'generating', toolBlueprint ? 'The journey came back' : 'No journey came back', {
+      correlationId: 'forced-build',
+      status: toolBlueprint ? 'ok' : 'failed',
+      durationMs: Date.now() - forcedStart,
+      data: { toolCalls: forced.length, forcedBuild: true },
+    });
+    yield* drain();
+  }
+
   // --- interpret the answer ------------------------------------------
   // `dimensions` rides on EVERY action, not just one: the agent records what
   // it is considering as it goes, and the gate reads that record rather than
@@ -1444,6 +1583,31 @@ export async function* orchestrateStream(
   // the rest do not. Both arrive on an `ask` turn as readily as a `propose`
   // one, because the answer usually comes mid-conversation rather than at the
   // end.
+  // A PLAN THE MANAGER ACTUALLY APPROVED, as opposed to a turn that merely
+  // looks like a build turn.
+  //
+  // Two signals, and both are things the application itself knows:
+  //
+  //  - `intent: 'confirm'` is posted by the Confirm button and by nothing
+  //    else.
+  //  - `AWAITING_STRATEGY_CONFIRMATION` is our own record that a plan was put
+  //    to them and is waiting on an answer. It covers the manager who types
+  //    the sentence instead of pressing the button, which is a real approval.
+  //
+  // DELIBERATELY NOT `req.confirmedStrategy`, which looks like the obvious
+  // choice and is always undefined. `CampaignDesigner` reads
+  // `next.pendingStrategy` off the response and no response has ever carried
+  // that field, so the state it posts back is empty. Keying this on it would
+  // have made the whole branch a no-op in the app while passing every test
+  // that supplies the field by hand.
+  //
+  // What this excludes is the point: someone who types "Confirmed. Build this
+  // campaign." DURING discovery. `saysBuildNow` matches that sentence exactly
+  // and it is on screen in their own transcript, so it does get typed — and
+  // nobody should be able to skip discovery by repeating a sentence back.
+  const approvedPlan =
+    isBuildTurn && ((req.intent ?? 'converse') === 'confirm' || isRefinement || session.state === 'AWAITING_STRATEGY_CONFIRMATION');
+
   let parsed = extractJson<
     | { action: 'ask'; rationale?: string; questions: (string | { text: string; impact?: QuestionImpact })[]; dimensions?: DimensionUpdate[]; contextChecked?: { source: string; found: boolean }[]; answered?: string[]; notCovered?: string[]; questionResolutions?: QuestionResolution[]; converters?: Converters; barriers?: Barrier[] }
     | {
@@ -1488,6 +1652,46 @@ export async function* orchestrateStream(
         blueprint: toolBlueprint as CampaignBlueprint,
         openItems: toolOpenItems,
       },
+    };
+  }
+
+  // AN APPROVED PLAN THAT PRODUCED NO JOURNEY IS A FAILURE, NOT MORE DISCOVERY.
+  //
+  // This is the exit the live Confirm needed and did not have. With no
+  // blueprint, that turn fell through to the branches below — the record had
+  // moved, so it returned the discovery phase with the model's "The journey
+  // is built…" as the reply, or it was held by the gate and printed that
+  // sentence above a block. Both put the brief back on screen beside a
+  // sentence saying a campaign existed.
+  //
+  // The forced build above has already asked for the journey a second time.
+  // If there is still nothing, the honest answer is the one the compiler's own
+  // failure gives: nothing was built, nothing was changed, here is what to do
+  // next. Never a graph, never a success sentence, and never the brief pane.
+  if (approvedPlan && !toolBlueprint && !(parsed.ok && parsed.value.action === 'propose' && parsed.value.blueprint)) {
+    em.emit('graph.generation.completed', 'generating', 'The journey could not be built', {
+      status: 'failed',
+      detail: 'The turn approved a plan and no journey came back, including from the forced build.',
+    });
+    em.emit('run.failed', 'generating', 'No journey was produced', { correlationId: 'run', status: 'failed' });
+    yield* drain();
+    return {
+      ...base,
+      phase: 'error',
+      stage: 'error',
+      brief,
+      session,
+      reply:
+        'The journey could not be built from the approved plan. Nothing has been changed, so ask for a change or try again.',
+      errorDetail: 'The agent did not return a journey on the build turn.',
+      designGenerated: false,
+      exportable: false,
+      graph: null,
+      campaign: null,
+      strategy: null,
+      blueprint: null,
+      pendingBlueprint: null,
+      usage,
     };
   }
 
@@ -1859,7 +2063,25 @@ export async function* orchestrateStream(
   // ONE CONDITION. Previously this ORed the gate's outcome with four vetoes
   // computed separately, which is how a refusal survived the gate's own escape
   // hatch at the round budget and regenerated for ever.
-  if (!decision.proceed) {
+  //
+  // NOT ON AN APPROVED BUILD, since 2026-10-22, and this is the second half of
+  // the empty-canvas failure. The forced build above gets a journey; this
+  // branch could still throw it away, because it sits in front of the build
+  // tail. In the live run it did: `belief-untested` was live — on a PIN/app
+  // dimension the manager had explicitly rejected — so a Confirm produced a
+  // held turn, and the manager read "The journey is built…" with the brief
+  // still beside it.
+  //
+  // Refusing here is the same mistake the cadence block and the audience check
+  // each made in turn, for the same reason: the moment to raise a gap in the
+  // plan is BEFORE they approve it. Afterwards there is nothing they can do
+  // with the refusal except approve again, and the campaign they agreed to
+  // does not get built. So the blocks become limitations on the design, in
+  // their own words, and the build goes ahead.
+  //
+  // `approvedPlan` is what keeps this narrow. A typed "Confirmed. Build this
+  // campaign." mid-discovery is still held, because no plan was ever approved.
+  if (!decision.proceed && !approvedPlan) {
     brief = recordQuestions(brief, withImpact(gate.questions));
     // The fork-refusal counter is gone with the veto that fed it. It counted
     // how often the APPLICATION had given up; the bound that matters is how
@@ -1982,7 +2204,7 @@ export async function* orchestrateStream(
   // more. Folded into the comparison verdict rather than given its own field:
   // it is the same finding — alternatives that are not really alternatives.
   const copyOnly = copyOnlyExperiments(blueprint);
-  const strategy = proposed.strategy
+  let strategy = proposed.strategy
     ? {
         ...proposed.strategy,
         strategyOptions: applyAudit(proposed.strategy.strategyOptions, optionAudits),
@@ -2034,7 +2256,32 @@ export async function* orchestrateStream(
       strategy,
       blueprint: null,
       pendingBlueprint: null,
-      questions: gate.questions,
+      // NO NUMBERED QUESTIONS BESIDE AN APPROVABLE PLAN.
+      //
+      // MEASURED on a live EMI run. The strategy arrived with Confirm and one
+      // numbered question — "Does every EMI-eligible purchase share the same
+      // 7-day expiry?" — and answering it is what took the manager off
+      // Confirm: the reply became a discovery turn and the plan they were one
+      // click from approving went back into the conversation. Clicking
+      // Confirm instead produced the graph immediately. The highest-frequency
+      // miss on this path is the PAIRING, not the compiler.
+      //
+      // The client renders this field as a numbered list under the agent's
+      // message, which is right for discovery and wrong here: it reads as a
+      // form the plan is waiting on, next to a button that says the plan is
+      // ready.
+      //
+      // NOTHING IS HIDDEN. These items are `strategic-ambiguity` by
+      // construction (`isBlockingItem`), they are already in
+      // `gate.openItems` three lines above, and `renderStrategy` prints that
+      // kind under "Worth settling before this is built". The manager reads
+      // every one of them — as open points on a plan they may still approve,
+      // rather than as a questionnaire.
+      //
+      // Discovery BEFORE a strategy is untouched: `ask_questions` still
+      // returns numbered questions, still capped at three, and still records
+      // them. There is no plan to approve there, so asking is the point.
+      questions: [],
       discoveryRounds: brief.rounds,
       discoveryLimitReached: brief.rounds >= MAX_DISCOVERY_ROUNDS,
       brief,
@@ -2087,12 +2334,18 @@ export async function* orchestrateStream(
   // point with strategy and blueprint still null, so a complete
   // recommendation was destroyed for having an honest open item — while the
   // prompt was asking the model to declare exactly those items.
+  // Same rule as the propose return above, which is the one the app actually
+  // reaches: open points travel as open items, not as a questionnaire.
+  //
+  // `recordQuestions` ran here. Recording them puts them on the brief as
+  // OUTSTANDING, which makes the manager's next typed message an answer to a
+  // question rather than a decision about the plan — so even on this path it
+  // is the wrong bookkeeping for a turn that is asking for approval.
   const withQuestions = gate.outcome === 'strategy_with_questions';
-  if (withQuestions) brief = recordQuestions(brief, withImpact(gate.questions));
 
   em.emit('strategy.proposed', 'strategy', 'Strategy ready for your review', {
     detail: withQuestions
-      ? 'Nothing has been built yet. Some points are still open; answer them or confirm as it stands.'
+      ? 'Nothing has been built yet. Some points are still open and are listed with the plan; confirm to build it as it stands.'
       : 'Nothing has been built yet — confirm to generate the campaign.',
     data: {
       summary: strategy?.summary,
@@ -2102,12 +2355,14 @@ export async function* orchestrateStream(
     },
   });
   if (withQuestions) {
-    em.emit('discovery.questions', 'strategy', `${gate.questions.length} open question(s) alongside the strategy`, {
+    // Still recorded in the activity panel — the run should say what was left
+    // open — but named as what it is now: points carried with the plan.
+    em.emit('discovery.questions', 'strategy', `${gate.questions.length} point(s) still open on this plan`, {
       detail: gate.reason,
-      data: { questions: gate.questions, round: brief.rounds },
+      data: { openPoints: gate.questions, round: brief.rounds },
     });
   }
-  em.emit('run.completed', 'strategy', withQuestions ? 'Waiting for your answer, then your approval' : 'Waiting for you to approve the plan', { correlationId: 'run' });
+  em.emit('run.completed', 'strategy', 'Waiting for you to approve the plan', { correlationId: 'run' });
   yield* drain();
 
   // A new strategy is a new version, so a confirmation of the previous one
@@ -2151,7 +2406,15 @@ export async function* orchestrateStream(
     const why = [
       ...coverage.unaddressed.map(
         (b) =>
-          `You told me: ${b.statement} Nothing in this campaign does anything about it, so building it would leave the reason you gave untouched.`,
+          // "YOU TOLD ME" IS A CLAIM ABOUT THEM, so it is made only where the
+          // record says they said it. An assumption is the agent's own rival
+          // theory; quoting it back as their words was how a live Confirm
+          // refused a build the manager had approved, over a sentence they
+          // had never spoken. `mustBeAddressed` now filters assumptions out
+          // entirely, so this is the second lock rather than the first.
+          b.basis === 'user' || b.basis === 'user-belief'
+            ? `You told me: ${b.statement} Nothing in this campaign does anything about it, so building it would leave the reason you gave untouched.`
+            : `This campaign was designed around: ${b.statement} Nothing in it does anything about that, so there is nothing to learn from running it.`,
       ),
       ...(coverage.uncitedSends.length
         ? [
@@ -2185,27 +2448,63 @@ export async function* orchestrateStream(
   // campaign resting entirely on the agent's own reading has to find out
   // whether that reading was right.
   const untestedGuess = checkBarrierTesting(blueprint, mustTestBarriers(brief.barriers));
+  // A FLAT JOURNEY IS A COST, NOT A REFUSAL.
+  //
+  // This blocked the build and asked "Which groups should this campaign
+  // treat differently, so we can see who actually converts?" — the exact
+  // question discovery was rewritten never to ask, arriving at the moment
+  // the manager has least power to refuse it.
+  //
+  // Measured live on an EMI campaign: they said every eligible purchase, one
+  // track, do not split. The application answered by requiring a split. A
+  // design rule that overrules an explicit instruction is not a rule, it is
+  // the application designing the campaign — and it contradicts the
+  // segmentation principle directly, which says a dimension changes the path
+  // and the manager had said there is no dimension.
+  //
+  // The cost is real and is still stated, in the same words: a campaign that
+  // cannot tell its audiences apart returns one undifferentiated number, and
+  // the next campaign starts as ignorant as this one. The holdout already
+  // gives the comparison against sending nothing.
+  // WHAT THE GATE WOULD HAVE REFUSED, said rather than dropped.
+  //
+  // The hold above is skipped on an approved build. Skipping it silently would
+  // be worse than refusing: the cost would simply vanish on the one turn that
+  // produces a campaign. Each block's `reason` is its manager-facing half, so
+  // it lands verbatim under "What this design cannot do" — the same route the
+  // audience gap takes below, for the same reason.
+  if (!decision.proceed && approvedPlan) {
+    const carried = decision.blocks.map((b) => b.reason).filter(Boolean);
+    if (carried.length) {
+      brief = recordApplicationVerdict(brief, { warnings: carried });
+      if (strategy) {
+        strategy = { ...strategy, designWarnings: [...(strategy.designWarnings ?? []), ...carried] };
+      }
+      em.emit('validation.started', 'strategy', 'Building with gaps still open', {
+        status: 'ok',
+        detail: carried.join(' '),
+        data: { blocks: decision.blocks.map((b) => b.code) },
+      });
+      yield* drain();
+    }
+  }
+
   const audienceGap = checkAudienceLearning(blueprint, mustLearnAudience(brief.converters)) ?? untestedGuess;
   if (audienceGap) {
     brief = recordApplicationVerdict(brief, { warnings: [audienceGap] });
-    session = { ...session, state: transition(session.state === 'DISCOVERING' ? session.state : transition(session.state, 'DISCOVERING'), 'AWAITING_USER_ANSWER') };
-    em.emit('validation.started', 'strategy', 'The campaign cannot learn who converts', {
-      status: 'failed',
-      detail: 'Nobody could say who converts, and the journey treats everyone the same.',
+    // ON THE STRATEGY, not only on the brief. Recording a cost where nobody
+    // reads it is the same as dropping it — `designWarnings` is what
+    // `renderStrategy` prints under "What this design cannot do", so the
+    // sentence reaches the manager verbatim instead of becoming an internal
+    // note about a refusal that no longer happens.
+    if (strategy) {
+      strategy = { ...strategy, designWarnings: [...(strategy.designWarnings ?? []), audienceGap] };
+    }
+    em.emit('validation.started', 'strategy', 'This campaign will not learn who converts', {
+      status: 'ok',
+      detail: audienceGap,
     });
-    em.emit('run.completed', 'discovery', 'Reworking the audience', { correlationId: 'run' });
     yield* drain();
-    return {
-      ...base,
-      phase: 'discovery',
-      stage: 'discovery',
-      reply: ['I need to rework one thing before showing you this.', '', audienceGap].join('\n'),
-      questions: ['Which groups should this campaign treat differently, so we can see who actually converts?'],
-      brief,
-      session,
-      strategy: null,
-      blueprint: null,
-    };
   }
 
   const claimViolations = checkExperimentClaims(blueprint);
@@ -2344,7 +2643,11 @@ export async function* orchestrateStream(
     strategy,
     blueprint,
     pendingBlueprint: blueprint,
-    questions: gate.questions,
+    // EMPTY ON A PROPOSAL, always. The client renders `questions` as a
+    // numbered list under the agent's message, and a numbered list beside
+    // Confirm is the pairing that pulled managers off the approval. The open
+    // points are in the reply under "Worth settling before this is built".
+    questions: [],
     discoveryRounds: brief.rounds,
     discoveryLimitReached: brief.rounds >= MAX_DISCOVERY_ROUNDS,
     brief,
@@ -3085,7 +3388,8 @@ function buildContextPrompt(
           // fires on a build turn, so carrying it on every discovery turn
           // was an instruction the agent could not act on.
           'BEFORE THE BLUEPRINT, STATE THE INTERVENTION ON ITS OWN: {"action":"design","intervention":[{"barrier":"<a barrier id from your own list>","does":"<what the journey does about it>","mechanism":"message|timing|branch|experiment|wait"}],"eligibility":{"entity":"<entity you would filter, or null>","exclude":["<who must never receive this>"]}}. Every entry must attack a named barrier; a step attacking nothing is decoration. "eligibility" is plumbing, never a choice to put to the user. I will tell you what the platform can meet; then build, and say what the gap costs.',
-          'The campaign manager has approved the strategy above. Return ONLY {"action":"propose","strategy":{...unchanged...},"blueprint":{...}} — the blueprint expressing that plan, and the strategy exactly as approved.',
+          'The campaign manager has approved the plan above. CALL build_campaign NOW — that is the only thing this turn is for, and the tool is on your list. Do not describe the journey instead of building it, do not return a blueprint as text, and never tell them the build is unavailable to you: it is not, and saying so leaves them with an approval that did nothing.',
+          'If part of the plan cannot be expressed, call the tool anyway with everything that CAN be built and put the rest in "openItems" as an "operational-limitation". A journey with a stated gap is worth more to them than a message explaining why there is no journey.',
           'Build the plan that was agreed. If part of it cannot be expressed in the vocabulary above, DO NOT quietly build a lesser version: say which part and what is missing, in "openItems" as an "operational-limitation". A campaign that silently dropped a requirement is worse than no campaign and a plain reason.',
           // ONE INSTRUCTION, NOT A CATALOGUE. The lookup tools are available
           // on this turn now, so the model can check rather than recall —

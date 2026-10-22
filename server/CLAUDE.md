@@ -1355,3 +1355,575 @@ outside this slice.
 `server:typecheck` and `npm run build` clean. No strategy change, no new
 attributes, nothing added to the tool schema — the compiler has to survive a
 live model omit, and now does.
+
+## 2026-10-22 (cont'd) — "I cannot build this. My role stops at proposing."
+
+With the compiler crash fixed, the next live Confirm failed differently: the
+agent replied that it could not build, that its role stopped at proposing,
+and that the tool was not available to it. No canvas. The compiler never ran.
+
+It was reading exactly what we sent. On that one turn it received, together:
+
+- `tool_choice: 'none'` — a rule written to stop catalogue re-fetches, which
+  also forbade `build_campaign`;
+- `propose_strategy`, whose own description reads "Do not call
+  build_campaign in the same turn: the manager approves the plan first";
+- a prompt line asking it to `Return ONLY {"action":"propose",…,"blueprint"}`
+  as text rather than call the tool;
+- a SYSTEM prompt saying deterministic code builds the graph.
+
+Four instructions, three of them saying do not build. The reply was the
+honest reading. **The agent was not wrong; the turn was.**
+
+### Four fixes, all removing a contradiction rather than adding a rule
+
+**The withdrawal is about lookups.** `stopLookingUp` ended a real loop — a
+run spent three rounds re-reading results it already had — but it did it by
+forbidding EVERY tool. Now `withdrawLookups = stopLookingUp && !isBuildTurn`:
+the `list_*` tools drop once exhausted, the output tools always travel, and a
+build turn is FORCED to `build_campaign`, because a turn whose entire purpose
+is to build has nothing else to decide.
+
+The invariant behind the old test survives and is now stated as itself: the
+tools array is never EMPTY. Sending a history of `tool_use` and `tool_result`
+blocks with no tools attached made the model answer with an empty turn and
+killed three evaluation scenarios. That is what must not come back — not
+"every definition always travels".
+
+**`propose_strategy` is off the Confirm turn.** The plan is already approved;
+offering to propose it again is an invitation to go round once more, from a
+tool that explicitly says not to build. The record tools stay — a build turn
+still finds things worth writing down, and dropping them would quietly empty
+the record on the last turn of the conversation.
+
+**The prompt asks for the tool.** "CALL build_campaign NOW… never tell them
+the build is unavailable to you: it is not, and saying so leaves them with an
+approval that did nothing." Plus: if part of the plan cannot be expressed,
+call the tool anyway with what can be built and record the gap.
+
+**A build turn is recovered by building.** The empty-round recovery asked for
+"the single JSON object described in OUTPUT" with `tool_choice: 'none'` —
+which on a Confirm is the same instruction that caused the failure it was
+recovering from. Telling a model that just said it cannot build to answer in
+prose again is agreement, not recovery. Gated on `!toolBlueprint`, so a turn
+that DID build is never asked to build again.
+
+### The typed sentence
+
+The button posts `intent: 'confirm'` AND the words "Confirmed. Build this
+campaign." Someone who types those words — reasonably, since they are on
+screen in their own transcript — sends no intent, so the turn was not a build
+turn at all.
+
+`saysBuildNow` is an EXACT match on that one phrase, deliberately not reusing
+`saysProceed`. That helper is loose on purpose ("go ahead", "stop asking")
+because a false positive there costs a stated assumption the manager can
+correct. Starting a BUILD on a loose match is a different risk: "do not build
+it yet" contains "build it".
+
+### Verified
+
+1180 unit (from 1172) and 118 agent-proto. `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. SYSTEM 33,454 / 33,500.
+Reverting the three contradictions fails four of the new tests. Discovery
+untouched; no new attributes; no strategy change.
+
+## 2026-10-22 (cont'd) — `(barriers ?? []).some is not a function`
+
+A live OS-to-EMI turn died after the manager mapped click to
+page-open/button-click. The model sent `barriers` as a STRING. `?? []` only
+replaces null and undefined, so the string survived: `.length` worked,
+`.some` did not, and the TypeError escaped as the assistant's message. No
+canvas.
+
+**Second crash of this exact class in one day.** The Confirm crash was
+`describe.replace` on a field the schema does not require; this is `.some` on
+a field whose schema says array. The shared lesson, now written where it will
+be read: a declared type is a statement about what callers should pass, and
+a model is not a caller. `as Barrier[]` asserts; it does not check.
+
+### The tell was in the same function
+
+`record_dimensions` and `ask_questions`, a few cases below, already did
+`Array.isArray(...) ? ... : []`. So `applyOutputTool` carried both habits
+side by side and which one a field got was down to who wrote it. That is not
+a judgement call worth preserving — it is an inconsistency that reads as one.
+
+`asList` now does it everywhere:
+
+- an array is used;
+- **one object becomes a list of one** — a near-miss worth accepting, because
+  the model found a single barrier and sent it rather than a list containing
+  it;
+- anything else becomes EMPTY and is never iterated. A string would otherwise
+  yield one "barrier" per character, which is worse than the crash: it would
+  have been *recorded*.
+
+A wrong shape returns a tool error naming the shape wanted, reported
+separately from "you sent nothing" so the model can tell the two apart. The
+brief and session are untouched and the turn continues.
+
+### Four places, not one
+
+`barriers` crashed. `converters` (read as `.shape.trim()`),
+`converters.candidates` (`.filter`), `contextChecked`, `questionResolutions`
+and `architectures` (`.map`) all had the same shape, each one line from an
+iteration. Fixing only the one that happened to fail would have left the
+boundary with five known holes and a test proving one of them shut.
+
+Beyond the literal brief, deliberately: the stated goal is that the tool
+boundary survives a live wrong shape, and a boundary with holes left in it
+does not.
+
+### Verified
+
+1188 unit (from 1180) and 118 agent-proto. `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. Reverting the coercion
+reproduces the live error text. No schema tightening — the boundary had to
+survive the wrong shape, not be protected from receiving it.
+
+## 2026-10-22 (cont'd) — Two guards that spoke for the manager
+
+A live Confirm failed twice, on two different checks, and both failures have
+the same shape: the application took a position the manager had not taken and
+then refused their build over it.
+
+### "You told me: customers may notice individual eligible-purchase pings but tune out…"
+
+They had said nothing of the kind. The agent had floated that as a rival
+theory, which is its job. Three mechanisms turned it into their words.
+
+**`recordBarriers` merged and never deleted.** A theory named on turn three
+and dropped on turn five stayed on the record for ever. The prompt asks for
+barriers on every turn, so a sent list is the agent's current position, not
+an increment — `recordConverters` has always replaced for that reason. Now so
+does this. The empty guard stays and carries the whole distinction: replace
+on SENT, keep on OMITTED, so a converters-only turn does not wipe the
+barriers. A barrier that survives also keeps fields the update did not
+repeat — terseness is not retraction, and the quote is the evidence.
+
+**`quoteIsTheirs` scored 40% word overlap across the whole transcript.** In a
+long EMI conversation that is nearly free: an invented theory borrowed
+*customers*, *repeated* and *purchase* from three unrelated sentences, cleared
+the bar, and was UPGRADED to `user-belief` by the promotion rule. That rule is
+right and stays — a correctly-evidenced barrier mislabelled `assumption` once
+deadlocked the gate for eight turns. What changed is the standard of
+evidence, not the rule.
+
+The match must now fall inside ONE sentence they wrote, as a contiguous span
+scored on content words. **Confinement to a single sentence is the fix**, not
+the threshold — the old check could assemble a quote from the whole
+conversation.
+
+**The denial case is the trap a contiguity check walks into alone.** "I did
+not say they tune out repeated pings" contains the phrase verbatim. So the
+text leading up to the match is checked for a denial — with the quote's own
+words excluded from that test, which is what lets a barrier that is ITSELF
+about an absence ("they do not know how to set the PIN") still verify.
+
+Failing verification only ever RELEASES: the barrier stays an assumption,
+which `mustBeAddressed` now excludes, so a false negative costs an obligation
+rather than creating one. That is the rule from `record.ts`, holding here too.
+
+**`mustBeAddressed` excludes assumptions.** An invented barrier is a
+hypothesis worth testing, not a promise anyone made. `isDesignable` and
+`mustTestBarriers` are untouched: a campaign may still be built on an
+assumption and must still TEST it when it is all there is.
+
+The refusal copy now says "You told me" only for `user` and `user-belief`.
+
+### "Which groups should this campaign treat differently?"
+
+On an EMI campaign the manager said every eligible purchase, one track, do
+not split. Confirm refused the build and asked which groups to treat
+differently — **the exact question discovery was rewritten never to ask**,
+arriving at the moment they have least power to refuse it.
+
+`mustLearnAudience` is true whenever converters are not `known`, and
+`checkAudienceLearning` then refused any flat journey. A design rule that
+overrules an explicit instruction is not a rule; it is the application
+designing the campaign. It also contradicts the segmentation principle
+directly — a dimension changes the PATH, and they had said there is no
+dimension. The holdout already gives the comparison against sending nothing.
+
+It is a limitation now. The sentence is unchanged and lands on
+`strategy.designWarnings`, which `renderStrategy` prints under "What this
+design cannot do" — **recording a cost where nobody reads it is the same as
+dropping it**, so the test asserts both the brief and the rendered warning.
+
+### Verified
+
+1205 unit (from 1191) and 118 agent-proto. `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. Reverting either guard fails
+the new tests. Barrier and audience coverage still run on the BUILD turn
+only — propose has no journey to check.
+
+### Known residual
+
+Words that coincide inside one of their own sentences can still verify a
+quote. That is a far smaller surface than the transcript and needs an
+accidental near-collision. Tightening further starts rejecting honest
+paraphrases, and the record would then carry the agent's label instead of the
+manager's belief — the more expensive mistake of the two.
+
+## 2026-10-22 (cont'd) — A user-stated audience settles who-converts,
+whatever `knowledge` says
+
+The third live gate failure of the day, same campaign manager, same shape of
+fault as the two above: the application held a position they had not taken.
+
+### The turn, from the record rather than from memory
+
+`eval/runs/ui-s-1792661509156/turns/turn-3.json`:
+
+```json
+{ "shape": "No distinguishing pattern found. Every newly issued card that has
+   not yet transacted is treated as one group, on one track, with no split by
+   how it arrived.",
+  "basis": "user", "knowledge": "none-yet", "candidates": [] }
+```
+
+They had said: record converters as known, every newly issued card that has
+not transacted, one track, do not split. The record held it faithfully. The
+reply ends `"I do not yet know who does this today, so I cannot say who the
+campaign should go after."` — and re-asked who converts. Propose never fired.
+The run only recovered because the model happened to send `knowledge: 'known'`
+on the next turn.
+
+### Two true statements, and the gate read the wrong one
+
+`convertersSettled` keyed on `knowledge` first and only accepted a user-stated
+shape under `'known'`. But `knowledge` answers *can anyone say who converts
+faster today* — "no" was correct here. The AUDIENCE question is *who is this
+campaign for*, and they had answered it in one sentence. Both fields were
+right; settledness depended on which of two true things the model wrote down.
+
+Now: **`basis === 'user'` plus a non-empty `shape` settles it, whatever
+`knowledge` says.** The two-candidate path is the fallback for when there is no
+user-stated shape.
+
+`mustLearnAudience` is untouched (`knowledge !== 'known'`), so the obligation
+to find out who responds still holds — as a limitation on the design, which is
+where the previous slice put it.
+
+### What this gives up, stated rather than buried
+
+`recordConverters` refuses an empty shape outright, so "no user shape" means a
+non-user basis in practice. The two-candidate requirement therefore now bites
+only where the shape is the AGENT'S — which is where it was always aimed, but
+it does mean a user-attributed non-answer ("nobody can say who converts")
+settles the finding with no candidates. That is the narrowed remains of the
+hole this function's history describes.
+
+Closing it would mean reading their prose to decide whether a shape names a
+group or reports an absence, and judging their words to RAISE a block is the
+one thing `record.ts` forbids. It is caught on the design instead. There is a
+test asserting the residual as behaviour, with that reasoning, so the next
+person to tighten this reads it before they do.
+
+### Two fixtures changed basis, and that is the interesting part
+
+`findings.test.ts`'s nobody-knows group and `proposeTurnDefects.test.ts`'s
+`pinActivation()` both used `basis: 'user'`. Written that way they now pass
+every candidate assertion via the shape clause without a candidate rule ever
+running — green, and testing nothing. Both moved to `assumption`, which is
+also the honester label for a shape the agent wrote characterising a
+non-answer.
+
+**Third time this pattern has appeared today** (the fork-guard fixture with no
+`touches`, the confirm fixture with no cited barrier, these two): a change to
+what counts as valid silently invalidates fixtures written as "a good
+record", and the failure mode is a test that still passes for the wrong
+reason. Worth checking the fixtures of every group that touches a rule, not
+just the ones that go red.
+
+### Verified
+
+1211 unit (from 1205; 6 new in `findings.test.ts`, 3 of which fail against the
+pre-fix clause — confirmed by reverting it) and 118 agent-proto. `tsc
+--noEmit`, `server:typecheck` and `npm run build` clean. Nothing pushed. No
+prompt, schema, tool or strategy change; `mustLearnAudience`, the segmentation
+audit and the barrier rules are untouched.
+
+## 2026-10-22 (cont'd) — The Confirm that looked things up, wrote prose,
+and built nothing
+
+A live Confirm on the activation campaign returned "The journey is built…"
+with the left pane still reading "What I have so far." No graph in the
+response. The activity panel showed lookups. Underneath the sentence, gate
+text: "That settled one of the things I was waiting on", plus `belief-untested`
+about a PIN/app dimension the manager had rejected.
+
+The canvas draws `res.graph` and there was none, because the compiler never
+ran. A real build says "It is on the canvas now" from `renderBuildSummary`.
+**The agent's own prose is not evidence that a campaign exists** — and the
+application printed it as though it were.
+
+### Why nothing caught it: the recovery could not fire, and could not work
+
+`mustBuild = isBuildTurn && !toolBlueprint` was ORed into the empty-round
+recovery, which exists to re-ask after a round that produced nothing usable.
+Two independent faults:
+
+- **It was gated on `!toolUses.length`.** Lookups came back to build turns
+  earlier the same day, on the good argument that the one turn where entity
+  names and operators must be exact is the turn that should check them. From
+  that moment a Confirm that looked anything up could never qualify as an
+  empty round, however little it built. The two changes were individually
+  right and jointly made this unreachable.
+- **It could not have applied the result anyway.** The retry read `chunk.text`
+  and `chunk.done` and then broke out of the loop. `chunk.toolUse` was never
+  collected, so the `build_campaign` call it forced with `tool_choice` was
+  discarded unread. It was forcing a build and throwing it away, which is
+  indistinguishable from never having asked.
+
+So the build is not that recovery's job any more. `mustBuild` is deleted and
+the forced build sits AFTER the round loop, where the only question left is
+whether a journey arrived and the answer can be acted on. It sends the output
+tools alone — `tool_choice` forces `build_campaign`, so a lookup could not
+fire even if it travelled — collects every `tool_use`, and runs it through
+`applyOutputTool`, the one boundary where model output becomes application
+state.
+
+Nothing is invented: no synthesised blueprint, no promoted prose.
+
+### An approved plan with no journey is an error, not more discovery
+
+With no blueprint the turn fell through to branches written for discovery: the
+record had moved, so it returned the discovery phase with the model's sentence
+as the reply. That exit is now explicit and returns what the compiler's own
+failure returns — nothing built, nothing changed, ask for a change or try
+again, with the brief and session intact. Never a graph, never a success
+sentence, never the brief pane.
+
+### The second half: the gate was discarding approved builds
+
+Forcing the build is necessary and was not sufficient. `if (!decision.proceed)`
+sits in FRONT of the build tail, so a journey could be obtained and then
+thrown away — which is what happened live, over `belief-untested`. Refusing
+there is the same mistake the cadence block and the audience check each made
+in turn: **the moment to raise a gap in the plan is before they approve it.**
+Afterwards there is nothing the manager can do with the refusal except approve
+again, and the campaign they agreed to does not get built.
+
+So on an approved build the blocks become limitations — each block's `reason`
+is its manager-facing half, so it lands verbatim under "What this design
+cannot do" and on `brief.verdicts`. Skipping the refusal silently would have
+been worse than refusing: the cost would vanish on the one turn that produces
+a campaign.
+
+### `approvedPlan`, and the field that looked right and was always empty
+
+```ts
+const approvedPlan =
+  isBuildTurn && ((req.intent ?? 'converse') === 'confirm' || isRefinement || session.state === 'AWAITING_STRATEGY_CONFIRMATION');
+```
+
+The first draft keyed on `req.confirmedStrategy`, which reads as exactly the
+right signal — the client posts `confirmedStrategy: pendingStrategy` on
+Confirm. **It is always undefined.** `CampaignDesigner` sets its
+`pendingStrategy` from `next.pendingStrategy`, and no server response has ever
+carried that field; the propose turn returns `strategy`. So the branch would
+have been a no-op in the app while passing any test that supplied the field by
+hand — the same shape of failure as the `confirmedBlueprint` short-circuit
+that hid the Confirm crash for weeks. Both signals used instead are things the
+application itself knows.
+
+What this deliberately excludes: someone who types "Confirmed. Build this
+campaign." DURING discovery. That sentence is on screen in their own
+transcript, so it does get typed, and nobody should be able to skip discovery
+by repeating it back.
+
+### Two test-shape lessons, both from this slice
+
+**A source-text slice whose end marker no longer exists silently becomes
+"the rest of the file".** `emptyRoundRecovery` sliced from `emptyRecoveries++;`
+to `if (!toolUses.length) break;` — a line that stopped existing when the
+design step landed, so `indexOf` returned -1 and two tests had been asserting
+against everything to EOF. They passed because their assertions were positive
+matches found further down. Retargeted to the marker that exists, which is
+what made a negative assertion possible at all.
+
+**The `phase: 'error'` count is pinned at 8 now, from 7.** That assertion
+exists so a new error path has to be looked at rather than slipped in without
+the brief, and it did its job.
+
+### Verified
+
+1218 unit (from 1214; 9 new) and 118 agent-proto. `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean; `check:server` unchanged at 37
+pre-existing errors. Each of the four fixes was reverted individually and
+fails tests: the forced build (5), collecting its `tool_use` (4), the gate
+exemption (2), the build-failure return (1). Nothing pushed.
+
+### Known, not fixed in this slice
+
+`pendingStrategy` is read by the client and sent by nothing, so
+`req.confirmedStrategy` is dead on every live Confirm. Harmless now that
+nothing depends on it — the only other reader is the `confirmedBlueprint`
+short-circuit, which the app never reaches — but it is a field the client
+believes it is sending.
+
+## 2026-10-22 (cont'd) — Chats: the logs that were evicted, and the journey
+that was never shown
+
+Two questions, and the first one I answered wrongly before measuring it.
+
+### The wrong answer, recorded because it is the lesson
+
+I read `appendRunLog`'s `events: (res.events ?? []).filter(...)`, saw that
+events arrive as their own SSE frames, concluded the result frame never
+carries an `events` array, and changed the client to collect them itself —
+with a comment explaining a defect that does not exist. **`response.events`
+is populated.** `base` carries it; a real recorded turn has 229 of them. The
+change was reverted and so was the test rewritten to assert the false story.
+
+Reading the code is not measuring it. The recorded turns were on disk the
+whole time and one `node -e` would have settled it in ten seconds.
+
+### What was actually wrong: the caps are in different units
+
+Reproduced in a browser with sixteen chats of five turns each.
+
+- Run logs: capped at **60 TURNS** globally, `slice(0, 60)`.
+- Sessions: capped at **40 CHATS**.
+
+A turn budget divided by turns-per-chat IS a chat budget. At five turns the
+logs covered the newest **twelve** chats; four chats listed, opened, and
+showed an empty Logs tab reading *"No run has completed in this chat yet"*
+about five runs that had all completed. The transcript went with them,
+because the Conversation tab was built from the logs too — while the messages
+sat unread in the session store.
+
+Three changes:
+
+- **Eviction is per chat, oldest first** (`pruneRunLogs`), so a chat's logs
+  are all there or all gone. The old slice cut mid-chat, which is the hardest
+  state to read: nothing says which turns are missing.
+- **The transcript falls back to `session.messages`**, which is the better
+  source anyway — the chat is what the user keeps, the log is diagnostic
+  detail. A chat whose logs went says so, once, at the top.
+- **`write` reports failure instead of swallowing it.** It returned void and
+  caught everything, so once the quota filled the app carried on as though it
+  had saved and every chat and log from then on was silently discarded.
+  `appendRunLog` now drops the oldest chat and retries, down to one chat,
+  before giving up — the turn that just happened is the one worth keeping.
+
+`MAX_LOG_CHATS` is 12 against `MAX_SESSIONS` 40, and that asymmetry is now a
+decision with a number behind it: a real log measures ~40 KB against a ~5 MB
+origin quota.
+
+### The journey a chat built had nowhere to be shown
+
+A chat whose whole point was to produce a journey could be opened, read end
+to end, and never show the journey. `campaignSnapshot` was already stored and
+`DripCampaign.root` is the graph, so nothing new had to be recorded — a third
+tab reads it.
+
+`DripCanvas`, the real component, **read-only**. This is not the propose-time
+preview, which is a schematic precisely because no journey exists yet; here
+one does, so showing the real thing is the honest answer. Editing a past
+chat's canvas from a log page would change a campaign with no conversation
+around it — Continue the chat to do that.
+
+The tab appears only when a journey exists, and the snapshot is read from the
+newest turn that HAS one rather than the newest turn, because a chat usually
+continues after the build. The panel is `clamp(420px, 72vh, 900px)`: React
+Flow clamps `fitView` at minZoom 0.5, so a short box shows the top of a
+twenty-node journey and nothing else.
+
+### A latent crash found by a bad fixture
+
+A hand-seeded session white-screened the entire designer:
+`last?.sendProposals.length` — the optional chain stopped at `last`. Every
+live response carries the field, which is why it survived; the restore path
+reads whatever is in localStorage, and the type saying "required" is a
+statement about callers. **Third instance of that exact class today**, after
+`describe.replace` and `(barriers ?? []).some`. `questions` had it too; both
+fixed, with the remaining short chains checked by a negative assertion.
+
+### Verified
+
+1231 unit (from 1218; 13 new) and 118 agent-proto. `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. Reverting each fix fails tests:
+the chat-aligned cap (2), the quota retry (1), the turn picker (1), the
+Journey tab (1). Exercised in a real browser against the recorded turns in
+`eval/runs/ui-s-1792661509156` — 5 turn tabs, 26 event rows on turn 5 and 12
+on turn 1, 13 node cards on the Journey tab, zero add affordances — and
+against the sixteen-chat eviction case, which now keeps its transcript and
+says plainly that the detail was discarded. Nothing pushed.
+
+## 2026-10-22 (cont'd) — A plan ready to approve must not arrive looking
+like a form
+
+Live EMI run: the strategy appeared with Confirm and one numbered question —
+*"Does every EMI-eligible purchase share the same 7-day expiry?"* Answering
+it is what took the manager off Confirm: the reply became a discovery turn
+and the plan they were one click from approving went back into the
+conversation. Clicking Confirm instead produced the graph immediately.
+
+So the highest-frequency miss on this path is **the pairing, not the
+compiler** — an approvable plan shown beside something that reads as a form —
+and the thing that made it a form was the application, not the model.
+
+### What changed, and what deliberately did not
+
+`strategy_with_questions` still proposes, still shows Confirm, and the gate
+still FORMS the question. Two things stop:
+
+- **The response no longer returns them in `questions`.** The client renders
+  that field as a numbered list under the agent's message, which is right for
+  discovery and wrong next to a button that says the plan is ready.
+- **`recordQuestions` no longer runs on this path.** Recording them puts them
+  on the brief as outstanding, which makes the manager's next typed message
+  an ANSWER rather than a decision about the plan.
+
+**Nothing is hidden.** These items are `strategic-ambiguity` by construction
+(`isBlockingItem`), they were already in `gate.openItems`, and
+`renderStrategy` already prints that kind under "Worth settling before this
+is built". The manager reads every one of them — as open points on a plan
+they may still approve.
+
+Discovery before a strategy is untouched: `ask_questions` still returns
+numbered questions, still capped at three, and still records them. There is
+no plan to approve there, so asking is the point.
+
+### The UI half
+
+While `phase === 'awaiting-confirmation'`: no numbered questions on the
+latest assistant turn, and no "Skip & propose". That button offers to produce
+the recommendation that is already on screen — it reads as though the plan
+were provisional and gives the approval turn a second, competing primary
+action. Confirm is the only one. "Request a change" and the message box stay.
+
+### Two things found while doing it, both worth keeping
+
+**I edited the wrong return first.** There are two `phase:
+'awaiting-confirmation'` returns and the live one is the EARLIER one, at the
+`if (!isBuildTurn)` guard — a propose turn carries no blueprint by design, so
+it returns before the blueprint-bearing tail. The tail I changed first only
+runs when a BUILD turn's gate says `strategy_with_questions`. Caught by the
+new test failing on `pendingBlueprint`, not by reading.
+
+**The propose turn does NOT leave the session in
+AWAITING_STRATEGY_CONFIRMATION**, which the slice brief assumed and I would
+have assumed too. Verified against the live record: the recorded propose turn
+returns `phase: awaiting-confirmation` with `state: AWAITING_USER_ANSWER`.
+That state cannot enter generation — the table forbids it — and Confirm
+works anyway because the Confirm turn re-enters the same code with
+`isBuildTurn` true and walks `STRATEGY_READY ->
+AWAITING_STRATEGY_CONFIRMATION` itself before the build tail. Subtle, load
+bearing, and one wrong "tidy-up" away from reintroducing the illegal-
+transition crash — so the test now pins that the door stays REACHABLE from
+whatever state a proposal leaves behind, rather than pinning the state.
+
+### Verified
+
+1239 unit (from 1231; 8 new in `strategyWithQuestions.test.ts`, driving a
+real propose turn through `orchestrateStream`) and 118 agent-proto. `tsc
+--noEmit`, `server:typecheck` and `npm run build` clean. Reverting the
+`questions: []` fails the new test. Two source pins retargeted with their
+reasons: `strategyPreservation` (which pinned `questions: gate.questions` as
+a feature) and `questionContract` (3 `recordQuestions` call sites, now 2).
+Nothing pushed, and neither the experiment-claim nor the send-name slice was
+started.

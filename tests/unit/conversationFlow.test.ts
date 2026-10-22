@@ -241,11 +241,24 @@ describe('the tool loop terminates with an answer, not an error', () => {
     // A live run spent rounds 2, 3 and 4 re-fetching results it already had,
     // at ~45s a round, until the budget ran out and the user got an error
     // instead of a strategy. A request to stop is one a model can decline.
-    expect(src).toMatch(/toolChoice: stopLookingUp \? \{ type: 'none' \} : undefined/);
-    // The definitions must STILL be sent: a history containing tool_use and
-    // tool_result blocks with no tools attached made the model answer with an
-    // empty turn, which killed three evaluation scenarios outright.
-    expect(src).not.toMatch(/tools: stopLookingUp/);
+    // WITHDRAWAL IS NOW LOOKUPS-ONLY, 2026-10-22. `tool_choice: 'none'`
+    // forbade every tool, and on a Confirm turn that included
+    // `build_campaign` — so an approved plan was answered with "I cannot
+    // build; my role stops at proposing." A build turn is forced to build
+    // instead.
+    expect(src).toMatch(/const withdrawLookups = stopLookingUp && !isBuildTurn;/);
+    expect(src).toMatch(/toolChoice: withdrawLookups\s*\?\s*\{ type: 'none' \}/);
+
+    // THE ARRAY IS NEVER EMPTY, which is the invariant behind the
+    // measurement below. The lookups are dropped once exhausted, but the
+    // OUTPUT tools always travel, so a history carrying tool_use and
+    // tool_result blocks always has tools attached.
+    //
+    // Sending NO tools with that history made the model answer with an empty
+    // turn and killed three evaluation scenarios outright. That is what must
+    // not come back — not "every definition always travels".
+    expect(src).toMatch(/\.\.\.\(stopLookingUp \? \[\] : toolsForPhase\(designSeen \|\| isBuildTurn\)\)/);
+    expect(src).toMatch(/\.\.\.outputToolsForPhase\(isBuildTurn\),/);
     // Still sent, now phase-filtered: the builder's vocabulary (event types,
     // audience attributes, step types) is withheld until the agent has stated
     // an intervention, so discovery is not conducted in the builder's terms.

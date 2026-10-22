@@ -177,7 +177,7 @@ describe('a proposal may not quietly build on an untreated belief', () => {
   it('returns through the same branch as a gate refusal', () => {
     // So a refused proposal cannot leak its strategy or blueprint.
     const branch = src.slice(
-      src.indexOf('if (!decision.proceed) {'),
+      src.indexOf('if (!decision.proceed && !approvedPlan) {'),
       src.indexOf('// Discovery is complete. If the model only asked questions'),
     );
     expect(branch).toMatch(/strategy: null/);

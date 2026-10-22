@@ -125,7 +125,11 @@ export function checkBarrierCoverage(
   bp: CampaignBlueprint | null | undefined,
   /** Barriers the design is obliged to address — `mustBeAddressed(brief.barriers)`. */
   owed: { id: string; statement: string }[],
-): { uncitedSends: string[]; unaddressed: { id: string; statement: string }[] } {
+): { uncitedSends: string[]; unaddressed: { id: string; statement: string; basis?: string }[] } {
+  // `basis` travels so the refusal can say "You told me" only where they did.
+  // `mustBeAddressed` already excludes assumptions, so this is belt and
+  // braces — and the caller should not have to look the barrier up again to
+  // find out whose idea it was.
   const uncitedSends: string[] = [];
   const cited = new Set<string>();
 

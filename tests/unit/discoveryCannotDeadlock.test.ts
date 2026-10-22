@@ -137,7 +137,7 @@ describe('3 — the budget is an escape hatch that nothing can override', () => 
     for (const gone of ['beliefUntreated', 'forkUnanswered', 'dimensionUnresolved', 'questionDropped']) {
       expect(orch, gone).not.toContain(`const ${gone} =`);
     }
-    expect(orch).toMatch(/if \(!decision\.proceed\) \{/);
+    expect(orch).toMatch(/if \(!decision\.proceed && !approvedPlan\) \{/);
     expect(orch).toMatch(/const decision = decide\(brief, \{/);
   });
 

@@ -140,8 +140,14 @@ const pinActivation = (): WorkingBrief => {
     'honestly we have no visibility on who already activates without a nudge',
   );
   b = recordConverters(b, {
+    // BASIS IS THE AGENT'S OWN, deliberately, and it is what makes this group
+    // of tests about candidates at all. Since 2026-10-22 a user-stated shape
+    // settles the finding on its own, so a fixture with `basis: 'user'` would
+    // pass every assertion below without a candidate rule ever running. This
+    // shape is the agent characterising a non-answer, which is an assumption
+    // either way.
     shape: 'No converter pattern the manager trusts yet.',
-    basis: 'user',
+    basis: 'assumption',
     knowledge: 'none-yet',
     candidates: [
       { segment: 'Cardholders who signed up through a welcome offer', restsOn: 'the acquisition incentive attached at sign-up', why: 'A reward tied to first use is its own reason to act.' },
@@ -212,12 +218,13 @@ describe('unknown plus two candidates IS who-converts settled', () => {
   });
 
   it('still blocks when nobody knows and only one guess was offered', () => {
-    // The rule that remains. One candidate is a guess dressed as analysis;
-    // two resting on different things is a set of options a campaign can
-    // actually tell apart.
+    // The rule that remains, and where it now applies: a shape the AGENT
+    // supplied. One candidate is a guess dressed as analysis; two resting on
+    // different things is a set of options a campaign can actually tell apart.
+    // A shape the MANAGER stated settles the finding by itself.
     const b = recordConverters(pinActivation(), {
       shape: 'No pattern yet.',
-      basis: 'user',
+      basis: 'assumption',
       knowledge: 'none-yet',
       candidates: [{ segment: 'Welcome-offer sign-ups', restsOn: 'the acquisition incentive', why: 'A reward is its own reason.' }],
     });

@@ -16,6 +16,7 @@ import {
   type Barrier,
 } from '../../server/findings';
 import { newBrief, recordAnswer, recordBarriers, recordConverters, briefBarriers } from '../../server/discovery';
+import { decide } from '../../server/gate';
 
 const barrier = (over: Partial<Barrier> = {}): Barrier => ({
   id: 'cost',
@@ -262,13 +263,89 @@ describe('who converts today — when the manager knows', () => {
   });
 });
 
-describe('who converts today — when NOBODY knows', () => {
+describe('who converts today — the manager described the audience', () => {
+  // The activation run, 2026-10-22, turn 3. They said: every newly issued card
+  // that has not transacted, one track, do not split. The record held that
+  // faithfully — basis `user`, shape exactly that — and wrote `knowledge:
+  // 'none-yet'`, which is ALSO true: nobody can point at a sub-group that
+  // activates faster. The gate took the second statement, fell through to the
+  // candidate path with no candidates, and refused the proposal with "I do not
+  // yet know who does this today" about an audience they had just defined.
+  //
+  // So a user-stated shape settles this finding whatever `knowledge` says.
+  const described = (over = {}) => ({
+    shape: 'every newly issued card that has not transacted, one track',
+    basis: 'user' as const,
+    knowledge: 'unknown' as const,
+    ...over,
+  });
+
+  it('settles on a user-stated shape even when knowledge is not "known"', () => {
+    for (const knowledge of ['unknown', 'none-yet'] as const) {
+      const b = recordConverters(newBrief('o'), described({ knowledge }));
+      expect(convertersSettled(b.converters)).toBe(true);
+    }
+  });
+
+  it('does not need candidates when the manager named the audience', () => {
+    const b = recordConverters(newBrief('o'), described());
+    expect(b.converters?.candidates).toEqual([]);
+    expect(convertersSettled(b.converters)).toBe(true);
+  });
+
+  it('stops the gate asking who converts', () => {
+    // The live symptom, and the only thing the manager actually saw.
+    const b = recordConverters(newBrief('o'), described());
+    const codes = decide(b).blocks.map((x) => x.code);
+    expect(codes).not.toContain('converters-unknown');
+    expect(decide(b).blocks.every((x) => !/who does this today/.test(x.reason))).toBe(true);
+  });
+
+  it('still has to find out who converts — the obligation moved, it did not go', () => {
+    // `mustLearnAudience` is unchanged, so the campaign is still one whose job
+    // includes learning who responds. It is carried as a limitation on the
+    // design rather than as a refusal to proceed.
+    const b = recordConverters(newBrief('o'), described());
+    expect(mustLearnAudience(b.converters)).toBe(true);
+  });
+
+  it('does not accept a shape the AGENT wrote, however well put', () => {
+    const b = recordConverters(newBrief('o'), described({ basis: 'assumption' }));
+    expect(convertersSettled(b.converters)).toBe(false);
+  });
+
+  it('accepts a user-stated non-answer, which is the cost of the above', () => {
+    // RECORDED AS BEHAVIOUR, not asserted as desirable. "nobody can say" with
+    // basis `user` is a non-empty user shape, so it settles with no
+    // candidates — the narrowed remains of the hole this function's history
+    // describes.
+    //
+    // Closing it would mean reading their prose to decide whether a shape
+    // names a group or reports an absence, and judging their words to RAISE a
+    // block is the one thing `record.ts` forbids. The protection sits on the
+    // design instead: `mustLearnAudience` holds, so a journey that learns
+    // nothing about who converts is reported as a limitation.
+    const b = recordConverters(newBrief('o'), described({ shape: 'nobody can say who converts' }));
+    expect(convertersSettled(b.converters)).toBe(true);
+    expect(mustLearnAudience(b.converters)).toBe(true);
+  });
+});
+
+describe("who converts today — when NOBODY knows and the shape is the agent's own", () => {
   // The case that matters most and was wrong first time round: "they have no
   // data on this" used to close the question, so the one situation where the
   // agent needed to think hardest was the one it was allowed to skip.
-  const blank = (over = {}) => ({ shape: 'nobody has converted yet', basis: 'user' as const, knowledge: 'none-yet' as const, ...over });
+  //
+  // THE FIXTURE'S BASIS CHANGED 2026-10-22, and it is the whole point of the
+  // group. These cases used `basis: 'user'`, which now settles on the shape
+  // alone — so written that way they would all pass without exercising a
+  // single candidate rule. The two-candidate requirement applies where it was
+  // always aimed: a shape the AGENT supplied. `recordConverters` refuses an
+  // empty shape outright, so "no user shape" means a non-user basis in
+  // practice, and that is the path these tests walk.
+  const blank = (over = {}) => ({ shape: 'nobody has converted yet', basis: 'assumption' as const, knowledge: 'none-yet' as const, ...over });
 
-  it('is NOT settled just because the manager said they have no idea', () => {
+  it('is NOT settled by the agent reporting that nobody knows', () => {
     const b = recordConverters(newBrief('o'), blank());
     expect(convertersSettled(b.converters)).toBe(false);
   });
@@ -419,5 +496,119 @@ describe('a campaign that cannot say who converts must be built to find out', ()
 
   it('does not apply when the manager described them', () => {
     expect(mustLearnAudience({ shape: 'x', basis: 'user', knowledge: 'known' })).toBe(false);
+  });
+});
+
+// An invented barrier must not come back as "You told me".
+//
+// THE LIVE FAILURE. Confirm refused a build the manager had approved with:
+// "You told me: Customers may notice individual eligible-purchase pings but
+// tune out…" — and later the same for first-time versus repeat EMI. They had
+// said neither. The agent had floated both as rival theories, which is its
+// job; three mechanisms then turned them into the manager's own words.
+//
+//   recordBarriers merged and never deleted, so a theory withdrawn on a
+//   later turn stayed on the record for ever;
+//   quoteIsTheirs scored 40% word overlap across the WHOLE transcript, which
+//   in a long EMI conversation is nearly free, upgrading an assumption to
+//   user-belief;
+//   mustBeAddressed admitted assumptions, so coverage then demanded the
+//   journey answer a theory nobody had raised.
+describe('an invented barrier is the agent’s, not the manager’s', () => {
+  const said = (text: string) => recordAnswer(newBrief('Raise OS-to-EMI conversion.'), text);
+  const theirs = 'they think the interest is too expensive';
+
+  it('excludes an assumption from what the campaign owes an answer to', () => {
+    const mixed: Barrier[] = [
+      { id: 'cost', statement: 'They think it is expensive.', basis: 'user-belief', lever: 'message' },
+      { id: 'fatigue', statement: 'They tune out repeated pings.', basis: 'assumption', lever: 'message' },
+    ];
+    expect(mustBeAddressed(mixed).map((b) => b.id)).toEqual(['cost']);
+    // Still designable, and still something the journey must TEST when it is
+    // all there is — neither rule is loosened.
+    expect(designableBarriers(mixed)).toHaveLength(2);
+    expect(mustTestBarriers([mixed[1]])).toBe(true);
+  });
+
+  it('still owes an answer to a not-addressable barrier being excluded', () => {
+    const bs: Barrier[] = [{ id: 'x', statement: 'A product problem.', basis: 'user', lever: 'not-addressable' }];
+    expect(mustBeAddressed(bs)).toHaveLength(0);
+  });
+
+  describe('the quote has to be a phrase they typed', () => {
+    const basisFor = (answer: string, quote: string) =>
+      briefBarriers(
+        recordBarriers(said(answer), [
+          { id: 'b', statement: 'A barrier.', basis: 'assumption', lever: 'message', quote },
+        ]),
+      )[0]?.basis;
+
+    it('upgrades on their exact words', () => {
+      expect(basisFor(theirs, theirs)).toBe('user-belief');
+    });
+
+    it('upgrades on a near phrase, because a model paraphrases', () => {
+      // Demanding a literal substring would reject honest attributions more
+      // often than dishonest ones, and the record would then carry the
+      // agent's label instead of their belief.
+      expect(basisFor(theirs, 'the interest looks too expensive to them')).toBe('user-belief');
+    });
+
+    it('does NOT upgrade when they repeated the theory to reject it', () => {
+      // The trap a contiguity check walks into on its own: the denial
+      // contains the phrase verbatim.
+      expect(basisFor('I did not say they tune out repeated pings', 'they tune out repeated pings')).toBe('assumption');
+    });
+
+    it('does NOT upgrade on a long answer that never states the rival', () => {
+      // The live case. Scored across the whole transcript this cleared 40%
+      // on "customers", "repeated" and "purchase" alone.
+      const long =
+        'every eligible purchase should get it, one track, do not split by customer type or by repeated purchase behaviour, and keep it simple';
+      expect(basisFor(long, 'customers may notice individual eligible-purchase pings but tune out')).toBe('assumption');
+    });
+
+    it('still upgrades a barrier that is ITSELF about an absence', () => {
+      // "not" appears in their own sentence; the denial test ignores words
+      // that are part of the quote, so this is not mistaken for a rejection.
+      const answer = 'they do not know how to set the PIN';
+      expect(basisFor(answer, answer)).toBe('user-belief');
+    });
+  });
+
+  describe('a sent list replaces; an omitted one is kept', () => {
+    it('drops a rival the agent stopped naming', () => {
+      let b = said(theirs);
+      b = recordBarriers(b, [
+        { id: 'cost', statement: 'They think it is expensive.', basis: 'user-belief', lever: 'message', quote: theirs },
+        { id: 'fatigue', statement: 'They tune out repeated pings.', basis: 'assumption', lever: 'message' },
+        { id: 'first-time', statement: 'First-time EMI users hesitate.', basis: 'assumption', lever: 'message' },
+      ]);
+      expect(briefBarriers(b)).toHaveLength(3);
+      b = recordBarriers(b, [
+        { id: 'cost', statement: 'They think it is expensive.', basis: 'user-belief', lever: 'message' },
+      ]);
+      expect(briefBarriers(b).map((x) => x.id)).toEqual(['cost']);
+    });
+
+    it('keeps the quote the update did not repeat', () => {
+      // Terseness is not retraction, and the quote is the evidence of what
+      // they said.
+      let b = said(theirs);
+      b = recordBarriers(b, [{ id: 'cost', statement: 'Expensive.', basis: 'user-belief', lever: 'message', quote: theirs }]);
+      b = recordBarriers(b, [{ id: 'cost', statement: 'Expensive.', basis: 'user-belief', lever: 'timing' }]);
+      expect(briefBarriers(b)[0].quote).toBe(theirs);
+      expect(briefBarriers(b)[0].lever).toBe('timing');
+    });
+
+    it('does not wipe the barriers on a converters-only turn', () => {
+      // `record_findings` may carry one field or both. Replace on SENT, keep
+      // on OMITTED — the whole weight of the empty guard.
+      let b = said(theirs);
+      b = recordBarriers(b, [{ id: 'cost', statement: 'Expensive.', basis: 'user-belief', lever: 'message' }]);
+      b = recordBarriers(b, undefined);
+      b = recordBarriers(b, []);
+      expect(briefBarriers(b)).toHaveLength(1);
+    });
   });
 });

@@ -273,6 +273,25 @@ export const saysProceed = (text: string): boolean => {
 };
 
 /**
+ * The words the Confirm button sends, typed by hand.
+ *
+ * The button posts `intent: 'confirm'` AND the sentence "Confirmed. Build
+ * this campaign." Someone who types that sentence instead — reasonably,
+ * since it is on screen in their own transcript — sends no intent, so the
+ * turn was not a build turn and the plan was discussed again.
+ *
+ * `saysProceed` is NOT the same thing and must not be reused here: it
+ * releases the discovery gate ("go ahead", "stop asking") and is deliberately
+ * loose, because a false positive there costs a stated assumption. Starting a
+ * BUILD on a loose match is a different risk — "do not build it yet" contains
+ * "build it". So this is an exact match on the one phrase the product itself
+ * puts in front of them.
+ */
+const CONFIRM_PHRASE = 'confirmed. build this campaign.';
+export const saysBuildNow = (text: string): boolean =>
+  text.trim().toLowerCase().replace(/\s+/g, ' ') === CONFIRM_PHRASE;
+
+/**
  * One pass over a new user message: attribute it, settle what they said they
  * cannot answer, and report whether they asked us to move on.
  *

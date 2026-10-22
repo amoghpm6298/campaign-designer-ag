@@ -35,6 +35,10 @@ const {
   saveSession,
   deleteSession,
   MAX_SESSIONS,
+  appendRunLog,
+  loadRunLogs,
+  pruneRunLogs,
+  MAX_LOG_CHATS,
 } = await import('../../src/designer/storage');
 
 const designer = readFileSync(new URL('../../src/designer/CampaignDesigner.tsx', import.meta.url), 'utf8');
@@ -204,9 +208,11 @@ describe('the Chats page lists conversations and can continue one', () => {
   });
 
   it('splits the conversation from the logs into two tabs', () => {
-    expect(logsView).toMatch(/useState<'resume' \| 'logs'>\('resume'\)/);
+    expect(logsView).toMatch(/useState<'resume' \| 'logs' \| 'journey'>\('resume'\)/);
     expect(logsView).toMatch(/\{tab === 'resume' && \(/);
     expect(logsView).toMatch(/\{tab === 'logs' && current && \(/);
+    // A third tab since 2026-10-22, and only when the chat built something.
+    expect(logsView).toMatch(/\{tab === 'journey' && built && \(/);
     // And the Logs tab says so when there is no run to show, rather than
     // rendering an empty frame.
     expect(logsView).toMatch(/No run has completed in this chat yet/);
@@ -286,5 +292,192 @@ describe('a run log is end to end, not a transcript with events beside it', () =
     // Same rule as the architecture renderer: a bare caption reads as a
     // question put to the user about something that was never recorded.
     expect(logsView).toMatch(/const Fact = \(\{ label, children \}[\s\S]*?children \?/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2026-10-22 — "why are logs not coming up in chats section" and "how will we
+// show when a graph is built"
+//
+// Three separate faults behind one page, and only the first is a bug in the
+// ordinary sense.
+// ---------------------------------------------------------------------------
+
+describe('a chat lists the log of every turn, not only the last', () => {
+  it('lets a turn be picked, and defaults to the newest', () => {
+    // THE GAP. `current` was `turns[turns.length - 1]` and the Logs tab
+    // rendered only that, so a five-turn conversation had four turns of
+    // events no screen could reach. The Conversation tab has always listed
+    // every turn — this is the same record from the other side.
+    expect(logsView).toMatch(/const \[turnSel, setTurnSel\] = useState<string \| null>\(null\);/);
+    expect(logsView).toMatch(/const newest = session\?\.turns\[session\.turns\.length - 1\] \?\? null;/);
+    expect(logsView).toMatch(
+      /const current = \(turnSel \? session\?\.turns\.find\(\(t\) => t\.runId === turnSel\) : null\) \?\? newest;/,
+    );
+    expect(logsView).toMatch(/className="cd-turnpicker"/);
+  });
+
+  it('offers the picker only when there is more than one turn', () => {
+    // One turn needs no chooser, and a row of tabs with a single tab in it
+    // reads as a control that does nothing.
+    expect(logsView).toMatch(/\{tab === 'logs' && session\.turns\.length > 1 && \(/);
+  });
+
+  it('forgets the picked turn when a different chat is opened', () => {
+    // Otherwise the runId belongs to a chat you are no longer looking at,
+    // `find` misses, and it silently falls back to the newest — which looks
+    // like the picker being ignored.
+    expect(logsView).toMatch(/setSel\(g\.sessionId\); setTab\('resume'\); setTurnSel\(null\);/);
+  });
+});
+
+describe('a chat shows the journey it built', () => {
+  it('renders the real canvas, read-only, from the stored snapshot', () => {
+    // `campaignSnapshot` is the campaign as it stood and `DripCampaign.root`
+    // is the graph, so nothing new has to be stored for this.
+    //
+    // READ-ONLY, deliberately. This is a record of what was built; editing a
+    // past chat's canvas from a log page would change a campaign with no
+    // conversation around it. Continue the chat to change it.
+    expect(logsView).toMatch(/import \{ DripCanvas \} from '\.\.\/canvas\/DripCanvas';/);
+    expect(logsView).toMatch(/<DripCanvas graph=\{built\.root!\} editable=\{false\} goal=\{built\.goal \?\? null\} \/>/);
+  });
+
+  it('reads the snapshot from the newest turn that HAS one', () => {
+    // A chat usually continues after the build, and those later turns carry
+    // no snapshot — so taking the newest turn's would show nothing on a chat
+    // that plainly built a journey.
+    expect(logsView).toMatch(/for \(const t of \[\.\.\.\(session\?\.turns \?\? \[\]\)\]\.reverse\(\)\) \{/);
+    expect(logsView).toMatch(/if \(t\.campaignSnapshot\?\.root\?\.rootId\) return t\.campaignSnapshot;/);
+  });
+
+  it('shows no Journey tab when nothing was built', () => {
+    // A tab that opens onto "no journey was built" is a worse answer than the
+    // tab's absence, and most chats never reach a build.
+    const tabs = logsView.slice(logsView.indexOf('className="cd-subtabs"'), logsView.indexOf('THE BUILT JOURNEY'));
+    expect(tabs).toMatch(/\{built && \(/);
+  });
+});
+
+describe('the empty state counts chats, not run logs', () => {
+  it('does not claim there are no chats while rows exist', () => {
+    // It was gated on `!logs.length`, so clearing the logs — or any chat that
+    // exists in storage with no completed run — showed "No chats yet" over a
+    // table that was about to render.
+    expect(logsView).toMatch(/if \(!sessions\.length\) \{/);
+    expect(logsView).not.toMatch(/if \(!logs\.length\) \{/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2026-10-22 — "why are logs not coming up in chats section"
+//
+// Reproduced in a browser with sixteen chats of five turns each. Run logs were
+// capped at 60 TURNS globally (`slice(0, 60)`) while sessions are capped at 40
+// CHATS. A turn budget divided by turns-per-chat IS a chat budget, so the logs
+// covered only the newest twelve chats: four chats listed, opened, and showed
+// an empty Logs tab reading "No run has completed in this chat yet" about five
+// runs that had all completed. The transcript went with them, because the
+// Conversation tab was built from the logs too.
+// ---------------------------------------------------------------------------
+
+const runLog = (sessionId: string, n: number) => ({
+  runId: `${sessionId}-r${n}`,
+  sessionId,
+  startedAt: new Date(2026, 9, 22, 10, n).toISOString(),
+  status: 'discovery' as const,
+  title: `turn ${n}`,
+  model: 'claude-opus-5',
+  events: [],
+});
+
+describe('run logs are evicted by chat, not by turn', () => {
+  beforeEach(() => store.clear());
+
+  it('keeps whole chats, newest first', () => {
+    // Newest-first, five turns each, more chats than the budget.
+    const logs = [];
+    for (let c = 1; c <= MAX_LOG_CHATS + 4; c++) {
+      for (let t = 5; t >= 1; t--) logs.push(runLog(`s-${String(c).padStart(2, '0')}`, t));
+    }
+    const kept = pruneRunLogs(logs);
+    const chats = new Set(kept.map((l) => l.sessionId));
+    expect(chats.size).toBe(MAX_LOG_CHATS);
+    // EVERY kept chat keeps ALL of its turns. A half-logged conversation is a
+    // worse record than an absent one: nothing says which turns are missing.
+    for (const id of chats) expect(kept.filter((l) => l.sessionId === id)).toHaveLength(5);
+    // And the chats that went are the oldest ones.
+    expect(chats.has('s-01')).toBe(true);
+    expect(chats.has(`s-${String(MAX_LOG_CHATS + 4).padStart(2, '0')}`)).toBe(false);
+  });
+
+  it('never splits one chat across the boundary', () => {
+    // The old `slice(0, 60)` cut mid-chat, so the chat ON the boundary kept
+    // some turns and lost others — the state that is hardest to read.
+    const logs = [];
+    for (let c = 1; c <= MAX_LOG_CHATS + 2; c++) {
+      for (let t = 7; t >= 1; t--) logs.push(runLog(`s-${c}`, t));
+    }
+    const kept = pruneRunLogs(logs);
+    const counts = new Set([...new Set(kept.map((l) => l.sessionId))].map((id) => kept.filter((l) => l.sessionId === id).length));
+    expect(counts).toEqual(new Set([7]));
+  });
+
+  it('writes the newest turn even when the quota is full', () => {
+    // `write` used to swallow a quota failure and return void, so once the
+    // store filled the app carried on as though it had saved and every log
+    // from then on was silently discarded. It reports now, and the caller
+    // drops the oldest chat and tries again.
+    for (let c = 1; c <= 4; c++) appendRunLog(runLog(`s-${c}`, 1));
+    const realSet = localStorage.setItem;
+    let refusals = 0;
+    (localStorage as unknown as { setItem: (k: string, v: string) => void }).setItem = (k, v) => {
+      // Refuse anything carrying more than two chats, then accept.
+      if (k === 'dc-agent-runlogs-v1' && new Set(JSON.parse(v).map((l: { sessionId: string }) => l.sessionId)).size > 2) {
+        refusals++;
+        throw new Error('QuotaExceededError');
+      }
+      realSet.call(localStorage, k, v);
+    };
+    appendRunLog(runLog('s-5', 1));
+    (localStorage as unknown as { setItem: unknown }).setItem = realSet;
+    expect(refusals).toBeGreaterThan(0);
+    const after = loadRunLogs();
+    expect(after[0].sessionId, 'the turn that just happened must survive').toBe('s-5');
+    expect(new Set(after.map((l) => l.sessionId)).size).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('a chat whose logs were evicted still reads as a conversation', () => {
+  it('falls back to the session own messages for the transcript', () => {
+    // They sat in the session store, unread, while the page said the chat had
+    // no completed turn.
+    expect(logsView).toMatch(/const said = new Map\(stored\.map\(\(s\) => \[s\.sessionId, s\.messages \?\? \[\]\]\)\);/);
+    expect(logsView).toMatch(/\{!session\.turns\.length && session\.messages\.length > 0 && \(/);
+    expect(logsView).toMatch(/The detailed logs for this chat have been discarded to save space\./);
+  });
+
+  it('tells the two empty states apart', () => {
+    // "No run has completed in this chat yet" about five completed runs is
+    // how a working chat came to look broken.
+    expect(logsView).toMatch(/session\.messages\.length\s*\n?\s*\? 'The detailed logs for this chat have been discarded/);
+    expect(logsView).toMatch(/: 'No run has completed in this chat yet/);
+  });
+});
+
+describe('a stored response missing a field cannot take the page down', () => {
+  it('guards the arrays it reads off the last response', () => {
+    // `last?.sendProposals.length` — the chain stopped at `last`, so a stored
+    // response without the field crashed the WHOLE designer with "Cannot read
+    // properties of undefined". Found by seeding a session by hand; every live
+    // response carries the field, which is exactly why it went unnoticed. The
+    // type says required and the restore path reads localStorage.
+    expect(designer).toMatch(/last\?\.sendProposals\?\.length/);
+    expect(designer).toMatch(/last\?\.questions\?\.length/);
+    // No remaining short chain anywhere in the file, comments included — the
+    // comment explaining this fix deliberately does not quote the broken form,
+    // because a source-text assertion that reads its own documentation is not
+    // checking the code.
+    expect(designer).not.toMatch(/last\?\.[a-zA-Z]+\.length/);
   });
 });

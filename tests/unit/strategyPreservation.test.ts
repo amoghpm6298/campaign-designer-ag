@@ -213,10 +213,20 @@ describe('nothing blocks a recommendation except a material question', () => {
 describe('the orchestrator carries the strategy through the same return', () => {
   const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
 
-  it('returns strategy, blueprint AND questions from one place', () => {
+  it('returns strategy and blueprint from one place, and no questions', () => {
     const tail = src.slice(src.lastIndexOf("phase: 'awaiting-confirmation'"));
-    // Now also carries the questions the agent chose to proceed past, so a
-    // carried decision stays visible at the moment of confirmation.
+    // QUESTIONS ARE EMPTY HERE SINCE 2026-10-22, and the reasoning reversed
+    // deliberately. This used to carry `gate.questions` so a carried decision
+    // stayed visible at the moment of confirmation — which is still the goal,
+    // but the client renders this field as a NUMBERED LIST under the agent's
+    // message, and a numbered list beside Confirm reads as a form the plan is
+    // waiting on. Measured live: the manager answered the question instead of
+    // confirming, and confirming would have built the campaign immediately.
+    //
+    // The points are still visible, in the place that cannot be mistaken for
+    // a questionnaire: the reply itself, under "Worth settling before this is
+    // built", rendered from `gate.openItems` by `renderStrategy` — which is
+    // where they already were.
     //
     // The reply is built ABOVE the return, as `replyText`, so the plain-language
     // check can read it before it is recorded as an application verdict. The
@@ -229,7 +239,10 @@ describe('the orchestrator carries the strategy through the same return', () => 
     expect(tail).toMatch(/reply: replyText,/);
     expect(tail).toMatch(/strategy,/);
     expect(tail).toMatch(/pendingBlueprint: blueprint/);
-    expect(tail).toMatch(/questions: gate\.questions/);
+    expect(tail).toMatch(/questions: \[\],/);
+    expect(tail).not.toMatch(/questions: gate\.questions/);
+    // The open items still reach the reply. Same source, same render.
+    expect(src).toMatch(/const replyText = renderStrategy\(\n?\s*strategy, gate\.openItems,/);
   });
 
   it('no longer routes a proposal into the question-only path', () => {

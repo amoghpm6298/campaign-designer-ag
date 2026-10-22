@@ -384,7 +384,7 @@ describe('2.5 — a viable experiment is written, not requested', () => {
 
 describe('the earlier safeguards are untouched', () => {
   it('fork blocking, no-proxy and risk visibility all still present', () => {
-    expect(orch).toMatch(/if \(!decision\.proceed\) \{/);
+    expect(orch).toMatch(/if \(!decision\.proceed && !approvedPlan\) \{/);
     expect(SYSTEM).toMatch(/DO NOT CLOSE THAT GAP WITH A NEAR-ENOUGH ATTRIBUTE/);
     expect(SYSTEM).toMatch(/a single event's value is not a running total/);
     expect(orch).toMatch(/Proceeding without an answer on/);

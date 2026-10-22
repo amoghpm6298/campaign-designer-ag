@@ -50,7 +50,17 @@ describe('impact survives from the model payload to the brief', () => {
     // — which looks exactly like the defect it replaced.
     expect(src).toMatch(/impactByText\.set\(q\.text, asImpact\(q\.impact\)\)/);
     expect(src).not.toMatch(/recordQuestions\(brief, gate\.questions\)/);
-    expect([...src.matchAll(/recordQuestions\(brief, withImpact\(gate\.questions\)\)/g)]).toHaveLength(3);
+    // 3 -> 2 on 2026-10-22. The propose path no longer records its leftover
+    // points as questions: recording them puts them on the brief as
+    // outstanding, which makes the manager's next typed message an ANSWER
+    // rather than a decision about the plan, and that is what pulled them off
+    // Confirm. The two remaining call sites are both pre-strategy discovery,
+    // where asking is the whole point.
+    expect([...src.matchAll(/recordQuestions\(brief, withImpact\(gate\.questions\)\)/g)]).toHaveLength(2);
+    // And it is specifically the propose path that stopped, not one of the
+    // discovery paths.
+    const propose = src.slice(src.indexOf("const withQuestions = gate.outcome === 'strategy_with_questions'"));
+    expect(propose).not.toMatch(/recordQuestions\(/);
   });
 
   it('keeps a declared impact on the recorded question', () => {

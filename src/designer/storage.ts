@@ -17,11 +17,22 @@ function read<T>(key: string): T | null {
     return null;
   }
 }
-function write(key: string, value: unknown): void {
+/**
+ * Returns whether the write actually landed.
+ *
+ * It used to return void and swallow the failure. That is right for the
+ * "private mode, nothing persists" case and wrong for a full quota: the app
+ * carried on as though it had saved, and every chat and log from that point
+ * on was silently discarded. A caller that can prune and retry needs to be
+ * told.
+ */
+function write(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
     /* quota or private mode — the prototype still works, just unpersisted */
+    return false;
   }
 }
 
@@ -45,10 +56,62 @@ export const clearKnowledge = () => localStorage.removeItem(KB_KEY);
 export function loadRunLogs(): RunLog[] {
   return read<RunLog[]>(LOGS_KEY) ?? [];
 }
+
+/**
+ * How many CHATS keep their detailed logs.
+ *
+ * THE DEFECT THIS FIXES, measured in a browser with sixteen chats of five
+ * turns each. Logs were capped at 60 TURNS globally — `slice(0, 60)` — while
+ * sessions are capped at 40 CHATS. A turn budget divided by turns-per-chat is
+ * a chat budget, so the log store covered only the newest twelve chats: four
+ * chats listed, opened, and showed an empty Logs tab reading "No run has
+ * completed in this chat yet" about five runs that had all completed. The
+ * transcript went with them, because the Conversation tab is built from the
+ * logs too.
+ *
+ * The two caps have to be aligned in UNITS or the mismatch comes back at a
+ * different ratio. Eviction is per chat and oldest first, so a chat's logs
+ * are either all there or all gone — a half-logged conversation is a worse
+ * record than an absent one, because nothing says which turns are missing.
+ *
+ * Lower than `MAX_SESSIONS` deliberately, and that asymmetry is now a
+ * decision rather than an accident: a real log measures ~40 KB against a
+ * ~5 MB origin quota, so 40 chats of logs would not fit beside the sessions
+ * themselves. The SESSION is what matters — it lists, it resumes, it holds
+ * the transcript — and the log is diagnostic detail. So detail is what gets
+ * dropped first, and a chat whose logs have gone still opens, still resumes,
+ * and says plainly that the detail was discarded.
+ */
+export const MAX_LOG_CHATS = 12;
+/** A hard byte-ish backstop, in case one chat runs very long. */
+export const MAX_LOG_TURNS = 120;
+
+/** Session ids in the order their newest log was written. */
+const chatOrder = (logs: RunLog[]): string[] => {
+  const seen: string[] = [];
+  for (const l of logs) if (!seen.includes(l.sessionId)) seen.push(l.sessionId);
+  return seen;
+};
+
+/**
+ * Keep whole chats, newest first, within both budgets.
+ *
+ * `logs` must already be newest-first, which is how `appendRunLog` holds
+ * them.
+ */
+export function pruneRunLogs(logs: RunLog[], maxChats = MAX_LOG_CHATS): RunLog[] {
+  const keep = new Set(chatOrder(logs).slice(0, maxChats));
+  return logs.filter((l) => keep.has(l.sessionId)).slice(0, MAX_LOG_TURNS);
+}
+
 export function appendRunLog(log: RunLog): RunLog[] {
-  // Newest first, capped so a long demo cannot exhaust the quota.
-  const next = [log, ...loadRunLogs()].slice(0, 60);
-  write(LOGS_KEY, next);
+  let next = pruneRunLogs([log, ...loadRunLogs()]);
+  // A full quota is not a reason to lose THIS turn. Drop the oldest chat and
+  // try again, down to the newest chat alone, before giving up.
+  for (let chats = MAX_LOG_CHATS; chats >= 1; chats--) {
+    next = pruneRunLogs([log, ...loadRunLogs()], chats);
+    if (write(LOGS_KEY, next)) return next;
+  }
   return next;
 }
 export function clearRunLogs(): void {

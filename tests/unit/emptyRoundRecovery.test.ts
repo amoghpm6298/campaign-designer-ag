@@ -35,7 +35,14 @@ describe('the answering round runs without extended thinking', () => {
     // Tied to the same condition, so the two can never drift apart: the round
     // that may not call a tool is the round that must answer.
     expect(orch).toMatch(/disableThinking: stopLookingUp,/);
-    expect(orch).toMatch(/toolChoice: stopLookingUp \? \{ type: 'none' \} : undefined,/);
+    // SPLIT 2026-10-22. `tool_choice: 'none'` withdrew EVERY tool, and on a
+    // Confirm turn the tool it withdrew was `build_campaign` — so an
+    // approval was answered with "I cannot build; my role stops at
+    // proposing." The withdrawal applies to lookups only now; a build turn
+    // is FORCED to build, which is the one thing it is for.
+    expect(orch).toMatch(/const withdrawLookups = stopLookingUp && !isBuildTurn;/);
+    expect(orch).toMatch(/toolChoice: withdrawLookups\s*\?\s*\{ type: 'none' \}/);
+    expect(orch).toMatch(/\{ type: 'tool', name: 'build_campaign' \}/);
   });
 
   it('records the measurement next to the switch', () => {
@@ -53,6 +60,17 @@ describe('an empty terminal round is recovered, not reported', () => {
     // retried once while the eval harness retried six times, so the failure
     // that ends a session was invisible in every measurement of it.
     expect(orch).toMatch(/if \(!toolUses\.length && unusable && emptyRecoveries < MAX_EMPTY_RECOVERIES\)/);
+    // NARROWED AGAIN 2026-10-22, and the history is worth keeping because the
+    // widening was wrong in a way that passed its own test. `mustBuild` was
+    // ORed in here so a build turn with no journey would be recovered — but
+    // this retry reads `chunk.text` and `chunk.done` and then breaks, so the
+    // `build_campaign` call it forced was never collected and the blueprint
+    // was discarded. It forced a build and threw it away.
+    //
+    // The forced build is after the loop now, where the result is applied. The
+    // binding is gone rather than left unused; the history stays as a comment.
+    expect(orch).not.toMatch(/const mustBuild =/);
+    expect(orch).toMatch(/if \(isBuildTurn && !toolBlueprint\) \{/);
     // Unusable covers BOTH failure shapes: nothing at all, and text that is
     // not the JSON the application has to parse. Measured after the thinking
     // fix: the empty turns became short prose, which fails the user just the
@@ -69,17 +87,23 @@ describe('an empty terminal round is recovered, not reported', () => {
   });
 
   it('retries with thinking off and tools forbidden', () => {
-    const block = orch.slice(orch.indexOf('emptyRecoveries++;'), orch.indexOf('if (!toolUses.length) break;'));
+    const block = orch.slice(orch.indexOf('emptyRecoveries++;'), orch.indexOf('if (!toolUses.length) {'));
     expect(block).toMatch(/disableThinking: true,/);
+    // Forbidden here, unconditionally. This recovery exists for a round that
+    // produced nothing usable, and the answer it is asking for is prose.
     expect(block).toMatch(/toolChoice: \{ type: 'none' \},/);
     expect(block).toMatch(/Your previous turn did not produce a usable answer/);
     expect(block).toMatch(/the single JSON object described in OUTPUT, complete/);
+    // The build instruction is NOT here any more. Asking this block to force a
+    // build is what produced a forced build nobody read.
+    expect(block).not.toMatch(/Your previous turn did not build the campaign/);
+    expect(orch).toMatch(/Your previous turn did not build the campaign/);
   });
 
   it('is bounded to a single attempt, so it cannot become a loop', () => {
     // The flag is set BEFORE the call, so a retry that also comes back empty
     // falls through to the honest error rather than retrying again.
-    const block = orch.slice(orch.indexOf('if (!toolUses.length && unusable'), orch.indexOf('if (!toolUses.length) break;'));
+    const block = orch.slice(orch.indexOf('if (!toolUses.length && unusable &&'), orch.indexOf('if (!toolUses.length) {'));
     expect(block.indexOf('emptyRecoveries++;')).toBeLessThan(block.indexOf('streamClaude({'));
     expect([...orch.matchAll(/emptyRecoveries\+\+;/g)]).toHaveLength(1);
   });
@@ -87,7 +111,10 @@ describe('an empty terminal round is recovered, not reported', () => {
   it('never fires on a round that produced text or asked for a tool', () => {
     // Guards the obvious regression: a recovery that runs on every round
     // would double the cost of a healthy conversation.
-    expect(orch).toMatch(/!toolUses\.length && unusable/);
+    expect(orch).toMatch(/!toolUses\.length && unusable &&/);
+    // And the forced build has the same shape of guard for the same reason:
+    // `!toolBlueprint`, so a turn that DID build is never asked to build again.
+    expect(orch).toMatch(/if \(isBuildTurn && !toolBlueprint\) \{/);
   });
 
   it('breaks out of the tool loop rather than continuing it', () => {
@@ -173,7 +200,11 @@ describe('a failure that survives recovery stays honest and recoverable', () => 
     // close enough together that one window swallows the next.
     const starts = [...orch.matchAll(/phase: 'error'/g)].map((m) => m.index!);
     const errorReturns = starts.map((i) => orch.slice(i, i + 420));
-    expect(errorReturns.length).toBe(7);
+    // 7 → 8 on 2026-10-22: an approved build that produced no journey now
+    // returns an error instead of the discovery pane. The count is pinned so
+    // that a new error path has to be looked at rather than slipping in
+    // without the brief — which is this test's whole job.
+    expect(errorReturns.length).toBe(8);
     for (const r of errorReturns) {
       // Single-line returns end "brief, session }", multi-line use "session,".
       expect(r, r.slice(0, 100)).toMatch(/\bbrief\b/);

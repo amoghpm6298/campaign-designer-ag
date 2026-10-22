@@ -814,10 +814,24 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
             )}
 
             {messages.map((m, i) => {
-              const qs = (m as { questions?: string[] }).questions ?? [];
+              const stored = (m as { questions?: string[] }).questions ?? [];
+              // NO NUMBERED QUESTIONS ON A PLAN AWAITING APPROVAL.
+              //
+              // A proposal returns `questions: []` now, so this mostly guards
+              // the transcript: a turn that asked questions BEFORE the plan
+              // keeps them, and nothing re-reads as a form once the plan is
+              // on screen. Measured on a live EMI run — the strategy arrived
+              // with Confirm and one numbered question, and answering the
+              // question is what took the manager off Confirm. Clicking
+              // Confirm instead built the campaign straight away.
+              //
+              // The points are not lost: they are in the agent's own message,
+              // under "Worth settling before this is built".
+              const latest = i === messages.length - 1;
+              const qs = latest && phase === 'awaiting-confirmation' ? [] : stored;
               // The shortcut belongs only on the questions still waiting for
               // an answer, which is the last message if nothing follows it.
-              const awaiting = qs.length > 0 && i === messages.length - 1 && !busy;
+              const awaiting = qs.length > 0 && latest && !busy;
               return (
                 <div key={i} className={`cd-msg ${m.role}`}>
                   <div className="cd-msg-role">{m.role === 'user' ? 'You' : 'Agent'}</div>
@@ -851,7 +865,7 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
             {!busy && last?.evidenceRequests?.length ? (
               <div className="cd-evidence">
                 <div className="cd-evidence-h">Data request — optional</div>
-                {last.evidenceRequests.map((e, i) => (
+                {(last.evidenceRequests ?? []).map((e, i) => (
                   <div className="cd-ev" key={i}>
                     <div className="cd-ev-q">{e.question}</div>
                     <dl className="cd-ev-fields">
@@ -958,13 +972,22 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
               asking for them beside a plan nobody has approved reads as
               though the campaign already exists — and wastes the one decision
               this turn is for. */}
-          {last?.sendProposals.length && phase !== 'awaiting-confirmation' ? (
+          {/* THE OPTIONAL CHAIN COVERS THE ARRAY TOO, not just `last`.
+              The chain used to stop one step short, so a stored response without
+              the field — a legacy session, or one written before the field
+              existed — took the WHOLE designer down with "Cannot read
+              properties of undefined". Every live response carries it, which
+              is exactly why this went unnoticed: the type says required and
+              the restore path reads whatever is in localStorage. Same lesson
+              as the two server crashes today — a declared type is not a
+              guarantee about data that crosses a boundary. */}
+          {last?.sendProposals?.length && phase !== 'awaiting-confirmation' ? (
             <div className="cd-sends">
               <div className="cd-sends-h">
                 Needs your input — {last.sendProposals.length} message step
                 {last.sendProposals.length > 1 ? 's' : ''}
               </div>
-              {last.sendProposals.map((p) => {
+              {(last.sendProposals ?? []).map((p) => {
                 const entry = resolvedSends[p.stepName] ?? {};
                 return (
                   <div className="cd-send" key={p.stepName}>
@@ -1037,7 +1060,13 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
               <button className="cd-btn pri" disabled={busy || !draft.trim()} onClick={() => send(draft.trim())}>
                 {graph ? 'Apply change' : 'Design campaign'}
               </button>
-              {last?.questions.length ? (
+              {/* NOT WHILE A PLAN IS WAITING TO BE APPROVED. "Skip & propose"
+                  offers to produce the recommendation that is already on
+                  screen, which reads as though the plan were provisional and
+                  gives the approval turn a second, competing primary action.
+                  Confirm is the only one there. "Request a change" stays, and
+                  so does the ordinary message box. */}
+              {last?.questions?.length && phase !== 'awaiting-confirmation' ? (
                 <button
                   className="cd-btn"
                   disabled={busy}

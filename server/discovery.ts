@@ -1064,27 +1064,124 @@ export function recordSuccessCriteria(brief: WorkingBrief, items: string[]): Wor
  * low: the question is whether this came from the user at all, not whether
  * it was transcribed well.
  */
+/**
+ * Words that turn a repetition into a rejection.
+ *
+ * The thing that makes a quote check hard: a manager correcting the agent
+ * REPEATS the agent's theory in order to deny it. "I did not say they tune
+ * out repeated pings" contains the phrase verbatim, so contiguity alone
+ * verifies the very barrier the sentence exists to reject.
+ *
+ * Checked only in the text BEFORE the match and only within its own
+ * sentence, so a barrier that is itself about an absence still verifies:
+ * quoting "they do not know how to set the PIN" has nothing in front of it.
+ */
+const DENIAL = /\b(not|never|didn|dont|doesn|isnt|wasnt|no|nothing|wrong|rather|instead|besides)\b/;
+
+/** Joining words, which say nothing about whether this is their sentence. */
+const FILLER = new Set([
+  'the','a','an','is','are','was','were','be','to','of','for','and','or','in','on','at','it','that','this',
+  'they','them','their','we','our','you','your','i','my','as','so','but','if','then','than','with','from',
+  'do','does','did','has','have','had','will','would','can','could','may','might','just','very','really',
+]);
+
+/** Lowercase, punctuation to spaces, whitespace collapsed. */
+const flatten = (text: string): string =>
+  String(text ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/**
+ * Did the manager actually say this?
+ *
+ * IT HAS TO BE A PHRASE THEY TYPED. This was 40% word overlap against
+ * everything they had ever written, which in a long conversation is nearly
+ * free: "customers tune out repeated pings" shares `customers`, `repeated`
+ * and `pings` with a dozen unrelated sentences about an EMI campaign. The
+ * agent's own rival theories cleared it, were upgraded to `user-belief`, and
+ * came back at the manager as "You told me" — blocking a build they had
+ * approved with words they had never said.
+ *
+ * So: a contiguous run of their words, or a near-miss over a window of the
+ * same length — a paraphrase of ONE sentence, not a bag of words drawn from
+ * the whole transcript.
+ *
+ * THE UPGRADE IT GUARDS IS DELIBERATE AND STAYS. A barrier labelled
+ * `assumption` that carries the manager's actual words is their belief
+ * whatever the label said, and refusing to hear it once deadlocked the gate
+ * for eight turns. What changes is the standard of evidence, not the rule.
+ *
+ * Failing here only ever RELEASES: the barrier stays an assumption, which
+ * `mustBeAddressed` now excludes, so a false negative costs an obligation
+ * rather than creating one.
+ *
+ * KNOWN RESIDUAL. Words that happen to coincide INSIDE one of their
+ * sentences can still pass — "we push pings out on repeated occasions"
+ * against "customers tune out repeated pings". That is a far smaller surface
+ * than the whole transcript and it needs the manager to have written a
+ * near-collision by accident. Tightening further starts rejecting honest
+ * paraphrases, which is the more expensive mistake: the record then carries
+ * the agent's label instead of the manager's own belief.
+ */
 function quoteIsTheirs(quote: string, brief: WorkingBrief): boolean {
-  const words = new Set(fingerprint(quote).split(' ').filter(Boolean));
-  if (!words.size) return false;
+  const q = flatten(quote).split(' ').filter(Boolean);
+  // Two words match something in any conversation. A quote that short is not
+  // evidence of anything.
+  if (q.length < 3) return false;
+
   // Answers AND supplied evidence, because both are things the user typed.
   //
   // The orchestrator resolves an evidence request WITHOUT calling
   // recordAnswer — the reply lands in `suppliedSummary` instead — so keying
   // on `answers` alone would reject an attribution to something the user
   // genuinely said, just because they said it in reply to a data request
-  // rather than a question. `alreadyCovered` reads a corpus spanning both for
-  // the same reason. A DECLINED request contributes nothing, correctly: "we
-  // don't have that" is not a statement about why customers behave as they do.
+  // rather than a question. A DECLINED request contributes nothing,
+  // correctly: "we don't have that" is not a statement about why customers
+  // behave as they do.
   const corpus = [
     ...brief.answers.map((a) => a.text),
     ...brief.evidenceRequests.filter((e) => e.status === 'supplied').map((e) => e.suppliedSummary ?? ''),
   ];
-  return corpus.some((text) => {
-    const said = new Set(fingerprint(text).split(' ').filter(Boolean));
-    const shared = [...words].filter((w) => said.has(w)).length;
-    return shared / words.size >= 0.4;
-  });
+
+  for (const text of corpus) {
+    // Sentence by sentence, so a denial in one cannot be escaped by a
+    // coincidence in the next.
+    for (const sentence of String(text ?? '').split(/[.!?;\n]+/)) {
+      const said = flatten(sentence).split(' ').filter(Boolean);
+      if (said.length < q.length) continue;
+      // Windows a little wider than the quote, so an inserted word — "far
+      // too expensive" against "too expensive" — does not throw the
+      // alignment off. Still one short span of their sentence, never the
+      // whole transcript.
+      for (let width = q.length; width <= q.length + 2; width++) {
+        for (let i = 0; i + width <= said.length; i++) {
+          const window = new Set(said.slice(i, i + width));
+          // Content words only. A model quoting a conversation drops filler
+          // and fixes grammar — "the interest looks too expensive to them"
+          // for "they think the interest is too expensive" — and scoring the
+          // joining words would reject honest attributions more often than
+          // dishonest ones.
+          //
+          // The tightening that matters is not this threshold: it is that
+          // the match must fall inside ONE SENTENCE they wrote. The old
+          // check scored against every word in the transcript at once, which
+          // is how an invented theory borrowed `customers`, `repeated` and
+          // `pings` from three unrelated sentences and passed.
+          const content = q.filter((w) => !FILLER.has(w));
+          const scored = content.length ? content : q;
+          const shared = scored.filter((w) => window.has(w)).length;
+          if (shared / scored.length < 0.6) continue;
+          // …unless their sentence denies it up to that point. Words that
+          // are part of the quote are excluded from this test, so a barrier
+          // ABOUT an absence — "they do not know how to set the PIN" — still
+          // verifies on its own words, while "I did not say they tune out"
+          // does not.
+          const lead = said.slice(0, i + width).filter((w) => !q.includes(w));
+          if (DENIAL.test(lead.join(' '))) continue;
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -1210,8 +1307,28 @@ export function recordUncoveredQuestions(brief: WorkingBrief, uncovered: string[
  * the same self-correcting shape as `asFindingOrDeferral`.
  */
 export function recordBarriers(brief: WorkingBrief, updates: Barrier[] | undefined): WorkingBrief {
+  // OMITTING A BARRIER DROPS IT. THE LIST IS REPLACED, NOT APPENDED TO.
+  //
+  // It used to start from the existing list and merge, so nothing the agent
+  // had ever named could be withdrawn. Measured live: it floated rival
+  // theories early — message fatigue, first-time versus repeat EMI — then
+  // narrowed to one, and the discarded two stayed on the record and blocked
+  // the build for not being addressed.
+  //
+  // The prompt asks for converters and barriers on EVERY turn, so a sent list
+  // is the agent's current position, not an increment. `recordConverters`
+  // has always replaced for the same reason.
+  //
+  // The empty guard stays and carries the whole distinction: a turn that
+  // records converters only must not wipe the barriers. Replace on SENT;
+  // keep on OMITTED.
   if (!updates?.length) return brief;
-  const out = [...(brief.barriers ?? [])];
+  // The LIST is rebuilt, but a barrier that survives keeps what the update
+  // did not repeat. Re-sending a barrier without its quote is the model
+  // being terse, not retracting the evidence — and the quote is the record
+  // of what the manager actually said.
+  const prior = brief.barriers ?? [];
+  const out: Barrier[] = [];
 
   for (const raw of updates) {
     if (!raw || typeof raw.statement !== 'string' || !raw.statement.trim()) continue;
@@ -1251,8 +1368,9 @@ export function recordBarriers(brief: WorkingBrief, updates: Barrier[] | undefin
       ? raw.lever
       : 'message';
 
+    const was = prior.find((b) => b.id.toLowerCase() === id.toLowerCase());
     const at = out.findIndex((b) => b.id.toLowerCase() === id.toLowerCase());
-    const merged: Barrier = { ...(out[at] ?? {}), id, statement: raw.statement.trim(), basis, lever };
+    const merged: Barrier = { ...(was ?? {}), ...(out[at] ?? {}), id, statement: raw.statement.trim(), basis, lever };
     if (raw.quote) merged.quote = raw.quote;
     if (at >= 0) out[at] = merged;
     else out.push(merged);

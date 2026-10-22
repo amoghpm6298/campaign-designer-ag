@@ -1143,3 +1143,67 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
   gap: 8px;
   flex: 0 0 auto;
 }
+
+/* ---------------------------------------------------------------------------
+   Chats — the built journey, and one log per turn.
+   --------------------------------------------------------------------------- */
+
+/* React Flow measures its container, so the canvas needs a real height here.
+   Capped rather than full-bleed: this is a record being read, not a surface
+   being worked on, and the transcript above it has to stay in reach. */
+.cd-chat-journey {
+  margin-top: 16px;
+}
+.cd-chat-canvas {
+  /* Tall enough that a real campaign reads without immediately panning.
+     `fitView` cannot rescue a short box: React Flow clamps to minZoom 0.5,
+     and a twenty-node vertical journey needs far less than that to fit — so
+     a short panel shows the top of the graph and nothing else. The canvas
+     pans and zooms with its own controls from here. */
+  height: clamp(420px, 72vh, 900px);
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--gray-50);
+}
+
+/* Turn picker. Reads as a row of small tabs, not as buttons that do something
+   — switching turns only changes what you are looking at. */
+.cd-turnpicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 14px 0 4px;
+}
+.cd-turnpick {
+  appearance: none;
+  border: 1px solid var(--gray-200);
+  background: #fff;
+  color: var(--gray-600);
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.cd-turnpick:hover {
+  border-color: var(--gray-300);
+  color: var(--gray-800);
+}
+.cd-turnpick.on {
+  background: var(--navy-700, #1f2a5b);
+  border-color: var(--navy-700, #1f2a5b);
+  color: #fff;
+}
+
+/* A chat whose logs were evicted still has its conversation. Said once, at
+   the top of the transcript, rather than per message. */
+.cd-tturn-note {
+  font-size: 12px;
+  color: var(--gray-500);
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  padding: 8px 11px;
+  margin-bottom: 12px;
+}
