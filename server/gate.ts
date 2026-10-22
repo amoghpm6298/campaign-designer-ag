@@ -293,7 +293,7 @@ export function blocksFor(brief: WorkingBrief): Block[] {
       reason: 'I do not yet know who does this today, so I cannot say who the campaign should go after.',
       clears: {
         field: 'converters',
-        how: 'Record who converts, or that nobody knows plus two candidate segments resting on different things.',
+        how: 'Record who converts, or that nobody knows plus two candidate trends resting on different things. Trends cut the treatment; the entry stays every eligible customer.',
       },
     });
   }

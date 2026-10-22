@@ -2223,17 +2223,27 @@ export function briefForPrompt(brief: WorkingBrief): string {
     const label = conv.knowledge === 'none-yet' ? 'nobody has converted yet' : 'nobody can say who converts';
     const cands = conv.candidates ?? [];
     lines.push('', `Who converts today: ${label}. This campaign therefore has to FIND OUT.`);
+    // TRENDS TO TEST, NOT GROUPS TO TARGET.
+    //
+    // This block used to end "Then ask which they would back. Do not pick a
+    // target and proceed as though they had agreed to it." — which is a menu
+    // of groups put to the manager, and the entry is not theirs to pick: it
+    // is every eligible customer who has not done the behaviour, always. A
+    // candidate is a guess about who is LIKELIER, and the honest thing to do
+    // with a guess is cut the treatment by it and read the result, not shrink
+    // the audience to it.
+    //
+    // The "wait for their reaction" line went with it, for the reason
+    // `convertersSettled` already records: asking them to back one of the
+    // agent's own guesses is a decision neither of them can make yet.
     if (cands.length < 2) {
       lines.push(
-        `You have put forward ${cands.length} usable candidate segment(s). Put forward at least TWO. CHECK THEM YOURSELF BEFORE YOU PUT THEM UP — it is not their job to notice that two of your options are the same group under different names. Each needs "restsOn": the attribute or behaviour that DEFINES that group, such as "balance size" or "called the helpline". Two candidates resting on the same thing are not a choice and are rejected. Each also needs "why": the reason THAT group is likelier to convert than the rest. Give the mechanism, not the label again. "High spenders, because they spend a lot" says nothing. "High spenders, because a larger balance costs more to carry, so the saving from converting is bigger" can be argued with. Then ask which they would back. Do not pick a target and proceed as though they had agreed to it.`,
+        `You have put forward ${cands.length} usable trend(s). Put forward at least TWO, as candidate trends to TEST — never as a choice of who to target, and never as a reason to narrow the entry. CHECK THEM YOURSELF BEFORE YOU PUT THEM UP: it is not their job to notice that two of your options are the same thing under different names. Each needs "restsOn", the attribute or behaviour that defines it, derived from THIS objective rather than borrowed from another one; two resting on the same thing are not a choice and are rejected. Each needs "why": the mechanism that would make that group likelier, not the label again. "They spend a lot, because they spend a lot" says nothing. Then ask whether they have SEEN any of this in their own book, or do not track it — both answers are fine, and neither changes who enters.`,
       );
     } else {
-      for (const c of cands) lines.push(`- candidate: ${c.segment} [rests on: ${c.restsOn}] — ${c.why}`);
-      const answered = brief.answers.some((a) => a.round > (conv.raisedInRound ?? Infinity));
+      for (const c of cands) lines.push(`- candidate trend: ${c.segment} [rests on: ${c.restsOn}] — ${c.why}`);
       lines.push(
-        answered
-          ? 'They have responded to these. The campaign must now treat the segments differently so their responses can be read apart — an audience test, or a branch. One treatment for everyone would learn nothing.'
-          : 'They have NOT responded to these yet. Wait for their reaction before designing around any of them.',
+        'Everyone eligible still enters. Cut the TREATMENT by these — cadence, channel, wording, an extra touch on one path — or test them against each other, so the run tells you which holds. The remainder keeps a path. Do not use them to decide who gets in, and do not wait for the manager to pick one.',
       );
     }
   }

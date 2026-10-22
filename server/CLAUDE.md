@@ -1927,3 +1927,72 @@ reasons: `strategyPreservation` (which pinned `questions: gate.questions` as
 a feature) and `questionContract` (3 `recordQuestions` call sites, now 2).
 Nothing pushed, and neither the experiment-claim nor the send-name slice was
 started.
+
+## 2026-10-22 (cont'd) — A trend cuts the treatment, never the door
+
+Entry is every eligible customer who has not done the behaviour. Always.
+Knowing who is likelier to convert changes what those people GET — cadence,
+channel, wording, an extra touch on one path — and never whether they are in
+the campaign. The remainder keeps a path.
+
+That rule was already enforced structurally (the segmentation audit refuses
+an entry condition as segmentation, and refuses a split whose remainder gets
+an empty branch). What was missing is that three pieces of COPY still handed
+the manager a targeting menu, and the agent read them every turn.
+
+### The three menus
+
+- **§2 of SYSTEM named a standing list of customer differences** — "how big
+  a limit they were given, whether the app is on their phone, how they were
+  sourced" — and told the agent to "put two or three on the table and ask
+  which one they would back". A list of factors is a list of answers: every
+  objective got the same slots back. It now says to DERIVE them from the
+  objective in front of it, and to ask **what they have seen, or that they do
+  not track it** — both answers, neither of which changes who enters.
+- **`briefForPrompt` ended its candidate block** with "Then ask which they
+  would back. Do not pick a target and proceed as though they had agreed to
+  it." That is a choice of audience put to someone whose audience is already
+  decided. Candidates are **trends to test** now: everyone eligible still
+  enters, the treatment is cut by the trend or the trends are tested against
+  each other, and the remainder keeps a path. The "wait for their reaction"
+  line went too, for the reason `convertersSettled` already records.
+- **The gate's clearing instruction** said "two candidate segments". Now
+  "candidate trends… the entry stays every eligible customer."
+
+### The no-history case
+
+"We have seen no pattern" or "we do not track it" means one track for
+everyone eligible — and the campaign still has to learn. §6 says the run must
+produce the trend, and the comparison is **derived from this objective**:
+wording, dosage, channel, timing or order, whichever this one is actually
+uncertain about. Two message variants is one option, not the default, and
+adding sends tests nothing. No history is a reason to test, not a reason to
+ship the shyest flat sequence.
+
+### Paid for in characters, not in cap
+
+`SYSTEM` is 33,498 against the 33,500 cap, which was NOT raised a fifth time.
+The new rules were paid for by two genuine duplicates: §2 stated "platform
+concerns may not occupy a slot" twice, in consecutive paragraphs with the
+same three examples, and the "Platform capability decides what gets BUILT"
+sentence appeared verbatim in both §6 and §7. The rest came out of this
+slice's own new prose, which is the right place to take it from.
+
+### Said plainly: this is prompt wording
+
+The standing lesson at the top of this file is that prompt rules have
+reliably produced more honest output and no change in what gets designed. The
+parts of this slice with structural backing will hold, because the audit
+already enforces them. The part with none is "no history means still test" —
+`checkAudienceLearning` was demoted to a limitation yesterday, deliberately,
+because it overruled a manager who had said "do not split". Those two pull in
+opposite directions and no amount of prompt wording resolves what the gate
+decides. If runs come back with flat no-test journeys, the fix is a check on
+the built journey, not another sentence here.
+
+### Verified
+
+1252 unit (from 1239; 13 new in `entryAndTrends.test.ts`) and 118
+agent-proto. `tsc --noEmit`, `server:typecheck` and `npm run build` clean.
+One pin retargeted in `promptMethod`, to the surviving copy of the sentence
+whose duplicate paid for this slice. Nothing pushed.

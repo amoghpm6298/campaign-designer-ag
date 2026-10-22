@@ -160,7 +160,13 @@ describe('the contradictions the old prompt carried are gone', () => {
     // same three slots because those are the three the prompt names. The part
     // that matters — platform concerns may not occupy a slot — is kept.
     expect(method).toMatch(/BUT DO NOT ONLY RECORD WHAT THEY RAISED/);
-    expect(method).toMatch(/The test is whether the answer describes a CUSTOMER, not a configuration/);
+    // RETARGETED 2026-10-22, not weakened. §2 stated this rule twice: once in
+    // the paragraph that bars platform concerns from the slots, and again in a
+    // follow-up paragraph that repeated the same three examples and the same
+    // test. The duplicate paid for the trends rules added this slice; the rule
+    // itself is where it always was, in the paragraph above.
+    expect(method).toMatch(/the test is whether the answer describes a customer and could change what someone gets/);
+    expect(method).toMatch(/A DIMENSION IS A BUSINESS OR CUSTOMER FACTOR, never a platform setting/);
     expect(method).not.toMatch(/Can a TOOL answer it\? Then call the tool/);
     expect(method).not.toMatch(/Can the builder express it at all/);
     // Platform limits may never end an investigation, and nor may missing data.
