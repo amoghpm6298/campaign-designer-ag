@@ -1,3 +1,5 @@
+@import './tokens.css';
+
 /* Global design tokens + base page chrome, ported from
    journeysnudgesemi/emi-conversions-prototype.html. Loaded on every
    route via main.tsx (unlike dripCanvas.css/dripBuilder.css/
@@ -60,7 +62,12 @@ body {
   color-scheme: light;
   background: #ffffff;
   color: var(--neutral-900);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* Through the token, so there is one place that decides the typeface.
+     This line used to hardcode the system stack, which overrode --font. */
+  font-family: var(--font);
+  font-feature-settings: 'cv05' 1, 'cv11' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   font-size: 14px;
 }
 

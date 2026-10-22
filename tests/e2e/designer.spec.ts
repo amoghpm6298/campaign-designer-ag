@@ -202,7 +202,14 @@ test.describe('conversation flow and streaming', () => {
     expect(await page.locator('.react-flow__node').count()).toBe(0);
     const gate = page.locator('.cd-confirm');
     const questions = page.locator('.cd-q');
-    const stillDiscovering = page.getByText(/What I am working through|discovery continues/).first();
+    // Matched on what the gate ITSELF says, not on the ledger that used to
+    // follow it. "What I am working through:" and its dimension bullets were
+    // removed from the reply on 2026-10-21 — they were internal state pasted
+    // into a conversation. Every block's `reason` is a sentence written to the
+    // manager, and these two are the ones a refused turn opens with.
+    const stillDiscovering = page
+      .getByText(/I am still waiting on this|Still open|discovery continues/i)
+      .first();
     expect(
       (await gate.count()) + (await questions.count()) + (await stillDiscovering.count()),
     ).toBeGreaterThan(0);

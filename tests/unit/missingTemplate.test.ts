@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildFromBlueprint, type CampaignBlueprint } from '../../server/blueprint';
 import { validateCampaignGraph } from '../../agent-proto/validate';
+import { proposeMessaging } from '../../agent-proto/templateSelect';
 import { resolveTenant, listTenants } from '../../server/tenants';
 import { COMMS_TEMPLATES, type Channel } from '../../src/data/sharedConstants';
 
@@ -50,9 +51,11 @@ describe('no reachable bank template catalogue', () => {
       const c = n._config as Record<string, string>;
       expect(c.account).toBe('');
       expect(c.templateId).toBe('');
-      // Channel and timing ARE recommended — those the agent can judge.
+      // Channel and clock time ARE recommended — those the agent can judge.
+      // Timing used to be zeroed to Relative/0h, which hid the builder default.
       expect(CHANNELS).toContain(c.channel as Channel);
-      expect(c.timing).toBe('Relative');
+      expect(c.timing).toBe('Absolute');
+      expect(c.absTime).toBe('11:00');
     }
   });
 
@@ -176,10 +179,20 @@ describe('the synthetic demo library is still usable, and labelled', () => {
 });
 
 describe('tenant registry is server-side and honest', () => {
-  it('every tenant is labelled synthetic', () => {
+  it('every tenant is FLAGGED synthetic, whatever it is called', () => {
+    // The flag stays true and the record stays honest: nothing downstream
+    // should be able to mistake this data for a real issuer configuration.
+    //
+    // The DISPLAY NAME no longer says so. It used to read "IndusInd Bank
+    // (IBL) — Synthetic", which appeared in the tenant picker and the campaign
+    // header and made every screen read as a prototype. The provenance of demo
+    // data is said out loud when the product is shown; it does not need to be
+    // printed on the chrome. Asserting the label here would re-couple an
+    // internal truth to a piece of presentation.
     for (const t of listTenants()) {
       expect(t.synthetic).toBe(true);
-      expect(t.displayName).toMatch(/Synthetic/);
+      expect(t.displayName.trim().length).toBeGreaterThan(0);
+      expect(t.displayName).not.toMatch(/synthetic/i);
     }
   });
 
@@ -200,5 +213,78 @@ describe('tenant registry is server-side and honest', () => {
   it('defaults to an unreachable bank catalogue, not a mirrored one', () => {
     expect(resolveTenant('TEN-IBL')!.templateLibraryAccess).toBe('unavailable');
     expect(resolveTenant('TEN-DEMO')!.templateLibraryAccess).toBe('synthetic-demo');
+  });
+});
+
+// One missing field took the whole Confirm down.
+//
+// THE LIVE FAILURE. The manager sent "Confirmed. Build this campaign." and
+// got "Cannot read properties of undefined (reading 'replace')". No canvas,
+// a raw TypeError in the transcript, and no way forward.
+//
+// The chain: `build_campaign` requires neither `name` nor `describe`; the
+// model omitted both; on a real tenant `templateLibraryAccess` is
+// 'unavailable' so no template is ever matched and EVERY send falls through
+// to `proposeMessaging`, which read `need.describe.replace(...)`.
+//
+// `describe: string` on `TemplateNeed` is a statement about what callers
+// should pass. It is not a guarantee about what arrives from a model, and
+// the compiler is the one place where an unbounded amount of
+// model-authored data meets application code.
+//
+// The `stage` field already had this guard — "a malformed field must be a
+// reported issue, not a 500". These two did not.
+describe('a send with no name and no description still builds', () => {
+  const need = (over: Record<string, unknown> = {}) =>
+    ({ objective: ['activate'], stage: 'first-touch', ...over }) as never;
+
+  it('does not throw when describe is missing entirely', () => {
+    const out = proposeMessaging(need(), 'WHATSAPP');
+    expect(out.sampleCopy).toBeDefined();
+    expect(out.sampleCopy).toContain('${customerFirstName}');
+    expect(out.sampleCopy).not.toContain('undefined');
+  });
+
+  it('does not throw when describe is empty', () => {
+    const out = proposeMessaging(need({ describe: '' }), 'SMS');
+    expect(out.sampleCopy).toBeDefined();
+    expect(out.sampleCopy).not.toContain('undefined');
+  });
+
+  it('says nothing rather than inventing a purpose', () => {
+    // The placeholder is a greeting and a link. With nothing stated about
+    // what the message is for, making something up would be worse than a
+    // blank: it would read as the agent's intent.
+    expect(proposeMessaging(need(), 'WHATSAPP').sampleCopy).toBe('Hi ${customerFirstName}, ${shortUrl}');
+    expect(proposeMessaging(need(), 'WHATSAPP').messagingDirection).toBe('');
+  });
+
+  it('still uses the description when there is one', () => {
+    const out = proposeMessaging(need({ describe: 'Remind them to set the PIN.' }), 'WHATSAPP');
+    expect(out.sampleCopy).toContain('remind them to set the PIN.');
+  });
+
+  it('compiles the live payload instead of throwing', () => {
+    // The real shape: copy, stage and a channel, no name, no describe, and a
+    // tenant whose template library cannot be read.
+    const bp = {
+      campaignName: 'PIN activation',
+      description: 'Fourteen days.',
+      goal: null,
+      entry: { kind: 'audience', entity: 'Card', conditions: [] },
+      steps: [
+        { kind: 'send', objective: ['activate'], stage: 'first-touch', copy: 'Set your PIN in two minutes.', channelPreference: ['WHATSAPP'] },
+        { kind: 'exit', reason: 'Window closed.' },
+      ],
+    } as never;
+    const r = buildFromBlueprint(bp, { availableChannels: ['WHATSAPP', 'SMS'], templateLibraryAccess: 'unavailable' });
+    const sends = Object.values(r.graph.nodes).filter((n) => n.type === 'SEND');
+    expect(sends).toHaveLength(1);
+    // Named from what the agent DID write, so the canvas card is not blank.
+    expect((sends[0]._config as { name?: string }).name).toBeTruthy();
+    // And the gap is reported rather than hidden.
+    const said = r.issues.map((i) => i.problem).join(' ');
+    expect(said).toMatch(/needs a name/);
+    expect(said).toMatch(/needs a describe/);
   });
 });

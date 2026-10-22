@@ -227,11 +227,7 @@ export const mustBeAddressed = (bs: Barrier[] | undefined): Barrier[] =>
  * that answer would be the questionnaire behaviour the prompt already warns
  * against. What does NOT count is the agent deciding for itself.
  */
-export const convertersSettled = (
-  c: Converters | null | undefined,
-  /** Rounds in which the user has replied, so a proposal can be told from an agreement. */
-  answeredRounds: number[] = [],
-): boolean => {
+export const convertersSettled = (c: Converters | null | undefined): boolean => {
   if (!c) return false;
 
   // The manager described them. Their own account of their own book.
@@ -251,9 +247,34 @@ export const convertersSettled = (
   //  - at least TWO candidate segments, each with the agent's reasoning. One
   //    is a guess; two or more is a set of options the manager can react to,
   //    push back on, or rule out.
-  //  - a reply from the manager AFTER they were raised. The agent proposing a
-  //    target and treating its own suggestion as agreed is the failure this
-  //    guards; a fresh campaign is exactly where that is most tempting.
+  //
+  // THERE IS NO LONGER A SECOND REQUIREMENT, and the one that was here is
+  // worth recording because it sounded right. It demanded a reply from the
+  // manager AFTER the candidates were raised, to stop the agent treating its
+  // own suggestion as agreed.
+  //
+  // Measured on the PIN-activation run, 2026-10-21. The manager had said
+  // plainly they have no visibility on who already activates. The agent put
+  // up two guess-groups resting on different things — welcome-offer sign-ups,
+  // and customers who already hold another product. That is this question
+  // answered: nobody knows, and here are the two candidates worth telling
+  // apart. The gate held anyway, and the turn it produced said "I have put up
+  // two possible groups to go after and I am waiting to hear which one you
+  // would back", then re-asked "who tends to do this already today".
+  //
+  // Two things were wrong with it. It asked the manager to pick a targeting
+  // group from the agent's own guesses, which is a decision neither of them
+  // can make yet and the campaign exists to settle. And it made a rejection
+  // unrepresentable: a manager saying "don't target off those guesses" is
+  // agreement about the state of knowledge, not a refusal to answer, and the
+  // old rule read it as the question still being open.
+  //
+  // The protection it was reaching for is real and lives where it belongs —
+  // on the DESIGN, not the record. `mustLearnAudience` stays true whenever
+  // nobody knows, and `checkAudienceLearning` refuses a flat single-audience
+  // journey, so the candidates still have to be told apart by what gets
+  // built. What is dropped is only the demand for another round of chat.
+  //
   // The agent does the validating. The application only checks that what it
   // DECLARED holds together.
   //
@@ -269,10 +290,7 @@ export const convertersSettled = (
   const complete = candidates.every((s) => s.segment.trim() && s.restsOn.trim() && s.why.trim());
   const bases = new Set(candidates.map((s) => s.restsOn.trim().toLowerCase()));
   const distinct = bases.size === candidates.length;
-  const enough = candidates.length >= 2 && complete && distinct;
-  const reacted =
-    typeof c.raisedInRound === 'number' && answeredRounds.some((r) => r > (c.raisedInRound as number));
-  return enough && reacted;
+  return candidates.length >= 2 && complete && distinct;
 };
 
 /**

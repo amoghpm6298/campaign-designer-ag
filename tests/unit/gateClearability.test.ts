@@ -80,7 +80,6 @@ describe('the invariant: every block is clearable by the mutation it names', () 
       [
         'awaiting-reply',
         'converters-unknown',
-        'converters-unreacted',
         'dimension-unreasoned',
         'no-barrier',
         'no-participation',

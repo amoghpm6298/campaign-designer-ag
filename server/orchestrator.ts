@@ -17,16 +17,17 @@ import {
   streamClaude,
   AnthropicConfigError,
   type ApiMessage,
+  humaniseModelError,
 } from './anthropic';
 import { runTool, toolTitle, toolsForPhase } from './agentTools';
-import { outputToolsForPhase, isOutputTool, applyOutputTool } from './outputTools';
+import { outputToolsForPhase, isOutputTool, toolKind, applyOutputTool } from './outputTools';
 import { decide, blockDelta, renderBlocks } from './gate';
-import { saysProceed, outstanding, REOPEN_LIMIT } from './record';
+import { saysProceed, REOPEN_LIMIT } from './record';
 import { EventEmitterSeq, type RunEvent } from './runEvents';
 import { auditOptions, applyAudit, unsupportedClaims, copyOnlyExperiments, type OptionAudit } from './optionAudit';
 import { compareArchitectures, checkFidelity, checkExperimentClaims, checkAudienceLearning, checkBarrierCoverage, checkBarrierTesting, JOURNEY_BEHAVIOURS } from './architectureAudit';
 import { jargonNotes } from './plainLanguage';
-import { journeySummary, readableBlocker } from './journeySummary';
+import { journeySummary, longestSendPath, readableBlocker } from './journeySummary';
 import { mustBeAddressed, mustLearnAudience, mustTestBarriers, type Barrier, type Converters } from './findings';
 import {
   evaluate as evaluateCapability,
@@ -61,7 +62,6 @@ import {
   type QuestionContingency,
   recordContextChecked,
   outstandingDimensions,
-  briefDimensions,
   type DimensionUpdate,
   type EvidenceRequest,
   type OpenItem,
@@ -120,6 +120,32 @@ export interface ChatTurn {
 export interface Strategy {
   summary: string;
   approach: string[];
+  /**
+   * Every customer-facing send in the chosen plan, in order.
+   *
+   * WHY A LIST AND NOT PROSE. A proposal read "a staggered multi-touch
+   * sequence over the full 14 days, spaced by read/response rather than a
+   * fixed clock" and named not one send. The manager approved a cadence they
+   * could not see, and the Confirm turn then invented it from that sentence.
+   * Under-dosing is invisible when the plan is a paragraph: three touches and
+   * nine look identical on the page.
+   *
+   * Required by the tool schema with `minItems: 2`, so the provider refuses a
+   * plan without it. Not a second journey model — it carries no node types,
+   * no entities and no events, and the builder's grammar still arrives only
+   * after approval. When the propose-turn preview lands, this is what it
+   * should draw.
+   */
+  touches?: {
+    /** Days after entry. 0 is the moment they enter. */
+    day: number;
+    channel: string;
+    /** Which group this send is for. "all" when there is only one path. */
+    path: string;
+    purpose: string;
+    /** What happens next if it does not land. */
+    ifStillUnconverted: string;
+  }[];
   rejected?: { option: string; why: string }[];
   assumptions: string[];
   unknowns: string[];
@@ -273,6 +299,16 @@ export interface OrchestratorResponse {
   stage: Stage;
   /** What to show in chat. */
   reply: string;
+  /**
+   * The provider's own words, kept verbatim.
+   *
+   * `reply` says what happened in a sentence a campaign manager can act on.
+   * This carries the untouched text underneath it, because a humanised error
+   * that HIDES the original forces whoever is debugging to go and find it —
+   * and we have already lost one diagnosis today to a message that trimmed
+   * the useful part away.
+   */
+  errorDetail?: string;
   questions: string[];
   strategy: Strategy | null;
   blueprint: CampaignBlueprint | null;
@@ -343,16 +379,40 @@ export interface OrchestratorResponse {
  * left whole: a dozen tests read it from source to pin exact phrasing, and
  * the honest thing to vary is what gets SENT, not what the file says.
  */
+/**
+ * The builder-vocabulary rule, which must not reach a discovery turn.
+ *
+ * MEASURED: this sentence told the agent to use only what "the tools report",
+ * and on turn one — before anything had been asked — it went looking for an
+ * entry event and opened with questions about which events exist. The rule is
+ * correct at BUILD time and is kept verbatim for that; on a discovery turn it
+ * points the agent at a vocabulary it has not been given and should not be
+ * thinking in.
+ */
+const BUILDER_VOCAB_RULE =
+  '- Use only the events, entities, attributes, values, channels and step kinds the tools report.';
+
+const DISCOVERY_VOCAB_RULE =
+  '- Do not go looking for events, entities or attributes yet. Nothing is being built this turn, so what the builder supports is not a question you need answered. Talk about customers and what should happen to them.';
+
 export function systemForPhase(isBuildTurn: boolean): string {
   if (isBuildTurn) return SYSTEM;
-  const from = SYSTEM.indexOf('"blueprint":{');
-  const entryLine = SYSTEM.indexOf('Entry may instead be');
-  if (from < 0 || entryLine < 0) return SYSTEM;
-  const to = SYSTEM.indexOf('\n', entryLine);
+  const vocabAt = SYSTEM.indexOf(BUILDER_VOCAB_RULE);
+  const base =
+    vocabAt < 0
+      ? SYSTEM
+      : SYSTEM.slice(0, vocabAt) +
+        DISCOVERY_VOCAB_RULE +
+        SYSTEM.slice(SYSTEM.indexOf('\n', vocabAt + BUILDER_VOCAB_RULE.length));
+  const SYSTEM_ = base;
+  const from = SYSTEM_.indexOf('"blueprint":{');
+  const entryLine = SYSTEM_.indexOf('Entry may instead be');
+  if (from < 0 || entryLine < 0) return SYSTEM_;
+  const to = SYSTEM_.indexOf('\n', entryLine);
   return (
-    SYSTEM.slice(0, from) +
+    SYSTEM_.slice(0, from) +
     '"blueprint": OMITTED THIS TURN. Nothing is being built, so the builder\'s grammar is not yours to work in yet. Describe the journey in "strategy.approach" instead, in the campaign manager\'s terms.\n}\n' +
-    SYSTEM.slice(to)
+    SYSTEM_.slice(to)
   );
 }
 
@@ -360,18 +420,30 @@ const SYSTEM = `You are a campaign strategist for a bank card-programme marketin
 
 You do the business reasoning. Deterministic application code builds the graph, validates it and owns every id, so you never emit node ids, edge ids, field names or template ids.
 
-YOU ARE WRITING TO A CAMPAIGN MANAGER AT THE BANK. They know their business and have never seen this system's internals. Write plain, complete sentences. Never show them an internal identifier: a question id, a principle code, a raw underscored event or enum name, or a path into the data. Name things in words, which is plainer AND more exact. Never narrate your own bookkeeping: "both fork questions are now answered", "per this round's scope", "(retained)" are this system talking to itself, and a fork is OUR word, not theirs. Lead with what you now understand about THEIR business in the words they used. Report like a colleague: what you learned, what it changes, what you still need.
+WHO YOU ARE TALKING TO. A campaign manager at an Indian card issuer. They run card programmes for a living and know their book. Write amounts in ₹ and say lakh and crore where a number is large enough to need them.
+
+WHATSAPP AND IN-APP BEAT EMAIL HERE. Cost per message is not reach. Choose the first touch on where the customer actually reads and can act, and let cost break a tie between channels that would both work.
+
+AT MOST THREE QUESTIONS THIS ROUND, and fewer is better. Ask them open. Never supply a sample answer, a rupee figure or a number of days alongside a question: a manager handed an example answers the example instead of telling you what is true.
+
+NEVER ASK ABOUT QUIET HOURS, SUNDAYS, FESTIVAL DAYS, CHANNELS, DNC, NPA OR THE CONTROL GROUP. The campaign canvas already has those. Do not put a holdout in "touches". Asking for them reads as though you have not looked.
+
+IF THE RISK APPETITE IS UNSPECIFIED OR MISSING, DESIGN THE FULL PLAN. A missing appetite is missing information, not a request for restraint. Do not drop messages or cut a test to look careful. Trim later if they ask, and say what you took out.
+
+DO NOT INVENT WHAT SIMILAR CAMPAIGNS ACHIEVED. This bank has no campaign performance history at all. No conversion rate, no benchmark, no prior learning. Say the first run establishes the baseline.
+
+YOU ARE WRITING TO A CAMPAIGN MANAGER AT THE BANK. They know their business and have never seen this system's internals. Write plain, complete sentences. Never show them an internal identifier: a question id, a principle code, a raw underscored event or enum name, or a path into the data. Name things in words, which is plainer AND more exact. Never narrate your own bookkeeping: "both fork questions are now answered", "per this round's scope", "(retained)" are this system talking to itself, and a fork is OUR word, not theirs. NEVER WRITE ANY OF THESE: "I've sent these questions", "to the campaign manager" or any third-person reference to the person you are addressing, "set aside" as a status, "(retained)", "fork", "dosage". You are not reporting to someone else about them; you are talking to them. A question that double-checks something is welcome. Reprinting a question they have already answered is not. Lead with what you now understand about THEIR business in the words they used. Report like a colleague: what you learned, what it changes, what you still need.
 
 GROUND RULES
 - Use only the events, entities, attributes, values, channels and step kinds the tools report. Anything else is rejected by the builder, so check before you commit to an entry trigger, a goal event, an attribute value or a channel — and never ask the user to confirm something a tool can tell you.
 - Never claim a conversion lift, a cost saving or a performance number. No performance data exists for this bank. An expected effect is an untested hypothesis and must be labelled as one.
 - A drop-off does not prove its cause. Do not assert causes you cannot evidence.
 - Treat knowledge marked [status: invented] as unverified mock data.
-- Respect the hard constraints in the knowledge base (minimum spacing, quiet hours, channel availability). Preferences are tradeable; say when you trade one off.
+- Respect the hard constraints in the knowledge base: the night quiet hours, and which channels this issuer actually has. Those two are not negotiable. Everything else there is a preference you may trade off, including the minimum gap between messages — that is a guard against nagging, not a rhythm to design to. Say when you trade a preference off and why.
 
 HOW TO DESIGN A CAMPAIGN
 
-Work through this. Go deeper where the objective needs it, skip what it does not, and say which parts you skipped and why. For each real decision, state the decision, what you relied on, and the trade-off you accepted.
+Work through this. Go deeper where the objective needs it and lighter where it does not. Do not narrate what you skipped: a list of the parts that did not apply tells the manager nothing and reads as padding. For each real decision, state the decision, what you relied on, and the trade-off you accepted.
 
 1. The outcome and the behaviour.
    What business outcome is wanted, and what must the customer DO differently? Name the behaviour as an action, not a metric. Separate the user's business objective from the platform's formal goal: the goal is the event that proves the behaviour happened. If no event can prove it, say so — that is a limitation, not something to invent around.
@@ -385,7 +457,7 @@ FIRST, FIND OUT WHO CONVERTS AND WHY THE REST DO NOT, and send "converters" and 
    Name the 3-5 things about THIS objective whose answers could genuinely change the campaign, and record each one in "dimensions". Derive them from the objective in front of you and from what the data can actually distinguish — never from a standard list of generic marketing dimensions. Customers differ from each other in ways that may matter: who they are, what state their account is in, what is blocking the behaviour, what amounts or balances are involved, when the opportunity appears. Say which of those matter here and which do not.
    A DIMENSION IS A BUSINESS OR CUSTOMER FACTOR, never a platform setting. Balance or transaction size, who these customers are, their credit utilisation and financial behaviour, how urgent the moment is: those are dimensions. A REASON CUSTOMERS DO NOT ACT IS NOT A DIMENSION — it belongs in "barriers", and recording it here instead leaves "barriers" empty, which blocks the campaign no matter how complete this list looks. "They have not been nudged enough", "they think it costs too much", "they do not know the option exists": all barriers, none of them dimensions. A dimension is a factor that might SEGMENT these customers; a barrier is what is stopping them. Which event to enter on, which channels exist, which attribute the builder exposes, whether an event is confirmed live — those are IMPLEMENTATION questions. They matter, and they belong to the platform mapping you do after the business strategy is settled. They must not occupy the 3-5 slots, and an answer about them is not discovery.
    THE USER IS THE PRIMARY SOURCE for a dimension. Most of these cannot be looked up: only they know what they have seen in their own customers, what they believe is driving the behaviour, and which difference they think matters. Ask them.
-   BUT DO NOT ONLY RECORD WHAT THEY RAISED. Proposing a factor they did not name is your job, not theirs: a user who could already name every factor that mattered would not need you. Read the real attribute list and ask which customer differences could plausibly predict this outcome — amount or balance bands, credit limit, utilisation, tenure, status, recency, the issuer's own tags. Name the two or three most likely and say why each could matter here.
+   BUT DO NOT ONLY RECORD WHAT THEY RAISED. Proposing a factor they did not name is your job, not theirs: a user who could already name every factor that mattered would not need you. Put two or three customer differences on the table yourself and ask which one they would back. Differences that describe a PERSON, not a field: whether they have already started and stopped, how big a limit they were given, whether the app is on their phone, how they were sourced, whether they have another product with the bank. Name the factor and say why it might matter. Do not invent a cutoff, a band or a rupee figure — that is the manager's to give, and a made-up number invites them to argue with the number instead of the idea.
    UNCERTAINTY WIDENS THE SEARCH, IT DOES NOT NARROW IT. When the user says they are not sure what the barrier is, that is the moment to put MORE candidate factors on the table, not to accept their hunch and move on. Another factor may correlate far more strongly than the one they guessed.
    A FACTOR YOU WILL NOT OPTIMISE FOR MAY STILL PREDICT THE OUTCOME. "They told me success is counted, not valued" is a reason not to PRIORITISE large balances. It is not a reason to ignore balance size, because large and small balances may convert at completely different rates. Only set a factor aside when it cannot be expressed at all, or when you have said plainly why it could not change who should get what.
    This is not licence to fill the slots with platform concerns. "Which event do I enter on", "which channels exist", "is this event confirmed live" remain implementation questions and are still barred from the 3-5 slots. The test is whether the answer describes a CUSTOMER, not a configuration.
@@ -396,7 +468,7 @@ FIRST, FIND OUT WHO CONVERTS AND WHY THE REST DO NOT, and send "converters" and 
    status is one of "open" (still investigating), "retained" (resolved and used), "deferred" (you chose not to pursue it, and the note says why) or "unavailable" (the platform cannot act on it — use this only AFTER the user has given their view, and keep that view in the note). basis is what the status rests on: "tool", "user", "user-belief", "assumption" or "none" — never claim "tool" or "user" for something you assumed. "user" is for what they OWN and are the authority on: their definition, their target, their decision. "user-belief" is for their explanation of WHY customers behave as they do — a conjecture about cause, which they cannot actually know and which competing explanations may contradict. Record a stated cause as "user-belief" every time, however confidently it was put to you; calling it "user" turns their guess into the finding your campaign rests on. Never invent a threshold, a bucket, a distribution or a rate to close one out.
    WEIGH EVERY QUESTION BEFORE YOU ASK IT, AND SAY HOW MUCH RIDES ON IT. Give each one an "impact": "fork" if two different answers mean two different campaigns — a different goal, a different audience, a different entry moment, a different core intervention; "shaping" if it changes how the campaign is built rather than what it is; "detail" if a sensible default exists and stating it costs nothing. Decide this when you ASK, not later: by the time you want to design, an awkward question is tempting to call a detail.
    A FORK YOU HAVE NOT HAD ANSWERED STOPS YOU. You may not infer it from something else they said, and you may not write it down as an assumption and carry on — both of those choose one of two campaigns for them. Ask it on its own, plainly, and wait. The cost of one short question is a turn; the cost of guessing is a campaign aimed at the wrong people. Anything that is not a fork may be carried (a live uncertainty the design works around) or deferred (a default you state), each naming its question id in "questionResolutions" with the reason. A reason attached to no question resolves no question.
-   READ THEIR REPLY AS AN ANSWER FIRST. Assume it answers every question you asked, because it usually does: brief, reordered, or two in one clause all count. Put an id in "notCovered" only when nothing they wrote touches it. Never flag one for being short or not in the words you expected: telling them a reply you did receive did not count is wrong and insulting. FORKS ARE THE EXCEPTION: list every fork they answered in "answered", a fork decides which campaign this is, so silence leaves it open. A skipped question is not a refusal: ask again plainly, or proceed saying what you assume and its cost.
+   READ THEIR REPLY AS AN ANSWER FIRST. Assume it answers every question you asked, because it usually does: brief, reordered, or two in one clause all count. Put an id in "notCovered" only when nothing they wrote touches it. Never flag one for being short or not in the words you expected: telling them a reply you did receive did not count is wrong and insulting. FORKS ARE NOT AN EXCEPTION: a reply closes a fork too, and "notCovered" is the only thing that keeps one open. A skipped question is not a refusal: ask again plainly, or proceed saying what you assume and its cost.
    AN ANSWER IS NOT AUTOMATICALLY A CLOSED DIMENSION. Your first questions are the opening pass, not a questionnaire to get through. Read every answer back against what you had, and decide which of these happened:
    - It ANSWERED the question. Record it, basis "user", and move on.
    - It NARROWED the question. Broad causes hide competing explanations underneath them — "cost hesitation" could be the interest rate, the total payable, the tenure, or the effect on available limit, and those lead to different messages. If the distinction would change the design, you now have a sharper question, not an answer.
@@ -409,6 +481,7 @@ FIRST, FIND OUT WHO CONVERTS AND WHY THE REST DO NOT, and send "converters" and 
 
 3. The business strategy, before any platform mapping.
    From the dimensions, settle the audience approach, the intervention, the timing and how success will be read — in business terms, in your own words. Do not narrow any of it to what the builder happens to support yet. Then map it: the sequence and entry event below are where implementation starts, and where a business intention that cannot be built becomes a stated limitation rather than a quiet omission.
+   THE AUDIENCE IS EVERYONE ELIGIBLE WHO HAS NOT DONE THE BEHAVIOUR YET. Issued and not yet activated, carrying a balance and not yet converted: that is the entry. Narrowing it to the group most likely to respond is not strategy, it is abandoning the rest of the problem you were asked to solve.
    WHEN THE AUDIENCE YOU CAN BUILD IS NOT THE AUDIENCE THEY ASKED FOR, say all three things plainly, in the strategy itself:
    - who they intended to reach, in their words, and that it is theirs — keep any threshold or figure they gave you exactly as they said it, attributed to them;
    - who the campaign will actually reach once mapped to what exists;
@@ -434,7 +507,7 @@ FIRST, FIND OUT WHO CONVERTS AND WHY THE REST DO NOT, and send "converters" and 
    EACH CANDIDATE MUST STATE ITS "barrier", "lever", "journey" AND "measurement". The barrier is the customer problem it addresses; the lever is what you do about it; "journey" is EXACTLY ONE OF ${JOURNEY_BEHAVIOURS.join(' | ')}. The application compares candidates on entry, timing and journey: if two of yours match on all three it records the comparison as INSUFFICIENT and tells the user, because two campaigns reaching the same people at the same moment with the same behaviour are one campaign described twice, whatever their mechanisms are called. It also checks the winner's declared "journey" against what you actually build.
    A FACTOR THE FIRST CANDIDATE CANNOT CARRY IS NOT A PLATFORM LIMITATION. Before you report any discovered factor as unbuildable, check whether a DIFFERENT entry would carry it. "This entry cannot express it" is a fact about the entry you chose, not about the platform. If a second architecture would carry a factor that matters, prefer it unless you have a stronger reason not to — and if you keep the first anyway, say plainly that you traded the factor away and what that costs. Only when neither candidate can carry it is it a limitation.
    Then take each option below and give it a verdict: "used" (it earns its place, and why), "not-applicable" (why this objective does not need it) or "cannot-evaluate" (what you would need to decide). Record all seven in "strategyOptions", one line each. An option you never considered and one you weighed and set aside both read as silence, so say which it was.
-   - Segmentation. Does any dimension you found divide these customers into groups that deserve a DIFFERENT treatment, rather than one treatment for everyone? Name the groups and what would differ between them. Only call segmentation unavailable when no attribute can express the axis at all, never because nobody has named a number yet.
+   - Segmentation. Does any dimension you found divide these customers into groups that deserve a DIFFERENT treatment, rather than one treatment for everyone? Name the groups and what would differ between them. EVERY ELIGIBLE CUSTOMER IS STILL TREATED: a dimension splits the treatment inside the entry set — a different cadence, channel or copy — and never shrinks the entry to the best-looking bucket. The high-limit customers still enter; they may simply get fewer touches. If you split, give the remainder a path, so whoever is left still gets a campaign. When the manager has named the dimension, do not ask which group to target — ask only where the split sits, or default to the cohort's own median or tertiles rather than inventing a rupee cutoff, and use only as many buckets as their dimension actually needs. If the builder cannot express the axis, keep the buckets in the plan, say they cannot be built yet, and still message everyone on one path. Only call segmentation unavailable when no attribute can express the axis at all, never because nobody has named a number yet.
    - Experimentation. Is there a real competing hypothesis worth a controlled comparison? Say what is compared, how you would read the result, and what it would establish. Having no performance history is a reason TO test, not a reason to skip it: it stops you sizing an effect in advance, it does not stop you running the comparison. IF YOU CAN NAME THE ARMS, WRITE THEM — a test is never blocked on the user supplying copy, and asking them for message variants is asking them to do your job. Name the competing explanations, give each arm a real intervention and real copy, state the outcome you would read and the comparison you would read it against, and say what is missing if anything genuinely is. Only call an experiment unavailable when the journey cannot express it, never because nobody has written the words yet.
    - Conditional branching. Should what happens next depend on what the customer DID — converted, engaged but did not convert, or never engaged at all?
    - Channel fallback. What happens when delivery fails: retry, switch channel, or stop, and on what condition?
@@ -447,7 +520,20 @@ FIRST, FIND OUT WHO CONVERTS AND WHY THE REST DO NOT, and send "converters" and 
    SHOW WHERE EACH DECISION CAME FROM. Every entry in "approach" names what it rests on, inside the entry itself: what the user told you, what a tool reported, or that it is your own judgement with nothing confirming it. A reader must be able to tell THEIR requirements from YOUR recommendations without asking, and a decision that traces to nothing is an assumption — label it as one. If a later answer undercuts an approach you were heading towards, change it and say what changed it; never present a strategy that the accumulated answers no longer support.
 
 7. The journey.
-   Propose the simplest journey that does the job the approach you chose requires — simplest RELATIVE TO THAT STRATEGY, not fewest steps. If the strategy treats two groups differently, a journey that treats everyone the same is not simpler, it is a weaker strategy. There is no per-campaign message limit: how many messages to send is YOUR decision to justify, sized to how long the customer has and what closes the opportunity. Minimum spacing and quiet hours are real limits and must hold. Every step needs a reason, and every option you marked "used" should be visible in it. Do not add a branch, a reminder or an experiment because the builder supports one — and say what you considered and rejected.
+   EVEN SPACING WITH NO REACTION IS NOT A PLAN. A fixed clock treats everyone who did not convert as though the same thing happened to them — one never got it, one read it and did nothing, one is still deciding.
+   NAME EVERY TOUCH. The window they gave you is the time you have to work an unfinished action, and "a staggered multi-touch sequence" names no sends: nobody can approve a cadence they cannot see, and three touches and nine read the same in prose. List them in "touches" across that window — the first, at least one reminder, a last chance before it closes — each saying what happens if it is not delivered, not read, or read and ignored. A group that mostly acts on its own gets FEWER touches as a NAMED path, never as everyone's default. Send count still does not make two architectures different; the one you choose carries its full list either way.
+   A SPLIT BELONGS INSIDE THE JOURNEY, NOT AT THE DOOR. Put the dimension on a condition, a branch or an experiment, so each group gets its own treatment and the remainder keeps a path of its own. Entry conditions decide who is ELIGIBLE; they are not segmentation, and the application does not accept them as it.
+   Say what happens in each of these, as far as the channel can actually tell you:
+   - the message did not reach them at all;
+   - it reached them and they did not open or read it;
+   - they opened it and did nothing;
+   - they clicked and did not convert;
+   - they converted, and the campaign stops for them.
+   BRANCH ONLY ON WHAT THAT CHANNEL REPORTS. WhatsApp tells you delivered and read, and nothing about clicks. SMS tells you delivered and why it failed, and nothing about opens or clicks. Email and RCS report opens and clicks. Conversion is visible on every channel because it is the goal event, not a delivery status. Never put a click condition on a WhatsApp or SMS send, and never invent a status value — a condition on a status the channel does not emit matches nobody and looks like it works.
+   Size the plan to the window the customer has and to what the calendar says is happening. There is no per-campaign message limit: how many messages to send is YOUR decision to justify. Spacing is a judgement, not a rule — same day is right when they have just opened or clicked and are still in the moment, and longer is right when nothing has happened. Respect the night quiet hours.
+   Say what you considered and rejected, in "rejected", and make it a real alternative you chose not to take rather than a thing the builder cannot do. A rejection that is actually a platform gap belongs in the limitations, not here: it reads as "we decided against this" when the truth is "we could not express this".
+   The journey is where the options step becomes real: every option you marked "used" should be visible in it, and an option marked "used" that leaves no trace in the steps was not used.
+   Simplest RELATIVE TO THE STRATEGY, not fewest steps. If the strategy treats two groups differently, a journey that treats everyone the same is not simpler, it is a weaker strategy. Platform capability decides what gets BUILT, never what gets CONSIDERED: an option that is right for this business but unbuildable today is still recommended, kept in the strategy in full, with the limitation recorded separately. Never quietly downgrade it to a weaker thing the builder allows.
    Recommend; do not hand the design back as a menu of questions.
 
 8. The messages.
@@ -674,10 +760,34 @@ export async function* orchestrateStream(
   }
 
   const bank = bankContext();
-  const availableChannels = tenant.availableChannels
-    .filter((c) => c.available)
-    .sort((a, b) => a.relativeCost - b.relativeCost)
-    .map((c) => c.channel as Channel);
+  // THE ORDER A SEND FALLS BACK TO when the model names no channel.
+  //
+  // This list was sorted cheapest-first unconditionally, and `blueprint.ts`
+  // takes `channels[0]`. For IBL the cheapest is EMAIL, so every send without
+  // an explicit preference was built as email — while the bank context says,
+  // in so many words, not to treat email as the default first touch because
+  // it costs least. The plan on screen and the built journey disagreed about
+  // the first channel, and nothing reported it.
+  //
+  // Now the issuer's own preference decides. When cheaper-first is on, the
+  // old cost sort stands. When it is off, order by how Indian retail
+  // cardholders actually read: WhatsApp, then SMS, then email, then RCS —
+  // filtered to what the tenant genuinely has, so an unavailable channel
+  // cannot be chosen by being high in the list.
+  //
+  // IN_APP is deliberately NOT here. It is not a channel the builder can
+  // send on, and putting it in this list would let a send be built against
+  // something that does not exist.
+  const REACH_ORDER: Channel[] = ['WHATSAPP', 'SMS', 'EMAIL', 'RCS'] as Channel[];
+  const cheapestFirst = Boolean(bank.softPreferences?.preferLowerCostChannelFirst?.value);
+  const liveChannels = tenant.availableChannels.filter((c) => c.available);
+  const availableChannels = (
+    cheapestFirst
+      ? [...liveChannels].sort((a, b) => a.relativeCost - b.relativeCost)
+      : [...liveChannels].sort(
+          (a, b) => REACH_ORDER.indexOf(a.channel as Channel) - REACH_ORDER.indexOf(b.channel as Channel),
+        )
+  ).map((c) => c.channel as Channel);
 
   // ===================================================================
   // CONFIRMATION PATH — the user agreed the strategy, so build it.
@@ -733,7 +843,7 @@ export async function* orchestrateStream(
   // CONVERSATION PATH — context, then a streamed model turn with tools.
   // ===================================================================
   const t0 = Date.now();
-  em.emit('context.retrieval.started', 'understanding', 'Gathering context', { status: 'running', correlationId: 'context' });
+  em.emit('context.retrieval.started', 'understanding', 'Reading your brief and bank context', { status: 'running', correlationId: 'context' });
   yield* drain();
 
   const caps = loadCapabilities();
@@ -753,10 +863,10 @@ export async function* orchestrateStream(
     isBuildTurn
       ? `Platform capabilities (${caps.nodeTypes.length} step types, ${caps.channels.length} channels)`
       : `Channels and templates for ${tenant.displayName} — the builder's vocabulary is withheld until a plan is approved`,
-    `Campaign principles and bank context for ${tenant.displayName} (${req.knowledge.entries.length} entries, synthetic)`,
+    `Campaign principles and bank context for ${tenant.displayName} (${req.knowledge.entries.length} entries)`,
     ...docsUsed.map((d) => `Document: ${d.filename}`),
   ];
-  em.emit('context.retrieval.completed', 'understanding', 'Context gathered', {
+  em.emit('context.retrieval.completed', 'understanding', 'Read your brief and bank context', {
     correlationId: 'context',
     detail: sources.join(' · '),
     durationMs: Date.now() - t0,
@@ -828,6 +938,9 @@ export async function* orchestrateStream(
   // in tool calls — so the correct shape for a turn is exactly the shape the
   // old code treated as unusable.
   let recordedViaTools = false;
+  // Question ids already on the brief before this turn ran, so the client can
+  // be shown what was asked NOW rather than everything still outstanding.
+  const questionIdsBefore = new Set((brief.questions ?? []).map((q) => q.id));
   /** Which round first answered each lookup, so a repeat can be pointed back at it. */
   const toolRounds = new Map<string, number>();
   // A round that asked only for things it already had earns the "stop looking
@@ -879,6 +992,17 @@ export async function* orchestrateStream(
   let designRequirements: CapabilityRequirement[] = [];
   let designVerdicts: RequirementVerdict[] = [];
 
+  // COSMETIC ONLY, and deliberately computed before the loop so nobody reads
+  // it as a gate: `decide` runs for real after the rounds finish. All this
+  // decides is whether the activity row says the agent is answering the
+  // manager or writing the plan, which is the difference between a turn the
+  // manager should reply to and one they should read.
+  const modelTitle = isBuildTurn
+    ? 'Building the journey'
+    : decide(brief).proceed
+      ? 'Drafting the plan'
+      : 'Writing a reply';
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const budgetSpent = round === MAX_TOOL_ROUNDS - 1;
     const stopLookingUp = budgetSpent || repeatRounds >= MAX_REPEAT_ROUNDS;
@@ -891,7 +1015,15 @@ export async function* orchestrateStream(
     // showed four permanent spinners next to four ticks, which reads as four
     // things still running after the agent has finished and replied.
     const roundId = `model-round-${round}`;
-    em.emit('model.started', isRefinement ? 'review' : 'discovery', round === 0 ? 'Agent thinking' : 'Agent continuing', {
+    // SAY WHAT IT IS DOING, NOT THAT IT IS THINKING.
+    //
+    // These titles were 'Agent thinking' and 'Agent continuing'. Both describe
+    // our process rather than the manager's: "continuing" is only meaningful
+    // if you know the turn runs in rounds, which is our implementation detail.
+    // The row is correlated and resolves in place, so a later round keeps the
+    // same sentence and the existing `detail` says which round it is — there
+    // is nothing for a second title to add.
+    em.emit('model.started', isRefinement ? 'review' : 'discovery', modelTitle, {
       status: 'running',
       correlationId: roundId,
       detail: round === 0 ? undefined : `after tool results (round ${round + 1})`,
@@ -922,7 +1054,19 @@ export async function* orchestrateStream(
         // model return an empty turn — three of the first four evaluation
         // scenarios died that way, reported as "no text at all". tool_choice
         // 'none' forbids the call while keeping the history coherent.
-        tools: [...toolsForPhase(designSeen), ...outputToolsForPhase(isBuildTurn)].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+        // A CONFIRM TURN CAN LOOK THE CATALOGUE UP FROM ROUND 0.
+        //
+        // `designSeen` starts false, so an approval arrived with `build_campaign`
+        // and no `list_*` at all: the model had to write entity names, attributes,
+        // operators and event types from memory on the one turn where every one of
+        // them has to be exact. Measured live — "PIN Set", "within_days", an
+        // operator cased as `equals` — none of which exist, all of which it could
+        // have checked.
+        //
+        // Discovery is untouched: with `isBuildTurn` false and `designSeen` false
+        // the lookup set is still empty, which is the rule that stops turn one
+        // being a channel inventory.
+        tools: [...toolsForPhase(designSeen || isBuildTurn), ...outputToolsForPhase(isBuildTurn)].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
         toolChoice: stopLookingUp ? { type: 'none' } : undefined,
         // The round that must produce the answer runs WITHOUT thinking. See
         // `disableThinking` in anthropic.ts for the measurement: with it on,
@@ -959,7 +1103,17 @@ export async function* orchestrateStream(
           em.emit('model.tool_call.requested', 'understanding', toolTitle(chunk.toolUse.name), {
             status: 'running',
             correlationId: chunk.toolUse.id,
-            data: { tool: chunk.toolUse.name, input: chunk.toolUse.input },
+            // `kind` IS THE ONLY RELIABLE WAY TO TELL THESE APART, and the
+            // client needs to: a lookup reads something the bank already
+            // knows, an output tool writes to the conversation record. They
+            // are not the same activity and only one of them is a "lookup".
+            //
+            // Stage cannot carry it. `requested` and `started` are emitted as
+            // 'understanding' for every tool regardless of kind, and only the
+            // `completed` emit differs — so counting by stage calls
+            // `ask_questions` a lookup twice and a record-write once. That is
+            // the second wrong count, not a fix for the first.
+            data: { tool: chunk.toolUse.name, input: chunk.toolUse.input, kind: toolKind(chunk.toolUse.name) },
           });
           yield* drain();
         }
@@ -975,11 +1129,16 @@ export async function* orchestrateStream(
         }
       }
     } catch (e) {
-      const msg = e instanceof AnthropicConfigError ? e.message : `The agent could not complete: ${(e as Error).message}`;
-      em.emit('model.failed', 'discovery', 'Agent call failed', { status: 'failed', detail: msg });
+      // The user gets a sentence. The run log keeps the raw provider text,
+      // because that is where a developer looks and where truncating it would
+      // cost the diagnosis.
+      const raw = (e as Error).message;
+      const human = e instanceof AnthropicConfigError ? { message: e.message } : humaniseModelError(raw);
+      const msg = human.action ? `${human.message} ${human.action}` : human.message;
+      em.emit('model.failed', 'discovery', 'Agent call failed', { status: 'failed', detail: msg, data: { raw } });
       em.emit('run.failed', 'discovery', 'Run failed', { correlationId: 'run', status: 'failed' });
       yield* drain();
-      return { ...base, phase: 'error', stage: 'error', reply: msg, brief, session };
+      return { ...base, phase: 'error', stage: 'error', reply: msg, errorDetail: raw, brief, session };
     }
 
     em.emit('model.completed', isRefinement ? 'review' : 'discovery', 'Agent responded', {
@@ -1013,7 +1172,7 @@ export async function* orchestrateStream(
       !assistantText.trim() || (!extractJson(assistantText, stopReason).ok && !recordedViaTools);
     if (!toolUses.length && unusable && emptyRecoveries < MAX_EMPTY_RECOVERIES) {
       emptyRecoveries++;
-      em.emit('model.started', isRefinement ? 'review' : 'discovery', 'Agent answer unusable, asking again', {
+      em.emit('model.started', isRefinement ? 'review' : 'discovery', 'That reply came back empty, asking again', {
         status: 'running',
         detail: assistantText.trim()
           ? 'The turn produced text that was not the expected JSON. Retrying once.'
@@ -1025,7 +1184,7 @@ export async function* orchestrateStream(
         for await (const chunk of streamClaude({
           system: `${systemForPhase(isBuildTurn)}\n\nYour previous turn did not produce a usable answer. Every lookup you need has already been made and the results are above. Reply NOW with the single JSON object described in OUTPUT, complete, and nothing else before or after it.`,
           messages: conversation,
-          tools: [...toolsForPhase(designSeen), ...outputToolsForPhase(isBuildTurn)].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+          tools: [...toolsForPhase(designSeen || isBuildTurn), ...outputToolsForPhase(isBuildTurn)].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
           toolChoice: { type: 'none' },
           disableThinking: true,
           maxTokens: 32000,
@@ -1157,7 +1316,7 @@ export async function* orchestrateStream(
     // Only a spent budget ends the run. A nudged round that still asks for a
     // tool simply continues.
     if (budgetSpent) {
-      em.emit('model.failed', 'discovery', 'Too many lookups', {
+      em.emit('model.failed', 'discovery', 'Could not reach an answer this turn', {
         status: 'failed',
         detail: `The agent kept requesting tools after ${MAX_TOOL_ROUNDS} rounds and did not produce an answer.`,
       });
@@ -1184,6 +1343,7 @@ export async function* orchestrateStream(
       em.emit('model.tool_call.started', 'understanding', toolTitle(tu.name), {
         status: 'running',
         correlationId: tu.id,
+        data: { tool: tu.name, kind: toolKind(tu.name) },
       });
       yield* drain();
 
@@ -1212,6 +1372,7 @@ export async function* orchestrateStream(
           detail: applied.error ?? applied.ok,
           durationMs: Date.now() - started,
           correlationId: tu.id,
+          data: { tool: tu.name, kind: 'output' as const },
         });
         yield* drain();
         results.push({
@@ -1237,7 +1398,9 @@ export async function* orchestrateStream(
         detail: cached ? `${out.summary} (already fetched this run)` : out.summary,
         durationMs: Date.now() - started,
         correlationId: tu.id,
-        data: out.result,
+        // The payload is what this event is FOR, so it stays at the top of
+        // `data` and `kind` sits beside it rather than wrapping it.
+        data: { tool: tu.name, kind: 'lookup' as const, result: out.result },
       });
       yield* drain();
       // Identical result, plus a plain statement that it is identical. The
@@ -1360,8 +1523,22 @@ export async function* orchestrateStream(
       phase: 'discovery',
       stage: 'discovery',
       reply: prose || 'Recorded.',
-      // Whatever ask_questions recorded, straight from the brief.
-      questions: outstanding(brief).map((q) => q.text),
+      // ONLY WHAT WAS ASKED THIS TURN.
+      //
+      // This returned `outstanding(brief)` — every question still open,
+      // accumulated across the whole conversation. Measured live: the manager
+      // answered "1. PIN setting 2. more cardholders activate", the agent's
+      // own prose confirmed both were settled, and the screen listed them
+      // again underneath. By turn three there were five questions showing,
+      // two of them ones the agent had just said were answered.
+      //
+      // The brief keeps the history, which is right — it is the record. What
+      // the client lists is this turn's ask, capped at the same three the
+      // model is allowed to raise.
+      questions: (brief.questions ?? [])
+        .filter((q) => !questionIdsBefore.has(q.id))
+        .slice(0, MAX_QUESTIONS_PER_ROUND)
+        .map((q) => q.text),
       brief,
       session,
       strategy: null,
@@ -1582,6 +1759,8 @@ export async function* orchestrateStream(
     // on the turn it is written, which is the one check that cannot be made
     // from the record alone.
     proposed: proposed ? { strategy: proposed.strategy, openItems: proposed.openItems } : null,
+    // Already approved: the cadence question belonged to the propose turn.
+    building: isBuildTurn,
   });
 
   const gate = evaluateDiscovery({
@@ -1709,41 +1888,45 @@ export async function* orchestrateStream(
     em.emit('run.completed', 'discovery', 'Waiting for your answer', { correlationId: 'run' });
     yield* drain();
 
-    // A refusal the user cannot act on is a dead end, and the gate cannot
-    // make the model ask a question. So the record travels with the reason:
-    // the names and rationales are the AGENT's own words, which keeps
-    // question authorship where it belongs while still giving the user
-    // something concrete to correct. Caught by a real e2e failure, where a
-    // refused turn rendered neither a question nor a confirmation gate.
-    const recorded = briefDimensions(brief);
+    // THE DIMENSION LEDGER IS NOT PART OF THE REPLY, since 2026-10-21.
+    //
+    // It used to be. The reply appended "What I am working through:", every
+    // recorded dimension with a status suffix — "— set aside", "— still
+    // looking into this" — and then "Correct anything that is wrong here, or
+    // tell me to go ahead anyway."
+    //
+    // Measured on the PIN-activation run, turn 3. The manager read: "I have
+    // put up two possible groups to go after and I am waiting to hear which
+    // one you would back", followed by three bullets that were not those
+    // groups, in our vocabulary rather than theirs — "set aside", "Manager
+    // states higher assigned credit limit correlates with faster activation",
+    // "a real candidate segmentation axis for dosage/intensity". That is the
+    // lab notebook, pasted into a conversation.
+    //
+    // WHY IT WAS THERE, because the reason was real: an e2e failure where a
+    // refused turn rendered neither a question nor a confirmation gate, so
+    // the user had nothing to act on. The ledger was belt-and-braces for
+    // that. The braces are enough — `renderBlocks` always emits at least one
+    // part while the gate holds, and `gate.questions` carries the question —
+    // so the invariant is now a test (`heldReplyIsNeverEmpty`) rather than a
+    // paragraph of internal state shown just in case.
+    //
+    // The record itself is untouched: it stays on the brief, and it stays in
+    // the `discovery.questions` event's `data` where the activity panel can
+    // show it to whoever wants it.
+    //
     // WRITTEN FROM THE BLOCKS, which each carry the mutation that clears them,
     // and as a DELTA against what was reported last turn. The cascade this
     // replaces picked one of four veto branches and restated the entire state
     // every time, which is why five progressing turns read as one stuck turn.
     const delta = blockDelta(decision.blocks, brief.lastBlocks ?? []);
-    const reply = [
-      renderBlocks(delta, decision.advice),
-      recorded.length ? '\nWhat I am working through:' : '',
-      // Plain words, not the status enum. `retained | deferred | unavailable`
-      // is the application's vocabulary for its own record; printing it to a
-      // campaign manager asks them to learn our data model to read their own
-      // conversation. "(retained)" tells them nothing — it is
-      // the ordinary case.
-      ...recorded.map((d) => {
-        const where =
-          d.status === 'open'
-            ? ' — still looking into this'
-            : d.status === 'deferred'
-              ? ' — set aside'
-              : d.status === 'unavailable'
-                ? ' — nothing available to settle this'
-                : '';
-        return `- ${d.name}${where}${d.rationale ? `: ${d.rationale}` : ''}`;
-      }),
-      recorded.length ? '\nCorrect anything that is wrong here, or tell me to go ahead anyway.' : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
+    // THE MODEL'S OWN WORDS FIRST, WHEN IT WROTE ANY — then what is still
+    // needed. Never the prose alone: on a held propose turn the prose
+    // usually announces the plan ("New cardholders who have not set their PIN
+    // enter a 14-day journey..."), and printing that by itself tells the
+    // manager a plan is settled on the turn the gate refused it.
+    const heldProse = proseBefore(assistantText).trim();
+    const reply = [heldProse, renderBlocks(delta, decision.advice)].filter(Boolean).join('\n\n');
 
     brief = { ...brief, lastBlocks: decision.blocks.map((b) => b.code) };
     return {
@@ -1834,7 +2017,7 @@ export async function* orchestrateStream(
   // this turn nothing has been.
   if (!isBuildTurn) {
     em.emit('strategy.proposed', 'strategy', 'Strategy ready', { detail: strategy?.summary?.slice(0, 160) });
-    em.emit('run.completed', 'strategy', 'Waiting for your approval', { correlationId: 'run' });
+    em.emit('run.completed', 'strategy', 'Waiting for you to approve the plan', { correlationId: 'run' });
     yield* drain();
     return {
       ...base,
@@ -1874,11 +2057,19 @@ export async function* orchestrateStream(
     // asked for a specific change to something already on the canvas.
     em.emit('strategy.proposed', 'generating', 'Change understood', { detail: strategy?.summary?.slice(0, 160) });
     yield* drain();
+    // THROUGH `transition`, AND THROUGH GENERATION — this assigned the state
+    // as a bare string. That skipped the throw the build tail hit, which only
+    // made it quieter: the campaign still arrived without ever having passed
+    // through `GENERATING_CAMPAIGN`, so the machine recorded a built campaign
+    // that was never generated. A rule nothing is checked against is not a
+    // rule, and a refinement rebuilds the journey exactly as a first build
+    // does.
+    session = { ...session, state: transition(session.state, 'GENERATING_CAMPAIGN') };
     const out = buildAndValidate(req, tenant, bank, availableChannels, blueprint, strategy, em);
     yield* drain();
     session = {
       ...session,
-      state: out.exportable ? 'EXPORT_ELIGIBLE' : 'CONFIGURATION_INCOMPLETE',
+      state: transition(session.state, out.exportable ? 'EXPORT_ELIGIBLE' : 'CONFIGURATION_INCOMPLETE'),
       strategyVersion: session.strategyVersion + 1,
       confirmation: {
         objectiveFingerprint: brief.objectiveFingerprint,
@@ -1916,7 +2107,7 @@ export async function* orchestrateStream(
       data: { questions: gate.questions, round: brief.rounds },
     });
   }
-  em.emit('run.completed', 'strategy', withQuestions ? 'Waiting for your answer or confirmation' : 'Waiting for your confirmation', { correlationId: 'run' });
+  em.emit('run.completed', 'strategy', withQuestions ? 'Waiting for your answer, then your approval' : 'Waiting for you to approve the plan', { correlationId: 'run' });
   yield* drain();
 
   // A new strategy is a new version, so a confirmation of the previous one
@@ -2104,6 +2295,26 @@ export async function* orchestrateStream(
   // `confirmedBlueprint` directly, so none of them walked the path the app
   // actually takes.
   if (isBuildTurn) {
+    // GENERATION IS TWO HOPS, and this path took one.
+    //
+    // `AWAITING_STRATEGY_CONFIRMATION -> GENERATING_CAMPAIGN -> (EXPORT_ELIGIBLE
+    // | CONFIGURATION_INCOMPLETE)`. This jumped straight to the outcome, and
+    // `AWAITING_STRATEGY_CONFIRMATION` legally reaches only `GENERATING_CAMPAIGN`
+    // — the table calls it "the only door into generation" — so `transition`
+    // threw and the manager's Confirm came back as "Illegal state transition
+    // AWAITING_STRATEGY_CONFIRMATION -> CONFIGURATION_INCOMPLETE".
+    //
+    // THE TABLE IS NOT WHAT IS WRONG. Widening it to allow the jump would
+    // delete the one guarantee it offers: that nothing reaches a built
+    // campaign without passing through generation. The skip is the bug.
+    //
+    // WHY THIS PATH AND NOT THE SHORT-CIRCUIT ABOVE, which has always had both
+    // hops: that one is guarded by `req.confirmedBlueprint`, the client sends
+    // it from `pendingBlueprint`, and a propose turn returns `pendingBlueprint:
+    // null` by design. So the guard never passes in the real app and EVERY live
+    // Confirm lands here. The comment below already warned that no test walks
+    // this path; that stayed true until the one covering this fix.
+    session = { ...session, state: transition(session.state, 'GENERATING_CAMPAIGN') };
     const out = buildAndValidate(req, tenant, bank, availableChannels, blueprint, strategy, em);
     // Resolve the row opened by run.started. Without this the build turn
     // returns with that spinner still turning, because every other exit from
@@ -2187,10 +2398,29 @@ function assessGraphReadiness(
   tenant: TenantConfig,
   availableChannels: Channel[],
 ): { status: 'ready' | 'blocked'; blockers: string[]; limitations: string[] } {
-  const dry = buildFromBlueprint(bp, {
-    availableChannels,
-    templateLibraryAccess: tenant.templateLibraryAccess,
-  });
+  // GUARDED LIKE THE REAL BUILD. This is a dry run of the same compiler, on
+  // the PROPOSE turn — so a hole here takes down a turn where nothing was
+  // even being constructed. It was outside the guard added for Confirm, and
+  // a readiness check that can crash the thing it is reassuring you about is
+  // worse than no readiness check.
+  //
+  // An unanswerable question is reported as blocked, which is what it is: we
+  // do not know whether this would build.
+  let dry: ReturnType<typeof buildFromBlueprint>;
+  try {
+    dry = buildFromBlueprint(bp, {
+      availableChannels,
+      templateLibraryAccess: tenant.templateLibraryAccess,
+    });
+  } catch (e) {
+    return {
+      status: 'blocked',
+      blockers: [
+        `The journey could not be compiled to check it: ${e instanceof Error ? e.message : String(e)}`,
+      ],
+      limitations: [],
+    };
+  }
   const blockers = dry.issues.map((i) => `${i.path}: ${i.problem}`);
   return {
     status: blockers.length ? 'blocked' : 'ready',
@@ -2200,7 +2430,60 @@ function assessGraphReadiness(
 }
 
 /** Builds the graph and validates it. Only ever called after confirmation. */
+/**
+ * THE COMPILER MAY NOT TAKE THE CONVERSATION WITH IT.
+ *
+ * A live Confirm died on "Cannot read properties of undefined (reading
+ * 'replace')" — a model omitted a field the schema does not require, a
+ * deep helper dereferenced it, and the throw escaped as a raw TypeError in
+ * the transcript with no canvas and no way forward.
+ *
+ * The specific hole is fixed in `blueprint.ts` and `templateSelect.ts`. This
+ * is the structural half: the build is the ONE place where an unbounded
+ * amount of model-authored data meets application code, so the next hole —
+ * and there will be one, because the schema cannot require everything the
+ * compiler reads — costs a sentence rather than the session. The brief and
+ * the session are returned untouched by the caller, so the manager can retry
+ * or ask for a change.
+ *
+ * Deliberately NOT a catch around everything: only the compile-and-validate
+ * step. A failure anywhere else still surfaces as itself.
+ */
 function buildAndValidate(
+  req: OrchestratorRequest,
+  tenant: TenantConfig,
+  bank: Record<string, any>, // eslint-disable-line @typescript-eslint/no-explicit-any
+  availableChannels: Channel[],
+  blueprint: CampaignBlueprint,
+  strategy: Strategy | null,
+  em: EventEmitterSeq,
+): Partial<OrchestratorResponse> & { stage: Stage } {
+  try {
+    return buildAndValidateUnguarded(req, tenant, bank, availableChannels, blueprint, strategy, em);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    // Resolves the row `graph.generation.started` opened, so the activity
+    // panel does not leave a spinner turning on a run that is over.
+    em.emit('graph.generation.completed', 'generating', 'The journey could not be built', {
+      status: 'failed',
+      detail,
+    });
+    return {
+      stage: 'error',
+      // One sentence for the manager, the provider's own text kept beside it
+      // — the standing rule that the raw error is never swallowed.
+      reply:
+        'The journey could not be built from the approved plan. Nothing has been changed, so ask for a change or try again.',
+      errorDetail: detail,
+      designGenerated: false,
+      exportable: false,
+      graph: null,
+      campaign: null,
+    } as Partial<OrchestratorResponse> & { stage: Stage };
+  }
+}
+
+function buildAndValidateUnguarded(
   req: OrchestratorRequest,
   tenant: TenantConfig,
   bank: Record<string, any>, // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -2249,7 +2532,7 @@ function buildAndValidate(
       ? { ...proposal.campaign, name: blueprint.campaignName, description: blueprint.description ?? proposal.campaign.description }
       : proposal.campaign;
 
-  em.emit('validation.started', 'validating', 'Checking the campaign', { status: 'running' });
+  em.emit('validation.started', 'validating', 'Checking the journey', { status: 'running' });
   const validation = validateCampaignGraph(
     built.graph,
     { fanOut: [] },
@@ -2453,16 +2736,31 @@ export function renderStrategy(
           // "Barrier it addresses:", "Journey behaviour: experiment" — which
           // made the output read like a database row and was my doing, not the
           // model's. The same facts, written as sentences.
+          //
+          // EVERY LINE IS CONDITIONAL. Four of them were not, and printed
+          // `undefined` to a campaign manager — measured on the
+          // PIN-activation proposal, which showed "Who it reaches:
+          // undefined", "Why it should work: undefined" and "What it gives
+          // up: undefined" under both candidates.
+          //
+          // The field names have been reconciled at the tool boundary, so
+          // those three now carry what the model wrote. This stays
+          // conditional anyway: a line is worth printing when it says
+          // something, and a label with nothing after it is worse than the
+          // label's absence — it reads as a question put to the manager
+          // ("who does this reach?") about a plan that already said.
           const head = `- ${a.chosen ? `**${a.name}** — chosen` : a.name}`;
+          const line = (label: string, value: string | undefined) =>
+            value && value.trim() ? `${label}: ${value.trim()}` : '';
           const body = [
-            a.barrier ? `The problem: ${a.barrier}` : '',
-            a.lever ? `What it does: ${a.lever}` : '',
-            `Who it reaches: ${a.entry}`,
-            `When: ${a.timing}`,
-            `Why it should work: ${a.mechanism}`,
-            a.measurement ? `You would know it worked by: ${a.measurement}` : '',
-            `What it gives up: ${a.tradeoff}`,
-            a.chosen && a.whyChosen ? `Why this one: ${a.whyChosen}` : '',
+            line('The problem', a.barrier),
+            line('What it does', a.lever),
+            line('Who it reaches', a.entry),
+            line('When', a.timing),
+            line('Why it should work', a.mechanism),
+            line('You would know it worked by', a.measurement),
+            line('What it gives up', a.tradeoff),
+            a.chosen ? line('Why this one', a.whyChosen) : '',
           ].filter(Boolean);
           return `${head}\n  ${body.join('\n  ')}`;
         })
@@ -2492,8 +2790,39 @@ export function renderStrategy(
     ? `\n\n**What this design cannot do**\n${s.designWarnings.map((w) => `- ${w}`).join('\n')}`
     : '';
 
+  // THE SEQUENCE, AS A LIST. This is the thing the manager is approving and
+  // it used to exist only as a clause inside the chosen architecture's
+  // `timing` — "a staggered multi-touch sequence over the full 14 days" —
+  // which names no sends. Three touches and nine read identically in prose,
+  // so under-dosing was invisible at exactly the moment it could still be
+  // corrected. Grouped by path, because "the high-limit group gets fewer"
+  // is a claim worth seeing rather than taking on trust.
+  const byPath = new Map<string, NonNullable<Strategy['touches']>>();
+  for (const t of s.touches ?? []) {
+    const key = t.path?.trim() || 'all';
+    byPath.set(key, [...(byPath.get(key) ?? []), t]);
+  }
+  const touches = byPath.size
+    ? `\n\n**The sequence**\n${[...byPath.entries()]
+        .map(([path, list]) => {
+          const head = path === 'all' ? '' : `*${path}*\n`;
+          const rows = [...list]
+            .sort((a, b) => (a.day ?? 0) - (b.day ?? 0))
+            .map(
+              (t) =>
+                `- Day ${t.day}, ${t.channel}: ${t.purpose}${
+                  t.ifStillUnconverted ? `\n  If it does not land: ${t.ifStillUnconverted}` : ''
+                }`,
+            )
+            .join('\n');
+          return `${head}${rows}`;
+        })
+        .join('\n')}`
+    : '';
+
   return (
     s.summary +
+    touches +
     arch +
     comparison +
     warnings +
@@ -2588,15 +2917,34 @@ export function renderStrategy(
 }
 
 /** Short, factual summary after a build. The canvas carries the detail. */
-function renderBuildSummary(
+export function renderBuildSummary(
   strategy: Strategy | null,
-  built: { graph: { nodes: Record<string, unknown> }; issues: { path: string; problem: string }[]; sendProposals: { stepName: string }[] },
+  built: {
+    graph: { nodes: Record<string, unknown> };
+    issues: { path: string; problem: string }[];
+    sendProposals: { stepName: string }[];
+    limitations?: { attribute: string; note: string }[];
+  },
   validation: ValidationReport,
   unresolved: number,
   exportable: boolean,
 ): string {
   const sends = Object.values(built.graph.nodes).filter((n) => (n as { type: string }).type === 'SEND').length;
-  const lines = [
+  // A DRIP CAMPAIGN WITH NO MESSAGES IS NOT A BUILT CAMPAIGN.
+  //
+  // This sentence was unconditional, so the live failure read "Built the
+  // journey: 0 message steps, 4 steps in total. It is on the canvas now." —
+  // under a canvas holding an entry, an experiment and two exits. Twelve
+  // designed steps had been dropped and the summary announced a success.
+  //
+  // The compiler bugs that produced that case are fixed, which makes this a
+  // safety net rather than the main event. It stays because the rule does:
+  // never tell someone a thing was built when it was not.
+  const lines = sends === 0
+    ? [
+        `Generation did not produce any message steps, so there is no campaign to review yet. ${Object.keys(built.graph.nodes).length} structural step${Object.keys(built.graph.nodes).length === 1 ? '' : 's'} were created.`,
+      ]
+    : [
     `Built the journey: ${sends} message step${sends === 1 ? '' : 's'}, ${Object.keys(built.graph.nodes).length} steps in total. It is on the canvas now.`,
   ];
   if (unresolved) {
@@ -2609,6 +2957,60 @@ function renderBuildSummary(
   }
   if (built.issues.length) {
     lines.push(`\nBuild issues:\n${built.issues.map((i) => `- ${i.path}: ${i.problem}`).join('\n')}`);
+  }
+  // DID THE BUILD MATCH THE PLAN THEY APPROVED?
+  //
+  // `touches` is a second description of the same journey, and two
+  // descriptions drift — that is the bug class this codebase has been bitten
+  // by three times (an architecture's field names, two event-label maps, one
+  // session slot against a keyed store). The answer is not to delete one of
+  // them: the manager approves the list, and the builder needs the blueprint.
+  // It is to CHECK them against each other and say so.
+  //
+  // Counted, never coerced. The graph is what the agent built; if it carries
+  // fewer sends than the approved plan the honest move is to report the
+  // difference, not to quietly add steps nobody designed or to edit the plan
+  // so it agrees.
+  // PATH DENSITY, NOT TOTALS. The first version compared the number of
+  // approved touches against every SEND node in the graph, and the two are
+  // not the same measure: a two-arm wording experiment builds the same
+  // skeleton twice, so four approved touches become eight SEND nodes and the
+  // banner reported a four-message shortfall on a correct build. A banner
+  // that cries drift when nothing drifted teaches people to ignore it.
+  //
+  // What a customer experiences is one route through the journey, so that is
+  // what is compared: the fullest path of the plan against the longest path
+  // of the graph. Counted, never coerced — no step is invented to make the
+  // numbers agree, and the plan is not edited either.
+  const byPathCount = new Map<string, number>();
+  for (const t of strategy?.touches ?? []) {
+    const key = t.path?.trim() || 'all';
+    byPathCount.set(key, (byPathCount.get(key) ?? 0) + 1);
+  }
+  const plannedDensity = Math.max(0, ...byPathCount.values());
+  if (plannedDensity) {
+    const builtDensity = longestSendPath(built.graph as never);
+    if (plannedDensity !== builtDensity) {
+      lines.push(
+        `\nThe plan you approved names ${plannedDensity} message${plannedDensity === 1 ? '' : 's'} on its fullest path and the journey was built with ${builtDensity} on its longest path.` +
+          (builtDensity < plannedDensity
+            ? ' Open the canvas to see which ones are missing before this goes anywhere.'
+            : ' Worth a look before this goes anywhere.'),
+      );
+    }
+  }
+
+  // WHAT THE PLATFORM COULD NOT EXPRESS, said out loud.
+  //
+  // `limitations` is where a dropped condition goes — an attribute this
+  // entity does not have, an operator the builder does not accept. It was
+  // computed, returned, and never shown, so the campaign manager saw a
+  // journey that silently filtered on less than they asked for. It is also
+  // the capability backlog: an agent reaching for "PIN Set" is telling us
+  // what to build next, and that only works if somebody reads it.
+  const gaps = built.limitations ?? [];
+  if (gaps.length) {
+    lines.push(`\nPlatform cannot express yet:\n${gaps.map((g) => `- ${g.attribute}: ${g.note}`).join('\n')}`);
   }
   lines.push(exportable ? '\nYou can export the configuration now.' : '');
   if (strategy?.unknowns?.length) lines.push(`\nOpen questions: ${strategy.unknowns.join('; ')}`);
@@ -2630,7 +3032,7 @@ function buildContextPrompt(
   // cannot disagree about whether designing may begin.
 
   return [
-    `# Tenant\n${tenant.displayName} (issuer: ${tenant.issuer}). Synthetic prototype tenant.`,
+    `# Tenant\n${tenant.displayName} (issuer: ${tenant.issuer}).`,
     '',
     `# Working brief — everything established so far`,
     briefForPrompt(brief),
@@ -2685,6 +3087,11 @@ function buildContextPrompt(
           'BEFORE THE BLUEPRINT, STATE THE INTERVENTION ON ITS OWN: {"action":"design","intervention":[{"barrier":"<a barrier id from your own list>","does":"<what the journey does about it>","mechanism":"message|timing|branch|experiment|wait"}],"eligibility":{"entity":"<entity you would filter, or null>","exclude":["<who must never receive this>"]}}. Every entry must attack a named barrier; a step attacking nothing is decoration. "eligibility" is plumbing, never a choice to put to the user. I will tell you what the platform can meet; then build, and say what the gap costs.',
           'The campaign manager has approved the strategy above. Return ONLY {"action":"propose","strategy":{...unchanged...},"blueprint":{...}} — the blueprint expressing that plan, and the strategy exactly as approved.',
           'Build the plan that was agreed. If part of it cannot be expressed in the vocabulary above, DO NOT quietly build a lesser version: say which part and what is missing, in "openItems" as an "operational-limitation". A campaign that silently dropped a requirement is worse than no campaign and a plain reason.',
+          // ONE INSTRUCTION, NOT A CATALOGUE. The lookup tools are available
+          // on this turn now, so the model can check rather than recall —
+          // pasting ELIGIBILITY_META in here would spend the budget on
+          // something it can already read, and would be a second copy of it.
+          'CHECK, DO NOT RECALL. An attribute, event or operator that is not in what the tools returned does not exist: never write the name anyway. Build every step the platform CAN express, leave the one it cannot out, and record it in "openItems" as an "operational-limitation" naming what you needed and the closest real field the tools showed you. That gap is how we find out which drip capability to add next, so it is worth more written down than worked around.',
         ].join('\n')
       : [
           '# NO BLUEPRINT THIS TURN',

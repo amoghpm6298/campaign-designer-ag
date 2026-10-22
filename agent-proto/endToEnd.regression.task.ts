@@ -188,8 +188,9 @@ describe('end-to-end 2 — same scenario with SYNTHETIC verified tenant (usable 
     expect(p.id.basis).toBe('provisional');
     expect(p.goal.basis).toBe('user-answer');
     expect(p.controlPct.basis).toBe('application-default');
+    expect(p.guardrails.basis).toBe('application-default');
     expect(p.status.basis).toBe('application-default');
-    for (const f of ['startDate', 'endDate', 'guardrails', 'allowReEntry']) {
+    for (const f of ['startDate', 'endDate', 'allowReEntry']) {
       expect(p[f].basis, f).toBe('unresolved');
       expect(p[f].omitted, f).toBe(true);
     }
@@ -207,7 +208,6 @@ describe('end-to-end 2 — same scenario with SYNTHETIC verified tenant (usable 
     const c = run.campaign! as unknown as Record<string, unknown>;
 
     for (const omitted of [
-      'guardrails',
       'allowReEntry',
       'reEntryCooloffDuration',
       'reEntryCooloffUnit',
@@ -217,9 +217,11 @@ describe('end-to-end 2 — same scenario with SYNTHETIC verified tenant (usable 
     ]) {
       expect(omitted in c, `${omitted} must be absent`).toBe(false);
     }
+    expect(c.guardrails).toEqual({ dnc: true, npa: true });
     expect(run.unresolvedCampaignFields).toEqual(
-      expect.arrayContaining(['startDate', 'endDate', 'guardrails', 'allowReEntry']),
+      expect.arrayContaining(['startDate', 'endDate', 'allowReEntry']),
     );
+    expect(run.unresolvedCampaignFields).not.toContain('guardrails');
     // issuer is resolved now, so it must NOT be in the unresolved list.
     expect(run.unresolvedCampaignFields).not.toContain('issuer');
   });

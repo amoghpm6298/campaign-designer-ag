@@ -79,8 +79,108 @@ export interface DesignerSession {
   messages: ChatTurn[];
   discoveryRounds: number;
   campaign: DripCampaign | null;
+  /**
+   * The whole last `DesignerResponse`.
+   *
+   * It already carries `phase`, `brief`, `session`, `pendingBlueprint`,
+   * `pendingStrategy` and `graph` — everything resuming a conversation needs.
+   * For a long time only four of those were read back on mount, so a plain
+   * RELOAD dropped the brief and the confirm gate while the data sat in
+   * storage untouched. Resume is mostly a matter of reading what was always
+   * being written.
+   */
   lastResponse: unknown;
+  /** Set on every save, so the chat list can order by most recent. */
+  updatedAt?: string;
+  /**
+   * A monotonic write counter, purely to break ties on `updatedAt`.
+   *
+   * Two saves inside the same millisecond are ordinary here — React can flush
+   * two effects together — and with a timestamp alone the sort was then
+   * decided by object key order, so "the chat you were last in" could open
+   * the wrong one. Measured by a test before it reached anyone.
+   */
+  seq?: number;
 }
-export const loadSession = () => read<DesignerSession>(SESSION_KEY);
-export const saveSession = (s: DesignerSession) => write(SESSION_KEY, s);
+
+/**
+ * EVERY CHAT, NOT JUST THE OPEN ONE.
+ *
+ * There used to be one slot. `clearSession()` emptied it, so "Start over" was
+ * a single unconfirmed click that destroyed the conversation — no history, no
+ * undo, nothing to go back to. The fix is not a confirmation dialog: it is
+ * that starting a new chat should never have been destructive. Keeping every
+ * session means Start over just mints a new id and leaves the old one on the
+ * list.
+ *
+ * Capped, because localStorage is the only store here and a long demo must
+ * not exhaust the quota. Oldest goes first, which is also the one least
+ * likely to be wanted.
+ */
+const SESSIONS_KEY = 'dc-agent-sessions-v1';
+export const MAX_SESSIONS = 40;
+
+type SessionStore = Record<string, DesignerSession>;
+
+/**
+ * Read the store, folding in the single-slot session if one is still there.
+ *
+ * Runs on every read rather than once, and removes the old key as soon as it
+ * has been carried across. Anyone mid-conversation when this ships keeps that
+ * conversation — an upgrade that loses the chat it was built to preserve
+ * would be a poor advertisement for it.
+ */
+function readSessions(): SessionStore {
+  const store = read<SessionStore>(SESSIONS_KEY) ?? {};
+  const legacy = read<DesignerSession>(SESSION_KEY);
+  if (legacy?.sessionId && !store[legacy.sessionId]) {
+    store[legacy.sessionId] = { ...legacy, updatedAt: legacy.updatedAt ?? new Date().toISOString() };
+    write(SESSIONS_KEY, store);
+  }
+  if (legacy) localStorage.removeItem(SESSION_KEY);
+  return store;
+}
+
+/** Most recently touched first — the order a chat list is read in. */
+const byRecency = (a: DesignerSession, b: DesignerSession) =>
+  (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '') || (b.seq ?? 0) - (a.seq ?? 0);
+
+export function listSessions(): DesignerSession[] {
+  return Object.values(readSessions()).sort(byRecency);
+}
+
+export const loadSessionById = (id: string): DesignerSession | null => readSessions()[id] ?? null;
+
+/** The chat that was open last, so a reload lands where it left off. */
+export const loadSession = (): DesignerSession | null => listSessions()[0] ?? null;
+
+let writes = 0;
+export function saveSession(s: DesignerSession): void {
+  const store = readSessions();
+  const highest = Math.max(0, ...Object.values(store).map((v) => v.seq ?? 0));
+  writes = Math.max(writes + 1, highest + 1);
+  store[s.sessionId] = { ...s, updatedAt: new Date().toISOString(), seq: writes };
+  // A chat nobody ever spoke in is not worth a row, and an empty session is
+  // written on every mount. Dropped rather than listed, so starting the app
+  // and closing it does not fill the list with blanks.
+  for (const [id, v] of Object.entries(store)) {
+    if (!v.messages?.length && id !== s.sessionId) delete store[id];
+  }
+  const ordered = Object.values(store).sort(byRecency);
+  write(SESSIONS_KEY, Object.fromEntries(ordered.slice(0, MAX_SESSIONS).map((v) => [v.sessionId, v])));
+}
+
+export function deleteSession(id: string): void {
+  const store = readSessions();
+  delete store[id];
+  write(SESSIONS_KEY, store);
+}
+
+/**
+ * Kept for the tenant-switch path, which genuinely wants the open chat gone.
+ *
+ * It no longer deletes anything: the session stays in the store and simply
+ * stops being the open one. Nothing in this app should destroy a
+ * conversation as a side effect of a settings change.
+ */
 export const clearSession = () => localStorage.removeItem(SESSION_KEY);

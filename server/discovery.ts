@@ -401,6 +401,16 @@ export interface WorkingBrief {
    */
   converters?: Converters;
   /**
+   * Names `recordDimensions` refused to store because they describe the
+   * platform rather than the customer.
+   *
+   * Kept so the model can be TOLD. Dropping them silently reproduced the
+   * deadlock this project keeps hitting: the agent raised three dimensions,
+   * none were stored, the gate said "raise at least 3", and the agent — with
+   * no way to know what had happened — raised the same three again.
+   */
+  droppedDimensions?: string[];
+  /**
    * Block codes reported to the user on the previous refusal.
    *
    * Exists so a refusal can report the DELTA. A live session refused five
@@ -654,7 +664,7 @@ export function evaluateDiscovery(input: GateInput): GateDecision {
   // the test. A barrier only counts once it traces to something the manager
   // said — see `recordBarriers`, which downgrades an invented one — so this
   // cannot be satisfied by the agent writing down its own guess.
-  const knowsConverters = convertersSettled(brief.converters, brief.answers.map((a) => a.round));
+  const knowsConverters = convertersSettled(brief.converters);
   const usableBarriers = designableBarriers(brief.barriers);
   if (
     !isRefinement &&
@@ -1138,13 +1148,19 @@ export function recordConverters(brief: WorkingBrief, c: Converters | null | und
  * asked again. The common case — a reply that answers — must not depend on an
  * optional field arriving.
  *
- * WHY IT STOPS AT FORKS. Flipping the default for every question would also
- * discharge a fork nobody answered, and a fork decides WHICH campaign gets
- * built rather than how well. The cost of the two mistakes is not symmetrical:
- * wrongly assuming a detail was answered loses a nuance the model can still
- * read back out of `brief.answers`, while wrongly assuming a fork was answered
- * builds the wrong campaign silently. So a fork still requires the model to
- * claim it positively, and everything else is assumed answered.
+ * IT NO LONGER STOPS AT FORKS. It did until 2026-10-21, on the asymmetry that
+ * a wrongly-discharged detail loses a nuance while a wrongly-discharged fork
+ * builds the wrong campaign. The asymmetry is real; the conclusion drawn from
+ * it was not. Keeping forks open by default did not make the application
+ * careful, it made it unable to hear an answer: the manager replied to both
+ * forks, the model's own prose read them back correctly, and because it did
+ * not also emit `answered` the screen re-asked both. Three turns, five
+ * questions on screen, nothing built.
+ *
+ * `notCovered` is the protection now, and it is the better one — it is the
+ * model stating that a specific question went untouched, which is a claim
+ * about this reply, rather than a standing default that treats every reply as
+ * insufficient until proven otherwise.
  *
  * Applied on EVERY turn, including with an empty list: the empty list IS the
  * claim that nothing went uncovered.
@@ -1159,8 +1175,20 @@ export function recordUncoveredQuestions(brief: WorkingBrief, uncovered: string[
       if (q.answeredInRound === undefined) return q;
       if (q.addressedInRound !== undefined) return q;
       if (skipped.has(q.id)) return q;
-      // A fork is discharged only by an explicit claim, never by silence.
-      if (q.impact === 'fork') return q;
+      // FORKS ARE ADDRESSED BY A REPLY TOO, since 2026-10-21.
+      //
+      // They used to be excepted: a fork stayed open unless the model
+      // explicitly claimed it in `answered`. The intent was sound — a
+      // wrongly-discharged fork builds the wrong campaign silently — but it
+      // was paid for with the failure that actually costs trust. Measured
+      // live: the manager replied "1. PIN setting 2. more cardholders
+      // activate", the model's own prose confirmed both were settled, and
+      // because it did not emit `answered` the record kept both forks open
+      // and the screen asked them again. Twice more.
+      //
+      // A reply answers what was asked. The protection against discharging a
+      // fork by inference is `notCovered` above — the model saying so — not a
+      // default that treats every reply as insufficient.
       return { ...q, addressedInRound: brief.rounds };
     }),
   };
@@ -1325,7 +1353,7 @@ export const MIN_DIMENSIONS_CONSIDERED = 3;
  * `retained` needs no note: it is in the design, where its reasoning shows.
  */
 export const discoveryIsComplete = (brief: WorkingBrief): boolean => {
-  const dims = briefDimensions(brief);
+  const dims = briefDimensions(brief).filter((d) => !isPlatformDimension(d.name));
   if (dims.length < MIN_DIMENSIONS_CONSIDERED) return false;
   if (outstandingDimensions(brief).length > 0) return false;
   return dims.every((d) => d.status === 'retained' || (d.note ?? '').trim().length > 0);
@@ -1734,12 +1762,49 @@ const asFindingOrDeferral = (d: DiscoveryDimension): DiscoveryDimension => {
  * Supplying `status` or `basis` IS an explicit change, including back to
  * 'open' — reopening a dimension is a legitimate move when a later answer
  * unsettles it.
+ *
+ * A fourth rule, 2026-10-21: a name that is a platform setting is not a
+ * dimension. The gate wants three lines of enquiry, and live runs filled
+ * those slots with "which event", "channel sequencing" and "quiet hours".
+ * The prompt already says those are implementation questions. The record
+ * now agrees: they are not stored, so they cannot satisfy the three.
  */
+export function isPlatformDimension(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  if (!n) return false;
+  return [
+    /\bentry\s+(event|point|trigger)\b/,
+    /\bevent\s+type\b/,
+    /\bwhich\s+events?\b/,
+    /\bquiet\s+hours?\b/,
+    /\bdn[cd]\b/,
+    /\bdo\s+not\s+disturb\b/,
+    /\btemplates?\b/,
+    /\bnode\s+type\b/,
+    /\bstep\s+(kind|type)s?\b/,
+    /\bbuilder\b/,
+    /\bchannel\s+sequenc/,
+    /\bchannel\s+(order|availability|list)\b/,
+    /\bwhich\s+channels?\b/,
+    /\bchannels?\s+exist/,
+    /\bsuppression\b/,
+    /\bfailover\b/,
+  ].some((re) => re.test(n));
+}
+
 export function recordDimensions(brief: WorkingBrief, updates: DimensionUpdate[]): WorkingBrief {
   const merged = [...briefDimensions(brief)];
+  const dropped: string[] = [];
 
   for (const update of updates) {
     if (!update.name?.trim()) continue; // an unnamed dimension has no identity
+    // Platform settings are not lines of enquiry. Drop them rather than
+    // storing a slot the gate would then count — and REMEMBER the name, so
+    // the brief can tell the model why its three did not land.
+    if (isPlatformDimension(update.name)) {
+      dropped.push(update.name.trim());
+      continue;
+    }
     const at = merged.findIndex((d) => sameDimension(d.name, update.name));
 
     if (at === -1) {
@@ -1768,7 +1833,11 @@ export function recordDimensions(brief: WorkingBrief, updates: DimensionUpdate[]
     });
   }
 
-  return { ...brief, dimensions: merged };
+  // Carried forward, so a drop on an earlier turn is still explained while the
+  // count is short. Cleared implicitly: briefForPrompt stops mentioning them
+  // once enough real dimensions exist.
+  const carried = [...new Set([...(brief.droppedDimensions ?? []), ...dropped])];
+  return { ...brief, dimensions: merged, ...(carried.length ? { droppedDimensions: carried } : {}) };
 }
 
 /**
@@ -1915,6 +1984,26 @@ export function briefForPrompt(brief: WorkingBrief): string {
       'For each, take ONE of two exits and say which in your answer: ask a question that separates the competing explanations, or carry them into the strategy as hypotheses. Asking is right when they are likely to know and the answer would change the design. Carrying is right when they genuinely cannot know, or when every explanation leads to the same campaign — say so plainly. Designing for one reading without saying you chose it is not an option.',
     );
   }
+  // WHAT WAS DROPPED, AND WHAT TO RAISE INSTEAD.
+  //
+  // `recordDimensions` refuses to store a dimension that names a platform
+  // setting. Doing that silently is how the agent got stuck: it raised three,
+  // none landed, the gate said "raise at least 3", and with no way to know
+  // what had happened it raised the same three again.
+  //
+  // Only shown while the count is actually short. Once three real dimensions
+  // exist the sentence stops on its own, so a drop from an early turn does not
+  // nag for the rest of the conversation.
+  const dropped = brief.droppedDimensions ?? [];
+  if (dropped.length && briefDimensions(brief).length < MIN_DIMENSIONS_CONSIDERED) {
+    lines.push(
+      '',
+      `These were not stored as lines of enquiry because they describe the platform, not the customer: ${dropped.join(', ')}.`,
+      'Raise three things about the customers — who they are, what state they are in, whether they have already started.',
+      'Do not raise entry events, channel lists, templates, quiet hours, or DND.',
+    );
+  }
+
   // A dimension the gate is holding the proposal on, with the ONE thing that
   // clears it named explicitly.
   //

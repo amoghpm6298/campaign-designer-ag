@@ -1,115 +1,111 @@
 {
-  "$comment": "Campaign principles extracted from existing project documentation. Every entry carries a real source reference that can be checked. Classification is deliberately conservative: 'verified' is used ONLY where the source states a measured figure or a confirmed system behaviour. Nothing here was invented to fill a gap, and no evidence has been manufactured — where a principle is a judgement call, it is classified 'hypothesis' and says so.",
-  "principlesVersion": "0.1.0",
-  "classificationRules": {
-    "verified": "Source states a measured number, a confirmed backend/system behaviour, or an application rule that is enforced in code today.",
-    "observation": "Source records a decision or a repeatedly-applied practice, but without measured evidence that it improves outcomes.",
-    "hypothesis": "Reasonable design judgement with no supporting evidence in any source. Must not be presented as established."
+ "$comment": "Campaign principles extracted from existing project documentation. Every entry carries a real source reference that can be checked. Classification is deliberately conservative: 'verified' is used ONLY where the source states a measured figure or a confirmed system behaviour. Nothing here was invented to fill a gap, and no evidence has been manufactured — where a principle is a judgement call, it is classified 'hypothesis' and says so.",
+ "principlesVersion": "0.1.0",
+ "classificationRules": {
+  "verified": "Source states a measured number, a confirmed backend/system behaviour, or an application rule that is enforced in code today.",
+  "observation": "Source records a decision or a repeatedly-applied practice, but without measured evidence that it improves outcomes.",
+  "hypothesis": "Reasonable design judgement with no supporting evidence in any source. Must not be presented as established."
+ },
+ "principles": [
+  {
+   "id": "P-001",
+   "statement": "There is no campaign performance history for this bank. Do not state or assume a conversion rate, and do not design around one. Size the audience and set expectations from what the manager tells you, and say plainly that the first run establishes the baseline.",
+   "classification": "observation",
+   "source": "journeysnudgesemi/CLAUDE.md:3725, 3758",
+   "appliesTo": "all campaigns",
+   "implication": "A single campaign rarely produces enough conversions to support a confident conclusion. Do not promise lift."
   },
-  "principles": [
-    {
-      "id": "P-001",
-      "statement": "End-to-end conversion for these campaigns is low single digits. Design and expectation-setting should assume roughly 2% of customers who reach a landing page convert, not double digits.",
-      "classification": "verified",
-      "evidence": "Measured in the prototype's own dataset: 105,520 visited, 2,140 converted = 2.03% overall.",
-      "source": "journeysnudgesemi/CLAUDE.md:3725, 3758",
-      "appliesTo": "all campaigns",
-      "implication": "A single campaign rarely produces enough conversions to support a confident conclusion. Do not promise lift."
-    },
-    {
-      "id": "P-002",
-      "statement": "Booked conversions run at roughly 0.5% of the total addressable customer base.",
-      "classification": "verified",
-      "evidence": "Stated by the product owner and then used to recalibrate the prototype's funnel data.",
-      "source": "journeysnudgesemi/CLAUDE.md:4167",
-      "appliesTo": "EMI conversion campaigns",
-      "implication": "Funnel expectations should be set against the addressable base, not against the engaged subset."
-    },
-    {
-      "id": "P-003",
-      "statement": "An auth-triggered EMI request stays open for up to 7 days before it is marked Expired. A campaign waiting on that outcome should not time out sooner.",
-      "classification": "verified",
-      "evidence": "Reconciliation waits up to 7 days before marking a request Expired, to buffer past slower-than-T+1 settlement cases.",
-      "source": "journeysnudgesemi/IBL-Auth-Txn-to-EMI-Master-PRD.md:129, 226",
-      "appliesTo": "Auth-txn-to-EMI campaigns",
-      "implication": "Use a 7-day timeout on a Wait for Event node awaiting EMI resolution."
-    },
-    {
-      "id": "P-004",
-      "statement": "Customer cooldown and quiet hours are real, implemented guardrails. A maximum-messages-per-day cap and a cooldown override are NOT implemented and must not be assumed available.",
-      "classification": "verified",
-      "evidence": "Audit found cooldown and quiet hours present in the Frequency Limits step; max-per-day and cooldown-override were documented but never built, and were moved to out-of-scope.",
-      "source": "journeysnudgesemi/CLAUDE.md:6149-6151",
-      "appliesTo": "all campaigns",
-      "implication": "Do not design a campaign that depends on a per-day cap being enforced by the platform."
-    },
-    {
-      "id": "P-005",
-      "statement": "Change one major variable per experiment so an observed difference can be attributed to a specific change.",
-      "classification": "observation",
-      "evidence": "Stated as a design requirement in the agentic concept note. No measured evidence in any source that multi-variable campaigns actually produced unattributable results here.",
-      "source": "Agentic Drip Campaign concept note, 2026-10-12 (Key Considerations)",
-      "appliesTo": "campaigns using Experiment nodes",
-      "implication": "Prefer a single Experiment node varying one thing."
-    },
-    {
-      "id": "P-006",
-      "statement": "A campaign claiming incremental lift needs a holdout. Without a control group the result cannot be separated from what would have happened anyway.",
-      "classification": "observation",
-      "evidence": "controlPct exists as a first-class campaign field and seed campaigns use 0/5/10%. No measured evidence recorded for which value is correct.",
-      "source": "src/data/graphTypes.ts (controlPct); src/data/seedCampaigns.ts (values in use)",
-      "appliesTo": "campaigns measuring lift",
-      "implication": "Set a non-zero controlPct when the goal is framed as incremental."
-    },
-    {
-      "id": "P-007",
-      "statement": "Independent time-based checkpoints from one anchor are parallel paths, not a routed choice — every customer passes every checkpoint.",
-      "classification": "verified",
-      "evidence": "Encoded in the application as the routing-vs-fan-out rule (dcCanFanOut / dcIsRoutingNode) and enforced in three places including analytics counting.",
-      "source": "src/data/nodeMeta.ts; drip-campaigns/CLAUDE.md (2026-10-11 entry)",
-      "appliesTo": "milestone / anniversary / multi-checkpoint campaigns",
-      "implication": "Use fan-out from the entry node; do not model checkpoints as Branch arms."
-    },
-    {
-      "id": "P-008",
-      "statement": "Check the campaign goal after a message or wait, and stop messaging a customer who has already achieved it.",
-      "classification": "verified",
-      "evidence": "The application auto-inserts a Goal Check after every Send and Wait whenever a campaign Goal is defined, wiring Yes to Goal Reached.",
-      "source": "src/reducer/campaignReducer.ts (dcConfirmAddNode); drip-campaigns/CLAUDE.md (2026-10-12 entry)",
-      "appliesTo": "any campaign with a defined Goal",
-      "implication": "Define a Goal so the platform inserts these automatically rather than hand-building checks."
-    },
-    {
-      "id": "P-009",
-      "statement": "A fallback channel on a Send is for delivery failure on the primary channel. It is a property of one Send, not a separate step.",
-      "classification": "verified",
-      "evidence": "Channel Failover was folded into Send as an optional fallbackChannel; it is no longer a node type.",
-      "source": "drip-campaigns/CLAUDE.md (2026-10-08 entry); src/data/nodeMeta.ts",
-      "appliesTo": "campaigns with channel redundancy",
-      "implication": "Configure fallback inside the Send, not as a chained node."
-    },
-    {
-      "id": "P-010",
-      "statement": "Lead with the lower-cost channel and reserve higher-cost channels for reinforcement or recovery.",
-      "classification": "hypothesis",
-      "evidence": "NONE. This is a common marketing heuristic and is consistent with the fictional bank's stated cost preference, but no source in this project measures it and no bank has confirmed it.",
-      "source": "No supporting source. Recorded as a hypothesis so it is not mistaken for established practice.",
-      "appliesTo": "multi-channel campaigns",
-      "implication": "May inform a suggestion, but must be stated as an assumption, never as a reason the campaign will perform better."
-    },
-    {
-      "id": "P-011",
-      "statement": "Space reminder messages far enough apart to avoid fatigue.",
-      "classification": "hypothesis",
-      "evidence": "NONE measured in this project. The 48-hour figure used in the mock bank context is invented, not derived from data.",
-      "source": "No supporting source. Mock value lives in agent-proto/context/bank-context.json and is labelled INVENTED.",
-      "appliesTo": "reminder sequences",
-      "implication": "Follow the bank's stated constraint where one exists; otherwise state the chosen spacing as an assumption."
-    }
-  ],
-  "knownGaps": [
-    "No campaign performance data exists anywhere in this project, so no principle here is backed by a measured outcome of a shipped campaign.",
-    "P-001 and P-002 are measured, but measured against the prototype's own generated dataset — they reflect intended realism, not a production result.",
-    "No principle has been validated against the fictional Meridian Bank, which has no history at all."
-  ]
+  {
+   "id": "P-002",
+   "statement": "No booked-conversion rate exists for this bank either. A number here would be invented, so do not quote one. Report what the campaign would have to produce to be worth running, and let the first run measure it.",
+   "classification": "observation",
+   "source": "journeysnudgesemi/CLAUDE.md:4167",
+   "appliesTo": "EMI conversion campaigns",
+   "implication": "Funnel expectations should be set against the addressable base, not against the engaged subset."
+  },
+  {
+   "id": "P-003",
+   "statement": "An auth-triggered EMI request stays open for up to 7 days before it is marked Expired. A campaign waiting on that outcome should not time out sooner.",
+   "classification": "verified",
+   "evidence": "Reconciliation waits up to 7 days before marking a request Expired, to buffer past slower-than-T+1 settlement cases.",
+   "source": "journeysnudgesemi/IBL-Auth-Txn-to-EMI-Master-PRD.md:129, 226",
+   "appliesTo": "Auth-txn-to-EMI campaigns",
+   "implication": "Use a 7-day timeout on a Wait for Event node awaiting EMI resolution."
+  },
+  {
+   "id": "P-004",
+   "statement": "Customer cooldown and quiet hours are real, implemented guardrails. A maximum-messages-per-day cap and a cooldown override are NOT implemented and must not be assumed available.",
+   "classification": "verified",
+   "evidence": "Audit found cooldown and quiet hours present in the Frequency Limits step; max-per-day and cooldown-override were documented but never built, and were moved to out-of-scope.",
+   "source": "journeysnudgesemi/CLAUDE.md:6149-6151",
+   "appliesTo": "all campaigns",
+   "implication": "Do not design a campaign that depends on a per-day cap being enforced by the platform."
+  },
+  {
+   "id": "P-005",
+   "statement": "Change one major variable per experiment so an observed difference can be attributed to a specific change.",
+   "classification": "observation",
+   "evidence": "Stated as a design requirement in the agentic concept note. No measured evidence in any source that multi-variable campaigns actually produced unattributable results here.",
+   "source": "Agentic Drip Campaign concept note, 2026-10-12 (Key Considerations)",
+   "appliesTo": "campaigns using Experiment nodes",
+   "implication": "Prefer a single Experiment node varying one thing."
+  },
+  {
+   "id": "P-006",
+   "statement": "A campaign claiming incremental lift needs a holdout. Without a control group the result cannot be separated from what would have happened anyway.",
+   "classification": "observation",
+   "evidence": "controlPct exists as a first-class campaign field and seed campaigns use 0/5/10%. No measured evidence recorded for which value is correct.",
+   "source": "src/data/graphTypes.ts (controlPct); src/data/seedCampaigns.ts (values in use)",
+   "appliesTo": "campaigns measuring lift",
+   "implication": "Set a non-zero controlPct when the goal is framed as incremental."
+  },
+  {
+   "id": "P-007",
+   "statement": "Independent time-based checkpoints from one anchor are parallel paths, not a routed choice — every customer passes every checkpoint.",
+   "classification": "verified",
+   "evidence": "Encoded in the application as the routing-vs-fan-out rule (dcCanFanOut / dcIsRoutingNode) and enforced in three places including analytics counting.",
+   "source": "src/data/nodeMeta.ts; drip-campaigns/CLAUDE.md (2026-10-11 entry)",
+   "appliesTo": "milestone / anniversary / multi-checkpoint campaigns",
+   "implication": "Use fan-out from the entry node; do not model checkpoints as Branch arms."
+  },
+  {
+   "id": "P-008",
+   "statement": "Check the campaign goal after a message or wait, and stop messaging a customer who has already achieved it.",
+   "classification": "verified",
+   "evidence": "The application auto-inserts a Goal Check after every Send and Wait whenever a campaign Goal is defined, wiring Yes to Goal Reached.",
+   "source": "src/reducer/campaignReducer.ts (dcConfirmAddNode); drip-campaigns/CLAUDE.md (2026-10-12 entry)",
+   "appliesTo": "any campaign with a defined Goal",
+   "implication": "Define a Goal so the platform inserts these automatically rather than hand-building checks."
+  },
+  {
+   "id": "P-009",
+   "statement": "A fallback channel on a Send is for delivery failure on the primary channel. It is a property of one Send, not a separate step.",
+   "classification": "verified",
+   "evidence": "Channel Failover was folded into Send as an optional fallbackChannel; it is no longer a node type.",
+   "source": "drip-campaigns/CLAUDE.md (2026-10-08 entry); src/data/nodeMeta.ts",
+   "appliesTo": "campaigns with channel redundancy",
+   "implication": "Configure fallback inside the Send, not as a chained node."
+  },
+  {
+   "id": "P-010",
+   "statement": "Do not lead with email because it is the cheapest channel. For Indian retail cardholders WhatsApp and in-app are read where email is not, so choose the first touch on reach and on where the customer can act, not on cost per message. Cost is a tie-breaker between channels that would both work, never the reason to pick the first one.",
+   "classification": "hypothesis",
+   "source": "No supporting source. Recorded as a hypothesis so it is not mistaken for established practice.",
+   "appliesTo": "multi-channel campaigns",
+   "implication": "May inform a suggestion, but must be stated as an assumption, never as a reason the campaign will perform better."
+  },
+  {
+   "id": "P-011",
+   "statement": "Do not repeat on a fixed clock. Forty-eight hours is a guard against nagging, not a rhythm to design to: the same day is fine when someone has just opened or clicked and is still in the moment, and a longer gap is right when nothing has happened. Respect the night quiet hours. The test is whether another message is useful to them, not whether enough time has passed.",
+   "classification": "hypothesis",
+   "source": "No supporting source. Mock value lives in agent-proto/context/bank-context.json and is labelled INVENTED.",
+   "appliesTo": "reminder sequences",
+   "implication": "Spacing is a judgement call on each send, not a constraint to comply with. The night quiet hours are the real limit. Decide the gap from what the customer has just done and say why you chose it."
+  }
+ ],
+ "knownGaps": [
+  "No campaign performance data exists anywhere in this project, so no principle here is backed by a measured outcome of a shipped campaign.",
+  "No principle has been validated against the fictional Meridian Bank, which has no history at all.",
+  "No campaign performance history for this bank. No conversion rate, no benchmark, no prior-campaign learning. The first run establishes the baseline."
+ ]
 }

@@ -137,7 +137,117 @@ describe('2.4 — a used claim is checked against the journey', () => {
   it('one path for everyone is not segmentation', () => {
     const [a] = auditOptions(used('Segmentation'), bp([send('EMAIL')]));
     expect(a.verified).toBe('cannot-evaluate');
-    expect(a.gap).toMatch(/one path for everyone and the entry narrows nobody/);
+    expect(a.gap).toMatch(/one path for everyone/);
+    // And the reason names the thing that used to pass for segmentation.
+    expect(a.gap).toMatch(/Entry conditions decide who is eligible/);
+  });
+
+  // NARROWING THE ENTRY IS NOT SEGMENTATION, 2026-10-21.
+  //
+  // The check was `branches || narrowed`, where `narrowed` meant "the entry
+  // carries at least one condition". A campaign that filtered at the door and
+  // then ran one path for the survivors verified Segmentation as `used` — so
+  // the audit rewarded the opposite of what segmentation is. An entry
+  // condition is eligibility. Every eligible customer is meant to be treated;
+  // a dimension decides which PATH they take, not whether they are in the
+  // campaign.
+  describe('segmentation is an in-journey split, not a narrower door', () => {
+    const entry = (conditions: { attribute: string; operator: string; value: string }[]) => ({
+      kind: 'audience' as const,
+      entity: 'Account',
+      conditions,
+    });
+
+    it('does NOT verify on entry conditions alone, however many there are', () => {
+      const j = {
+        ...bp([send('EMAIL')]),
+        entry: entry([
+          { attribute: 'Status', operator: 'Equals', value: 'Active' },
+          { attribute: 'Credit Limit', operator: 'Greater than', value: '100000' },
+        ]),
+      };
+      const [a] = auditOptions(used('Segmentation'), j);
+      expect(a.verified).toBe('cannot-evaluate');
+    });
+
+    it('verifies on a condition whose two branches treat the groups differently', () => {
+      const j = bp([
+        {
+          kind: 'condition',
+          label: 'Assigned limit above the cohort median?',
+          on: { entity: 'Account', attribute: 'Credit Limit', operator: 'Greater than', value: '0' },
+          yes: [send('WHATSAPP', 'A single reminder, since you are already set up.')],
+          no: [send('WHATSAPP', 'Here is how to set your PIN.'), { kind: 'wait', durationHours: 48 }, send('SMS', 'Still two minutes to finish.')],
+        },
+      ]);
+      expect(auditOptions(used('Segmentation'), j)[0].verified).toBe('used');
+    });
+
+    it('does NOT verify when one side of the split gets nothing', () => {
+      // The same filter, moved one step later. Whoever lands on the empty
+      // branch is in the campaign on paper and has no campaign in fact.
+      const j = bp([
+        {
+          kind: 'condition',
+          label: 'High limit?',
+          on: { entity: 'Account', attribute: 'Credit Limit', operator: 'Greater than', value: '100000' },
+          yes: [send('WHATSAPP', 'Set your PIN.')],
+          no: [],
+        },
+      ]);
+      const [a] = auditOptions(used('Segmentation'), j);
+      expect(a.verified).toBe('cannot-evaluate');
+      expect(a.gap).toMatch(/filters rather than segments/);
+    });
+
+    it('does NOT verify when both sides do the same thing', () => {
+      const j = bp([
+        {
+          kind: 'condition',
+          label: 'High limit?',
+          on: { entity: 'Account', attribute: 'Credit Limit', operator: 'Greater than', value: '100000' },
+          yes: [send('WHATSAPP', 'Set your PIN.')],
+          no: [send('WHATSAPP', 'Set your PIN.')],
+        },
+      ]);
+      const [a] = auditOptions(used('Segmentation'), j);
+      expect(a.verified).toBe('cannot-evaluate');
+      expect(a.gap).toMatch(/same actions on both sides/);
+    });
+
+    it('verifies on an experiment with differing arms, holdout included', () => {
+      // A holdout is an arm: declared, measured and accounted for. It is not
+      // a group quietly dropped, which is what the empty branch above is.
+      const j = bp([
+        {
+          kind: 'experiment',
+          label: 'Which barrier is real?',
+          tests: 'explanation',
+          arms: [
+            { label: 'How-to', pct: 45, steps: [send('WHATSAPP', 'Here is how to set your PIN.')] },
+            { label: 'Reason-to-use', pct: 45, steps: [send('WHATSAPP', 'Your card is ready to use today.')] },
+            { label: 'Holdout', pct: 10, steps: [] },
+          ],
+        },
+      ]);
+      expect(auditOptions(used('Segmentation'), j)[0].verified).toBe('used');
+    });
+
+    it('two buckets are enough — nothing requires a third', () => {
+      // The run that prompted this invented three credit-limit tiers off a
+      // dimension the manager had described as one comparison. A split the
+      // manager's own dimension does not need is complexity we added.
+      const j = bp([
+        {
+          kind: 'condition',
+          label: 'Assigned limit above the cohort median?',
+          on: { entity: 'Account', attribute: 'Credit Limit', operator: 'Greater than', value: '0' },
+          yes: [send('WHATSAPP', 'One reminder.')],
+          no: [send('WHATSAPP', 'One reminder.'), send('SMS', 'And one more.')],
+        },
+      ]);
+      expect(auditOptions(used('Segmentation'), j)[0].verified).toBe('used');
+    });
   });
 });
 

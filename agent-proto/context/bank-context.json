@@ -63,7 +63,8 @@
   },
   "minHoursBetweenMessages": {
    "value": 48,
-   "assumption": "INVENTED"
+   "assumption": "INVENTED",
+   "$comment": "A PREFERENCE against nagging, not a hard constraint. The key and its value are kept so planner.ts still reads them. Same day is fine when they have just opened or clicked, and the night window from quietHours 21:00-09:00 still applies. Do not space every message 48 hours apart as a rule."
   },
   "dncRequired": {
    "value": true,
@@ -77,8 +78,9 @@
  "softPreferences": {
   "$comment": "INVENTED. Preferences, not constraints — the agent may trade these off and must say when it does.",
   "preferLowerCostChannelFirst": {
-   "value": true,
-   "assumption": "INVENTED"
+   "value": false,
+   "assumption": "INVENTED",
+   "$comment": "Do not lead with email because it is cheap. WhatsApp and in-app are how people actually read in this market, and cost per message is not reach. When this is false the build orders fallback channels WhatsApp, SMS, email, RCS rather than by price."
   },
   "preferredControlGroupPct": {
    "value": 10,
@@ -86,13 +88,12 @@
   }
  },
  "riskAppetite": {
-  "$comment": "INVENTED.",
-  "level": "conservative",
+  "level": "unspecified",
   "notes": [
-   "Prefers fewer, better-targeted messages over broad reach.",
-   "Requires an explicit control group on any campaign claiming incremental lift."
-  ],
-  "assumption": "INVENTED"
+   "No appetite is on file for this issuer, so design the full plan.",
+   "Do not thin the messages or drop tests to be safe. An unstated appetite is missing information, not a request for restraint.",
+   "If the manager states an appetite later, trim then and say what you removed."
+  ]
  },
  "eventsCalendar": {
   "$comment": "INVENTED dates for a fictional bank. Not a real festive/promotional calendar.",
@@ -147,7 +148,7 @@
   },
   "channelReality": {
    "confidence": "established",
-   "note": "WhatsApp is a primary, not a fringe, channel for Indian retail banking customers and is often read where email is not. Email open rates are typically far weaker than in Western markets. SMS remains universal reach. Do not assume an email-first sequence is the cheap default in reach terms just because it is cheapest per message."
+   "note": "WhatsApp is a primary channel for Indian retail banking customers and is often read where email is not. In-app is primary too: a cardholder who has the issuer's app open is already in a position to act. Email open rates are typically far weaker than in Western markets, so do not treat email as the default first touch just because it costs least per message. PLAN WITH IN-APP WHERE IT FITS. The builder cannot send in-app yet, so after the plan is approved, map those steps to WhatsApp or SMS and say in the plan that you have done so. Never propose a send on a channel the issuer does not have."
   },
   "competingForSpend": {
    "confidence": "established",

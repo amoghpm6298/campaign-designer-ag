@@ -195,13 +195,11 @@ describe('program scope', () => {
 });
 
 describe('user-owned fields are omitted, not defaulted', () => {
-  it('omits DNC/NPA guardrails when no user choice exists', () => {
+  it('stamps DNC/NPA from the builder default rather than asking the agent', () => {
     const { campaign, provenance } = usable();
-    expect('guardrails' in campaign).toBe(false);
-    expect(provenance.guardrails.basis).toBe('unresolved');
-    expect(provenance.guardrails.omitted).toBe(true);
-    // The reason must distinguish a UI default from a confirmed choice.
-    expect(provenance.guardrails.reason).toMatch(/UI default is not a confirmed choice/);
+    expect(campaign.guardrails).toEqual({ dnc: true, npa: true });
+    expect(provenance.guardrails.basis).toBe('application-default');
+    expect(provenance.guardrails.reference).toMatch(/DripBuilder\.tsx:95-96/);
   });
 
   it('omits re-entry and never invents a cool-off', () => {
@@ -217,10 +215,10 @@ describe('user-owned fields are omitted, not defaulted', () => {
     // Guards the guard: this is what would catch a future edit silently
     // re-asserting a UI default as though it were a user choice.
     const { campaign, provenance } = usable();
-    const sneaky = { ...campaign, guardrails: { dnc: true, npa: true } };
+    const sneaky = { ...campaign, startDate: '2026-01-01' };
     const { report, cfg } = check(sneaky, provenance);
     expect(cfg.status).toBe('fail');
-    expect(cfg.detail).toMatch(/"guardrails" is recorded unresolved and omitted, but the payload populates it/);
+    expect(cfg.detail).toMatch(/"startDate" is recorded unresolved and omitted, but the payload populates it/);
     expect(report.outcome).toBe('failed');
   });
 });
@@ -237,8 +235,8 @@ describe('dates and control group', () => {
 
   it('unresolved dates do not alter the hard-constraint outcome', () => {
     // A VERIFIED tenant, so the only unresolved things left are optional —
-    // dates, guardrails, re-entry. Otherwise this would be measuring the
-    // tenant block rather than the dates.
+    // dates and re-entry. Otherwise this would be measuring the tenant block
+    // rather than the dates.
     const { campaign, provenance, result, bank } = usable();
     const limits = {
       quietHours: bank.hardConstraints.quietHours,

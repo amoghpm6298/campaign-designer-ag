@@ -44,6 +44,58 @@ describe('the prompt asks for a decision between approaches, not one approach', 
     expect(optionsStep).toMatch(/mark the winner with why it won — citing what you were told/);
   });
 
+  // EVERYONE ELIGIBLE IS TREATED, 2026-10-21.
+  //
+  // Measured on the PIN-activation run. The manager named assigned credit
+  // limit as a dimension, and the design turned it into three tiers with the
+  // lower tier getting an extra touch — which is the right shape. What the
+  // prompt never said, and what the audit was actively rewarding, is that a
+  // dimension changes the PATH and never the guest list. The segmentation
+  // audit counted any entry condition as segmentation, so "filter to the
+  // best-looking bucket, then run one path" verified as `used`.
+  //
+  // These sentences are the counterweight. They are prompt wording, which on
+  // its own this project has repeatedly found does not move behaviour — the
+  // change that gives them teeth is in `optionAudit.ts`, where an entry
+  // condition no longer verifies the claim.
+  describe('a dimension changes the path, not who is in the campaign', () => {
+    it('defines the audience as everyone eligible who has not done the behaviour', () => {
+      expect(method).toMatch(/THE AUDIENCE IS EVERYONE ELIGIBLE WHO HAS NOT DONE THE BEHAVIOUR YET/);
+      expect(method).toMatch(/Narrowing it to the group most likely to respond is not strategy/);
+    });
+
+    it('says a dimension splits the treatment and not the entry', () => {
+      expect(optionsStep).toMatch(/EVERY ELIGIBLE CUSTOMER IS STILL TREATED/);
+      expect(optionsStep).toMatch(/never shrinks the entry to the best-looking bucket/);
+      expect(optionsStep).toMatch(/The high-limit customers still enter; they may simply get fewer touches/);
+    });
+
+    it('requires a path for the remainder', () => {
+      expect(optionsStep).toMatch(/If you split, give the remainder a path, so whoever is left still gets a campaign/);
+      expect(method).toMatch(/A SPLIT BELONGS INSIDE THE JOURNEY, NOT AT THE DOOR/);
+      expect(method).toMatch(/Entry conditions decide who is ELIGIBLE; they are not segmentation/);
+    });
+
+    it('asks for a split point, never for which group to target', () => {
+      // The run asked "Where should the line sit between a low and high
+      // assigned credit limit" — which is the right question — but the gate
+      // had already asked which of two guess-groups to back, which is not.
+      expect(optionsStep).toMatch(/do not ask which group to target — ask only where the split sits/);
+      expect(optionsStep).toMatch(/default to the cohort's own median or tertiles rather than inventing a rupee cutoff/);
+    });
+
+    it('does not let the agent invent more buckets than the dimension needs', () => {
+      expect(optionsStep).toMatch(/use only as many buckets as their dimension actually needs/);
+    });
+
+    it('keeps an unbuildable axis in the plan with everyone still messaged', () => {
+      // The standing principle in this file: platform capability decides what
+      // gets BUILT, never what gets CONSIDERED. The failure mode it has to
+      // rule out is quietly cutting to one bucket instead.
+      expect(optionsStep).toMatch(/keep the buckets in the plan, say they cannot be built yet, and still message everyone on one path/);
+    });
+  });
+
   it('names every option the agent must return a verdict on', () => {
     for (const option of [
       'Segmentation',

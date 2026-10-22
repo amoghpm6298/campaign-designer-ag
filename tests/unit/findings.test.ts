@@ -237,7 +237,7 @@ describe('who converts today — when the manager knows', () => {
 
   it('is settled once the manager describes them', () => {
     const b = recordConverters(newBrief('o'), known());
-    expect(convertersSettled(b.converters, b.answers.map((a) => a.round))).toBe(true);
+    expect(convertersSettled(b.converters)).toBe(true);
   });
 
   it('does NOT count the agent deciding for itself', () => {
@@ -270,20 +270,32 @@ describe('who converts today — when NOBODY knows', () => {
 
   it('is NOT settled just because the manager said they have no idea', () => {
     const b = recordConverters(newBrief('o'), blank());
-    expect(convertersSettled(b.converters, [0, 1])).toBe(false);
+    expect(convertersSettled(b.converters)).toBe(false);
   });
 
   it('is NOT settled by a single candidate segment, which is a guess', () => {
     const b = recordConverters(newBrief('o'), blank({
       candidates: [{ segment: 'High spenders', restsOn: 'balance size', why: 'Larger balances cost more to carry.' }],
     }));
-    expect(convertersSettled(b.converters, [0, 1, 2])).toBe(false);
+    expect(convertersSettled(b.converters)).toBe(false);
   });
 
-  it('is NOT settled while the manager has had no chance to react', () => {
-    // The agent proposing a target and treating its own suggestion as agreed
-    // is the failure this guards, and a fresh campaign is where it is most
-    // tempting.
+  it('IS settled on the turn the candidates are recorded, with no further reply', () => {
+    // REVERSED 2026-10-21. This used to assert false, on the reasoning that
+    // the agent must not treat its own suggestion as agreed — it required a
+    // manager reply after the candidates were raised.
+    //
+    // Measured on the PIN-activation run: the manager had already said they
+    // have no visibility on who activates, the agent put up two groups
+    // resting on different things, and the gate held and re-asked "who tends
+    // to do this already today". It was asking the manager to pick a
+    // targeting group out of guesses, which is the thing the campaign exists
+    // to find out.
+    //
+    // Nobody knows plus two distinct candidates IS this question answered.
+    // The obligation that remains is on the design: `mustLearnAudience`
+    // stays true and `checkAudienceLearning` refuses a flat journey, so the
+    // candidates must still be told apart by what gets built.
     let b = newBrief('o');
     b = recordConverters(b, blank({
       candidates: [
@@ -292,7 +304,27 @@ describe('who converts today — when NOBODY knows', () => {
       ],
     }));
     expect(b.converters?.raisedInRound).toBe(0);
-    expect(convertersSettled(b.converters, [])).toBe(false);
+    expect(convertersSettled(b.converters)).toBe(true);
+    // Still a campaign that has to find out, which is where the protection is.
+    expect(mustLearnAudience(b.converters)).toBe(true);
+  });
+
+  it('REJECTING the candidates does not reopen the question', () => {
+    // "Do not target off those guesses" is agreement about the state of
+    // knowledge, not a refusal to answer. Under the old rule a rejection was
+    // unrepresentable: any reply counted as settling it, and no reply left it
+    // open, so the one thing the manager might actually want to say had
+    // nowhere to land.
+    let b = newBrief('o');
+    b = recordConverters(b, blank({
+      candidates: [
+        { segment: 'Welcome-offer sign-ups', restsOn: 'the acquisition incentive at sign-up', why: 'A reward tied to first use is its own reason to act.' },
+        { segment: 'Existing product holders', restsOn: 'an existing relationship with the bank', why: 'Familiarity removes first-time friction.' },
+      ],
+    }));
+    b = { ...b, rounds: 1 };
+    b = recordAnswer(b, 'do not target off those guesses, we have no visibility on this');
+    expect(convertersSettled(b.converters)).toBe(true);
   });
 
   it('IS settled once two reasoned candidates were raised and the manager replied after', () => {
@@ -305,7 +337,7 @@ describe('who converts today — when NOBODY knows', () => {
     }));
     b = { ...b, rounds: 1 };
     b = recordAnswer(b, 'the second one sounds right, go with big-ticket buyers');
-    expect(convertersSettled(b.converters, b.answers.map((a) => a.round))).toBe(true);
+    expect(convertersSettled(b.converters)).toBe(true);
   });
 
   it('rejects a candidate with no reasoning behind it', () => {
@@ -316,7 +348,7 @@ describe('who converts today — when NOBODY knows', () => {
       ],
     }));
     expect(b.converters?.candidates).toHaveLength(1);
-    expect(convertersSettled(b.converters, [0, 1, 2])).toBe(false);
+    expect(convertersSettled(b.converters)).toBe(false);
   });
 
   it('does not reset the clock when the same candidates are sent again', () => {
@@ -344,7 +376,7 @@ describe('who converts today — when NOBODY knows', () => {
         { segment: 'Big spenders', restsOn: 'Balance Size', why: 'A bigger balance is more expensive to hold.' },
       ],
     }));
-    expect(convertersSettled(b.converters, [0, 1, 2])).toBe(false);
+    expect(convertersSettled(b.converters)).toBe(false);
   });
 
   it('accepts two groups that genuinely rest on different things', () => {
@@ -357,7 +389,7 @@ describe('who converts today — when NOBODY knows', () => {
     }));
     b = { ...b, rounds: 1 };
     b = recordAnswer(b, 'go with the helpline callers');
-    expect(convertersSettled(b.converters, b.answers.map((a) => a.round))).toBe(true);
+    expect(convertersSettled(b.converters)).toBe(true);
   });
 
   it('drops a candidate that does not say what it rests on', () => {
@@ -368,14 +400,14 @@ describe('who converts today — when NOBODY knows', () => {
       ],
     }));
     expect(b.converters?.candidates).toHaveLength(1);
-    expect(convertersSettled(b.converters, [0, 1, 2])).toBe(false);
+    expect(convertersSettled(b.converters)).toBe(false);
   });
 
   it('treats an unrecognised knowledge value as unknown, not as known', () => {
     // Failing open here would let a malformed payload skip the whole rule.
     const b = recordConverters(newBrief('o'), blank({ knowledge: 'maybe' as never }));
     expect(b.converters?.knowledge).toBe('unknown');
-    expect(convertersSettled(b.converters, [0, 1])).toBe(false);
+    expect(convertersSettled(b.converters)).toBe(false);
   });
 });
 

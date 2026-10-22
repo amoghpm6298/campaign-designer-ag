@@ -40,7 +40,7 @@ const TENANTS: TenantConfig[] = [
   {
     tenantId: 'TEN-IBL',
     issuer: 'IndusInd Bank (IBL)',
-    displayName: 'IndusInd Bank (IBL) — Synthetic',
+    displayName: 'IndusInd Bank (IBL)',
     synthetic: true,
     // The realistic case: Hyperface cannot read the bank's template library.
     templateLibraryAccess: 'unavailable',
@@ -55,7 +55,7 @@ const TENANTS: TenantConfig[] = [
   {
     tenantId: 'TEN-YES',
     issuer: 'Yes Bank',
-    displayName: 'Yes Bank — Synthetic',
+    displayName: 'Yes Bank',
     synthetic: true,
     templateLibraryAccess: 'unavailable',
     availableChannels: [
@@ -71,7 +71,7 @@ const TENANTS: TenantConfig[] = [
     // Its library is seeded sample data, labelled as such everywhere.
     tenantId: 'TEN-DEMO',
     issuer: 'IndusInd Bank (IBL)',
-    displayName: 'Demo tenant — Synthetic, with sample template library',
+    displayName: 'Demo tenant',
     synthetic: true,
     templateLibraryAccess: 'synthetic-demo',
     availableChannels: [

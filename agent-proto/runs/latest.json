@@ -1,6 +1,6 @@
 {
-  "runId": "run-2026-10-12T12-50-18-793Z",
-  "startedAt": "2026-10-12T12:50:18.793Z",
+  "runId": "run-2026-10-22T06-19-01-684Z",
+  "startedAt": "2026-10-22T06:19:01.684Z",
   "durationMs": 6,
   "scenario": {
     "id": "auth-txn-to-emi-consent",
@@ -88,10 +88,10 @@
     },
     {
       "step": "message-budget",
-      "decision": "At most 4 messages per customer",
-      "basis": "bank-hard-constraint",
-      "reference": "bank-context.hardConstraints.maxMessagesPerCustomerPerCampaign",
-      "unknown": "User did not state a reminder appetite (simulatedAnswers.reminder_appetite); the bank constraint is used instead."
+      "decision": "4 messages per customer, spaced 48h apart inside the 7-day window",
+      "basis": "assumption",
+      "reference": "planner: derived from the resolution window and the minimum spacing",
+      "unknown": "User did not state a reminder appetite (simulatedAnswers.reminder_appetite). No issuer sets a per-campaign message cap, so this is a design choice and is recorded as one, not as a bank policy."
     },
     {
       "step": "message-spacing",
@@ -125,6 +125,13 @@
       "basis": "assumption",
       "reference": "bank-context.softPreferences.preferLowerCostChannelFirst + P-010",
       "unknown": "User did not state a channel preference (simulatedAnswers.channel_preference). P-010 is classified a hypothesis — this is a reasoned default, not an evidenced optimisation."
+    },
+    {
+      "step": "message-budget",
+      "decision": "4 messages per customer, spaced 48h apart inside the 7-day window",
+      "basis": "assumption",
+      "reference": "planner: derived from the resolution window and the minimum spacing",
+      "unknown": "User did not state a reminder appetite (simulatedAnswers.reminder_appetite). No issuer sets a per-campaign message cap, so this is a design choice and is recorded as one, not as a bank policy."
     }
   ],
   "campaign": null,
@@ -167,7 +174,7 @@
     },
     "controlPct": {
       "basis": "application-default",
-      "reference": "The application's own default for a new campaign is 10 (DripBuilder.tsx:91 `useState(initial?.controlPct ?? 10)`). Required by the model, so it cannot be omitted. Deliberately NOT presented as a bank-backed recommendation: softPreferences.preferredControlGroupPct is INVENTED and holds the same number by coincidence. Whether 10 is right for this campaign is a quality question for a reviewer."
+      "reference": "The application's own default for a new campaign is 10 (DripBuilder.tsx:91 `useState(initial?.controlPct ?? 10)`). Required by the model, so it cannot be omitted. The agent does not design a holdout — this is stamped onto the canvas. Deliberately NOT presented as a bank-backed recommendation: softPreferences.preferredControlGroupPct is INVENTED and holds the same number by coincidence. Whether 10 is right for this campaign is a quality question for a reviewer."
     },
     "status": {
       "basis": "application-default",
@@ -184,9 +191,8 @@
       "reason": "As startDate."
     },
     "guardrails": {
-      "basis": "unresolved",
-      "omitted": true,
-      "reason": "DNC and NPA are campaign-level user choices owned by the existing system (GuardrailsStep.tsx). Both default to true in the UI (DripBuilder.tsx:95-96), but a UI default is not a confirmed choice. Omitted so the application's own default applies instead of the agent asserting consent."
+      "basis": "application-default",
+      "reference": "DNC and NPA are exclusion lists on the campaign, checked at every node (DripCampaign.guardrails). The builder default is both on (DripBuilder.tsx:95-96). The agent does not design them — they are stamped so the canvas matches a hand-built campaign."
     },
     "allowReEntry": {
       "basis": "unresolved",
@@ -208,7 +214,6 @@
     "issuer",
     "startDate",
     "endDate",
-    "guardrails",
     "allowReEntry",
     "reEntryCooloffDuration",
     "reEntryCooloffUnit"
@@ -245,6 +250,13 @@
         "detail": "checked 15 nodes; 0 declared fan-out point(s)"
       },
       {
+        "id": "condition-validity",
+        "description": "Every condition uses a real attribute, operator and value for its entity",
+        "status": "pass",
+        "executedBy": "validateCondition (src/data/conditionValidation.ts) over ELIGIBILITY_META",
+        "detail": "checked 15 nodes"
+      },
+      {
         "id": "referential-integrity",
         "description": "Every edge endpoint and rootId refers to a node that exists",
         "status": "pass",
@@ -265,14 +277,6 @@
         "hardConstraint": true,
         "executedBy": "assessChannels (agent-proto/channelAvailability.ts) + issuer channels.available configuration",
         "detail": "all 2 channel use(s) across the campaign's Sends are marked available: dcn2/primary=SMS, dcn8/primary=SMS"
-      },
-      {
-        "id": "message-cap",
-        "description": "No single customer can receive more messages than the bank's per-campaign cap",
-        "status": "pass",
-        "hardConstraint": true,
-        "executedBy": "maxSendsOnAnyPath (agent-proto/graphPaths.ts) + bank-context.hardConstraints.maxMessagesPerCustomerPerCampaign",
-        "detail": "max 2 message(s) on any one of 6 customer path(s), cap 4"
       }
     ],
     "unverified": [
@@ -289,6 +293,14 @@
         "status": "not-run",
         "executedBy": "—",
         "unverifiedReason": "Not mechanically checkable. A schema-valid campaign is not necessarily a good one. Requires human review; deliberately kept separate from validity."
+      },
+      {
+        "id": "message-cap",
+        "description": "No single customer can receive more messages than the bank's per-campaign cap",
+        "status": "not-run",
+        "executedBy": "—",
+        "hardConstraint": true,
+        "unverifiedReason": "No cap was passed to validateCampaignGraph. The check is skipped rather than assumed satisfied — pass the bank context's hardConstraints.maxMessagesPerCustomerPerCampaign to enforce it."
       },
       {
         "id": "quiet-hours",
@@ -312,9 +324,9 @@
         "id": "message-cap",
         "name": "No single customer receives more messages than the per-campaign cap",
         "source": "bank-context.hardConstraints.maxMessagesPerCustomerPerCampaign",
-        "status": "pass",
-        "executedBy": "maxSendsOnAnyPath (agent-proto/graphPaths.ts) + bank-context.hardConstraints.maxMessagesPerCustomerPerCampaign",
-        "detail": "max 2 message(s) on any one of 6 customer path(s), cap 4"
+        "status": "not-run",
+        "executedBy": "—",
+        "detail": "No cap was passed to validateCampaignGraph. Skipped rather than assumed satisfied."
       },
       {
         "id": "message-spacing",
@@ -350,6 +362,7 @@
       }
     ],
     "unverifiedHardConstraints": [
+      "message-cap",
       "message-spacing",
       "quiet-hours",
       "event-freeze"
@@ -358,19 +371,19 @@
   "trace": [
     {
       "seq": 1,
-      "at": "2026-10-12T12:50:18.797Z",
+      "at": "2026-10-22T06:19:01.687Z",
       "kind": "context-load",
       "message": "Loaded bank context: Meridian Bank (FICTIONAL)"
     },
     {
       "seq": 2,
-      "at": "2026-10-12T12:50:18.797Z",
+      "at": "2026-10-22T06:19:01.687Z",
       "kind": "context-load",
       "message": "Loaded scenario: auth-txn-to-emi-consent"
     },
     {
       "seq": 3,
-      "at": "2026-10-12T12:50:18.797Z",
+      "at": "2026-10-22T06:19:01.687Z",
       "kind": "question",
       "message": "Asked: Which programs should this campaign target?",
       "data": {
@@ -380,7 +393,7 @@
     },
     {
       "seq": 4,
-      "at": "2026-10-12T12:50:18.797Z",
+      "at": "2026-10-22T06:19:01.687Z",
       "kind": "question",
       "message": "Asked: Should customers enter on the authorisation event, or on a scheduled audience pull?",
       "data": {
@@ -390,7 +403,7 @@
     },
     {
       "seq": 5,
-      "at": "2026-10-12T12:50:18.797Z",
+      "at": "2026-10-22T06:19:01.687Z",
       "kind": "question",
       "message": "Asked: What exactly counts as success?",
       "data": {
@@ -400,7 +413,7 @@
     },
     {
       "seq": 6,
-      "at": "2026-10-12T12:50:18.797Z",
+      "at": "2026-10-22T06:19:01.687Z",
       "kind": "question",
       "message": "Asked: How many reminders are acceptable before we stop?",
       "data": {
@@ -410,7 +423,7 @@
     },
     {
       "seq": 7,
-      "at": "2026-10-12T12:50:18.797Z",
+      "at": "2026-10-22T06:19:01.687Z",
       "kind": "question",
       "message": "Asked: Any channel preference for the first message?",
       "data": {
@@ -420,7 +433,7 @@
     },
     {
       "seq": 8,
-      "at": "2026-10-12T12:50:18.797Z",
+      "at": "2026-10-22T06:19:01.687Z",
       "kind": "decision",
       "message": "goal: EMI_STATUS_CHANGED where New Status = Successful",
       "data": {
@@ -430,7 +443,7 @@
     },
     {
       "seq": 9,
-      "at": "2026-10-12T12:50:18.797Z",
+      "at": "2026-10-22T06:19:01.687Z",
       "kind": "decision",
       "message": "primary-channel: EMAIL for the first message (lowest relative cost among available channels)",
       "data": {
@@ -440,17 +453,17 @@
     },
     {
       "seq": 10,
-      "at": "2026-10-12T12:50:18.797Z",
+      "at": "2026-10-22T06:19:01.687Z",
       "kind": "decision",
-      "message": "message-budget: At most 4 messages per customer",
+      "message": "message-budget: 4 messages per customer, spaced 48h apart inside the 7-day window",
       "data": {
-        "basis": "bank-hard-constraint",
-        "reference": "bank-context.hardConstraints.maxMessagesPerCustomerPerCampaign"
+        "basis": "assumption",
+        "reference": "planner: derived from the resolution window and the minimum spacing"
       }
     },
     {
       "seq": 11,
-      "at": "2026-10-12T12:50:18.797Z",
+      "at": "2026-10-22T06:19:01.687Z",
       "kind": "decision",
       "message": "message-spacing: 48h minimum between messages",
       "data": {
@@ -460,7 +473,7 @@
     },
     {
       "seq": 12,
-      "at": "2026-10-12T12:50:18.797Z",
+      "at": "2026-10-22T06:19:01.687Z",
       "kind": "decision",
       "message": "resolution-window: 7-day timeout awaiting EMI resolution",
       "data": {
@@ -470,7 +483,7 @@
     },
     {
       "seq": 13,
-      "at": "2026-10-12T12:50:18.798Z",
+      "at": "2026-10-22T06:19:01.688Z",
       "kind": "decision",
       "message": "template-first-touch: EMI Conversion SMS (CT-3301) on SMS",
       "data": {
@@ -480,7 +493,7 @@
     },
     {
       "seq": 14,
-      "at": "2026-10-12T12:50:18.798Z",
+      "at": "2026-10-22T06:19:01.688Z",
       "kind": "decision",
       "message": "template-reminder: EMI Conversion SMS (CT-3301) on SMS",
       "data": {
@@ -490,7 +503,7 @@
     },
     {
       "seq": 15,
-      "at": "2026-10-12T12:50:18.798Z",
+      "at": "2026-10-22T06:19:01.688Z",
       "kind": "note",
       "message": "Weak stage fit at template-reminder: CT-3301 is not stage-specific",
       "data": {
@@ -503,58 +516,58 @@
     },
     {
       "seq": 16,
-      "at": "2026-10-12T12:50:18.798Z",
+      "at": "2026-10-22T06:19:01.688Z",
       "kind": "note",
       "message": "Primary channel changed EMAIL -> SMS for template suitability"
     },
     {
       "seq": 17,
-      "at": "2026-10-12T12:50:18.798Z",
+      "at": "2026-10-22T06:19:01.688Z",
       "kind": "build",
       "message": "Entry · Event — Transaction, EMI Eligible = true"
     },
     {
       "seq": 18,
-      "at": "2026-10-12T12:50:18.799Z",
+      "at": "2026-10-22T06:19:01.688Z",
       "kind": "build",
       "message": "Send 1 — SMS / CT-3301, immediately after entry"
     },
     {
       "seq": 19,
-      "at": "2026-10-12T12:50:18.799Z",
+      "at": "2026-10-22T06:19:01.688Z",
       "kind": "build",
       "message": "Wait 48h — the bank's minimum gap between messages"
     },
     {
       "seq": 20,
-      "at": "2026-10-12T12:50:18.799Z",
+      "at": "2026-10-22T06:19:01.688Z",
       "kind": "build",
       "message": "Send 2 — reminder, SMS / CT-3301"
     },
     {
       "seq": 21,
-      "at": "2026-10-12T12:50:18.799Z",
+      "at": "2026-10-22T06:19:01.688Z",
       "kind": "build",
       "message": "Wait for Event — EMI_STATUS_CHANGED, 7-day timeout (P-003)"
     },
     {
       "seq": 22,
-      "at": "2026-10-12T12:50:18.799Z",
+      "at": "2026-10-22T06:19:01.689Z",
       "kind": "build",
       "message": "Closed all remaining open paths with Exit nodes"
     },
     {
       "seq": 23,
-      "at": "2026-10-12T12:50:18.799Z",
+      "at": "2026-10-22T06:19:01.689Z",
       "kind": "note",
       "message": "Sends use relative timing anchored to the entry event, so their wall-clock send time is not knowable at design time. Quiet-hours compliance is therefore unverifiable here and is reported as not-run, not as satisfied."
     },
     {
       "seq": 24,
-      "at": "2026-10-12T12:50:18.799Z",
+      "at": "2026-10-22T06:19:01.689Z",
       "kind": "note",
       "message": "Max messages on a single customer path is 2, within the bank cap of 4"
     }
   ],
-  "claim": "NO USABLE CAMPAIGN CONFIGURATION. The agent run completed, but a mandatory input was missing, so no campaign was emitted (campaign is null). Blocker(s): No tenant context was supplied. The platform must pass the tenant the user selected before the conversation started; the agent must not ask again or infer one. This is a missing input, not an issuer-level hard-constraint violation. NOT IMPORT-READY. OUTCOME: FAILED. 7 campaign-level field(s) are UNRESOLVED and were left for a person to decide: [issuer, startDate, endDate, guardrails, allowReEntry, reEntryCooloffDuration, reEntryCooloffUnit]. See campaignFieldProvenance for the missing input behind each. Fields owned by the user or the existing Drip Campaign system (guardrails, re-entry) are omitted rather than defaulted, so the application's own defaults apply. Checks that ran are listed in validation.checks and were executed by the application's own functions. The hard constraint(s) [message-spacing, quiet-hours, event-freeze] could not be verified and are NOT treated as passed. Checks that pass are design-time only; enforcing operational restrictions at send time is the Drip Campaign runtime's responsibility. The application has no JSON import path, so this run cannot prove the campaign would be accepted by it."
+  "claim": "NO USABLE CAMPAIGN CONFIGURATION. The agent run completed, but a mandatory input was missing, so no campaign was emitted (campaign is null). Blocker(s): No tenant context was supplied. The platform must pass the tenant the user selected before the conversation started; the agent must not ask again or infer one. This is a missing input, not an issuer-level hard-constraint violation. NOT IMPORT-READY. OUTCOME: FAILED. 6 campaign-level field(s) are UNRESOLVED and were left for a person to decide: [issuer, startDate, endDate, allowReEntry, reEntryCooloffDuration, reEntryCooloffUnit]. See campaignFieldProvenance for the missing input behind each. Re-entry is omitted rather than defaulted. Control group and DNC/NPA guardrails are stamped from the builder defaults. Checks that ran are listed in validation.checks and were executed by the application's own functions. The hard constraint(s) [message-cap, message-spacing, quiet-hours, event-freeze] could not be verified and are NOT treated as passed. Checks that pass are design-time only; enforcing operational restrictions at send time is the Drip Campaign runtime's responsibility. The application has no JSON import path, so this run cannot prove the campaign would be accepted by it."
 }

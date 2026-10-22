@@ -4,6 +4,11 @@
 // said "propose", so a finished campaign appeared before anyone had agreed the
 // strategy. Construction is now reachable only via intent:'confirm' or a
 // refinement of a campaign that already exists.
+// `availableCheapestFirst` became `available`, 2026-10-21. The list is no
+// longer ordered by price by default: the issuer's own preference decides,
+// and with cheaper-first off it is ordered by how Indian retail cardholders
+// actually read. A field name asserting "cheapest" was telling the model the
+// opposite of what the bank context says.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { AGENT_TOOLS, runTool, toolTitle } from '../../server/agentTools';
@@ -58,7 +63,7 @@ describe('agent tools return real application data', () => {
     const yes = runTool('list_channels', {}, { tenant: resolveTenant('TEN-YES')! });
     expect(JSON.stringify(ibl.result)).toContain('EMAIL');
     // Yes Bank has EMAIL disabled, so it must not appear as available.
-    expect((yes.result as { availableCheapestFirst: string[] }).availableCheapestFirst).not.toContain('EMAIL');
+    expect((yes.result as { available: string[] }).available).not.toContain('EMAIL');
   });
 
   it('template availability reports "cannot verify", not "none exists"', () => {
@@ -131,7 +136,15 @@ describe('the confirmation gate is structural, not advisory', () => {
     // The guarantee is unchanged and is asserted below, not by a count:
     // every construction is behind a build-turn condition.
     expect(buildCalls.length).toBe(4);
-    expect(src).toMatch(/if \(isBuildTurn\) \{\n    const out = buildAndValidate\(/);
+    // The build still sits behind the build-turn condition — now with the
+    // generation hop in front of it. That ordering IS the guarantee: a
+    // campaign cannot be constructed without the session having entered
+    // GENERATING_CAMPAIGN first. Taking one hop instead of two is what threw
+    // "Illegal state transition AWAITING_STRATEGY_CONFIRMATION ->
+    // CONFIGURATION_INCOMPLETE" on every live Confirm.
+    expect(src).toMatch(
+      /if \(isBuildTurn\) \{[\s\S]{0,1400}?session = \{ \.\.\.session, state: transition\(session\.state, 'GENERATING_CAMPAIGN'\) \};\n    const out = buildAndValidate\(/,
+    );
     expect(src).toMatch(/intent === 'confirm' && req\.confirmedBlueprint/);
     // ...and the confirm site is guarded by the state machine, not just by
     // the presence of a blueprint.
@@ -241,7 +254,12 @@ describe('the tool loop terminates with an answer, not an error', () => {
     // turn, and within a turn the tool list only ever grows.
     // Now concatenated with OUTPUT_TOOLS: the model writes the record through
     // tools, so those definitions must travel on the same calls.
-    expect(src).toMatch(/tools: \[\.\.\.toolsForPhase\(designSeen\), \.\.\.outputToolsForPhase\(isBuildTurn\)\]\.map/);
+    // `designSeen || isBuildTurn`, since 2026-10-22. `designSeen` starts false,
+    // so a Confirm turn had `build_campaign` and no `list_*` — the model wrote
+    // entity names, attributes and operators from memory on the one turn where
+    // each has to be exact. Discovery is unchanged: both false still means no
+    // lookups, which is what keeps turn one from being a channel inventory.
+    expect(src).toMatch(/tools: \[\.\.\.toolsForPhase\(designSeen \|\| isBuildTurn\), \.\.\.outputToolsForPhase\(isBuildTurn\)\]\.map/);
   });
 
   it('separates "nothing left to look up" from "budget spent"', () => {

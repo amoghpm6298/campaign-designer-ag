@@ -14,8 +14,9 @@ import { dcConfirmEditNode, dcRenameEdge } from '../reducer/campaignReducer';
 import type { DripCampaign, DripGraph } from '../data/graphTypes';
 import { getHealth, type HealthResult } from './api';
 import { runDesignerStream } from './stream';
-import { appendRunLog, loadSession, saveSession, clearSession } from './storage';
-import { campaignStages, friendlyConstraint } from './status';
+import { appendRunLog, loadSession, loadSessionById, saveSession, type DesignerSession } from './storage';
+import { campaignStages, detailsText, friendlyConstraint } from './status';
+import { previewFromBlueprint, type JourneyPreview, type PreviewRow } from './preview';
 import type { ChatTurn, DesignerResponse, KnowledgeBase, Phase, RunEvent, Tenant } from './types';
 import './designer.css';
 
@@ -24,7 +25,47 @@ interface Props {
   onLogsChanged: () => void;
   /** Selected in the application header. Resolved server-side by id. */
   tenant: Tenant;
+  /**
+   * Which stored chat to open. Omitted means "the one you were last in".
+   *
+   * This is how the Chats list resumes a conversation: one designer surface,
+   * two ways into it. A second chat UI rendered inside the list page would
+   * drift from this one within a release.
+   */
+  sessionId?: string;
+  /** Raised when a new chat is started here, so the shell can follow it. */
+  onSessionChange?: (id: string) => void;
 }
+
+/**
+ * The whole of a stored chat, as the component's state.
+ *
+ * ONE PATH FOR MOUNT AND RESUME, so the two cannot restore different amounts
+ * of a conversation.
+ *
+ * `lastResponse` carries `phase`, `brief`, `session`, `pendingBlueprint` and
+ * `pendingStrategy` and always has. Only `messages`, `rounds`, `campaign` and
+ * `graph` were ever read back, so a plain reload mid-conversation dropped the
+ * brief and the confirm gate while the data sat in storage, untouched. That
+ * was invisible because the agent re-derives most of it from the transcript —
+ * but the gate state and the proposed blueprint it cannot.
+ */
+const stateFrom = (s: DesignerSession | null) => {
+  const r = (s?.lastResponse ?? null) as DesignerResponse | null;
+  return {
+    sessionId: s?.sessionId ?? `s-${Date.now()}`,
+    messages: s?.messages ?? [],
+    rounds: s?.discoveryRounds ?? 0,
+    campaign: s?.campaign ?? null,
+    last: r,
+    graph: r?.graph ?? null,
+    phase: (r?.phase ?? 'understanding') as Phase,
+    brief: r?.brief ?? null,
+    session: r?.session ?? null,
+    pendingBlueprint: r?.pendingBlueprint ?? null,
+    pendingStrategy: r?.strategy ?? null,
+  };
+};
 
 const EXAMPLES = [
   {
@@ -82,17 +123,19 @@ function RichText({ text }: { text: string }) {
  * campaign's issuer is not something to quietly assume.
  */
 
-export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
-  const restored = useRef(loadSession()).current;
-  const [sessionId, setSessionId] = useState(restored?.sessionId ?? `s-${Date.now()}`);
-  const [messages, setMessages] = useState<ChatTurn[]>(restored?.messages ?? []);
-  const [rounds, setRounds] = useState(restored?.discoveryRounds ?? 0);
-  const [campaign, setCampaign] = useState<DripCampaign | null>(restored?.campaign ?? null);
-  const [last, setLast] = useState<DesignerResponse | null>((restored?.lastResponse as DesignerResponse) ?? null);
-  const [graph, setGraph] = useState<DripGraph | null>(((restored?.lastResponse as DesignerResponse) ?? null)?.graph ?? null);
+export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: openId, onSessionChange }: Props) {
+  const initial = useRef(stateFrom(openId ? loadSessionById(openId) : loadSession())).current;
+  const [sessionId, setSessionId] = useState(initial.sessionId);
+  const [messages, setMessages] = useState<ChatTurn[]>(initial.messages);
+  const [rounds, setRounds] = useState(initial.rounds);
+  const [campaign, setCampaign] = useState<DripCampaign | null>(initial.campaign);
+  const [last, setLast] = useState<DesignerResponse | null>(initial.last);
+  const [graph, setGraph] = useState<DripGraph | null>(initial.graph as DripGraph | null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // The provider's untouched text, shown under the readable sentence.
+  const [errDetail, setErrDetail] = useState<string | null>(null);
   const [health, setHealth] = useState<HealthResult | null>(null);
   const [copied, setCopied] = useState(false);
   // Node-edit drawer state. The drawer is a controlled component in the real
@@ -103,14 +146,32 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
   const [resolvedSends, setResolvedSends] = useState<Record<string, { account?: string; templateId?: string }>>({});
   // Live run state. `phase` comes from the server — never inferred from
   // whether a graph happens to exist.
-  const [phase, setPhase] = useState<Phase>('understanding');
+  const [phase, setPhase] = useState<Phase>(initial.phase);
   const [liveEvents, setLiveEvents] = useState<RunEvent[]>([]);
   const [liveText, setLiveText] = useState('');
-  const [pendingBlueprint, setPendingBlueprint] = useState<unknown>(null);
-  const [pendingStrategy, setPendingStrategy] = useState<unknown>(null);
+  const [pendingBlueprint, setPendingBlueprint] = useState<unknown>(initial.pendingBlueprint);
+  const [pendingStrategy, setPendingStrategy] = useState<unknown>(initial.pendingStrategy);
   // The server owns discovery state; the client just carries it forward.
-  const [brief, setBrief] = useState<unknown>(null);
-  const [session, setSession] = useState<unknown>(null);
+  // Held as `unknown` because the brief is the SERVER's record and the client
+  // only ever passes it back untouched. `briefView` is a narrow read-only lens
+  // over the handful of fields the work surface displays — deliberately not an
+  // import of the server's WorkingBrief, so the browser bundle stays
+  // independent of server internals and this file documents exactly what the
+  // UI depends on.
+  const [brief, setBrief] = useState<unknown>(initial.brief);
+  const briefView = brief as BriefView | null;
+  // THE PROPOSED PATH, DRAWN BEFORE THE MANAGER APPROVES IT.
+  //
+  // `pendingBlueprint` has always been on the response and was used only as
+  // the Confirm payload — so the turn where the manager has to decide was the
+  // turn with the least to look at, and the picture arrived only after they
+  // had already said yes. `graph` stays null and `DripCanvas` stays unmounted:
+  // this is a proposal, not a campaign.
+  const preview = useMemo(
+    () => (phase === 'awaiting-confirmation' ? previewFromBlueprint(pendingBlueprint) : null),
+    [phase, pendingBlueprint],
+  );
+  const [session, setSession] = useState<unknown>(initial.session);
   const abortRef = useRef<AbortController | null>(null);
   const [editCfg, setEditCfg] = useState<Record<string, unknown>>({});
   const msgsRef = useRef<HTMLDivElement>(null);
@@ -270,15 +331,29 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
               reply: res.reply ?? '',
               questions: res.questions ?? [],
               model: res.model,
-              events: res.events,
+              // TEXT DELTAS ARE NOT HISTORY. They are how the reply arrived,
+              // already reassembled into `reply` above, and on a measured turn
+              // they were 132 of 158 events and half the stored bytes. Dropping
+              // them is what pays for the brief and the strategy below.
+              events: (res.events ?? []).filter((e) => e.type !== 'model.text.delta'),
               validationOutcome: res.validation?.outcome,
               knowledgeVersion: knowledge.version,
               usage: res.usage,
               campaignSnapshot: res.campaign,
+              // What the agent WORKED OUT, so the log is end to end rather
+              // than a transcript with an event stream beside it.
+              brief: res.brief,
+              strategy: res.strategy,
+              blueprint: res.pendingBlueprint ?? res.blueprint,
+              phase: res.phase,
+              discoveryRounds: res.discoveryRounds,
+              discoveryReason: (res as { discoveryReason?: string }).discoveryReason,
+              errorDetail: (res as { errorDetail?: string }).errorDetail,
             });
             onLogsChanged();
             if (res.phase === 'error') {
               setErr(res.reply);
+              setErrDetail((res as { errorDetail?: string }).errorDetail ?? null);
               // "did not return parseable JSON" is the one that is worth
               // trying again: the same turn has been observed to fail twice
               // and succeed on the third attempt with a good answer.
@@ -299,7 +374,7 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
       // A stream that ends without result or error must not leave the UI
       // looking busy for ever.
       if (!settled) {
-        setErr('The run ended unexpectedly.');
+        setErr('The design stopped before it finished.');
         setPhase('error');
       }
       setBusy(false);
@@ -352,11 +427,16 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
         suggestedCopy: p.sampleCopy,
         cta: p.cta,
         personalisationTokens: p.personalisationFields,
-        status: 'draft — agent-written, not reviewed or approved by the bank, not a registered template',
+        status: 'draft copy, written by the agent and not yet reviewed or registered',
       })),
       importReadiness: last?.importReadiness ?? null,
       claim:
-        'PROPOSED CAMPAIGN DESIGN from the agent prototype. IMPORT READINESS IS UNVERIFIED, not false and not true: the Drip Campaign application has no JSON import path, so no import contract exists to check this against. Nothing here has been imported, saved or activated, schema validity does not guarantee import acceptance, and any suggested message copy is an unapproved draft.',
+        // Kept, and deliberately. The on-screen disclaimers were removed
+        // because they are said out loud in the room; this one travels with a
+        // FILE that will be read later, by someone who was not there. Shorter
+        // and in plain language, but it still says the two things that matter:
+        // nothing is live, and the copy is a draft.
+        'Proposed campaign design. Nothing here has been saved or activated, and the message copy is a draft for review.',
     };
   }, [campaign, graph, last, knowledge.version]);
 
@@ -425,23 +505,56 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
     onLogsChanged();
   };
 
-  const reset = () => {
-    clearSession();
-    setSessionId(`s-${Date.now()}`);
-    setMessages([]);
-    setRounds(0);
-    setCampaign(null);
-    setGraph(null);
-    setLast(null);
-    setErr(null);
-    setResolvedSends({});
-    setPhase('understanding');
-    setLiveEvents([]);
-    setLiveText('');
-    setPendingBlueprint(null);
-    setPendingStrategy(null);
-    setBrief(null);
-    setSession(null);
+  /** Load a stored chat into the surface. The one path resume goes through. */
+  const open = useCallback(
+    (s: DesignerSession | null) => {
+      const next = stateFrom(s);
+      setSessionId(next.sessionId);
+      setMessages(next.messages);
+      setRounds(next.rounds);
+      setCampaign(next.campaign);
+      setGraph(next.graph as DripGraph | null);
+      setLast(next.last);
+      setPhase(next.phase);
+      setBrief(next.brief);
+      setSession(next.session);
+      setPendingBlueprint(next.pendingBlueprint);
+      setPendingStrategy(next.pendingStrategy);
+      setErr(null);
+      setErrDetail(null);
+      setResolvedSends({});
+      setLiveEvents([]);
+      setLiveText('');
+      setEditing(null);
+    },
+    [],
+  );
+
+  // Resuming a chat from the list, and switching between them.
+  useEffect(() => {
+    if (!openId || openId === sessionId) return;
+    open(loadSessionById(openId));
+    // `sessionId` is deliberately not a dependency: this reacts to the chat
+    // the SHELL asked for, and including the current one would re-open the
+    // chat every time a turn advanced it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId, open]);
+
+  /**
+   * START A NEW CHAT. Nothing is destroyed.
+   *
+   * This used to be `reset`, and it called `clearSession()` — one unconfirmed
+   * click in the top-right wiped the conversation with no history and no
+   * undo. The answer was never a confirmation dialog: starting a new chat
+   * should not have been destructive in the first place. The current chat is
+   * already saved on every turn, so this only has to mint a new id; the old
+   * one stays on the Chats list, resumable.
+   */
+  const startNew = () => {
+    const id = `s-${Date.now()}`;
+    open(null);
+    setSessionId(id);
+    onSessionChange?.(id);
   };
 
   if (health && !health.ok) {
@@ -451,10 +564,10 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
           <h1>Campaign Designer</h1>
         </div>
         <div className="cd-configerr">
-          <b>Configuration error — the agent cannot run.</b>
+          <b>The agent cannot run.</b>
           <p style={{ margin: '8px 0 0' }}>
             {health.modelError ??
-              'ANTHROPIC_API_KEY is not set on the server. The prototype will not fall back to a mock agent or another provider.'}
+              'ANTHROPIC_API_KEY is not set on the server.'}
           </p>
           <p style={{ margin: '8px 0 0' }}>
             Copy <code>.env.example</code> to <code>.env</code>, set <code>ANTHROPIC_API_KEY</code> and{' '}
@@ -481,12 +594,11 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
           <h1>{campaign?.name ?? 'New campaign'}</h1>
           <div className="cd-sub">
             {tenant.displayName}
-            {tenant.templateLibraryAccess === 'unavailable' && ' · you supply message template IDs'}
           </div>
         </div>
         <div className="cd-tabs">
-          <button className="cd-tab" onClick={reset} disabled={busy || !messages.length}>
-            Start over
+          <button className="cd-tab" onClick={startNew} disabled={busy || !messages.length}>
+            New chat
           </button>
         </div>
       </div>
@@ -509,8 +621,7 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
                   </>
                 ) : (
                   <>
-                    <b>Design ready to export.</b> Not import-ready. The campaign builder has no JSON import, so there
-                    is no import contract to check this against. Prepare the remaining details and upload it yourself.
+                    <b>Design ready.</b> Prepare the remaining details, then export it.
                     {last?.importReadiness?.outstanding.length ? (
                       <span className="cd-status-next">
                         {' '}
@@ -524,40 +635,141 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
             </div>
           )}
 
-          {busy && !graph && (
-            <div className="cd-state">
-              <div className="cd-spinner" />
-              <div className="cd-state-title">Designing the campaign</div>
-              <div className="cd-state-sub">
-                Retrieving context, reasoning about the objective, then building the journey with the
-                application&rsquo;s own graph logic.
+          {/* THE WORK SURFACE DURING DISCOVERY.
+              The canvas used to be hidden entirely until a journey existed,
+              because an empty panel holding the centre of the screen through
+              the longest phase of the session reads as a broken promise. But
+              hiding it moved every finding into chat scrollback, where the
+              manager had to scroll back through their own conversation to see
+              what the agent had actually understood.
+              So the centre always shows the WORK PRODUCT, and what that is
+              changes by phase: the brief while discovering, the journey once
+              it is built. The skeleton underneath is the propensity agent's
+              pattern — a greyed wireframe of the real output rather than a
+              spinner, so the shape of what is coming is legible before it
+              arrives. */}
+          {!graph && !err && (
+            <div className="cd-work hf-scroll">
+              <div className="cd-work-head">
+                <h2>
+                  {preview
+                    ? 'Proposed journey'
+                    : messages.length
+                      ? 'What I have so far'
+                      : 'Your campaign takes shape here'}
+                </h2>
+                <p>
+                  {preview
+                    ? 'Not built yet. Confirm on the right, or say what to change.'
+                    : messages.length
+                      ? 'This fills in as you talk. Everything here came from your answers, and you can correct any of it.'
+                      : 'Describe the outcome you want on the right. What the agent learns appears here, and becomes the journey once you approve a plan.'}
+                </p>
               </div>
-            </div>
-          )}
 
-          {!busy && !graph && !err && (
-            <div className="cd-state">
-              <svg width="54" height="54" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-                <rect x="4" y="7" width="13" height="9" rx="2.5" stroke="var(--gray-300)" strokeWidth="1.6" />
-                <rect x="31" y="7" width="13" height="9" rx="2.5" stroke="var(--gray-300)" strokeWidth="1.6" />
-                <rect x="17.5" y="32" width="13" height="9" rx="2.5" stroke="var(--gray-300)" strokeWidth="1.6" />
-                <path d="M10.5 16v8.5h27V16" stroke="var(--gray-300)" strokeWidth="1.6" />
-                <path d="M24 24.5V32" stroke="var(--gray-300)" strokeWidth="1.6" />
-              </svg>
-              <div className="cd-state-title">Your campaign journey appears here</div>
-              <div className="cd-state-sub">
-                Describe the outcome you want in the panel on the right. The agent asks what it needs, proposes a
-                strategy, then builds the journey on this canvas for you to review and refine.
+              {/* A STRIP, NOT THE FOUR CARDS, once there is a journey to look
+                  at. The cards are the work product while discovering; on the
+                  propose turn the schematic is, and four large cards plus the
+                  lines of enquiry push it below the fold. Three facts on one
+                  line is enough to check the proposal is answering the right
+                  question. */}
+              {briefView && preview && (
+                <div className="cd-briefstrip">
+                  <span>
+                    <b>Objective</b>
+                    {briefView.objective || 'Not set'}
+                  </span>
+                  <span>
+                    <b>Who converts</b>
+                    {briefView.converters?.shape || 'Not established'}
+                  </span>
+                  <span>
+                    <b>What is stopping them</b>
+                    {briefView.barriers?.length ? briefView.barriers.map((b) => b.statement).join(' ') : 'Not established'}
+                  </span>
+                </div>
+              )}
+
+              {briefView && !preview && (
+                <div className="cd-work-grid">
+                  <WorkCard label="Objective" filled={Boolean(briefView.objective)}>
+                    {briefView.objective || 'Not set yet'}
+                  </WorkCard>
+                  <WorkCard label="How success is judged" filled={Boolean(briefView.successCriteria?.length)}>
+                    {briefView.successCriteria?.length ? briefView.successCriteria.join(' ') : 'Still to settle'}
+                  </WorkCard>
+                  <WorkCard label="Who converts today" filled={Boolean(briefView.converters?.shape)}>
+                    {briefView.converters?.shape || 'Not established'}
+                  </WorkCard>
+                  <WorkCard
+                    label={`What is stopping the rest${briefView.barriers?.length ? ` (${briefView.barriers.length})` : ''}`}
+                    filled={Boolean(briefView.barriers?.length)}
+                  >
+                    {briefView.barriers?.length
+                      ? briefView.barriers.map((b) => b.statement).join(' ')
+                      : 'Not established'}
+                  </WorkCard>
+                </div>
+              )}
+
+              {Boolean(briefView?.dimensions?.length) && !preview && (
+                <div className="cd-work-dims">
+                  <div className="cd-work-cap">Lines of enquiry</div>
+                  <ul>
+                    {briefView!.dimensions!.map((d) => (
+                      <li key={d.name} className={d.status === 'retained' ? 'on' : ''}>
+                        <span className="cd-work-dot" aria-hidden="true" />
+                        <span className="cd-work-dname">{d.name}</span>
+                        {d.note && <span className="cd-work-dnote">{d.note}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* THE SCHEMATIC REPLACES THE SKELETON on the propose turn. The
+                  skeleton is a wireframe standing in for a journey nobody has
+                  yet; once there is a real proposed path, standing in for it
+                  with grey boxes is the defect this fixes. */}
+              {preview && <JourneySchematic preview={preview} busy={busy} />}
+
+              {/* The skeleton. Deliberately not a spinner: it shows the SHAPE
+                  of a journey, so the wait is legible rather than blank. */}
+              {!preview && (
+              <div className="cd-skeleton" aria-hidden="true">
+                <div className="cd-sk-row">
+                  <span className="cd-sk-node entry" />
+                  <span className="cd-sk-line" />
+                  <span className="cd-sk-node" />
+                  <span className="cd-sk-line" />
+                  <span className="cd-sk-node" />
+                </div>
+                <div className="cd-sk-row indent">
+                  <span className="cd-sk-line v" />
+                  <span className="cd-sk-node small" />
+                  <span className="cd-sk-line" />
+                  <span className="cd-sk-node small" />
+                </div>
+                <div className="cd-sk-caption">
+                  {busy ? 'Working\u2026' : 'The journey appears here once you approve a plan'}
+                </div>
               </div>
+              )}
             </div>
           )}
 
           {!busy && !graph && err && (
             <div className="cd-state">
-              <div className="cd-state-title" style={{ color: '#991b1b' }}>
-                The run did not produce a campaign
+              <div className="cd-state-title" style={{ color: 'var(--bad)' }}>
+                No campaign was produced
               </div>
               <div className="cd-state-sub">{err}</div>
+              {errDetail && (
+                <details className="cd-errdetail">
+                  <summary>Technical detail</summary>
+                  <pre>{errDetail}</pre>
+                </details>
+              )}
             </div>
           )}
 
@@ -699,7 +911,7 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
                   Agent <span className="cd-streaming">writing…</span>
                 </div>
                 <div className="cd-msg-bubble">
-                  <RichText text={stripJson(liveText)} />
+                  <RichText text={streamingText(liveText, phase === 'generating' || phase === 'awaiting-confirmation' ? 'Drafting the plan…' : 'Writing a reply…')} />
                   <span className="cd-caret" aria-hidden="true" />
                 </div>
               </div>
@@ -719,11 +931,14 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
             {!busy && phase === 'awaiting-confirmation' && (
               <div className="cd-confirm">
                 <div className="cd-confirm-t">Generate this campaign?</div>
-                <p>Nothing has been built yet. Confirm to create the journey, or tell the agent what to change.</p>
+                <p>
+                  Nothing has been built yet. Confirm to create the journey, or say what you would change.
+                  {preview ? ' The proposed path is on the left.' : ''}
+                </p>
                 <div className="cd-confirm-actions">
                   <button
                     className="cd-btn pri"
-                    onClick={() => send('Confirmed — build this campaign.', { intent: 'confirm' })}
+                    onClick={() => send('Confirmed. Build this campaign.', { intent: 'confirm' })}
                   >
                     Confirm and generate
                   </button>
@@ -737,8 +952,13 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
 
           {/* Communication steps the agent designed but cannot complete:
               templates live in the bank's ecosystem, not here. The step stays
-              in the journey; the user supplies the real ids. */}
-          {last?.sendProposals.length ? (
+              in the journey; the user supplies the real ids.
+
+              NOT ON THE PROPOSE TURN. Template ids are a post-build task, and
+              asking for them beside a plan nobody has approved reads as
+              though the campaign already exists — and wastes the one decision
+              this turn is for. */}
+          {last?.sendProposals.length && phase !== 'awaiting-confirmation' ? (
             <div className="cd-sends">
               <div className="cd-sends-h">
                 Needs your input — {last.sendProposals.length} message step
@@ -756,7 +976,7 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
                     </div>
                     <div className="cd-send-why">{p.explanation}</div>
                     <div className="cd-send-copy">
-                      <div className="cd-send-lbl">Proposed message — not a bank-registered template</div>
+                      <div className="cd-send-lbl">Proposed message. Not a registered template yet.</div>
                       <div>{p.sampleCopy}</div>
                       <div className="cd-send-cta">
                         CTA: {p.cta}
@@ -794,7 +1014,7 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
               <button
                 className="cd-btn"
                 disabled={busy || !Object.values(resolvedSends).some((v) => v.account || v.templateId)}
-                onClick={() => send('I have supplied the account and template ids. Rebuild and revalidate the campaign.')}
+                onClick={() => send('I have added the account and template IDs. Build the campaign again.')}
               >
                 Apply and revalidate
               </button>
@@ -806,7 +1026,7 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant }: Props) {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder={
-                graph ? 'Ask for a change — e.g. "add a WhatsApp reminder after 3 days"' : 'Describe your campaign objective…'
+                graph ? 'Ask for a change. For example, "add a WhatsApp reminder after 3 days".' : 'Describe your campaign objective…'
               }
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && draft.trim() && !busy) send(draft.trim());
@@ -897,7 +1117,23 @@ function ActivityTimeline({ events, live }: { events: RunEvent[]; live: boolean 
     wasLive.current = live;
   }, [live]);
 
-  const tools = events.filter((e) => e.type.startsWith('model.tool_call')).length;
+  // REAL LOOKUPS ONLY, and the count is the fix rather than the wording.
+  //
+  // This was every `model.tool_call*` event, so the PIN-activation discovery
+  // turn reported "6 lookups" having looked nothing up: `ask_questions`,
+  // `record_findings` and `record_dimensions` all WRITE to the record, and
+  // discovery has no lookup tools available at all. A manager reading that
+  // was told the agent went and checked six things before it asked them
+  // anything.
+  //
+  // `data.kind` is stamped at every emit for exactly this. Counting
+  // correlation ids rather than events, because one tool call emits
+  // requested + started + completed and three events is not three lookups.
+  const lookups = new Set(
+    events
+      .filter((e) => e.type.startsWith('model.tool_call') && (e.data as { kind?: string } | undefined)?.kind === 'lookup')
+      .map((e) => e.correlationId ?? `${e.seq}`),
+  ).size;
   const failed = events.some((e) => e.status === 'failed');
   const total = events.reduce((n, e) => n + (e.durationMs ?? 0), 0);
 
@@ -906,8 +1142,8 @@ function ActivityTimeline({ events, live }: { events: RunEvent[]; live: boolean 
       <button className="cd-act-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <span className="cd-act-icon">{live ? <span className="cd-spinner tiny" /> : failed ? '✕' : '✓'}</span>
         <span className="cd-act-title">
-          {live ? 'Working…' : `${events.length} step${events.length === 1 ? '' : 's'}`}
-          {tools > 0 && !live ? `, ${tools} lookup${tools === 1 ? '' : 's'}` : ''}
+          {live ? 'Working…' : `${events.length} step${events.length === 1 ? '' : 's'} in this run`}
+          {lookups > 0 && !live ? `, ${lookups} lookup${lookups === 1 ? '' : 's'}` : ''}
         </span>
         {!live && total > 0 && <span className="cd-act-ms">{(total / 1000).toFixed(1)}s</span>}
         <span className="cd-act-chev">{open ? '▾' : '▸'}</span>
@@ -939,23 +1175,150 @@ function ActivityRow({ event }: { event: RunEvent }) {
           {open ? 'Hide' : 'Details'}
         </button>
       )}
-      {open && event.data != null && <pre className="cd-act-pre">{JSON.stringify(event.data, null, 1)}</pre>}
+      {/* A SENTENCE, THEN THE PAYLOAD. This was the payload alone, so
+          expanding a row traded the one human line for raw state. The JSON is
+          kept deliberately — it is the reason Details exists — but a panel
+          that opens into nothing but a data dump cannot be read by the person
+          the run is for. `detailsText` is shared with the Logs tab so the two
+          cannot describe the same event differently. */}
+      {open && event.data != null && (
+        <div className="cd-act-body">
+          <p className="cd-act-lead">{detailsText(event)}</p>
+          <pre className="cd-act-pre">{JSON.stringify(event.data, null, 1)}</pre>
+        </div>
+      )}
     </div>
   );
 }
 
 /**
- * The model answers with a JSON object. While it streams we show only the
- * prose it has written so far, never a half-finished brace — the formatted
- * strategy replaces this the moment the run resolves.
+ * The text as it streams, or a word about what is coming.
+ *
+ * THE JSON ERA IS OVER, and this function was still living in it. The model
+ * used to answer with one JSON object, so this sliced the text at the first
+ * `{` and, failing that, dug `"summary"` and `"rationale"` out of the partial
+ * payload with regexes, falling back to "Working on the campaign strategy…".
+ *
+ * The model now writes its message as ordinary prose and puts structure in
+ * tool calls, so there is no JSON in the text stream to strip or scavenge.
+ * All three mechanisms were dead, and two of them were actively wrong: the
+ * brace slice truncated any sentence containing one, and the regexes could
+ * put a half-written internal field on screen as though it were the reply.
+ *
+ * `fallback` names the turn rather than the machinery — the caller knows
+ * whether a plan or a reply is coming.
  */
-function stripJson(text: string): string {
-  const brace = text.indexOf('{');
-  const prose = (brace === -1 ? text : text.slice(0, brace)).trim();
-  if (prose) return prose;
-  // Pull readable sentences out of the partial JSON so something meaningful
-  // appears while a long blueprint is still arriving.
-  const summary = /"summary"\s*:\s*"([^"]*)/.exec(text)?.[1];
-  const rationale = /"rationale"\s*:\s*"([^"]*)/.exec(text)?.[1];
-  return summary ?? rationale ?? 'Working on the campaign strategy…';
+function streamingText(text: string, fallback = 'Writing a reply…'): string {
+  return text.trim() || fallback;
+}
+
+/**
+ * The proposed path, drawn. Read-only by construction.
+ *
+ * NOT `DripCanvas`, and the distinction is the point. That component renders a
+ * BUILT campaign: real nodes, real edges, a node drawer, live validation,
+ * dagre layout. None of it exists on a proposal, and mounting it would say
+ * the journey had been created when the manager has not approved anything.
+ * This maps a pure row list — no click handlers, no drawer, no graph state.
+ *
+ * Vertical and capped at a reading width rather than a pannable canvas,
+ * because the job here is to be scannable in ten seconds, not navigable.
+ */
+function JourneySchematic({ preview, busy }: { preview: JourneyPreview; busy: boolean }) {
+  return (
+    <div className="cd-preview">
+      <div className="cd-preview-banner">{busy ? 'Building the journey…' : 'Proposed — not built yet.'}</div>
+      <div className="cd-preview-flow">
+        <div className="cd-pv-node entry">
+          <span className="cd-pv-kind">Who comes in</span>
+          <span className="cd-pv-text">{preview.entry}</span>
+          {preview.entryNote && <span className="cd-pv-note">{preview.entryNote}</span>}
+        </div>
+        <PreviewRows rows={preview.rows} />
+        {preview.stops && <div className="cd-pv-stop">{preview.stops}</div>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Rows, recursing into forks.
+ *
+ * EVERY PATH IS DRAWN, including one with nothing on it — `previewFromBlueprint`
+ * gives an empty path a note rather than omitting it. A schematic that shows
+ * the treated arm and quietly drops the rest path tells the manager the
+ * campaign reaches everyone when it does not, which would make this preview
+ * worse than no preview.
+ */
+function PreviewRows({ rows }: { rows: PreviewRow[] }) {
+  return (
+    <>
+      {rows.map((row, i) => (
+        <div className="cd-pv-row" key={i}>
+          <span className="cd-pv-link" aria-hidden="true" />
+          {row.kind === 'wait' || row.kind === 'await' ? (
+            // A wait is a chip, not a card. Giving it the weight of a send
+            // makes a three-message journey look like six steps.
+            <span className="cd-pv-wait">{row.text}</span>
+          ) : row.kind === 'fork' ? (
+            <div className="cd-pv-fork">
+              <div className="cd-pv-forkq">{row.text}</div>
+              <div className="cd-pv-paths">
+                {row.paths.map((p, j) => (
+                  <div className="cd-pv-path" key={j}>
+                    <div className="cd-pv-plabel">{p.label}</div>
+                    {p.note && <div className="cd-pv-note">{p.note}</div>}
+                    <PreviewRows rows={p.rows} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className={`cd-pv-node ${row.kind}`}>
+              <span className="cd-pv-kind">
+                {row.kind === 'send'
+                  ? `${row.channel}${row.fallback ? ` · ${row.fallback} if it fails` : ''}`
+                  : row.kind === 'exit'
+                    ? 'Ends'
+                    : 'Step'}
+              </span>
+              <span className="cd-pv-text">{row.text}</span>
+            </div>
+          )}
+        </div>
+      ))}
+    </>
+  );
+}
+
+/**
+ * One settled-or-not fact on the work surface.
+ *
+ * The filled/empty distinction is the whole point: a manager glancing at the
+ * centre should see what the agent has actually got, and what it is still
+ * missing, without reading the conversation. An unfilled card is not an error
+ * state, so it is muted rather than warned.
+ */
+function WorkCard({ label, filled, children }: { label: string; filled: boolean; children: React.ReactNode }) {
+  return (
+    <div className={`cd-workcard ${filled ? 'filled' : ''}`}>
+      <div className="cd-work-cap">{label}</div>
+      <div className="cd-workcard-body">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * What the work surface reads off the brief, and nothing more.
+ *
+ * Narrow on purpose. The brief is the server's record and grows as the agent
+ * does; mirroring the whole of it here would mean this file breaking every
+ * time a server-side field changed, for fields it never renders.
+ */
+interface BriefView {
+  objective?: string;
+  successCriteria?: string[];
+  converters?: { shape?: string } | null;
+  barriers?: { statement: string }[];
+  dimensions?: { name: string; status?: string; note?: string }[];
 }

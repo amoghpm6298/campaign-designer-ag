@@ -135,7 +135,38 @@ export function friendlyConstraint(id: string): string {
   }
 }
 
-/** Plain-language labels for execution event types. */
+/**
+ * The sentence an activity row shows, and the one its Details panel repeats.
+ *
+ * WHY THIS EXISTS AS A FUNCTION. The Details panel used to be the JSON and
+ * nothing else — `<pre>{JSON.stringify(event.data)}</pre>` — so expanding a
+ * row swapped a human sentence for a payload. The JSON is worth keeping (it
+ * is the whole point of Details for anyone debugging a run), but it must not
+ * be the only thing there: a panel that opens into raw state cannot be read
+ * by the person the run is for.
+ *
+ * `detail` first because it is the specific thing that happened ("Recorded
+ * who converts; 2 barrier(s)"), falling back to the title, which every event
+ * has. Never empty, so the panel is always self-contained.
+ */
+export function detailsText(event: { title?: string; detail?: string; type?: string }): string {
+  const detail = event.detail?.trim();
+  if (detail) return detail;
+  const title = event.title?.trim();
+  if (title) return title;
+  return event.type ? friendlyEvent(event.type) : 'No further detail recorded.';
+}
+
+/**
+ * Plain-language labels for execution event types.
+ *
+ * A FALLBACK, not a parallel naming scheme. Events carry their own `title`,
+ * written where they are emitted and specific to the turn — "Drafting the
+ * plan" vs "Writing a reply" are both `model.started`, so a type-keyed map
+ * cannot tell them apart. Both surfaces therefore prefer `event.title` and
+ * come here only when an event has none. Keeping two maps in step by hand is
+ * how the Design panel and the Logs tab came to disagree about the same run.
+ */
 export function friendlyEvent(type: string): string {
   const map: Record<string, string> = {
     'run.started': 'Run started',

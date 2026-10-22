@@ -1,3 +1,5 @@
+@import '../tokens.css';
+
 /* Standalone Campaign Designer shell. Its own header and navigation — this
    app has no sidebar, no Communication Hub and no dependency on the
    ib-face-mock chrome. */
@@ -42,4 +44,401 @@
 .ds-switch-warn button {
   font: inherit; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 6px;
   border: 1px solid #fde68a; background: #fff; color: #92400e; cursor: pointer;
+}
+
+/* ===================================================================
+ * THE SHELL: navy rail left, work surface centre, chat right.
+ *
+ * The frame is full-height with NO PAGE SCROLL — every pane scrolls
+ * internally. That is the single most important structural decision taken
+ * from the propensity agent: with a page that scrolls, the composer drifts
+ * off-screen and the canvas header leaves with it.
+ * =================================================================== */
+
+#designer-root {
+  height: 100vh;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  font-family: var(--font);
+  font-size: var(--t-base);
+  color: var(--text);
+  /* White, not grey. See the note on --surface in tokens.css. */
+  background: var(--surface);
+}
+
+.hf-rail {
+  width: var(--rail-w);
+  flex: 0 0 auto;
+  background: var(--rail);
+  color: var(--rail-text);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.hf-rail.collapsed {
+  width: var(--rail-w-collapsed);
+}
+
+.hf-rail-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--rail-line);
+  min-height: var(--topbar-h);
+}
+.hf-rail-logo {
+  flex: 0 0 auto;
+  display: block;
+  border-radius: var(--r-sm);
+}
+.hf-rail-wordmark {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--rail-text-active);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hf-rail-wordmark small {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--rail-text);
+}
+.hf-rail-toggle {
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--rail-text);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.hf-rail-toggle:hover {
+  background: var(--rail-hover);
+  color: var(--rail-text-active);
+}
+.hf-rail.collapsed .hf-rail-top {
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 8px;
+}
+
+.hf-rail-items {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hf-railitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--rail-text);
+  font: inherit;
+  font-size: var(--t-base);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+.hf-railitem svg {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.hf-railitem:hover {
+  background: var(--rail-hover);
+  color: var(--rail-text-active);
+}
+/* Active state is the tinted row plus a teal icon. The teal appears here and
+ * in the logo and nowhere else in the chrome, which is what keeps it reading
+ * as the brand rather than as another status colour. */
+.hf-railitem.on {
+  background: var(--rail-active);
+  color: var(--rail-text-active);
+  font-weight: 550;
+}
+.hf-railitem.on svg {
+  stroke: var(--hf-teal);
+}
+.hf-rail.collapsed .hf-railitem {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.hf-rail-foot {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--rail-line);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hf-rail-cap {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--rail-text);
+}
+.hf-rail-foot select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--rail-line);
+  border-radius: var(--r-sm);
+  background: var(--hf-navy-soft);
+  color: var(--rail-text-active);
+  font: inherit;
+  font-size: var(--t-sm);
+}
+.hf-rail-foot select:focus-visible {
+  outline: 2px solid var(--hf-teal);
+  outline-offset: 1px;
+}
+.hf-rail-chip {
+  align-self: flex-start;
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  background: rgba(11, 208, 181, 0.14);
+  color: var(--hf-teal);
+  font-size: 10px;
+  font-weight: 600;
+}
+.hf-rail-initial {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin: 0 auto;
+  border-radius: var(--r-md);
+  background: var(--hf-navy-soft);
+  color: var(--rail-text-active);
+  font-size: var(--t-micro);
+  font-weight: 650;
+}
+
+/* The work area. Scrolls nothing itself; its children do. */
+.hf-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+}
+.hf-main > .ds-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .hf-rail {
+    width: var(--rail-w-collapsed);
+  }
+  .hf-rail-wordmark,
+  .hf-rail-foot select,
+  .hf-rail-cap,
+  .hf-rail-chip,
+  .hf-railitem span {
+    display: none;
+  }
+  .hf-railitem {
+    justify-content: center;
+  }
+}
+
+
+/* ===================================================================
+ * THE PAGE SHELL, which every non-chat route obeys.
+ *
+ * WHY A SHARED SHELL. The Knowledge Base route had three different measures
+ * on one screen — a subtitle wrapping at 670px, a notice spanning 1120px, an
+ * empty panel capped at 620px and left-aligned — because each block decided
+ * its own width. Nothing agreed, so nothing read as a page.
+ *
+ * The rules below are taken from the propensity agent and are deliberately
+ * few: one gutter, one measure, one vertical rhythm, and a hairline rather
+ * than a gap to open a section. Its spacing ladder tops out at 32px precisely
+ * BECAUSE a hairline is always doing the separating, so it never needs 64px
+ * of void to make a boundary legible.
+ * =================================================================== */
+
+.hf-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--page-gutter);
+  background: var(--surface);
+}
+.hf-page-inner {
+  max-width: var(--measure-wide);
+}
+.hf-page-inner.narrow {
+  max-width: var(--measure);
+}
+
+/* Title, subtitle and the primary action on one row. The action centres
+   against the whole title block, not against the title. */
+.hf-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+.hf-page-head h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 32px;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+.hf-page-head p {
+  margin: 4px 0 0;
+  font-size: var(--t-base);
+  line-height: 20px;
+  color: var(--text-muted);
+  max-width: 68ch;
+}
+
+/* A section opens with a LINE, never with a gap. */
+.hf-section {
+  border-top: 1px solid var(--border);
+  padding-top: 32px;
+  margin-top: 32px;
+}
+.hf-section:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+/* Hierarchy from caps and letterspacing, not from a size jump. A section
+   heading is the SAME SIZE as body text; it organises without shouting. */
+.hf-h2 {
+  margin: 0 0 16px;
+  font-size: var(--t-base);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.hf-h3 {
+  margin: 0 0 12px;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text);
+}
+
+/* A card is a HAIRLINE, not a slab: no resting shadow, and the only thing
+   that lifts is the thing under the cursor. */
+.hf-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: 20px;
+}
+.hf-card.interactive {
+  cursor: pointer;
+  transition: box-shadow 0.14s, border-color 0.14s;
+}
+.hf-card.interactive:hover {
+  box-shadow: var(--e-3);
+  border-color: var(--border-strong);
+}
+/* Nested surfaces are a FILL, never a second border — otherwise you get a
+   box inside a box, which is most of what makes an interface look boxy. */
+.hf-subtile {
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+  padding: 8px 12px;
+}
+
+.hf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+/* Tables: one outer hairline at full strength, inner rows at half. No zebra,
+   no vertical rules, no resting shadow. */
+.hf-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--surface);
+}
+.hf-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.hf-table thead tr {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+.hf-table th {
+  text-align: left;
+  padding: 12px 20px;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.hf-table td {
+  padding: 14px 20px;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.hf-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.hf-table tbody tr:hover {
+  background: var(--surface-sunken);
+}
+.hf-table td.key {
+  font-size: var(--t-base);
+  font-weight: 500;
+  color: var(--text);
+}
+.hf-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.hf-table .hf-empty-cell {
+  padding: 32px 20px;
+  text-align: center;
+  font-size: var(--t-base);
+  color: var(--text-faint);
 }

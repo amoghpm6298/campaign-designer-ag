@@ -19,7 +19,19 @@ import { generateSchemaArtefact } from '../agent-proto/schema/generateSchema';
 import { COMMS_TEMPLATES, ELIGIBILITY_META, PROGRAM_OPTIONS } from '../src/data/sharedConstants';
 
 const here = dirname(fileURLToPath(import.meta.url));
+import { groupKnowledge, docsForAgent } from '../src/data/knowledgeShape';
+
 const readJson = (p: string) => JSON.parse(readFileSync(resolve(here, p), 'utf8'));
+
+/**
+ * The issuer's bank context, for callers that need a preference rather than
+ * the whole rendered knowledge base.
+ *
+ * Exported because `agentTools.ts` has to order the channel list the same way
+ * the build does, and the two disagreeing is what taught the model to open on
+ * email while the context told it not to. One source, read twice.
+ */
+export const bankContext = () => readJson('../agent-proto/context/bank-context.json');
 
 export type VerificationStatus = 'verified' | 'observation' | 'hypothesis' | 'invented' | 'authoritative';
 
@@ -118,14 +130,12 @@ export function seedKnowledgeBase(): KnowledgeBase {
   const push = (e: Omit<KnowledgeEntry, 'id'> & { id?: string }) =>
     entries.push({ id: e.id ?? `${e.category}:${e.label}`.toLowerCase().replace(/[^a-z0-9]+/g, '-'), ...e } as KnowledgeEntry);
 
-  push({
-    category: 'Tenant',
-    label: 'Bank / tenant name',
-    value: bank.bank.displayName,
-    source: 'agent-proto/context/bank-context.json',
-    status: 'invented',
-    scope: 'all campaigns',
-  });
+  // THE TENANT IS NOT A KNOWLEDGE ENTRY. It used to be, reading
+  // `bank.bank.displayName` — which is the fictional Meridian Bank, while the
+  // resolved tenant is IndusInd. So the screen showed two different banks at
+  // once and the agent was told both. The real tenant already reaches the
+  // model in its own section of the context, and the user already has it in
+  // the rail, so this said nothing true that was not already said.
 
   for (const c of bank.channels.available) {
     push({
@@ -139,7 +149,20 @@ export function seedKnowledgeBase(): KnowledgeBase {
   }
 
   const hc = bank.hardConstraints;
-  push({ category: 'Operational constraints', label: 'Minimum hours between messages', value: String(hc.minHoursBetweenMessages.value), source: 'agent-proto/context/bank-context.json → hardConstraints', status: 'invented', scope: 'hard constraint' });
+  // A PREFERENCE, not a hard constraint, and the scope says so.
+  //
+  // It was dumped as a hard constraint, and the agent read it the way anyone
+  // would: every campaign came out as a fixed 48-hour clock. The guard is
+  // against nagging, not a rhythm to design to — the same day is fine when
+  // someone has just opened or clicked. The night window is the real limit.
+  push({
+    category: 'Preferences',
+    label: 'Minimum hours between messages',
+    value: `${hc.minHoursBetweenMessages.value} hours is a guard against nagging, not a fixed rhythm. Same day is fine when they have just opened or clicked. The night window below is the real limit.`,
+    source: 'agent-proto/context/bank-context.json → hardConstraints',
+    status: 'invented',
+    scope: 'preference, may be traded off',
+  });
   push({ category: 'Operational constraints', label: 'Quiet hours', value: `${hc.quietHours.from}–${hc.quietHours.to}`, source: 'agent-proto/context/bank-context.json → hardConstraints', status: 'invented', scope: 'hard constraint (issuer-owned)' });
   push({ category: 'Operational constraints', label: 'DNC required', value: String(hc.dncRequired.value), source: 'agent-proto/context/bank-context.json', status: 'invented', scope: 'campaign-level user choice' });
   push({ category: 'Operational constraints', label: 'NPA exclusion required', value: String(hc.npaExclusionRequired.value), source: 'agent-proto/context/bank-context.json', status: 'invented', scope: 'campaign-level user choice' });
@@ -185,9 +208,32 @@ export function seedKnowledgeBase(): KnowledgeBase {
     }
   }
 
-  push({ category: 'Preferences', label: 'Prefer lower-cost channel first', value: String(bank.softPreferences.preferLowerCostChannelFirst.value), source: 'agent-proto/context/bank-context.json → softPreferences', status: 'invented', scope: 'preference, may be traded off' });
+  // Dumped as a SENTENCE, not a bare boolean. "false" on its own tells the
+  // model nothing about what to do instead.
+  push({
+    category: 'Preferences',
+    label: 'Channel order',
+    value: bank.softPreferences.preferLowerCostChannelFirst.value
+      ? 'Lead with the lower-cost channel and keep costlier ones for reinforcement.'
+      : 'Do not lead with email because it is cheapest. Choose the first touch on reach and on where the customer can act. For Indian retail cardholders that is usually WhatsApp or in-app. Cost breaks a tie between channels that would both work; it never picks the first one.',
+    source: 'agent-proto/context/bank-context.json → softPreferences',
+    status: 'invented',
+    scope: 'preference, may be traded off',
+  });
   push({ category: 'Preferences', label: 'Preferred control group %', value: String(bank.softPreferences.preferredControlGroupPct.value), source: 'agent-proto/context/bank-context.json → softPreferences', status: 'invented', scope: 'preference' });
-  push({ category: 'Preferences', label: 'Risk appetite', value: `${bank.riskAppetite.level}. ${bank.riskAppetite.notes.join(' ')}`, source: 'agent-proto/context/bank-context.json → riskAppetite', status: 'invented', scope: 'guidance' });
+  // UNSPECIFIED MEANS DESIGN THE FULL PLAN.
+  //
+  // The level used to read "conservative", and the agent treated that as an
+  // instruction to propose fewer messages and drop tests. A missing appetite
+  // is missing information, not a request for restraint.
+  push({
+    category: 'Preferences',
+    label: 'Risk appetite',
+    value: `${bank.riskAppetite.level}. ${bank.riskAppetite.notes.join(' ')}`,
+    source: 'agent-proto/context/bank-context.json → riskAppetite',
+    status: 'invented',
+    scope: 'guidance',
+  });
 
   for (const e of bank.eventsCalendar.entries) {
     push({
@@ -196,7 +242,7 @@ export function seedKnowledgeBase(): KnowledgeBase {
       value: `type: ${e.type}`,
       source: 'agent-proto/context/bank-context.json → eventsCalendar',
       status: 'invented',
-      scope: 'scheduling input (not integrated)',
+      scope: 'bake these dates into the timing of the plan',
     });
   }
 
@@ -242,23 +288,26 @@ export function seedKnowledgeBase(): KnowledgeBase {
  * shown to another. Only 'ready' documents are included — a failed upload
  * contributes nothing, which is why the UI must not call it available.
  */
+/**
+ * Grouped and scoped the way the agent reads it.
+ *
+ * Both are thin wrappers over `src/data/knowledgeShape.ts`, which the
+ * Knowledge Base screen imports too. One definition, so the page and the
+ * prompt cannot disagree about what the agent has.
+ */
+export const groupedKnowledge = (kb: KnowledgeBase) => groupKnowledge(kb.entries);
+export const documentsForAgent = (kb: KnowledgeBase, tenantId?: string) => docsForAgent(kb.documents, tenantId);
+
 export function knowledgeForPrompt(kb: KnowledgeBase, tenantId?: string): string {
-  const byCat = new Map<string, KnowledgeEntry[]>();
-  for (const e of kb.entries) {
-    if (!byCat.has(e.category)) byCat.set(e.category, []);
-    byCat.get(e.category)!.push(e);
-  }
   const lines: string[] = [];
-  for (const [cat, items] of byCat) {
+  for (const { category: cat, entries: items } of groupedKnowledge(kb)) {
     lines.push(`## ${cat}`);
     for (const e of items) {
       const edited = e.editedAt ? ' [USER-EDITED]' : '';
       lines.push(`- ${e.label}: ${e.value} [status: ${e.status}]${edited}`);
     }
   }
-  const docs = (kb.documents ?? []).filter(
-    (d) => d.status === 'ready' && d.text && (d.scope === 'shared' || d.scope === tenantId),
-  );
+  const docs = documentsForAgent(kb, tenantId);
   if (docs.length) {
     lines.push('');
     lines.push('## Uploaded documents');

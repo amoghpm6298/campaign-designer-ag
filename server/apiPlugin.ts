@@ -7,9 +7,13 @@
 //
 // The client bundle imports NOTHING from this directory — the only transport
 // is fetch('/api/...').
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname } from 'node:path';
+
+/** This file's own directory, so run records land next to the scripted ones. */
+const here = dirname(fileURLToPath(import.meta.url));
 import type { Plugin, ViteDevServer } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
@@ -63,6 +67,10 @@ async function streamSse(
     closed = true;
   });
 
+  // Everything this turn produced, so it can be written to disk alongside the
+  // scripted runs when it finishes. See `recordTurn`.
+  const collected: unknown[] = [];
+
   try {
     while (true) {
       const next = await run.next();
@@ -74,14 +82,50 @@ async function streamSse(
       }
       if (next.done) {
         write('result', next.value);
+        recordTurn(collected, next.value);
         break;
       }
+      collected.push(next.value);
       write('event', next.value);
     }
   } catch (e) {
     write('error', { error: (e as Error).message });
   } finally {
     if (!res.writableEnded) res.end();
+  }
+}
+
+/**
+ * Write a UI turn to disk, next to the scripted runs.
+ *
+ * WHY THIS EXISTS. A run done by hand in the designer went only to
+ * localStorage in that browser; the server wrote nothing. So the runs that
+ * matter most — someone actually using the product — were the only ones
+ * nobody else could read, could not be attached to a bug report, and never
+ * reached the published run log, while scripted runs did. That is backwards.
+ *
+ * Best effort by design: a failure to write a log must never interrupt a
+ * conversation, so everything here is wrapped and silent.
+ */
+function recordTurn(events: unknown[], result: unknown): void {
+  try {
+    const r = result as { sessionId?: string; runId?: string; phase?: string } | null;
+    if (!r?.sessionId) return;
+    const dir = resolve(here, `../eval/runs/ui-${r.sessionId}`);
+    mkdirSync(resolve(dir, 'turns'), { recursive: true });
+    const n = readdirSync(resolve(dir, 'turns')).length + 1;
+    writeFileSync(
+      resolve(dir, 'turns', `turn-${n}.json`),
+      JSON.stringify({ at: new Date().toISOString(), events, response: result }, null, 1),
+    );
+    // Rewritten each turn so the folder is readable without opening every
+    // file, and so an abandoned session still says where it got to.
+    writeFileSync(
+      resolve(dir, 'meta.json'),
+      JSON.stringify({ sessionId: r.sessionId, source: 'designer UI', turns: n, lastPhase: r.phase ?? null, lastAt: new Date().toISOString() }, null, 1),
+    );
+  } catch {
+    /* a log that cannot be written must not take the conversation with it */
   }
 }
 

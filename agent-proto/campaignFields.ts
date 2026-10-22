@@ -281,7 +281,7 @@ export function buildCampaignProposal(input: ProposalInputs): CampaignProposal {
   set('controlPct', {
     basis: 'application-default',
     reference:
-      'The application\'s own default for a new campaign is 10 (DripBuilder.tsx:91 `useState(initial?.controlPct ?? 10)`). Required by the model, so it cannot be omitted. Deliberately NOT presented as a bank-backed recommendation: softPreferences.preferredControlGroupPct is INVENTED and holds the same number by coincidence. Whether 10 is right for this campaign is a quality question for a reviewer.',
+      'The application\'s own default for a new campaign is 10 (DripBuilder.tsx:91 `useState(initial?.controlPct ?? 10)`). Required by the model, so it cannot be omitted. The agent does not design a holdout — this is stamped onto the canvas. Deliberately NOT presented as a bank-backed recommendation: softPreferences.preferredControlGroupPct is INVENTED and holds the same number by coincidence. Whether 10 is right for this campaign is a quality question for a reviewer.',
   });
   set('status', {
     basis: 'application-default',
@@ -297,10 +297,9 @@ export function buildCampaignProposal(input: ProposalInputs): CampaignProposal {
   });
   set('endDate', { basis: 'unresolved', omitted: true, reason: 'As startDate.' });
   set('guardrails', {
-    basis: 'unresolved',
-    omitted: true,
-    reason:
-      'DNC and NPA are campaign-level user choices owned by the existing system (GuardrailsStep.tsx). Both default to true in the UI (DripBuilder.tsx:95-96), but a UI default is not a confirmed choice. Omitted so the application\'s own default applies instead of the agent asserting consent.',
+    basis: 'application-default',
+    reference:
+      'DNC and NPA are exclusion lists on the campaign, checked at every node (DripCampaign.guardrails). The builder default is both on (DripBuilder.tsx:95-96). The agent does not design them — they are stamped so the canvas matches a hand-built campaign.',
   });
   set('allowReEntry', {
     basis: 'unresolved',
@@ -337,8 +336,9 @@ export function buildCampaignProposal(input: ProposalInputs): CampaignProposal {
     controlPct: 10,
     status: 'DRAFT',
     root: input.graph,
-    // startDate, endDate, allowReEntry, reEntryCooloff*, guardrails and
-    // versionOf are deliberately ABSENT. See the provenance entries above.
+    guardrails: { dnc: true, npa: true },
+    // startDate, endDate, allowReEntry, reEntryCooloff* and versionOf are
+    // deliberately ABSENT. See the provenance entries above.
   };
 
   return { usable: true, campaign, provenance, unresolvedCampaignFields, blockers: [] };

@@ -69,8 +69,8 @@ describe('agent prototype — sample scenario, no tenant context', () => {
     expect(provenance.applyToAllPrograms.basis).toBe('prototype-default');
     expect(provenance.id.basis).toBe('provisional');
     expect(unresolvedCampaignFields).toContain('issuer');
-    expect(unresolvedCampaignFields).toContain('guardrails');
     expect(unresolvedCampaignFields).toContain('startDate');
+    expect(unresolvedCampaignFields).not.toContain('guardrails');
 
     expect(runRecord.claim).toMatch(/NO USABLE CAMPAIGN CONFIGURATION/);
     expect(runRecord.claim).toMatch(/NOT IMPORT-READY/);

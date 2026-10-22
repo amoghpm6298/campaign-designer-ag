@@ -162,7 +162,7 @@ export function runScenario(input: RunScenarioInput): ScenarioRun {
       `OUTCOME: ${validation.outcome.toUpperCase()}. ` +
       (unresolvedCampaignFields.length
         ? `${unresolvedCampaignFields.length} campaign-level field(s) are UNRESOLVED and were left for a person to decide: [${unresolvedCampaignFields.join(', ')}]. ` +
-          'See campaignFieldProvenance for the missing input behind each. Fields owned by the user or the existing Drip Campaign system (guardrails, re-entry) are omitted rather than defaulted, so the application\'s own defaults apply. '
+          'See campaignFieldProvenance for the missing input behind each. Re-entry is omitted rather than defaulted. Control group and DNC/NPA guardrails are stamped from the builder defaults. '
         : '') +
       'Checks that ran are listed in validation.checks and were executed by the application\'s own functions. ' +
       (validation.unverifiedHardConstraints.length

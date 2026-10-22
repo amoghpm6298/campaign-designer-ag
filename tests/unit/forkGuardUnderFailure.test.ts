@@ -22,7 +22,6 @@ import {
   recordQuestions,
   recordAnswer,
   recordAddressedQuestions,
-  forksFallenBack,
   unansweredForks,
   type WorkingBrief,
 } from '../../server/discovery';
@@ -40,10 +39,26 @@ const jsonTurn = (payload: unknown) =>
 
 const AUDIENCE_FORK = 'Should this reach customers who never started an OS-to-EMI request, or ones already Pending?';
 
-/** A complete, well-formed proposal. Nothing about it is malformed. */
+/**
+ * A complete, well-formed proposal. Nothing about it is malformed.
+ *
+ * `notCovered` NAMES THE FORK, and that is the whole premise of this file as
+ * of 2026-10-21. Until then it was enough to send `answered: []`, because a
+ * fork stayed open unless positively claimed. That exception is gone: a reply
+ * now closes a fork like anything else, and `notCovered` is the one thing
+ * that keeps one open.
+ *
+ * So the misbehaviour under test is sharper than it was, not weaker. The model
+ * is no longer merely forgetting its bookkeeping — it is stating that the
+ * manager's reply did not touch the fork, and proposing a full campaign
+ * against one of the two cohorts anyway. If the application lets that through,
+ * it builds a campaign aimed at a cohort nobody chose while holding the
+ * model's own admission that nobody chose it.
+ */
 const PROPOSAL = {
   action: 'propose',
   answered: [],
+  notCovered: ['q1-1'],
   converters: { shape: 'mostly big spenders', basis: 'user', knowledge: 'known' },
   barriers: [
     {
@@ -64,6 +79,16 @@ const PROPOSAL = {
     { name: 'Channel preference', rationale: 'Where to reach them.', status: 'unavailable', basis: 'none', note: 'Ruled out: no per-customer channel history.' },
   ],
   strategy: {
+    // NAMED SENDS, since 2026-10-22. A plan has to list its cadence — a
+    // proposal that only describes one in prose is refused by
+    // `cadenceBlocks`, which would make the fork the SECOND reason this
+    // payload is held and the test would stop proving anything about forks.
+    // Everything else about the proposal stays deliberately well-formed so
+    // the fork remains the only variable.
+    touches: [
+      { day: 0, channel: 'WhatsApp', path: 'all', purpose: 'Explain that the balance can be converted.', ifStillUnconverted: 'Try SMS if WhatsApp does not deliver.' },
+      { day: 3, channel: 'SMS', path: 'all', purpose: 'Remind them before the statement date.', ifStillUnconverted: 'One last message on day 6, then stop.' },
+    ],
     summary: 'Enter customers near their statement due date and prompt conversion.',
     approach: ['Entry on Account Status = Active, assuming the never-started cohort.'],
     assumptions: ['Assuming the never-started cohort, since the success measure implies acquisition.'],
@@ -137,7 +162,7 @@ async function runTurn(brief: WorkingBrief, extraUserTurn?: string) {
   } as never);
   let out = await gen.next();
   while (!out.done) out = await gen.next();
-  return out.value as Record<string, unknown>;
+  return out.value as unknown as Record<string, unknown>;
 }
 
 const OLD = process.env.ANTHROPIC_API_KEY;
@@ -250,7 +275,7 @@ describe('the guard lets a resolved fork through', () => {
   it('a model that answers the fork in its payload is let through', async () => {
     // The honest route out: claim the id in "answered". One turn away, always
     // available, which is what stops this being a loop.
-    script([jsonTurn({ ...PROPOSAL, answered: ['q1-1'] })]);
+    script([jsonTurn({ ...PROPOSAL, answered: ['q1-1'], notCovered: [] })]);
     const res = await runTurn(stateAfterOneAnsweredRound());
     expect(res.phase).not.toBe('discovery');
     expect(res.strategy).not.toBeNull();
@@ -325,7 +350,7 @@ describe('blocking does not become a trap', () => {
     expect(String(blocked.reply)).toContain(AUDIENCE_FORK);
 
     vi.unstubAllGlobals();
-    script([jsonTurn({ ...PROPOSAL, answered: ['q1-1'] })]);
+    script([jsonTurn({ ...PROPOSAL, answered: ['q1-1'], notCovered: [] })]);
     const out = await runTurn(blocked.brief as WorkingBrief, 'The never-started cohort.');
 
     // The fork is resolved and never blocks again.

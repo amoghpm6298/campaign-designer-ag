@@ -534,3 +534,48 @@ export async function* streamClaude(opts: {
     opts.signal?.removeEventListener('abort', onAbort);
   }
 }
+
+
+/**
+ * Turn a provider failure into something a campaign manager can act on.
+ *
+ * THE DEFECT THIS FIXES. A rate-limit error put this in the chat, verbatim:
+ *
+ *   The agent could not complete: Anthropic API error 400:
+ *   {"type":"error","error":{"type":"invalid_request_error","message":"You
+ *   have reached your specified API usage limits. You will regain access on
+ *   2026-11-01 at 00:00 UTC."},"request_id":"req_011CgEqgQ87PSWDwnAoAixcw"}
+ *
+ * Raw JSON, a provider name, an HTTP status and a request id, shown to someone
+ * whose job is designing campaigns. The useful fact was in there, buried in
+ * the middle of a serialised object.
+ *
+ * So: say what happened, say what to do, and keep the detail for the run log.
+ * Nothing here invents a cause it cannot see — an unrecognised error still
+ * shows its message, just without the wrapper.
+ */
+export function humaniseModelError(raw: string): { message: string; action?: string } {
+  const text = String(raw ?? '');
+  const inner = /"message"\s*:\s*"([^"]+)"/.exec(text)?.[1] ?? text;
+
+  if (/usage limit|spend limit|credit balance/i.test(inner)) {
+    const when = /regain access on ([0-9]{4}-[0-9]{2}-[0-9]{2}[^".]*)/i.exec(inner)?.[1];
+    return {
+      message: when
+        ? `The API usage limit for this workspace has been reached. Access returns on ${when}.`
+        : 'The API usage limit for this workspace has been reached.',
+      action: 'Raise the spend limit in the Anthropic Console to continue now.',
+    };
+  }
+  if (/rate.?limit|429|overloaded/i.test(inner)) {
+    return { message: 'The model is rate limited right now.', action: 'Wait a moment and try again.' };
+  }
+  if (/authentication|invalid x-api-key|401/i.test(inner)) {
+    return { message: 'The API key was rejected.', action: 'Check ANTHROPIC_API_KEY on the server.' };
+  }
+  if (/timeout|aborted|ETIMEDOUT|socket hang up/i.test(inner)) {
+    return { message: 'The model did not respond in time.', action: 'Try again. Nothing was saved.' };
+  }
+  // Unrecognised. Show what the provider said, without the envelope.
+  return { message: inner.slice(0, 300) };
+}

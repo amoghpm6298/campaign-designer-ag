@@ -13,7 +13,7 @@
 import { dcConfirmAddNode, type DcAddingAt } from '../src/reducer/campaignReducer';
 import { dcDefaultConfig } from '../src/reducer/defaultConfig';
 import { dcResetIdCounters } from '../src/reducer/idGen';
-import { COMMS_TEMPLATES, EVENT_CATEGORIES, ELIGIBILITY_META, DC_EVENT_ENTITY, type AttrMeta, type Channel } from '../src/data/sharedConstants';
+import { COMMS_TEMPLATES, EVENT_CATEGORIES, ELIGIBILITY_META, DC_EVENT_ENTITY, dcOperatorsForAttribute, type AttrMeta, type Channel } from '../src/data/sharedConstants';
 import {
   validateEventConditions,
   validateAudienceConditions,
@@ -21,6 +21,7 @@ import {
   normaliseCondition,
   describeIssue,
   type ConditionCheck,
+  nearestAttributes,
   type ConditionLimitation,
 } from '../src/data/conditionValidation';
 import { selectTemplate, proposeMessaging, type TemplateNeed } from '../agent-proto/templateSelect';
@@ -95,6 +96,15 @@ export type BpStep =
        * silently accepting an uncited one.
        */
       barrier?: string;
+      /**
+       * Days after the previous step (or entry). The Send node already has
+       * relativeDuration; this is that field, not a new capability.
+       */
+      delayDays?: number;
+      /** Clock time the send fires, e.g. "11:00". The Send node already has absTime. */
+      atTime?: string;
+      /** Fallback channel on THIS send. The Send node already has fallbackChannel. */
+      fallbackChannel?: string;
     }
   | { kind: 'wait'; durationHours: number; why?: string }
   | {
@@ -320,20 +330,159 @@ function objectiveKeywords(raw: string[] | undefined): string[] {
  * and the canvas labels look for them. No VALUE is changed by this — only
  * which field holds it. Values themselves are validated, never corrected.
  */
+/**
+ * The operator the builder would accept, or null.
+ *
+ * TOTAL, AND EXACT AFTER FOLDING. The model writes `equals` and `not_equals`
+ * where the builder says `Equals` and `Not Equals` — the same operator,
+ * spelled the way an API is spelled rather than the way a form label is. That
+ * is a transcription difference and the build should absorb it.
+ *
+ * `within_days` is NOT that. It is an operator the builder does not have, and
+ * the nearest thing by string distance is `Less than`, which would silently
+ * build a DIFFERENT campaign than the one approved — a relative window
+ * becoming an absolute threshold. So folding is case and separators only, the
+ * match is exact afterwards, and anything left over returns null for the
+ * caller to report rather than approximate.
+ */
+const fold = (s: string) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+export function builderOperator(asked: string | undefined, allowed: string[]): string | null {
+  if (!asked) return null;
+  const want = fold(asked);
+  return allowed.find((op) => fold(op) === want) ?? null;
+}
+
 function conditions(raw: BpCondition[] | undefined, entity?: string | null): DripGoalCondition[] {
   const attrs = entity ? (ELIGIBILITY_META as Record<string, Record<string, AttrMeta>>)[entity] : undefined;
   return (raw ?? []).map((c) => {
     const real = attrs ? Object.keys(attrs).find((n) => n.toLowerCase() === String(c.attribute ?? '').toLowerCase()) : undefined;
+    const meta = real ? attrs![real] : null;
+    // Spelling is absorbed here so everything downstream — the validator, the
+    // node config, the canvas label — sees one vocabulary. An operator that
+    // does not fold onto a real one is left exactly as the model wrote it, so
+    // the validator reports the word the agent actually used.
+    const operator = builderOperator(c.operator, dcOperatorsForAttribute(meta)) ?? c.operator;
     return normaliseCondition(
-      { attribute: c.attribute, operator: c.operator, value: c.value ?? '' } as DripGoalCondition,
-      real ? attrs![real] : null,
+      { attribute: real ?? c.attribute, operator, value: c.value ?? '' } as DripGoalCondition,
+      meta,
     );
   });
+}
+
+/**
+ * Conditions the builder can actually express, and a note for each one it
+ * cannot.
+ *
+ * NOTHING IS COERCED AND NOTHING IS GUESSED. A condition naming an attribute
+ * this entity does not have, or an operator it does not accept, is DROPPED —
+ * never rewritten onto the nearest real field, and never added to
+ * `sharedConstants` to make the build pass. The rest of the entry, and every
+ * step of the journey, still builds.
+ *
+ * The dropped one becomes a limitation naming what was asked and what exists.
+ * That is the point: an agent reaching for "PIN Set" on Card is telling us
+ * which attribute the platform is missing, and a build that silently swapped
+ * in "Virtual Card Activated" would destroy the signal and ship the wrong
+ * campaign in the same move.
+ */
+function expressible(
+  raw: BpCondition[] | undefined,
+  entity: string | null | undefined,
+  label: string,
+): { kept: BpCondition[]; limitations: ConditionLimitation[] } {
+  const attrs = entity ? (ELIGIBILITY_META as Record<string, Record<string, AttrMeta>>)[entity] : undefined;
+  if (!attrs) return { kept: raw ?? [], limitations: [] };
+  const kept: BpCondition[] = [];
+  const limitations: ConditionLimitation[] = [];
+  for (const c of raw ?? []) {
+    const asked = String(c.attribute ?? '');
+    const real = Object.keys(attrs).find((n) => n.toLowerCase() === asked.toLowerCase());
+    if (!real) {
+      // WHAT EXISTS, NOT WHAT IS CLOSEST IN SPELLING.
+      //
+      // `nearestAttributes` matches on shared words, and the gaps that matter
+      // share none: "PIN Set" scores zero against every Card attribute, so
+      // the note read "nothing comparable" — true, and useless to whoever has
+      // to decide what to build next. Listing the entity's real attributes
+      // lets a reader see that Card has "Virtual Card Activated" WITHOUT the
+      // application ever claiming the two mean the same thing. They do not,
+      // and a build that quietly substituted one would ship a campaign nobody
+      // designed.
+      const near = nearestAttributes(asked, entity ?? undefined);
+      const available = Object.keys(attrs);
+      limitations.push({
+        attribute: asked,
+        note: `${label} cannot filter on "${asked}": ${entity} has no such attribute. ${
+          near.length
+            ? `Closest by name: ${near.join(', ')}.`
+            : `Nothing on ${entity} is named like it. ${entity} does have: ${available.slice(0, 12).join(', ')}${available.length > 12 ? ', …' : ''}.`
+        } The condition was left out and the rest of the journey still built.`,
+      });
+      continue;
+    }
+    const allowed = dcOperatorsForAttribute(attrs[real]);
+    if (c.operator && !builderOperator(c.operator, allowed)) {
+      limitations.push({
+        attribute: real,
+        note: `${label} cannot apply "${c.operator}" to ${real}. The builder accepts: ${allowed.join(', ')}. The condition was left out and the rest of the journey still built.`,
+      });
+      continue;
+    }
+    kept.push(c);
+  }
+  return { kept, limitations };
 }
 
 /** Turns condition issues into build issues, with the alternatives attached. */
 function conditionIssues(check: ConditionCheck, path: string): BuildIssue[] {
   return check.issues.map((i) => ({ path, problem: describeIssue(i) }));
+}
+
+const CLOCK = /^([01]?\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Timing already on the Send node. The compiler used to overwrite it with
+ * Relative / 0 hours, so the canvas never showed a clock time even though
+ * the builder default is Absolute 11:00.
+ *
+ * delayDays, when given, is relativeDuration in days. Otherwise keep the
+ * application's own Absolute + absTime. atTime must look like a clock or
+ * we keep the default; we do not invent a quiet-hours policy here.
+ */
+export function sendSchedule(
+  step: { delayDays?: number; atTime?: string },
+  fromEntry: boolean,
+): {
+  timing: 'Absolute' | 'Relative';
+  absTime: string;
+  relativeAnchor: string;
+  relativeDuration: number;
+  relativeUnit: string;
+} {
+  const defaults = dcDefaultConfig('SEND', null) as {
+    absTime: string;
+    relativeDuration: number;
+    relativeUnit: string;
+  };
+  const atTime = typeof step.atTime === 'string' && CLOCK.test(step.atTime.trim()) ? step.atTime.trim() : defaults.absTime;
+  const delay =
+    typeof step.delayDays === 'number' && Number.isFinite(step.delayDays) && step.delayDays >= 0
+      ? Math.round(step.delayDays)
+      : null;
+  return {
+    timing: delay === null ? 'Absolute' : 'Relative',
+    absTime: atTime,
+    relativeAnchor: fromEntry ? 'Entry' : 'Previous Step',
+    relativeDuration: delay ?? defaults.relativeDuration,
+    relativeUnit: delay === null ? defaults.relativeUnit : 'days',
+  };
+}
+
+/** SMS (etc.) as a property of this Send, not a second step. Empty if unset or equal to the primary. */
+export function fallbackOnSend(asked: string | undefined, primary: string, available: Channel[]): string {
+  const want = String(asked ?? '').toUpperCase();
+  if (!want || want === primary.toUpperCase()) return '';
+  return available.includes(want as Channel) ? want : '';
 }
 
 /**
@@ -409,11 +558,17 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
     const check = validateEventConditions(bp.entry.eventCategory, bp.entry.eventType, conditions(bp.entry.conditions));
     issues.push(...conditionIssues(check, 'entry.conditions'));
     limitations.push(...check.limitations);
+    // Same rule as the audience entry: only what the builder can express
+    // reaches the node. The EVENT itself is still a hard reject above — an
+    // entry trigger that does not exist is not a condition to drop, it is a
+    // campaign that cannot start.
+    const eventFilter = expressible(bp.entry.conditions, target.entity, 'Entry');
+    limitations.push(...eventFilter.limitations);
     const cfg = {
       ...dcDefaultConfig('ENTRY_EVENT', goal),
       eventCategory: bp.entry.eventCategory,
       eventType: bp.entry.eventType,
-      conditions: conditions(bp.entry.conditions, target.entity),
+      conditions: conditions(eventFilter.kept, target.entity),
     };
     graph = dcConfirmAddNode(graph, 'ENTRY_EVENT', cfg, { kind: 'root' }, goal);
   } else {
@@ -425,6 +580,13 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
     const check = validateAudienceConditions(bp.entry.entity, conditions(bp.entry.conditions));
     issues.push(...conditionIssues(check, 'entry.conditions'));
     limitations.push(...check.limitations);
+    // WHAT THE BUILDER CAN ACTUALLY EXPRESS reaches the node; the rest becomes
+    // a limitation. Previously every condition was written on regardless, so
+    // a node could carry "PIN Set" — an attribute Card does not have — and
+    // "within_days", an operator nothing accepts. The campaign then looked
+    // built and filtered on nothing.
+    const entryFilter = expressible(bp.entry.conditions, bp.entry.entity, 'Entry');
+    limitations.push(...entryFilter.limitations);
     // Further ANDed entity blocks, mapped onto the node's own
     // `extraEntityGroups`. Each is validated like the primary block, so an
     // unknown entity or a bad operator is reported rather than built.
@@ -434,7 +596,9 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         const gc = validateAudienceConditions(g.entity, conditions(g.conditions));
         issues.push(...conditionIssues(gc, `entry.groups[${i}].conditions`));
         limitations.push(...gc.limitations);
-        const base: Record<string, unknown> = { entity: g.entity, conditions: conditions(g.conditions, g.entity) };
+        const groupFilter = expressible(g.conditions, g.entity, `Entry filter on ${g.entity}`);
+        limitations.push(...groupFilter.limitations);
+        const base: Record<string, unknown> = { entity: g.entity, conditions: conditions(groupFilter.kept, g.entity) };
         // Lookback and existence are meaningful only on Transaction, which is
         // how the real form behaves: the fields appear for that entity and
         // are silently unused otherwise.
@@ -464,7 +628,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
     const cfg = {
       ...dcDefaultConfig('ENTRY_SEGMENT', goal),
       entity: bp.entry.entity,
-      conditions: conditions(bp.entry.conditions, bp.entry.entity),
+      conditions: conditions(entryFilter.kept, bp.entry.entity),
       extraEntityGroups,
     };
     graph = dcConfirmAddNode(graph, 'ENTRY_SEGMENT', cfg, { kind: 'root' }, goal);
@@ -494,6 +658,36 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
     return null;
   };
 
+  /**
+   * Where the chain goes after a step was just inserted ON THIS PATH.
+   *
+   * THE BUG THIS FIXES, and it cost a whole campaign. `addSteps` honoured its
+   * explicit attachment point for the FIRST step only — the next step called
+   * `nextInChain`, which looks at every open slot in the WHOLE graph. An
+   * experiment with two arms leaves two open slots, so from the second step
+   * of either arm the answer was always "2 open slots exist; the continuation
+   * is ambiguous" and the rest of that arm was dropped. Measured live: a
+   * two-arm, six-step experiment produced a canvas with zero message steps.
+   *
+   * Ambiguity ACROSS arms is not ambiguity WITHIN one. The slot a step just
+   * opened is not a candidate the compiler has to choose between; it is the
+   * only place this path can continue. So the chain follows the node it just
+   * added, and `nextInChain` stays for the genuinely open case — a top-level
+   * step with no attachment point of its own.
+   */
+  const continuationAfter = (nodesBefore: Set<string>, slotsBefore: Set<string>): DcAddingAt | undefined => {
+    const fresh = Object.keys(graph.nodes).filter((id) => !nodesBefore.has(id));
+    if (!fresh.length) return undefined;
+    // Only slots belonging to a node this step created, so the search cannot
+    // wander into a sibling arm.
+    const opened = graph.edges.filter((e) => e.to === null && !slotsBefore.has(e.id) && fresh.includes(e.from));
+    // Exactly one: a linear step, or a step whose auto-inserted Goal Check
+    // leaves its "not yet" branch open. More than one means a fork, and its
+    // own paths were filled recursively inside the step. None means the step
+    // terminated the path.
+    return opened.length === 1 ? { kind: 'edge', edgeId: opened[0].id } : undefined;
+  };
+
   let lastSend: { channel: string; fallbackChannel: string } | null = null;
 
   const addSteps = (steps: BpStep[], pathPrefix: string, at?: DcAddingAt) => {
@@ -501,8 +695,14 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
     steps.forEach((step, i) => {
       const path = `${pathPrefix}[${i}].${step.kind}`;
       const where = target ?? nextInChain(path);
-      target = undefined; // only the first step of an arm uses the explicit target
+      target = undefined;
       if (!where) return;
+
+      const nodesBefore = new Set(Object.keys(graph.nodes));
+      const slotsBefore = new Set(graph.edges.filter((e) => e.to === null).map((e) => e.id));
+      // Each branch below ends in `return`, which now leaves this function
+      // rather than the loop, so the continuation is computed either way.
+      const place = () => {
 
       if (step.kind === 'send') {
         // Validate model output BEFORE it reaches the selector. An
@@ -519,19 +719,61 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
           });
           return;
         }
-        if (!Array.isArray(step.objective) || !step.objective.length) {
+        // A MISSING OBJECTIVE IS A QUALITY PROBLEM, NOT A DELETED STEP.
+        //
+        // This used to `return` before inserting, so a send the agent had
+        // written copy for simply vanished from the canvas. Measured live:
+        // both arms of an experiment opened with such a send, so the journey
+        // the manager approved arrived with zero message steps and nothing on
+        // screen said which steps were missing or why.
+        //
+        // The keywords exist to search a template library. Their absence
+        // makes the search worse; it does not make the message imaginary. So
+        // the step is built, the keywords are derived from what the agent DID
+        // write, and the issue still stands so nobody mistakes it for
+        // complete.
+        const stated = Array.isArray(step.objective) ? step.objective : [];
+        if (!stated.length) {
           issues.push({ path: `${path}.objective`, problem: 'A send needs at least one objective keyword.' });
-          return;
         }
-        const keywords = objectiveKeywords(step.objective);
+        const derived = objectiveKeywords(stated.length ? stated : [step.name, step.describe].filter(Boolean) as string[]);
+        // 'message' is the honest floor: it narrows nothing, which is correct
+        // when nothing was said. Never a guess at what the message is for.
+        const keywords = derived.length ? derived : ['message'];
         const prefer = (step.channelPreference ?? availableChannels).filter((c) =>
           availableChannels.includes(c as Channel),
         ) as Channel[];
         const channels = prefer.length ? prefer : availableChannels;
-        const need: TemplateNeed = { objective: keywords, stage: step.stage, describe: step.describe ?? step.name };
+        // A MISSING NAME OR DESCRIPTION IS A REPORTED GAP, NOT A CRASH AND NOT
+        // A DELETED STEP.
+        //
+        // `build_campaign` requires neither, and a live Confirm arrived with
+        // both absent. On a real tenant the template library is unreachable,
+        // so every send goes through `proposeMessaging`, which read
+        // `describe.replace(...)` — "Cannot read properties of undefined".
+        // The canvas never appeared.
+        //
+        // Same rule the missing `objective` already follows, and the same one
+        // the `stage` guard above follows: say what is missing and build the
+        // step anyway. A send the agent wrote copy for is a real send whether
+        // or not it was labelled.
+        if (!step.name?.trim()) {
+          issues.push({ path: `${path}.name`, problem: 'A send needs a name. The step was built without one — open it on the canvas to label it.' });
+        }
+        if (!step.describe?.trim()) {
+          issues.push({ path: `${path}.describe`, problem: 'A send needs a describe saying what the message is for. The step was built without one.' });
+        }
+        // Falls back through what the agent DID write before giving up. The
+        // last resort says nothing rather than inventing a purpose.
+        const describe = step.describe?.trim() || step.name?.trim() || step.copy?.trim() || 'this message';
+        // The node needs a label too. Inserting a SEND whose name is
+        // `undefined` is only half-inserting it: the canvas card renders
+        // blank and `sendProposals` cannot be matched back to it.
+        const stepName = step.name?.trim() || describe;
+        const need: TemplateNeed = { objective: keywords, stage: step.stage, describe };
 
         // Has a person already supplied the real values for this step?
-        const supplied = opts.resolvedSends?.[step.name] ?? {};
+        const supplied = opts.resolvedSends?.[stepName] ?? {};
 
         // Only search a catalogue we can actually see. With access
         // 'unavailable' we do NOT claim a template is missing — we cannot
@@ -545,7 +787,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
 
         if (choice?.kind === 'existing' && !supplied.templateId) {
           templateChoices.push({
-            step: step.name,
+            step: stepName,
             templateId: choice.template.id,
             channel: choice.channel,
             reason: `${choice.reason} [synthetic demo library — not a real bank catalogue]`,
@@ -567,7 +809,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
           choice?.kind === 'proposal' ? choice : proposeMessaging(need, resolvedChannel as Channel);
         const templateResolved = Boolean(account && templateId);
         const agentMessaging = {
-          objective: step.describe || step.name,
+          objective: describe,
           stage: step.stage,
           recommendedChannel: resolvedChannel,
           // Copy and CTA are only offered where nobody else is supplying the
@@ -602,7 +844,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
                 : 'Waiting for the remaining account or template id.';
           sendProposals.push({
             nodeId: '(pending)',
-            stepName: step.name,
+            stepName,
             channel: resolvedChannel,
             timing: timingLabel,
             reason,
@@ -618,7 +860,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
 
         const cfg = {
           ...dcDefaultConfig('SEND', goal),
-          name: step.name,
+          name: stepName,
           channel: resolvedChannel,
           // '' is the application's OWN unset value (dcDefaultConfig), not a
           // placeholder this code invented. dcAddFormValid treats a Send with
@@ -630,19 +872,16 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
           // and ignored by dcAddFormValid, so a suggestion can never make an
           // incomplete Send look complete.
           agentMessaging,
-          timing: 'Relative',
-          relativeAnchor: i === 0 && pathPrefix === 'steps' ? 'Entry' : 'Previous Step',
-          relativeDuration: 0,
-          relativeUnit: 'hours',
-          fallbackChannel: '',
+          ...sendSchedule(step, i === 0 && pathPrefix === 'steps'),
+          fallbackChannel: fallbackOnSend(step.fallbackChannel, resolvedChannel, availableChannels),
         };
-                lastSend = { channel: resolvedChannel, fallbackChannel: '' };
+        lastSend = { channel: resolvedChannel, fallbackChannel: String(cfg.fallbackChannel ?? '') };
         const before = new Set(Object.keys(graph.nodes));
         graph = dcConfirmAddNode(graph, 'SEND', cfg, where, goal);
         // Bind any proposal for this step to the node that was just created,
         // so the UI can show the unresolved fields on the right card.
         const newId = Object.keys(graph.nodes).find((id) => !before.has(id));
-        const pending = sendProposals.find((p) => p.stepName === step.name && p.nodeId === '(pending)');
+        const pending = sendProposals.find((p) => p.stepName === stepName && p.nodeId === '(pending)');
         if (pending && newId) pending.nodeId = newId;
         return;
       }
@@ -799,6 +1038,9 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
       }
 
       issues.push({ path, problem: `Unknown step kind "${(step as { kind: string }).kind}".` });
+      };
+      place();
+      target = continuationAfter(nodesBefore, slotsBefore);
     });
   };
 
@@ -913,7 +1155,7 @@ export function blueprintVocabulary(
         ]),
     '',
     '### Step kinds you may use',
-    '- send, wait, waitForEvent, exit, experiment (A/B arms), condition (Yes/No on a previous send outcome)',
+    '- send (has its own clock time and optional delayDays / fallbackChannel — those are fields on the Send, not extra steps), wait, waitForEvent, exit, experiment (A/B arms), condition (Yes/No on a previous send outcome, or on a customer attribute via "on"), branch (n-way on one attribute)',
     '',
     '### What the application builds FOR you — do not ask for these',
     '- After every send and every wait, if a Goal is set, the application automatically inserts a Goal Check and a "Goal Reached" exit on its Yes arm. Anyone who reaches the goal leaves the journey there.',
@@ -934,10 +1176,21 @@ export function blueprintVocabulary(
     // Branch exists and nothing said it was unreachable from here.
     '### Builder capabilities this blueprint CANNOT express',
     'If a design genuinely needs one of these, do not pretend you built it and do not quietly design around it. Raise it as an "operational-limitation" open item, say what you built instead, and let the campaign manager decide.',
-    '- A branch with more than two outcomes (the builder calls it Branch). You have the two-way "condition" only. Closest supported: nest conditions, or pick the single split that matters most.',
-    '- A condition on anything except the previous send\'s delivery outcome. Account attributes, entry-event attributes, transaction history and milestones are all real in the builder and unreachable from here. Closest supported: filter at entry instead, where conditions DO work.',
-    '- A per-message delay. Every send fires immediately after the step before it. Closest supported: an explicit "wait" step between sends, which is how you space a sequence.',
-    '- A fallback channel on a send. Closest supported: none — say so if delivery failure matters.',
+    // TWO CAPABILITIES WERE LISTED AS MISSING AND BOTH ARE BUILT.
+    //
+    // This block said a Branch was unavailable and that a condition could read
+    // nothing but the previous send's delivery outcome. `buildFromBlueprint`
+    // compiles `kind: "branch"` into DECISION_SPLIT and `condition.on` into a
+    // SPLIT on a customer attribute — it has done since the entry-vocabulary
+    // round. So the agent was told, every turn, that its two tools for
+    // treating groups differently did not exist, and then measured on how flat
+    // its campaigns were. A prompt that understates the platform costs more
+    // design quality than one that overstates it: the agent simply stops
+    // reaching.
+    //
+    // Nothing is added to the builder here. This deletes two false sentences.
+    '- A fan-out where every customer takes every path at once. Every split sends a customer down exactly one branch. Closest supported: none — say so if simultaneous paths matter.',
+    '- Transaction history and milestone checks mid-journey. Those forms exist in the builder and this blueprint has no words for them. Closest supported: filter at entry instead, where both DO work.',
     '- Two or more parallel paths from one step. Every journey here is a single line, branching only at a condition or an experiment.',
     '- Extra audience filters beyond one entity and its conditions, and Milestone as an audience entity. Milestone is NOT an entity this blueprint accepts and will be rejected.',
   ].join('\n');

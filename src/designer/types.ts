@@ -218,4 +218,31 @@ export interface RunLog {
   userText?: string;
   reply?: string;
   questions?: string[];
+
+  /**
+   * WHAT THE AGENT WORKED OUT, not just what it said.
+   *
+   * Added 2026-10-21, after "is everything printed in logs? seems like some
+   * info is incomplete" — it was. A run log carried the transcript, the event
+   * stream and the finished campaign, and dropped the two artefacts the whole
+   * agent exists to produce: the BRIEF (who converts, what is stopping the
+   * rest, the lines of enquiry weighed and why) and the STRATEGY (the
+   * candidate architectures, the one chosen and the reason). So the log could
+   * tell you a proposal happened and never what was proposed.
+   *
+   * Measured on a real turn: brief 10.2 KB, strategy 9.6 KB. Paid for by not
+   * storing `model.text.delta` events, which were 132 of that turn's 158 and
+   * half its bytes — and which are the streaming transport, already
+   * reassembled into `reply`. The log is smaller than it was AND complete.
+   */
+  brief?: unknown;
+  strategy?: unknown;
+  blueprint?: unknown;
+  /** The phase this turn ended in, which `status` only approximates. */
+  phase?: string;
+  discoveryRounds?: number;
+  /** Why the gate held, when it did. */
+  discoveryReason?: string;
+  /** The provider's untouched text on a failure. Kept everywhere, by rule. */
+  errorDetail?: string;
 }

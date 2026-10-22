@@ -10,6 +10,11 @@
 // Each test asserts the exposed value is READ FROM the application definition,
 // never that it equals a literal copied into this file. A hardcoded expectation
 // here would drift from the builder exactly the way the old tool did.
+// `availableCheapestFirst` became `available`, 2026-10-21. The list is no
+// longer ordered by price by default: the issuer's own preference decides,
+// and with cheaper-first off it is ordered by how Indian retail cardholders
+// actually read. A field name asserting "cheapest" was telling the model the
+// opposite of what the bank context says.
 import { describe, it, expect } from 'vitest';
 import { AGENT_TOOLS, runTool } from '../../server/agentTools';
 import { blueprintVocabulary } from '../../server/blueprint';
@@ -192,11 +197,11 @@ describe('event discovery exposes the entity mapping and the isNew flag', () => 
 describe('channel discovery carries the delivery-status vocabulary', () => {
   it('reports statuses only for channels this tenant may actually send on', () => {
     const result = runTool('list_channels', {}, { tenant }).result as {
-      availableCheapestFirst: string[];
+      available: string[];
       notAvailable: string[];
       deliveryStatusesByChannel: Record<string, string[]>;
     };
-    expect(Object.keys(result.deliveryStatusesByChannel).sort()).toEqual([...result.availableCheapestFirst].sort());
+    expect(Object.keys(result.deliveryStatusesByChannel).sort()).toEqual([...result.available].sort());
     for (const ch of result.notAvailable) {
       expect(result.deliveryStatusesByChannel[ch]).toBeUndefined();
     }

@@ -232,13 +232,44 @@ const CHECKS: Record<string, (bp: CampaignBlueprint) => string | null> = {
       : 'the experiment arms contain identical steps and copy, so both arms are the same treatment.';
   },
 
-  // Different groups must actually receive different treatment somewhere.
+  // Different groups must actually receive different treatment somewhere
+  // INSIDE the journey.
+  //
+  // ENTRY CONDITIONS USED TO COUNT, and that was the defect. The check read
+  // `branches || narrowed`, where `narrowed` was simply "the entry has at
+  // least one condition" — so a campaign that filtered at the door and then
+  // ran one path for the survivors verified Segmentation as `used`. It
+  // rewarded the opposite of segmentation. Narrowing the entry does not treat
+  // two groups differently; it removes one of them.
+  //
+  // An entry condition is ELIGIBILITY — not yet PIN-set, card issued inside
+  // the window. Every eligible customer is supposed to be treated: a
+  // dimension decides which PATH they take, never whether they are in the
+  // campaign at all. So the only thing that verifies this claim now is a
+  // split inside the journey, and it has to carry a path for the remainder:
+  // a condition sending one group down an empty branch is the same filter
+  // moved one step later.
+  //
+  // An experiment with differing arms counts, including one with a holdout.
+  // A holdout is an arm — declared, measured and accounted for — not a group
+  // quietly dropped.
   segmentation: (bp) => {
-    const branches = conditions(bp).length + experiments(bp).length;
-    const narrowed = (bp.entry?.conditions ?? []).length > 0;
-    return branches || narrowed
-      ? null
-      : 'the journey has one path for everyone and the entry narrows nobody, so no group is treated differently.';
+    const splits = conditions(bp).filter(
+      (c): c is Extract<BpStep, { kind: 'condition' }> => c.kind === 'condition',
+    );
+    const differential = splits.filter((c) => signature(c.yes) !== signature(c.no));
+    const keepsEveryone = differential.filter((c) => c.yes.length > 0 && c.no.length > 0);
+    const armedExperiments = experiments(bp).filter(
+      (x) => x.kind === 'experiment' && new Set((x.arms ?? []).map((a) => signature(a.steps))).size > 1,
+    );
+    if (keepsEveryone.length || armedExperiments.length) return null;
+    if (differential.length) {
+      return 'the only split sends one group down an empty branch, so it filters rather than segments — whoever is on that side gets no campaign at all.';
+    }
+    if (splits.length) {
+      return 'every condition leads to the same actions on both sides, so no group is treated differently.';
+    }
+    return 'the journey has one path for everyone, so no group is treated differently. Entry conditions decide who is eligible, not who is treated differently, so they cannot carry this claim.';
   },
 };
 

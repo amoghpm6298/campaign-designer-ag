@@ -47,8 +47,27 @@ describe('the prompt teaches a design method, not a form', () => {
   });
 
   it('requires proportionate design with stated rejections', () => {
-    expect(SYSTEM).toMatch(/simplest journey that does the job/i);
-    expect(SYSTEM).toMatch(/Do not add a branch, a reminder or an experiment because the builder supports one/);
+    // RETARGETED TWICE. The first wording argued only against doing MORE,
+    // which the agent read as licence to ship a three-message clock. The
+    // replacement, "A THREE-MESSAGE CLOCK IS NOT A PLAN", then over-corrected:
+    // it reads as "do not list reminders", and the fix for a flat schedule was
+    // never to name FEWER sends — it was to react to what happened. Measured
+    // 2026-10-22: a 14-day plan proposed "a staggered multi-touch sequence"
+    // and named not one send.
+    //
+    // So the rule splits in two. Reaction is still required, and every touch
+    // must now be named.
+    expect(SYSTEM).toMatch(/EVEN SPACING WITH NO REACTION IS NOT A PLAN/);
+    expect(SYSTEM).toMatch(/NAME EVERY TOUCH/);
+    expect(SYSTEM).not.toMatch(/A THREE-MESSAGE CLOCK IS NOT A PLAN/);
+    // The window is time to work the action, and a lighter path is named
+    // rather than assumed.
+    expect(SYSTEM).toMatch(/the time you have to work an unfinished action/);
+    expect(SYSTEM).toMatch(/FEWER touches as a NAMED path/);
+    // Send count still cannot tell two architectures apart.
+    expect(SYSTEM).toMatch(/Send count still does not make two architectures different/);
+    expect(SYSTEM).toMatch(/Simplest RELATIVE TO THE STRATEGY, not fewest steps/);
+    expect(SYSTEM).toMatch(/they converted, and the campaign stops for them/);
     expect(SYSTEM).toMatch(/say what you considered and rejected/i);
     // Restraint runs BOTH ways. The rule above, alone, only ever argued
     // against doing more — so an option the builder could not express was as
@@ -56,6 +75,8 @@ describe('the prompt teaches a design method, not a form', () => {
     // whatever happened to be buildable. The converse is now explicit.
     expect(SYSTEM).toMatch(/Platform capability decides what gets BUILT, never what gets CONSIDERED/);
     expect(SYSTEM).toMatch(/Never quietly downgrade it to a weaker thing the builder allows/);
+    expect(SYSTEM).toMatch(/DNC, NPA OR THE CONTROL GROUP/);
+    expect(SYSTEM).toMatch(/Do not put a holdout in "touches"/);
   });
 
   it('requires customer-facing copy, written by the agent', () => {

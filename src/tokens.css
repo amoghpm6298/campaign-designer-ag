@@ -1,0 +1,262 @@
+/* Inter, self-hosted. Loaded, not merely named — see the note on --font. */
+@import '@fontsource-variable/inter';
+
+/* The design tokens, derived from the Hyperface brand rather than picked ad hoc.
+ *
+ * WHY THIS FILE EXISTS. There were 32 variables spread across index.css and
+ * designer/designer.css, almost all of them a flat grey ramp plus one-off
+ * semantic pairs, and two accent colours (--blue-cta, --indigo) that came from
+ * nowhere in particular. Nothing tied any of it to Hyperface, and a value used
+ * thirteen times (--gray-700) was never defined at all.
+ *
+ * THE BRAND, read off the logo (src/assets/hfLogo.svg):
+ *   #080a36  the navy the mark sits in
+ *   #0ae0bc -> #07bbba -> #0380b6  the teal-to-blue gradient inside it
+ *
+ * MIGRATION, deliberately non-breaking. Every old variable name is kept and
+ * redefined against the new scale, so 450 lines of existing CSS keep working
+ * and the whole palette shifts in one edit. New work should use the semantic
+ * names at the bottom, not the raw ramp.
+ *
+ * LIGHT CONTENT, ONE DARK SURFACE. Content surfaces stay light. The navigation
+ * rail is navy, which is a deliberate exception and the same choice the
+ * propensity agent makes — its sidebar is the only dark region in an otherwise
+ * entirely light app, and it reads as product chrome rather than as a theme.
+ */
+
+:root {
+  /* --- brand ---------------------------------------------------------- */
+  --hf-navy: #080a36;
+  --hf-navy-soft: #141745;
+  --hf-navy-line: #22265c;
+  --hf-teal: #0bd0b5;
+  --hf-teal-deep: #07bbba;
+  --hf-blue: #0380b6;
+  --hf-gradient: linear-gradient(135deg, #0ae0bc 0%, #07bbba 45%, #0380b6 100%);
+
+  /* --- accent ---------------------------------------------------------
+   * The teal is the brand's, and it is a poor primary for actions: on white
+   * it fails contrast at small sizes, and "confirm" in the same hue as
+   * "success" removes the distinction. So the teal stays decorative — the
+   * logo, a live indicator, a progress fill — and actions use the navy. That
+   * also means the accent and the nav rail are the same family, which is why
+   * the chrome reads as one product rather than two.
+   */
+  --accent: #1b2a6b;
+  --accent-hover: #142053;
+  --accent-ink: #ffffff;
+  /* Tints, which do most of the work. Propensity leans on alpha-over-primary
+   * (/5, /10, /20) for every selected row, icon tile and panel header; these
+   * are the opaque equivalents, so they composite predictably over white. */
+  --accent-wash: #f4f6fc;
+  --accent-tint: #e7ebf7;
+  --accent-edge: #c9d2ea;
+
+  /* --- neutrals, biased toward the navy ------------------------------
+   * Not a pure grey ramp. A true neutral next to a navy rail reads as a
+   * different, slightly dirty colour; a few degrees of blue in the greys makes
+   * the two sit together.
+   */
+  --n-0: #ffffff;
+  --n-25: #fbfbfd;
+  --n-50: #f7f8fb;
+  --n-100: #eff1f6;
+  --n-200: #e2e5ee;
+  --n-300: #cbd0de;
+  --n-400: #9aa1b5;
+  --n-500: #6e7689;
+  --n-600: #525a6d;
+  --n-700: #3c4356;
+  --n-800: #262c3c;
+  --n-900: #161a27;
+
+  /* --- semantic surfaces ----------------------------------------------
+   * THE PAGE IS WHITE. Not a grey canvas with white cards floating on it.
+   *
+   * This was wrong in the first cut and it is the single decision that
+   * decides whether the product reads light or boxy. With a grey page, every
+   * card becomes a slab pushed forward and the screen fills with competing
+   * rectangles; with a white page a card is just a hairline, and the only
+   * thing with visual weight is the content.
+   *
+   * `--surface-sunken` survives for the few places that genuinely want a
+   * recessed fill — a table header tint, a nested stat tile — and must NOT be
+   * used as a page background.
+   */
+  --surface: var(--n-0);
+  --surface-sunken: var(--n-50);
+  --surface-raised: var(--n-0);
+
+  /* ONE border colour, ONE width. Depth comes from alpha, never from a second
+   * darker grey: a container gets the full hairline, rows inside it get the
+   * soft one. There is no third. */
+  --border: var(--n-200);
+  --hairline-soft: rgba(226, 229, 238, 0.55);
+  --border-strong: var(--n-300);
+  --text: var(--n-900);
+  --text-muted: var(--n-500);
+  --text-faint: var(--n-400);
+
+  /* --- navigation rail, the one dark surface -------------------------- */
+  --rail: var(--hf-navy);
+  --rail-hover: #171b4a;
+  --rail-active: #1f2458;
+  --rail-text: #9ba2c4;
+  --rail-text-active: #ffffff;
+  --rail-line: var(--hf-navy-line);
+
+  /* --- status --------------------------------------------------------
+   * Used as a tint + text pair, never as a bare colour. Propensity declares
+   * success/warning/error tokens and then almost never uses them, reaching for
+   * raw text-green-500 instead — so the token layer there is half-wired. These
+   * are defined as pairs precisely so there is no reason to reach past them.
+   */
+  --ok: #047857;
+  --ok-bg: #e8f6f0;
+  --ok-edge: #b7e2d2;
+  --warn: #92610a;
+  --warn-bg: #fdf4e3;
+  --warn-edge: #f0dcae;
+  --bad: #b42318;
+  --bad-bg: #fdecea;
+  --bad-edge: #f6c9c4;
+  --info: #0b5d8a;
+  --info-bg: #e8f2f9;
+  --info-edge: #bcdcee;
+  --live: var(--hf-teal-deep);
+
+  /* --- shape ---------------------------------------------------------- */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-pill: 999px;
+
+  /* --- elevation -----------------------------------------------------
+   * Shadows carry a navy tint rather than neutral black, so a raised card on
+   * the sunken background does not go grey at the edges.
+   */
+  --e-1: 0 1px 2px rgba(8, 10, 54, 0.06);
+  --e-2: 0 1px 3px rgba(8, 10, 54, 0.08), 0 1px 2px rgba(8, 10, 54, 0.04);
+  --e-3: 0 4px 12px rgba(8, 10, 54, 0.08), 0 1px 3px rgba(8, 10, 54, 0.06);
+  --e-4: 0 12px 32px rgba(8, 10, 54, 0.12), 0 2px 8px rgba(8, 10, 54, 0.06);
+  --ring: 0 0 0 3px rgba(27, 42, 107, 0.18);
+
+  /* --- type ----------------------------------------------------------
+   * 14px body, matching the propensity chat, which is the size this kind of
+   * dense working interface actually reads best at. 11px uppercase is the
+   * microlabel used for section captions.
+   */
+  /* THE FONT WAS NEVER LOADED. index.css set the system stack on `body`
+   * directly, so every surface rendered in San Francisco on macOS while this
+   * token quietly claimed Inter — a token nothing honoured, naming a font
+   * nothing fetched. Inter is drawn for interface text at 13-14px, with a
+   * taller x-height and more even rhythm than a system face, which is most of
+   * why the propensity agent reads as cleaner at the same sizes. */
+  --font: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  --t-micro: 11px;
+  --t-xs: 12px;
+  --t-sm: 13px;
+  --t-base: 14px;
+  --t-md: 15px;
+  --t-lg: 17px;
+  --t-xl: 20px;
+  --t-2xl: 26px;
+
+  /* --- layout --------------------------------------------------------- */
+  /* Content is capped and centred rather than padded wide. The air on a large
+   * monitor comes from the measure, not from inflating gutters. */
+  --page-gutter: 32px;
+  --measure-wide: 1024px;
+  --measure: 768px;
+  --measure-narrow: 512px;
+  --rail-w: 236px;
+  --rail-w-collapsed: 56px;
+  --chat-w: 420px;
+  --read-col: 760px;
+  --topbar-h: 48px;
+
+  /* ===================================================================
+   * BACK-COMPATIBILITY. Every name the existing CSS already uses, pointed at
+   * the scale above. These are not for new work.
+   * =================================================================== */
+  --gray-25: var(--n-25);
+  --gray-50: var(--n-50);
+  --gray-100: var(--n-100);
+  --gray-200: var(--n-200);
+  --gray-300: var(--n-300);
+  --gray-400: var(--n-400);
+  --gray-500: var(--n-500);
+  --gray-600: var(--n-600);
+  /* Was used 13 times and never defined, so it resolved to nothing. */
+  --gray-700: var(--n-700);
+  --gray-800: var(--n-800);
+  --neutral-800: var(--n-800);
+  --neutral-900: var(--n-900);
+  --blue-cta: var(--accent);
+  --blue-cta-hover: var(--accent-hover);
+  --indigo: var(--accent);
+  --sidebar-active: var(--rail-active);
+  --table-head: var(--surface-sunken);
+  --success-bg: var(--ok-bg);
+  --success-border: var(--ok-edge);
+  --success-text: var(--ok);
+  --warning-bg: var(--warn-bg);
+  --warning-border: var(--warn-edge);
+  --warning-text: var(--warn);
+  --error-bg: var(--bad-bg);
+  --error-border: var(--bad-edge);
+  --error-text: var(--bad);
+  --info-text: var(--info);
+  --purple-bg: var(--accent-tint);
+  --purple-text: var(--accent);
+  --shadow-sm: var(--e-1);
+  --shadow-card: var(--e-2);
+}
+
+/* Thin scrollbars, scoped to panes that scroll internally. The shell is
+ * h-screen with no page scroll, so a default-weight scrollbar on three
+ * adjacent panes is three heavy vertical lines in the layout. */
+.hf-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--n-300) transparent;
+}
+.hf-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.hf-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.hf-scroll::-webkit-scrollbar-thumb {
+  background: var(--n-300);
+  border-radius: var(--r-pill);
+}
+.hf-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--n-400);
+}
+
+/* The rail scrolls against navy, so the light thumb above would glare. */
+.hf-scroll-rail {
+  scrollbar-width: thin;
+  scrollbar-color: var(--hf-navy-line) transparent;
+}
+.hf-scroll-rail::-webkit-scrollbar {
+  width: 4px;
+}
+.hf-scroll-rail::-webkit-scrollbar-thumb {
+  background: var(--hf-navy-line);
+  border-radius: var(--r-pill);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

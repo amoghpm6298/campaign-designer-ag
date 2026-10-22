@@ -359,11 +359,11 @@ describe('the user must have taken part before a strategy is accepted', () => {
     // the gate had no grounds to refuse, because the model writes both the
     // dimensions and their statuses.
     const selfCertified = dims(
-      { name: 'Entry point', status: 'retained', basis: 'tool' },
-      { name: 'Negative terminal states', status: 'unavailable', basis: 'tool', note: 'Ruled out: no terminal-state attribute exists.' },
-      { name: 'Channel sequencing and cost', status: 'retained', basis: 'user' },
-      { name: 'Control group', status: 'retained', basis: 'user' },
-      { name: 'Suppression', status: 'retained', basis: 'user' },
+      { name: 'Assigned credit limit', status: 'retained', basis: 'tool' },
+      { name: 'Already started the request', status: 'unavailable', basis: 'tool', note: 'Ruled out: no in-progress attribute exists.' },
+      { name: 'App on the phone', status: 'retained', basis: 'user' },
+      { name: 'How they were sourced', status: 'retained', basis: 'user' },
+      { name: 'Outstanding statement amount', status: 'retained', basis: 'user' },
     );
     expect(discoveryIsComplete(selfCertified)).toBe(true); // the record says done...
     expect(userHasRespondedOnce(selfCertified)).toBe(false); // ...but nobody was asked
@@ -374,7 +374,7 @@ describe('the user must have taken part before a strategy is accepted', () => {
 
   it('lets the same proposal through once the user has answered', () => {
     const d = gate({
-      brief: alternativesRuledOut(answered(dims({ name: 'Entry point', status: 'retained', basis: 'tool' }))),
+      brief: alternativesRuledOut(answered(dims({ name: 'Assigned credit limit', status: 'retained', basis: 'tool' }))),
     });
     expect(d.outcome).toBe('ready_for_strategy');
   });
@@ -417,7 +417,7 @@ describe('the user must have taken part before a strategy is accepted', () => {
   });
 
   it('forced progression and the round limit still bypass the requirement', () => {
-    const unanswered = dims({ name: 'Entry point', status: 'retained', basis: 'tool' });
+    const unanswered = dims({ name: 'Assigned credit limit', status: 'retained', basis: 'tool' });
     expect(gate({ brief: unanswered, forced: true }).outcome).toBe('ready_for_strategy');
     expect(gate({ brief: { ...unanswered, rounds: 8 } }).outcome).toBe('ready_for_strategy');
   });
@@ -429,14 +429,36 @@ describe('the user must have taken part before a strategy is accepted', () => {
 
 describe('an assumption is not recorded as an investigated finding', () => {
   it('a dimension closed on an assumption is stored as deferred, not retained', () => {
-    // Observed live: "Channel sequencing and cost" and "Suppression (DNC, NPA,
-    // quiet hours)" were both marked retained/assumption, which reads in the
-    // record as settled fact.
-    const b = dims({ name: 'Channel sequencing and cost', status: 'retained', basis: 'assumption' });
+    // Observed live: platform slots were marked retained/assumption. Those
+    // names are no longer stored. The same close-on-assumption rule still
+    // applies to a real customer factor.
+    const b = dims({ name: 'Assigned credit limit', status: 'retained', basis: 'assumption' });
     const d = briefDimensions(b)[0];
     expect(d.status).toBe('deferred');
     expect(d.basis).toBe('assumption');
     expect(d.note).toMatch(/assumption rather than an investigated finding/);
+  });
+
+  it('does not record channel sequencing or suppression as dimensions at all', () => {
+    const b = dims(
+      { name: 'Channel sequencing and cost', status: 'retained', basis: 'assumption' },
+      { name: 'Suppression (DNC, NPA, quiet hours)', status: 'retained', basis: 'assumption' },
+    );
+    expect(briefDimensions(b)).toEqual([]);
+  });
+
+  it('three platform topics do not satisfy the dimension gate', () => {
+    const b = answered(
+      dims(
+        { name: 'Entry event', status: 'retained', basis: 'tool' },
+        { name: 'Channel sequencing', status: 'retained', basis: 'tool' },
+        { name: 'Quiet hours', status: 'retained', basis: 'tool' },
+      ),
+    );
+    expect(briefDimensions(b)).toHaveLength(0);
+    expect(gate({ brief: b }).outcome).toBe('continue_discovery');
+    // Zero customer dimensions is "nothing considered", not "three weighed".
+    expect(gate({ brief: b }).reason).toMatch(/without setting out what I had considered/i);
   });
 
   it('keeps the model\'s own reason when it gave one', () => {
@@ -454,16 +476,16 @@ describe('an assumption is not recorded as an investigated finding', () => {
   it('does not loop: the normalised dimension still lets a strategy through', () => {
     // Reopening it instead would invite the model to re-assert the same
     // assumption every round, which is an endless loop and not discovery.
-    const b = alternativesRuledOut(answered(dims({ name: 'Channel sequencing', status: 'retained', basis: 'assumption' })));
+    const b = alternativesRuledOut(answered(dims({ name: 'Assigned credit limit', status: 'retained', basis: 'assumption' })));
     expect(outstandingDimensions(b)).toEqual([]);
     expect(gate({ brief: b }).outcome).toBe('ready_for_strategy');
   });
 
   it('normalises on a later round too, not just on first record', () => {
-    const r1 = dims({ name: 'Channel sequencing', rationale: 'Cost order.', status: 'open', basis: 'none' });
-    const r2 = recordDimensions(r1, [{ name: 'Channel sequencing', status: 'retained', basis: 'assumption' }]);
+    const r1 = dims({ name: 'Assigned credit limit', rationale: 'Large vs small limits convert differently.', status: 'open', basis: 'none' });
+    const r2 = recordDimensions(r1, [{ name: 'Assigned credit limit', status: 'retained', basis: 'assumption' }]);
     expect(briefDimensions(r2)[0].status).toBe('deferred');
-    expect(briefDimensions(r2)[0].rationale).toBe('Cost order.');
+    expect(briefDimensions(r2)[0].rationale).toBe('Large vs small limits convert differently.');
   });
 });
 
@@ -565,7 +587,7 @@ describe('an unverified limitation is not recorded as a confirmed one', () => {
   });
 
   it('the earlier retained+assumption rule still holds', () => {
-    const d = briefDimensions(dims({ name: 'Channel sequencing', status: 'retained', basis: 'assumption' }))[0];
+    const d = briefDimensions(dims({ name: 'Assigned credit limit', status: 'retained', basis: 'assumption' }))[0];
     expect(d.status).toBe('deferred');
     expect(d.note).toMatch(/assumption rather than an investigated finding/);
     // ...and does NOT pick up the limitation marker, which would misdescribe it.

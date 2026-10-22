@@ -49,6 +49,30 @@ import type { Converters, Barrier } from './findings';
 import type { CampaignBlueprint } from './blueprint';
 import type { Strategy } from './orchestrator';
 import { registerToolTitles, type ToolDef } from './agentTools';
+import { dcOperatorsForAttribute, LOCKED_ATTR_OPERATORS, type AttrMeta, type AttrType } from '../src/data/sharedConstants';
+
+/**
+ * Every operator the builder offers, computed from the builder itself.
+ *
+ * NOT A SECOND LIST. `dcOperatorsForAttribute` is the one place that decides
+ * which operators an attribute accepts, and the union over its input types is
+ * the complete set the API should allow. Hand-writing the same five strings
+ * here would create exactly the drift this codebase has been bitten by twice
+ * today — two vocabularies for one thing, disagreeing silently.
+ *
+ * The field was `{ type: 'string' }`, so `equals` and `within_days` were valid
+ * as far as the API was concerned and only failed deep in the compiler, after
+ * the manager had already approved the plan. An enum fails them at the call.
+ */
+// Every member of AttrType, so the union is complete by construction rather
+// than by whoever edited this last remembering to add one.
+const TYPES: AttrType[] = ['date', 'select', 'bool', 'number', 'list', 'smartTag', 'multiSelect', 'highestTxnEMI', 'none'];
+export const BUILDER_OPERATORS = [
+  ...new Set([
+    ...TYPES.flatMap((type) => dcOperatorsForAttribute({ type } as AttrMeta)),
+    ...LOCKED_ATTR_OPERATORS,
+  ]),
+];
 
 /**
  * Input shapes, declared against the real types.
@@ -87,7 +111,7 @@ const CONDITION = {
   type: 'object',
   properties: {
     attribute: { type: 'string' },
-    operator: { type: 'string' },
+    operator: { type: 'string', enum: BUILDER_OPERATORS },
     value: { type: 'string' },
   },
   required: ['attribute', 'operator'],
@@ -110,6 +134,9 @@ const STEP_DEF = {
     cta: { type: 'string' },
     channelPreference: { type: 'array', items: { type: 'string' } },
     barrier: { type: 'string', description: 'The id of the barrier this send attacks. Checked against your recorded findings.' },
+    delayDays: { type: 'number', description: 'Days after the previous step (or entry). This is the Send node\'s own relativeDuration, not a Wait step. Omit to keep the builder\'s Absolute 11:00 default.' },
+    atTime: { type: 'string', description: 'Clock time this send fires, e.g. "11:00". The Send node already has absTime.' },
+    fallbackChannel: { type: 'string', description: 'Fallback on THIS send if delivery fails, e.g. SMS. Not a second step.' },
     // wait
     durationHours: { type: 'number' },
     why: { type: 'string' },
@@ -141,7 +168,7 @@ const STEP_DEF = {
       properties: {
         entity: { type: 'string' },
         attribute: { type: 'string' },
-        operator: { type: 'string' },
+        operator: { type: 'string', enum: BUILDER_OPERATORS },
         value: { type: 'string' },
       },
       required: ['entity', 'attribute', 'operator'],
@@ -156,7 +183,7 @@ const STEP_DEF = {
         type: 'object',
         properties: {
           label: { type: 'string' },
-          operator: { type: 'string' },
+          operator: { type: 'string', enum: BUILDER_OPERATORS },
           value: { type: 'string' },
           steps: { type: 'array', items: { $ref: '#/$defs/step' } },
         },
@@ -210,6 +237,23 @@ export const OUTPUT_TOOLS: ToolDef[] = [
             required: ['name', 'barrier'],
           },
         },
+        touches: {
+          type: 'array',
+          minItems: 2,
+          description:
+            'EVERY customer-facing send in the chosen plan, in order, one row each. Prose is not this list: "a staggered multi-touch sequence over the full 14 days" names no sends, and a manager cannot approve a cadence they cannot see. Give the first touch, at least one reminder, and the last chance before the window closes. A lighter path — a group that mostly acts on its own — may carry fewer rows, but it must be a NAMED path here rather than an absence; the primary path still needs at least two.',
+          items: {
+            type: 'object',
+            properties: {
+              day: { type: 'number', description: 'Days after entry. 0 is the moment they enter.' },
+              channel: { type: 'string', description: 'In plain words — WhatsApp, SMS, Email.' },
+              path: { type: 'string', description: 'Which group this send is for. Use the same path names as the plan above, and say "all" when there is only one.' },
+              purpose: { type: 'string', description: 'What this message is FOR, in the manager\'s terms. Not the copy.' },
+              ifStillUnconverted: { type: 'string', description: 'What happens next if this one does not land — not delivered, not read, or read and nothing done.' },
+            },
+            required: ['day', 'channel', 'path', 'purpose', 'ifStillUnconverted'],
+          },
+        },
         openItems: {
           type: 'array',
           items: {
@@ -224,7 +268,11 @@ export const OUTPUT_TOOLS: ToolDef[] = [
           },
         },
       },
-      required: ['summary', 'approach', 'assumptions', 'unknowns'],
+      // `touches` IS REQUIRED, which is what stops an unnamed cadence at the
+      // API rather than three layers down. The same move that stopped
+      // `within_days`: a constraint the provider enforces costs nothing to
+      // maintain and fires before any of our code runs.
+      required: ['summary', 'approach', 'assumptions', 'unknowns', 'touches'],
     },
   },
   {
@@ -237,7 +285,11 @@ export const OUTPUT_TOOLS: ToolDef[] = [
       properties: {
         campaignName: { type: 'string' },
         description: { type: 'string' },
-        controlPct: { type: 'number', description: 'Holdout percentage. Omit if none.' },
+        controlPct: {
+          type: 'number',
+          description:
+            'Ignored. The campaign uses the builder default (10% control, DNC and NPA on). Do not design a holdout or an exclusion list.',
+        },
         goal: {
           type: 'object',
           description: 'The event that proves the behaviour happened. Null if there is genuinely none.',
@@ -478,6 +530,22 @@ registerToolTitles(OUTPUT_TOOLS);
 
 export const isOutputTool = (name: string): boolean => OUTPUT_TOOL_NAMES.includes(name);
 
+/**
+ * What kind of work a tool call is, stamped onto every tool event.
+ *
+ * The client cannot work this out for itself and was guessing badly: the
+ * activity summary counted every `model.tool_call*` event as a "lookup", so
+ * the PIN-activation discovery turn reported six lookups having looked
+ * nothing up — `ask_questions`, `record_findings` and `record_dimensions` all
+ * WRITE, and discovery has no lookup tools at all.
+ *
+ * Stage is not a substitute: `requested` and `started` are emitted as
+ * 'understanding' whatever the tool, so counting on stage replaces one wrong
+ * number with another.
+ */
+export type ToolKind = 'lookup' | 'output';
+export const toolKind = (name: string): ToolKind => (isOutputTool(name) ? 'output' : 'lookup');
+
 export interface ApplyResult {
   brief: WorkingBrief;
   /**
@@ -530,7 +598,19 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       }
       return {
         brief: recordAsked(brief, usable, 'agent' satisfies AskAuthor),
-        ok: `Recorded ${usable.length} question(s). The manager will see them.`,
+        // NOT "the manager will see them", which is what it used to say.
+        //
+        // A tool result is the last thing the model reads before it writes to
+        // the user, so its wording is the register the reply comes back in.
+        // This one put the manager in the third person and the model repeated
+        // it: the PIN-activation run opened with "I've sent these two
+        // questions to the campaign manager" — written TO the manager, ABOUT
+        // the manager. The prompt forbids that in words; this is what was
+        // teaching it.
+        //
+        // Says what happened and nothing about who sees it, so there is no
+        // third person to copy.
+        ok: `${usable.length} question(s) recorded. Now write your message, asking them directly.`,
       };
     }
 
@@ -656,7 +736,39 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
         };
       }
       const openItems = Array.isArray(obj.openItems) ? (obj.openItems as unknown[]) : [];
-      return { brief, strategy, openItems, ok: 'Plan recorded. The manager approves it before anything is built.' };
+      // ONE SHAPE FROM HERE ON, because this schema and the `Architecture`
+      // type were written at different times and do not agree.
+      //
+      // The schema asks for `audience`, `tradeOff` and `why`. Everything
+      // downstream reads `entry`, `tradeoff` and `whyChosen`. Nothing
+      // complained, because a missing field is not an error — it just reads
+      // as undefined. Measured on the PIN-activation run: the model wrote
+      // "All new cardholders issued a card and not yet PIN-set, randomly
+      // split into a how-to arm, a reason-to-use arm and a small no-message
+      // holdout", and the manager was shown "Who it reaches: undefined".
+      //
+      // It also quietly blunted a check. `architectureAudit` decides whether
+      // two candidates are really different from `[entry, timing, journey]`,
+      // and `entry` was blank on every candidate ever proposed — so two plans
+      // differing only in who they reach would have been called one plan
+      // described twice.
+      //
+      // Normalised here rather than in the renderer: there is one boundary
+      // where model output becomes application state, and a second alias in
+      // each reader is how this drifts again.
+      const normalised: Strategy = {
+        ...strategy,
+        architectures: strategy.architectures?.map((a) => {
+          const raw = a as typeof a & { audience?: string; tradeOff?: string; why?: string };
+          return {
+            ...a,
+            entry: a.entry ?? raw.audience,
+            tradeoff: a.tradeoff ?? raw.tradeOff,
+            whyChosen: a.whyChosen ?? raw.why,
+          };
+        }),
+      };
+      return { brief, strategy: normalised, openItems, ok: 'Plan recorded. The manager approves it before anything is built.' };
     }
 
     case 'build_campaign': {

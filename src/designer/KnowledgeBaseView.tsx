@@ -8,30 +8,128 @@
 // A document is only ever marked ready when its text was actually read and
 // stored. Formats we cannot read in the browser are refused at selection
 // rather than accepted and quietly ignored.
+import { fmtDate } from './time';
+import { groupKnowledge, docsForAgent } from '../data/knowledgeShape';
 import { useMemo, useRef, useState } from 'react';
-import { saveKnowledge, SUPPORTED_DOC_TYPES, MAX_DOC_BYTES, isSupportedDoc } from './storage';
+import { SUPPORTED_DOC_TYPES, MAX_DOC_BYTES, isSupportedDoc } from './storage';
+import {
+  addEntry,
+  changeCount,
+  isUserAdded,
+  removeEntry,
+  revertEntry,
+  seedValue,
+  setDocuments,
+  setEntryValue,
+  type KnowledgeOverrides,
+} from './knowledgeStore';
 import type { Capabilities, KnowledgeBase, KnowledgeDocument, Tenant } from './types';
 import './designer.css';
 
 interface Props {
+  /** The seed with the user's changes already applied. What the agent reads. */
   knowledge: KnowledgeBase;
+  /** The untouched seed, so an edited entry can show what it said before. */
+  seed: KnowledgeBase | null;
+  overrides: KnowledgeOverrides;
   capabilities: Capabilities | null;
-  onChange: (kb: KnowledgeBase) => void;
+  onOverrides: (o: KnowledgeOverrides) => void;
   onReset: () => void;
   tenant?: Tenant | null;
 }
 
 const fmtSize = (b: number) => (b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${Math.round(b / 1024)} KB` : `${(b / 1048576).toFixed(1)} MB`);
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+// Dates come from the shared IST formatter, not from the viewer's machine.
 
-export function KnowledgeBaseView({ knowledge, capabilities, onChange, onReset, tenant }: Props) {
+export function KnowledgeBaseView({ knowledge, seed, overrides, capabilities, onOverrides, onReset, tenant }: Props) {
+  const [query, setQuery] = useState('');
+  const [adding, setAdding] = useState<string | null>(null);
+  const [newCategory, setNewCategory] = useState('');
+  const [newLabel, setNewLabel] = useState('');
+  const [newValue, setNewValue] = useState('');
+
+  /**
+   * Every category the seed knows, whether or not it currently has entries.
+   *
+   * THE DEAD END THIS FIXES: `groupKnowledge` only emits a category that HAS
+   * entries, and "Add" lived inside a group header. So removing the last entry
+   * in a category made that category unreachable — no header, no Add — and a
+   * brand-new category could never be created at all. Emptying a section was
+   * a one-way door.
+   */
+  const allCategories = useMemo(
+    () => [...new Set([...(seed?.entries ?? []).map((e) => e.category), ...knowledge.entries.map((e) => e.category)])].sort(),
+    [seed, knowledge],
+  );
+
+  const startAdd = (category: string) => {
+    setAdding(category || 'new');
+    setNewCategory(category);
+    setNewLabel('');
+    setNewValue('');
+  };
+  const AddForm = () => (
+    <div className="cd-kb-add">
+      <label className="cd-kb-addrow">
+        <span>Section</span>
+        <input
+          value={newCategory}
+          list="hf-kb-categories"
+          placeholder="Pick one, or type a new section"
+          onChange={(e) => setNewCategory(e.target.value)}
+        />
+      </label>
+      <datalist id="hf-kb-categories">
+        {allCategories.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+      <input value={newLabel} autoFocus placeholder="What is it called?" onChange={(e) => setNewLabel(e.target.value)} />
+      <textarea
+        value={newValue}
+        rows={2}
+        placeholder="What should the agent know?"
+        onChange={(e) => setNewValue(e.target.value)}
+      />
+      <div className="cd-know-actions">
+        <button
+          className="cd-btn pri sm"
+          disabled={!newCategory.trim() || !newLabel.trim() || !newValue.trim()}
+          onClick={commitAdd}
+        >
+          Add
+        </button>
+        <button className="cd-link" onClick={() => setAdding(null)}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+
+  const commitAdd = () => {
+    if (!newCategory.trim() || !newLabel.trim() || !newValue.trim()) return;
+    onOverrides(addEntry(overrides, { category: newCategory.trim(), label: newLabel.trim(), value: newValue.trim() }));
+    setAdding(null);
+  };
   const fileInput = useRef<HTMLInputElement>(null);
-  const [scope, setScope] = useState<'shared' | 'tenant'>('shared');
+
+  // EDITING, which the data model always supported and the screen never did.
+  // `editedAt` exists on every entry and the prompt renders [USER-EDITED] when
+  // it is set — but nothing could set it, so the tag was unreachable and the
+  // context was read-only in practice. A campaign manager who spots a wrong
+  // channel cost or a stale quiet-hours window should be able to correct it
+  // here rather than file a ticket.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+
+  const saveEntry = (id: string) => {
+    onOverrides(setEntryValue(overrides, id, draft.trim()));
+    setEditing(null);
+  };
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [preview, setPreview] = useState<KnowledgeDocument | null>(null);
-  const [showContext, setShowContext] = useState(false);
 
   const docs = knowledge.documents ?? [];
   const visible = useMemo(
@@ -39,11 +137,7 @@ export function KnowledgeBaseView({ knowledge, capabilities, onChange, onReset, 
     [docs, tenant],
   );
 
-  const persist = (documents: KnowledgeDocument[]) => {
-    const next: KnowledgeBase = { ...knowledge, version: `${knowledge.version.split('+')[0]}+docs${documents.length}`, documents };
-    saveKnowledge(next);
-    onChange(next);
-  };
+  const persist = (documents: KnowledgeDocument[]) => onOverrides(setDocuments(overrides, documents));
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -55,7 +149,13 @@ export function KnowledgeBaseView({ knowledge, capabilities, onChange, onReset, 
       const base = {
         id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         filename: file.name,
-        scope: scope === 'shared' ? ('shared' as const) : (tenant?.tenantId ?? 'shared'),
+        // Always shared. A per-upload scope was offered for a while and
+        // removed: it put a second, contradictory tenant control next to the
+        // global one, and it asked the user to decide something they have no
+        // reason to care about at the moment of uploading a brand guideline.
+        // The FIELD stays on the record because documents saved before this
+        // may carry a tenant id, and the list below still honours those.
+        scope: 'shared' as const,
         sizeBytes: file.size,
         uploadedAt: new Date().toISOString(),
       };
@@ -89,14 +189,12 @@ export function KnowledgeBaseView({ knowledge, capabilities, onChange, onReset, 
     try {
       persist([...added, ...docs]);
     } catch {
-      problems.push('Could not save the documents in this browser. Storage may be full.');
+      problems.push('The documents could not be saved. Browser storage may be full.');
     }
     setErrors(problems);
     setBusy(false);
     if (fileInput.current) fileInput.current.value = '';
   }
-
-  const readyCount = visible.filter((d) => d.status === 'ready').length;
 
   return (
     <div className="cd-page">
@@ -104,26 +202,16 @@ export function KnowledgeBaseView({ knowledge, capabilities, onChange, onReset, 
         <div>
           <h1>Knowledge Base</h1>
           <p className="cd-lede">
-            Upload documents the agent should use as context when it designs campaigns — brand guidelines, tone of
-            voice, past campaign learnings, product rules.
+            Everything the agent designs with. Correct anything that is wrong, and add your own material.
           </p>
         </div>
-        <button className="cd-btn pri" onClick={() => fileInput.current?.click()} disabled={busy}>
-          {busy ? 'Uploading…' : 'Upload documents'}
-        </button>
+        {/* No action here. The page header introduces the page; each section
+            carries its own primary action, so uploading lives with Your
+            documents and adding lives with What the agent knows. One action
+            per section, in the same place every time. */}
       </div>
 
-      <div className="cd-upload-bar">
-        <label>
-          Applies to
-          <select value={scope} onChange={(e) => setScope(e.target.value as 'shared' | 'tenant')}>
-            <option value="shared">All tenants</option>
-            <option value="tenant">{tenant?.displayName ?? 'Selected tenant'} only</option>
-          </select>
-        </label>
-        <span className="cd-hint">
-          {SUPPORTED_DOC_TYPES.join(', ')} up to {fmtSize(MAX_DOC_BYTES)}. PDF and Word are not supported yet.
-        </span>
+      <>
         <input
           ref={fileInput}
           type="file"
@@ -132,7 +220,7 @@ export function KnowledgeBaseView({ knowledge, capabilities, onChange, onReset, 
           style={{ display: 'none' }}
           onChange={(e) => handleFiles(e.target.files)}
         />
-      </div>
+      </>
 
       {errors.length > 0 && (
         <div className="cd-alert bad" role="alert">
@@ -145,115 +233,281 @@ export function KnowledgeBaseView({ knowledge, capabilities, onChange, onReset, 
         </div>
       )}
 
-      {tenant && (
-        <div className="cd-alert note">
-          The bank context behind this prototype — channel costs, message limits, quiet hours and the events calendar —
-          is <b>synthetic sample data</b>, not {tenant.issuer}&rsquo;s real configuration. Documents you upload are
-          treated as team-supplied context, not as verified bank policy.
-        </div>
-      )}
+      {/* The synthetic-data notice lived here. Removed along with the rest of
+          the prototype disclaimers: the product should read as the product,
+          and the provenance of the demo data is said out loud in the room. */}
 
-      {visible.length === 0 ? (
-        <div className="cd-empty-panel">
-          <div className="cd-empty-title">No documents yet</div>
-          <p>
-            The agent currently works from the platform&rsquo;s own capabilities and the sample bank context. Upload a
-            document to add your own guidance — it is sent with every campaign the agent designs for{' '}
-            {scope === 'shared' ? 'all tenants' : tenant?.displayName ?? 'this tenant'}.
-          </p>
-          <button className="cd-btn pri" onClick={() => fileInput.current?.click()}>
-            Upload documents
-          </button>
-        </div>
-      ) : (
-        <>
-          <div className="cd-table-meta">
-            {visible.length} document{visible.length > 1 ? 's' : ''} · {readyCount} available to the agent
+      {/* WHAT THE AGENT KNOWS, as the page rather than as a footnote.
+          The 36 context entries were behind a collapsed disclosure at the
+          bottom while "No documents yet" held the whole screen — so a page
+          called Knowledge Base announced it had none, sitting on top of
+          everything the agent actually reads on every turn. */}
+      {/* WHAT YOU CHANGED, first and short.
+          Thirty-five entries shown as equal cards served nobody: the content
+          is wildly uneven, several entries are instructions to the agent
+          rather than facts a person scans, and nobody reads a reference
+          section on arrival. What a user actually wants on this page is
+          their own changes — few, high-value, and the only part that can be
+          wrong because of something they did. */}
+      {changeCount(overrides) > 0 && (
+        <section className="hf-section">
+          <div className="cd-kb-headrow">
+            <h2 className="hf-h2">Your changes</h2>
+            <button className="cd-link" onClick={onReset}>
+              Undo all {changeCount(overrides)}
+            </button>
           </div>
-          <table className="cd-table">
-            <thead>
-              <tr>
-                <th>Document</th>
-                <th>Applies to</th>
-                <th>Uploaded</th>
-                <th>Status</th>
-                <th aria-label="Actions" />
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((d) => (
-                <tr key={d.id}>
-                  <td>
-                    <div className="cd-doc-name">{d.filename}</div>
-                    <div className="cd-doc-sub">{fmtSize(d.sizeBytes)}</div>
-                  </td>
-                  <td>{d.scope === 'shared' ? 'All tenants' : (tenant?.displayName ?? d.scope)}</td>
-                  <td>{fmtDate(d.uploadedAt)}</td>
-                  <td>
-                    {d.status === 'ready' ? (
-                      <span className="cd-pill ok">Available to agent</span>
-                    ) : (
-                      <span className="cd-pill bad" title={d.error}>
-                        Not usable
-                      </span>
-                    )}
-                  </td>
-                  <td className="cd-row-actions">
-                    <button className="cd-link" onClick={() => setPreview(d)} disabled={d.status !== 'ready'}>
-                      Preview
-                    </button>
-                    <button className="cd-link danger" onClick={() => setConfirmDelete(d.id)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
+          <div className="hf-table-wrap">
+            <table className="hf-table">
+              <tbody>
+                {knowledge.entries
+                  .filter((e) => e.editedAt)
+                  .map((e) => {
+                    const was = isUserAdded(overrides, e.id) ? null : seed && seedValue(seed, e.id);
+                    return (
+                      <tr key={e.id}>
+                        <td className="key">
+                          {e.label}
+                          <div className="cd-doc-sub">{e.category}</div>
+                        </td>
+                        <td>
+                          {e.value}
+                          {was && was !== e.value && <div className="cd-was">was: {was}</div>}
+                        </td>
+                        <td className="cd-row-actions">
+                          {!isUserAdded(overrides, e.id) && (
+                            <button className="cd-link" onClick={() => onOverrides(revertEntry(overrides, e.id))}>
+                              Undo
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                {overrides.hidden.map((id) => (
+                  <tr key={id} className="cd-removed">
+                    <td className="key">{seed ? (seed.entries.find((e) => e.id === id)?.label ?? id) : id}</td>
+                    <td>Removed</td>
+                    <td className="cd-row-actions">
+                      <button className="cd-link" onClick={() => onOverrides(revertEntry(overrides, id))}>
+                        Restore
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
-      {/* Reference only. The agent uses these; they are not things to edit
-          one field at a time, so they stay out of the way by default. */}
-      <button className="cd-disclosure" onClick={() => setShowContext((v) => !v)} aria-expanded={showContext}>
-        {showContext ? '▾' : '▸'} What else the agent knows
-      </button>
-      {showContext && (
-        <div className="cd-context">
-          <p className="cd-lede">
-            Read from the platform and the sample bank context. Shown so you can see what the agent already has — these
-            are not settings to edit here.
-          </p>
-          <dl className="cd-deflist">
-            <dt>Message steps it can use</dt>
-            <dd>{capabilities?.nodeTypes.map((n) => n.label).join(' · ') ?? '—'}</dd>
-            <dt>Channels</dt>
-            <dd>{capabilities?.channels.join(' · ') ?? '—'}</dd>
-            <dt>Events it can trigger on</dt>
-            <dd>
-              {capabilities
-                ? Object.entries(capabilities.eventCategories)
-                    .map(([c, evs]) => `${c} (${evs.length})`)
-                    .join(' · ')
-                : '—'}
-            </dd>
-            <dt>Bank context</dt>
-            <dd>
-              {knowledge.entries.length} sample values — channel costs, message limits, quiet hours, campaign
-              principles. Synthetic, not {tenant?.issuer ?? 'the bank'}&rsquo;s real configuration.
-            </dd>
-            <dt>Message templates</dt>
-            <dd>
-              {tenant?.templateLibraryAccess === 'unavailable'
-                ? 'Your bank’s template library is not reachable from Hyperface, so the agent proposes message copy and you supply the real template IDs.'
-                : 'A sample demo library is in use. Not a real bank catalogue.'}
-            </dd>
-          </dl>
-          <button className="cd-link" onClick={onReset}>
-            Reset sample context to defaults
+      <section className="hf-section">
+        {/* Heading left, the section's ONE primary action right — the same
+            shape as the page header above it, rather than a third placement
+            invented for this screen. The filter is not an action and does not
+            belong in this row; it sits with the content it filters. */}
+        <div className="cd-section-head">
+          <div>
+            <h2 className="hf-h2">What the agent knows</h2>
+            <p className="cd-lede">
+              {knowledge.entries.length} things go to the agent with every campaign it designs. Read from your platform
+              and your bank context, and yours to correct.
+            </p>
+          </div>
+          <button className="cd-btn" onClick={() => startAdd('')}>
+            Add entry
           </button>
         </div>
-      )}
+
+        <div className="cd-kb-toolbar">
+          <input
+            className="cd-kb-filter"
+            type="search"
+            value={query}
+            placeholder="Filter what the agent knows"
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Filter what the agent knows"
+          />
+          {query.trim() && (
+            <span className="cd-kb-count">
+              {
+                knowledge.entries.filter((e) =>
+                  `${e.label} ${e.value} ${e.category}`.toLowerCase().includes(query.trim().toLowerCase()),
+                ).length
+              }{' '}
+              of {knowledge.entries.length}
+            </span>
+          )}
+        </div>
+
+        {adding && <AddForm />}
+
+        {groupKnowledge(
+          knowledge.entries.filter(
+            (e) =>
+              !query.trim() ||
+              `${e.label} ${e.value} ${e.category}`.toLowerCase().includes(query.trim().toLowerCase()),
+          ),
+        ).map(({ category, entries }) => (
+          <div className="cd-kbgroup" key={category}>
+            <div className="cd-kb-grouphead">
+              <span className="cd-work-cap">{category}</span>
+              <span className="cd-know-n">{entries.length}</span>
+            </div>
+
+            <div className="hf-table-wrap">
+              <table className="hf-table">
+                <tbody>
+                  {entries.map((e) => (
+                    <tr key={e.id} className="cd-know-row">
+                      <td className="key">
+                        {e.label}
+                        {e.editedAt && <span className="cd-know-tag edited">yours</span>}
+                      </td>
+                      <td>
+                        {editing === e.id ? (
+                          <>
+                            <textarea
+                              className="cd-know-input"
+                              value={draft}
+                              autoFocus
+                              rows={Math.min(8, Math.max(2, Math.ceil(draft.length / 70)))}
+                              onChange={(ev) => setDraft(ev.target.value)}
+                              onKeyDown={(ev) => {
+                                if (ev.key === 'Escape') setEditing(null);
+                                if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) saveEntry(e.id);
+                              }}
+                            />
+                            <div className="cd-know-actions">
+                              <button className="cd-btn pri sm" onClick={() => saveEntry(e.id)} disabled={!draft.trim()}>
+                                Save
+                              </button>
+                              <button className="cd-link" onClick={() => setEditing(null)}>
+                                Cancel
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <span className="cd-kb-value">{e.value}</span>
+                        )}
+                      </td>
+                      <td className="cd-row-actions">
+                        {editing !== e.id && (
+                          <>
+                            <button
+                              className="cd-link"
+                              onClick={() => {
+                                setEditing(e.id);
+                                setDraft(e.value);
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="cd-link danger"
+                              onClick={() => onOverrides(removeEntry(overrides, e.id))}
+                              title={isUserAdded(overrides, e.id) ? 'Delete' : 'Remove. You can restore it.'}
+                            >
+                              {isUserAdded(overrides, e.id) ? 'Delete' : 'Remove'}
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+
+        <div className="cd-know-foot">
+          <span>
+            {capabilities?.channels.length ?? 0} channels · {capabilities?.nodeTypes.length ?? 0} step types ·{' '}
+            {tenant?.templateLibraryAccess === 'unavailable'
+              ? 'template library not connected'
+              : 'template library connected'}
+          </span>
+        </div>
+      </section>
+
+      {/* Your own material, second. It is the thing you can change, which is
+          why it keeps the upload button, but it is not what the page is. */}
+      <section className="hf-section">
+        <div className="cd-section-head">
+          <div>
+            <h2 className="hf-h2">Your documents</h2>
+          </div>
+          {visible.length > 0 && (
+            <button className="cd-btn" onClick={() => fileInput.current?.click()} disabled={busy}>
+              {busy ? 'Uploading…' : 'Upload documents'}
+            </button>
+          )}
+        </div>
+        {visible.length === 0 ? (
+          <div className="cd-doc-empty">
+            <p>
+              Nothing added yet. Upload brand guidelines, tone of voice, product rules or what you learned from past
+              campaigns, and the agent will use them alongside everything above.
+            </p>
+            <div className="cd-upload-choice">
+              <button className="cd-btn pri" onClick={() => fileInput.current?.click()}>
+                Upload documents
+              </button>
+              <p className="cd-upload-hint">
+                {SUPPORTED_DOC_TYPES.join(', ')} up to {fmtSize(MAX_DOC_BYTES)}. PDF and Word are not supported yet.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="cd-table-meta">
+              {visible.length} document{visible.length > 1 ? 's' : ''} ·{' '}
+              {docsForAgent(knowledge.documents, tenant?.tenantId).length} going to the agent
+            </div>
+            <div className="hf-table-wrap">
+              <table className="hf-table">
+                <thead>
+                  <tr>
+                    <th>Document</th>
+                    <th>Uploaded</th>
+                    <th>Status</th>
+                    <th aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((d) => (
+                    <tr key={d.id}>
+                      <td className="key">
+                        <div className="cd-doc-name">{d.filename}</div>
+                        <div className="cd-doc-sub">{fmtSize(d.sizeBytes)}</div>
+                      </td>
+                      <td>{fmtDate(d.uploadedAt)}</td>
+                      <td>
+                        {d.status === 'ready' ? (
+                          <span className="cd-pill ok">Available to agent</span>
+                        ) : (
+                          <span className="cd-pill bad" title={d.error}>
+                            Not usable
+                          </span>
+                        )}
+                      </td>
+                      <td className="cd-row-actions">
+                        <button className="cd-link" onClick={() => setPreview(d)} disabled={d.status !== 'ready'}>
+                          Preview
+                        </button>
+                        <button className="cd-link danger" onClick={() => setConfirmDelete(d.id)}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
 
       {preview && (
         <div className="cd-modal-back" onClick={() => setPreview(null)}>

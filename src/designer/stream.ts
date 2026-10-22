@@ -55,7 +55,21 @@ export async function runDesignerStream(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let sawResult = false;
+  /**
+   * Did the run END, by either door?
+   *
+   * This was `sawResult`, set only by a result frame — so an `error` frame
+   * called `onError` and left it false, and the fallback below then fired a
+   * SECOND time when the socket closed. Measured on a live Confirm: the
+   * manager got "Illegal state transition…" and, underneath it, "The
+   * connection closed before the run finished." Two failures reported, one
+   * of them invented, and the invented one is the less useful of the two to
+   * read last.
+   *
+   * An error IS a terminal frame. The fallback exists for the case where
+   * neither arrives.
+   */
+  let sawTerminal = false;
 
   try {
     while (true) {
@@ -81,16 +95,17 @@ export async function runDesignerStream(
         const kind = evLine?.slice(6).trim();
         if (kind === 'event') handlers.onEvent(payload as RunEvent);
         else if (kind === 'result') {
-          sawResult = true;
+          sawTerminal = true;
           handlers.onResult(payload as DesignerResponse);
         } else if (kind === 'error') {
+          sawTerminal = true;
           handlers.onError((payload as { error: string }).error);
         }
       }
     }
     // A stream that ends without a terminal frame is a failure, not a
     // success — otherwise the UI would sit in "running" forever.
-    if (!sawResult) handlers.onError('The connection closed before the run finished.');
+    if (!sawTerminal) handlers.onError('The connection closed before the run finished.');
   } catch (e) {
     handlers.onError((e as Error).name === 'AbortError' ? 'Cancelled.' : (e as Error).message);
   }

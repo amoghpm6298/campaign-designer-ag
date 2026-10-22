@@ -17,6 +17,7 @@ import {
   newBrief,
   recordDimensions,
   briefDimensions,
+  isPlatformDimension,
   type DiscoveryDimension,
   type WorkingBrief,
 } from '../../server/discovery';
@@ -72,6 +73,33 @@ describe('creation', () => {
   it('trims the stored name', () => {
     const b = recordDimensions(newBrief(OBJECTIVE), [{ name: '  Statement timing  ' }]);
     expect(b.dimensions![0].name).toBe('Statement timing');
+  });
+
+  it('does not store platform topics, so they cannot fill the three slots', () => {
+    // Live runs satisfied MIN_DIMENSIONS with entry event, channel order and
+    // quiet hours. Those describe the builder, not a customer.
+    const b = recordDimensions(newBrief(OBJECTIVE), [
+      { name: 'Entry event' },
+      { name: 'Channel sequencing' },
+      { name: 'Quiet hours' },
+      { name: 'Which channels exist' },
+      { name: 'Message template' },
+      { name: 'Suppression (DNC, NPA, quiet hours)' },
+      { name: 'Assigned credit limit' },
+      { name: 'Already started the request' },
+      { name: 'App on the phone' },
+    ]);
+    expect(briefDimensions(b).map((d) => d.name)).toEqual([
+      'Assigned credit limit',
+      'Already started the request',
+      'App on the phone',
+    ]);
+  });
+
+  it('still records a customer channel difference, which is not the channel list', () => {
+    const b = recordDimensions(newBrief(OBJECTIVE), [{ name: 'Channel preference by segment' }]);
+    expect(briefDimensions(b)).toHaveLength(1);
+    expect(isPlatformDimension('Channel preference by segment')).toBe(false);
   });
 });
 

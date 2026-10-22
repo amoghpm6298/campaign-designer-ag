@@ -206,10 +206,10 @@ describe('the prompt asks for the claim, and the default favours the user', () =
   // again. Measured in a real session, twice.
   //
   // The default is now the other way: silence from the model means they
-  // answered. Forks are the one exception, because a fork decides which
-  // campaign gets built rather than how well, so it still needs a positive
-  // claim. The asymmetry is the point, and `recordUncoveredQuestions` is
-  // where it lives.
+  // answered. Forks were held back as an exception for five days and are
+  // not any more — see the block below for the live failure that decided
+  // it. `recordUncoveredQuestions` is where the rule lives, and
+  // `notCovered` is the only thing that keeps anything open.
   const SYSTEM = (() => {
     const s = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
     return /const SYSTEM = `([\s\S]*?)`;\n/.exec(s)![1];
@@ -226,9 +226,15 @@ describe('the prompt asks for the claim, and the default favours the user', () =
     expect(SYSTEM).toMatch(/Never flag one for being short or not in the words you expected/);
   });
 
-  it('keeps forks as the explicit exception, with the reason', () => {
-    expect(SYSTEM).toMatch(/FORKS ARE THE EXCEPTION/);
-    expect(SYSTEM).toMatch(/a fork decides which campaign this is, so silence leaves it open/);
+  it('tells the model forks are not an exception, and what does keep one open', () => {
+    // The prompt has to match the application. While the fork exception
+    // existed the prompt described it correctly; now that it is gone, leaving
+    // the old sentence in would teach the model a rule the code does not
+    // follow — which is how a prompt starts producing confident wrong
+    // bookkeeping.
+    expect(SYSTEM).toMatch(/FORKS ARE NOT AN EXCEPTION/);
+    expect(SYSTEM).toMatch(/"notCovered" is the only thing that keeps one open/);
+    expect(SYSTEM).not.toMatch(/FORKS ARE THE EXCEPTION/);
   });
 
   it('keeps a skipped question distinct from a refusal', () => {
@@ -248,9 +254,25 @@ describe('the prompt asks for the claim, and the default favours the user', () =
   });
 });
 
-describe('silence from the model is read as an answer, except on a fork', () => {
+describe('silence from the model is read as an answer, forks included', () => {
   // The behaviour itself, not the prompt. These are the tests that would
   // have caught the original defect.
+  //
+  // THE FORK EXCEPTION IS GONE, 2026-10-21, and this fixture is the run that
+  // removed it — verbatim. The agent asked these two questions and declared
+  // the audience one a fork. The manager replied "1. Activation means setting
+  // the PIN 2. We measure how many new cardholders activate". The agent's own
+  // prose came back "Confirmed so far: activation means setting the PIN, and
+  // success is read as more cardholders activating" — and the client listed
+  // both questions again underneath it, because the model had not emitted
+  // `answered` and the exception kept them outstanding. By turn three there
+  // were five numbered questions on screen and nothing had been designed.
+  //
+  // The asymmetry the exception rested on is still true: discharging a fork
+  // wrongly builds the wrong campaign. It was the wrong trade anyway. A
+  // default that cannot be cleared by answering is not caution, and the model
+  // has a precise instrument for the case the exception was protecting —
+  // `notCovered`, tested below on a fork.
   const asked = () =>
     recordAnswer(
       recordQuestions(newBrief('o'), [
@@ -265,19 +287,32 @@ describe('silence from the model is read as an answer, except on a fork', () => 
     expect(unaddressedQuestions(b).map((q) => q.id)).not.toContain('q1-0');
   });
 
-  it('leaves a fork open when the model says nothing', () => {
+  it('closes the fork on that same reply, with nothing else needed', () => {
+    // The live failure, inverted into the assertion. Both questions were
+    // answered in one message and both are now off the record.
     const b = recordUncoveredQuestions(asked(), undefined);
-    expect(unaddressedQuestions(b).map((q) => q.id)).toEqual(['q1-1']);
+    expect(unaddressedQuestions(b)).toHaveLength(0);
   });
 
-  it('discharges the fork only on a positive claim', () => {
+  it('still honours a positive claim on the fork, which is now redundant', () => {
+    // `answered` keeps working. It is no longer the ONLY way through, which
+    // is the whole change.
     const b = recordUncoveredQuestions(recordAddressedQuestions(asked(), ['q1-1']), undefined);
     expect(unaddressedQuestions(b)).toHaveLength(0);
   });
 
   it('honours an explicit notCovered against a plain question', () => {
     const b = recordUncoveredQuestions(asked(), ['q1-0']);
-    expect(unaddressedQuestions(b).map((q) => q.id)).toEqual(['q1-0', 'q1-1']);
+    expect(unaddressedQuestions(b).map((q) => q.id)).toEqual(['q1-0']);
+  });
+
+  it('honours an explicit notCovered against a fork, which is the real guard', () => {
+    // This is what protects against a fork discharged by inference, and it is
+    // a claim about the reply in front of the model rather than a standing
+    // default. If this ever stops working, the exception was worth something
+    // after all and its removal has to be revisited.
+    const b = recordUncoveredQuestions(asked(), ['q1-1']);
+    expect(unaddressedQuestions(b).map((q) => q.id)).toEqual(['q1-1']);
   });
 
   it('never marks a question the user has not replied to yet', () => {

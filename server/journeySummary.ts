@@ -156,3 +156,61 @@ export function readableBlocker(raw: string): string {
 
   return where.length ? `${where.join(', ')} — ${plainProblem}` : raw;
 }
+
+/**
+ * How many messages one customer actually receives, at most.
+ *
+ * WHY NOT JUST COUNT THE SEND NODES. The build summary compared the number of
+ * touches the manager approved against every SEND node in the graph, and the
+ * two are not the same measure. A two-arm wording experiment built from four
+ * approved touches produces eight SEND nodes — the same skeleton twice — and
+ * the old comparison called that a four-message shortfall. A banner that
+ * cries drift on a correct build teaches people to ignore it, which is worse
+ * than having no banner.
+ *
+ * What a customer experiences is the DENSITY of one path, so that is what is
+ * compared: the most sends on any single route through the journey.
+ *
+ * MEMOISED, AND SHARED TAILS ARE NOT RECOUNTED. The builder allows fan-in —
+ * two branches can rejoin, and the canvas has a "Reused in N places" badge
+ * for exactly that — so a plain walk would count a shared ending once per
+ * route that reaches it, and would spin for ever on a cycle. `best` caches
+ * the answer per node and `visiting` breaks any loop, which makes this linear
+ * in the graph and safe on a shape nobody anticipated.
+ *
+ * GOAL_EXIT is ignored because it is the application's own terminal marker,
+ * not a message. A SEND counts once, as one message.
+ */
+export function longestSendPath(graph: {
+  rootId?: string | null;
+  nodes: Record<string, { type: string }>;
+  edges: { from: string; to: string | null }[];
+}): number {
+  const out = new Map<string, string[]>();
+  for (const e of graph.edges) {
+    if (!e.to) continue;
+    out.set(e.from, [...(out.get(e.from) ?? []), e.to]);
+  }
+  const best = new Map<string, number>();
+  const visiting = new Set<string>();
+
+  const from = (id: string): number => {
+    const node = graph.nodes[id];
+    if (!node || node.type === 'GOAL_EXIT') return 0;
+    const cached = best.get(id);
+    if (cached !== undefined) return cached;
+    // A cycle contributes nothing beyond the node itself rather than hanging
+    // the turn. The builder should not produce one; this is not the place to
+    // find out that it did.
+    if (visiting.has(id)) return node.type === 'SEND' ? 1 : 0;
+    visiting.add(id);
+    const deepest = Math.max(0, ...(out.get(id) ?? []).map(from));
+    visiting.delete(id);
+    const total = (node.type === 'SEND' ? 1 : 0) + deepest;
+    best.set(id, total);
+    return total;
+  };
+
+  const roots = graph.rootId && graph.nodes[graph.rootId] ? [graph.rootId] : Object.keys(graph.nodes);
+  return Math.max(0, ...roots.map(from));
+}

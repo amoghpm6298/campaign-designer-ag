@@ -20,6 +20,7 @@ import {
 } from '../src/data/sharedConstants';
 import { generateSchemaArtefact } from '../agent-proto/schema/generateSchema';
 import type { TenantConfig } from './tenants';
+import { bankContext } from './knowledge';
 
 export interface ToolDef {
   name: string;
@@ -164,7 +165,27 @@ function describeEntity(entity: string) {
  * check already runs — which is the point at which "what can this platform
  * express?" is the right question instead of a distraction.
  */
-const BUILD_TIME_TOOLS = new Set(['list_event_types', 'list_audience_attributes', 'list_step_types']);
+/**
+ * Tools withheld until a plan has been approved.
+ *
+ * `list_channels` and `check_template_availability` joined this set on
+ * 2026-10-21, which leaves discovery with NO lookup tools at all. That is the
+ * intent, not an oversight: with only those two available, turn one could
+ * only ever be a channel inventory, and a live run opened with "I checked the
+ * channels and template availability" before asking the manager anything.
+ *
+ * Nothing is lost. `issuerContext` already names the available channels in
+ * the prompt on every turn, and which templates exist is a build-time
+ * question — it cannot change what the campaign should be, only how it gets
+ * assembled afterwards.
+ */
+const BUILD_TIME_TOOLS = new Set([
+  'list_event_types',
+  'list_audience_attributes',
+  'list_step_types',
+  'list_channels',
+  'check_template_availability',
+]);
 
 export const toolsForPhase = (designStated: boolean) =>
   designStated ? AGENT_TOOLS : AGENT_TOOLS.filter((t) => !BUILD_TIME_TOOLS.has(t.name));
@@ -254,9 +275,21 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
       };
     }
     case 'list_channels': {
+      // ORDERED THE WAY THE ISSUER PREFERS, not always by price.
+      //
+      // This tool returned `availableCheapestFirst` unconditionally, with a
+      // summary that said "cheapest first" out loud. That taught the model to
+      // open on email at the same moment the bank context was telling it not
+      // to, and the tool won because it looked like data.
+      const cheapestFirst = Boolean(bankContext().softPreferences?.preferLowerCostChannelFirst?.value);
+      const reachOrder = ['WHATSAPP', 'SMS', 'EMAIL', 'RCS'];
       const available = ctx.tenant.availableChannels
         .filter((c) => c.available)
-        .sort((a, b) => a.relativeCost - b.relativeCost);
+        .sort((a, b) =>
+          cheapestFirst
+            ? a.relativeCost - b.relativeCost
+            : reachOrder.indexOf(a.channel) - reachOrder.indexOf(b.channel),
+        );
       const unavailable = ctx.tenant.availableChannels.filter((c) => !c.available).map((c) => c.channel);
       // Delivery statuses are the vocabulary a "condition" step branches on.
       // Scoped to the channels this tenant can actually send on, so the agent
@@ -270,14 +303,16 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
       return {
         ok: true,
         result: {
-          availableCheapestFirst: available.map((c) => c.channel),
+          available: available.map((c) => c.channel),
           notAvailable: unavailable,
-          note: 'Relative cost order only. These are synthetic prototype values, not a real rate card.',
+          note: cheapestFirst
+            ? 'Listed cheapest first. The relative costs are prototype values, not a real rate card.'
+            : 'Listed by how Indian retail cardholders actually read, not by price. Cost breaks a tie between channels that would both work; it never picks the first one. The relative costs are prototype values, not a real rate card.',
           deliveryStatusesByChannel,
           deliveryStatusNote:
             'These are the only values a condition on a previous send\'s outcome may use, and they depend on the channel that send actually used.',
         },
-        summary: `${available.length} available, cheapest first: ${available.map((c) => c.channel).join(', ')}`,
+        summary: `${available.length} available: ${available.map((c) => c.channel).join(', ')}`,
       };
     }
     case 'check_template_availability': {

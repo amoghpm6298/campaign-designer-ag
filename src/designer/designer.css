@@ -23,7 +23,7 @@
 .cd-body { display: flex; flex: 1 1 auto; min-height: 0; }
 .cd-canvas { flex: 1 1 auto; min-width: 0; position: relative; background: var(--gray-50, #fafafa); }
 .cd-chat {
-  flex: 0 0 420px; display: flex; flex-direction: column;
+  flex: 0 0 var(--chat-w); display: flex; flex-direction: column;
   border-left: 1px solid var(--gray-200); background: #fff; min-height: 0;
 }
 
@@ -87,9 +87,10 @@
 .cd-configerr code { background: #fff; border: 1px solid #fecaca; border-radius: 4px; padding: 1px 5px; font-size: 12px; }
 
 /* --- Knowledge Base + Run Logs --- */
-.cd-page { padding: 22px 26px; overflow-y: auto; height: 100vh; box-sizing: border-box; }
-.cd-page h1 { font-size: 19px; margin: 0 0 4px; letter-spacing: -0.015em; }
-.cd-page .cd-lede { font-size: 13px; color: var(--gray-600); max-width: 760px; line-height: 1.6; margin: 0 0 18px; }
+/* `.cd-page` was declared TWICE, here and again 40 lines down, with
+   different padding, heights and type sizes. The later one won and this one
+   had been dead for some time. Consolidated into the single definition
+   below. */
 .cd-kb-label { font-size: 12.5px; font-weight: 600; color: var(--gray-700); }
 .cd-kb-src { font-size: 11px; color: var(--gray-400); margin-top: 3px; word-break: break-word; }
 
@@ -129,10 +130,46 @@
    =================================================================== */
 
 /* --- page frame --- */
-.cd-page { padding: 26px 30px 44px; overflow-y: auto; height: 100%; box-sizing: border-box; max-width: 1180px; }
-.cd-page h1 { font-size: 20px; font-weight: 660; margin: 0 0 5px; letter-spacing: -0.02em; color: var(--gray-800, #1f2937); }
-.cd-page .cd-lede { font-size: 13.5px; color: var(--gray-600); max-width: 680px; line-height: 1.6; margin: 0; }
-.cd-page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+/* ONE page shape, obeyed by every route. 32px gutter, content capped at a
+   measure rather than padded wide, 32px from the header to the first block.
+
+   The three different widths that used to appear on one screen — a 680px
+   lede, a 1180px page, a 620px panel — are gone: the page sets the measure
+   and nothing inside it sets its own. */
+.cd-page {
+  padding: var(--page-gutter);
+  overflow-y: auto;
+  height: 100%;
+  box-sizing: border-box;
+  background: var(--surface);
+}
+.cd-page > * {
+  max-width: var(--measure-wide);
+}
+.cd-page h1 {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 32px;
+  margin: 0;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+/* 14px, the same size as body. Hierarchy here comes from colour, not size. */
+.cd-page .cd-lede {
+  font-size: var(--t-base);
+  color: var(--text-muted);
+  max-width: 68ch;
+  line-height: 20px;
+  margin: 4px 0 0;
+}
+/* Centred, so the action aligns to the title BLOCK rather than to the title. */
+.cd-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+}
 
 /* --- status strip: the five campaign states, one row --- */
 .cd-status {
@@ -289,8 +326,14 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .cd-act-title { font-weight: 560; }
 .cd-act-detail { color: var(--gray-500); font-size: 12px; }
 .cd-act-ms { color: var(--gray-400); font-size: 11.5px; font-variant-numeric: tabular-nums; margin-left: auto; }
+/* The Details panel: a sentence, then the payload. Full-width inside the
+   row's flex line so the lead sentence sits above the <pre> rather than
+   beside the title. */
+.cd-act-body { flex: 1 1 100%; }
+.cd-act-lead { font-size: 12.5px; color: var(--gray-700); line-height: 1.5; margin: 6px 0 0; }
+.cd-event-lead { font-size: 12.5px; color: var(--gray-700); line-height: 1.5; margin: 8px 0 0; }
 .cd-act-pre {
-  flex: 1 1 100%; font-size: 11px; line-height: 1.5; margin: 6px 0 2px;
+  font-size: 11px; line-height: 1.5; margin: 6px 0 2px;
   background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200);
   border-radius: 7px; padding: 8px; max-height: 220px; overflow: auto;
 }
@@ -357,48 +400,24 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
    these surfaces stay light.
    =================================================================== */
 
-.cd-body.cd-no-journey .cd-canvas { display: none; }
+/* THE CHAT IS A FIXED RIGHT RAIL IN EVERY PHASE.
+   A block of overrides used to widen and centre it whenever no journey
+   existed, which made the conversation the whole screen and left nothing in
+   the middle. With the work surface now holding the centre from the first
+   turn, those overrides were fighting the layout rather than supporting it,
+   so they are gone rather than adjusted.
 
-.cd-body.cd-no-journey .cd-chat {
-  flex: 1 1 auto;
-  border-left: none;
-  align-items: center;
-}
+   The canvas is NO LONGER HIDDEN before a journey exists.
+   It used to be, because an empty panel through the longest phase of the
+   session reads as a broken promise — but hiding it pushed every finding into
+   chat scrollback. The centre now shows the work product at all times and
+   changes WHAT that is by phase. See .cd-work below. */
 
-/* The reading column. 760px keeps lines near 65 characters, which is
-   where prose stops being tiring to read. */
-.cd-body.cd-no-journey .cd-msgs,
-.cd-body.cd-no-journey .cd-compose {
-  width: 100%;
-  max-width: 760px;
-  box-sizing: border-box;
-}
 
-.cd-body.cd-no-journey .cd-msgs {
-  padding: 32px 24px 24px;
-  gap: 18px;
-}
 
-.cd-body.cd-no-journey .cd-compose {
-  border-top: none;
-  padding: 0 24px 28px;
-}
 
-/* A first message is a real description of a business problem, not a
-   one-line search query, so the box should invite one. */
-.cd-body.cd-no-journey .cd-compose textarea {
-  min-height: 104px;
-  font-size: 14px;
-  padding: 12px 14px;
-}
 
-/* The examples were stranded at the top of a tall empty column. Side by
-   side they read as a row of choices instead. */
-.cd-body.cd-no-journey .cd-examples {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-}
+
 
 /* A quick reply under the agent's questions. Quiet by default, because it
    is a shortcut and not the main path: typing a real answer is. */
@@ -417,26 +436,19 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .cd-quick:hover:not(:disabled) { background: var(--gray-50, #f9fafb); border-color: var(--gray-400, #9ca3af); }
 .cd-quick:disabled { opacity: 0.5; cursor: default; }
 
-/* The heading is a grid child, so it took a cell and pushed the cards into a
-   ragged row with a hole in it. Span it. */
-.cd-body.cd-no-journey .cd-examples-h { grid-column: 1 / -1; }
 
-/* The reading column still needs to scroll once there is a conversation. */
-.cd-body.cd-no-journey:not(.cd-empty) .cd-msgs { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
 
-/* Hold the OPENING state together as one block instead of stretching the
-   message area and stranding the input three hundred pixels below the
-   examples.
+/* The opening state used to be vertically CENTRED in the chat column, to stop
+   the input being stranded three hundred pixels below the examples. That was
+   right when the chat was the whole screen; in a 420px right rail it floats
+   the composer in mid-air with empty space beneath it.
 
-   Scoped to .cd-empty, and that scoping is the whole point. An earlier
-   version applied it to the whole no-journey phase, which killed the scroll
-   container the moment a conversation existed: the panel grew past the
-   viewport with no way to reach the top of it. It was invisible in an empty
-   screenshot, which is the only state it was checked in. A layout rule that
-   depends on there being no content has to be conditioned on there being no
-   content. */
-.cd-body.cd-no-journey.cd-empty .cd-chat { justify-content: center; }
-.cd-body.cd-no-journey.cd-empty .cd-msgs { flex: 0 0 auto; overflow: visible; }
+   The composer is now pinned to the bottom in every phase, which is both the
+   propensity pattern and the thing a chat surface should do unconditionally.
+   The scroller keeps its own overflow, so the earlier bug this rule was
+   narrowed to avoid — a panel that grew past the viewport with no way to
+   reach the top — cannot come back either. */
+.cd-chat { justify-content: stretch; }
 
 /* Run Logs: the conversation, read end to end. */
 .cd-transcript { margin: 18px 0 8px; }
@@ -448,3 +460,686 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .cd-tturn-n { font-size: 11px; color: var(--gray-400, #9ca3af); margin-bottom: 6px; }
 .cd-tturn .cd-msg-bubble { white-space: pre-wrap; }
 .cd-tturn-missing { font-size: 12.5px; color: var(--gray-500, #6b7280); font-style: italic; }
+
+/* ===================================================================
+ * THE WORK SURFACE — what the centre shows before a journey exists.
+ * =================================================================== */
+
+.cd-work {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 28px 32px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.cd-work-head h2 {
+  margin: 0;
+  font-size: var(--t-lg);
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.cd-work-head p {
+  margin: 6px 0 0;
+  font-size: var(--t-sm);
+  line-height: 1.55;
+  color: var(--text-muted);
+  max-width: 62ch;
+}
+
+.cd-work-cap {
+  font-size: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.cd-work-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.cd-workcard {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 84px;
+}
+.cd-workcard-body {
+  font-size: var(--t-sm);
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+/* Filled reads as settled: full-strength text and a teal edge. The teal
+   appears on the logo, the active nav icon and here, and nowhere else. */
+.cd-workcard.filled {
+  border-color: var(--accent-edge);
+  background: var(--accent-wash);
+}
+.cd-workcard.filled .cd-workcard-body {
+  color: var(--text);
+}
+.cd-workcard.filled .cd-work-cap {
+  color: var(--accent);
+}
+
+.cd-work-dims ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cd-work-dims li {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+}
+.cd-work-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--n-300);
+  transform: translateY(-1px);
+}
+.cd-work-dims li.on .cd-work-dot {
+  background: var(--hf-teal-deep);
+}
+.cd-work-dims li.on .cd-work-dname {
+  color: var(--text);
+  font-weight: 550;
+}
+.cd-work-dnote {
+  color: var(--text-faint);
+}
+
+/* The skeleton. A greyed wireframe of the real output, not a spinner — the
+   shape of what is coming is legible before it arrives. */
+/* The run summary: what the agent worked out, above the raw timeline. */
+.cd-runsum { display: flex; flex-direction: column; gap: 14px; margin: 4px 0 20px; }
+.cd-fact { display: flex; flex-direction: column; gap: 4px; }
+.cd-fact-body { font-size: var(--t-sm); color: var(--text); line-height: 1.55; }
+.cd-fact-body pre {
+  font-size: var(--t-xs); background: var(--surface-sunken); border: 1px solid var(--border);
+  border-radius: var(--r-md); padding: 8px 10px; overflow-x: auto; margin: 0; white-space: pre-wrap;
+}
+.cd-sumlist { margin: 2px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.cd-sumlist li { font-size: var(--t-sm); color: var(--text); line-height: 1.5; }
+.cd-sumlist .cd-work-dnote { display: block; color: var(--text-muted); font-size: var(--t-xs); }
+
+/* A chat opened from the table takes the full width; the list is a click
+   away rather than a permanent column. */
+.cd-logs.single { display: block; }
+.cd-logs.single .cd-logdetail { border-left: none; padding-left: 0; }
+.cd-back {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: var(--t-xs);
+}
+.cd-row-click { cursor: pointer; }
+.cd-row-title { font-weight: 560; color: var(--text); max-width: 540px; }
+
+/* --- a chat's two halves: the conversation, and what the agent did ----
+ * Stacked on one scrolling page before, so reading what was said meant
+ * scrolling past the events and back. They answer different questions and
+ * get a tab each.
+ */
+.cd-chat-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 14px 0 4px;
+}
+.cd-chat-note { font-size: var(--t-xs); color: var(--text-muted); }
+
+.cd-subtabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin: 10px 0 14px;
+}
+.cd-subtab {
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 560;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.cd-subtab:hover { color: var(--text); }
+.cd-subtab.on { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* --- the proposed journey, on the propose turn -----------------------
+ * Lives on the SAME .cd-work surface as the brief cards and replaces the
+ * skeleton. Not a canvas: no panning, no zoom, no third pane. Vertical and
+ * capped at a reading width, because the job is to be scannable in ten
+ * seconds rather than navigable.
+ *
+ * Every value here is an existing token. A proposal is not a different
+ * product and should not look like one.
+ */
+.cd-briefstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.cd-briefstrip span { display: flex; gap: 6px; min-width: 0; }
+.cd-briefstrip b {
+  font-size: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  flex: none;
+}
+
+.cd-preview { max-width: 520px; display: flex; flex-direction: column; gap: 10px; }
+.cd-preview-banner {
+  align-self: flex-start;
+  font-size: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-edge);
+  border-radius: var(--r-pill);
+  padding: 3px 10px;
+}
+.cd-preview-flow { display: flex; flex-direction: column; }
+
+/* The card. Same border, radius and type as .cd-workcard — one surface
+   vocabulary across the whole work pane. */
+.cd-pv-node {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: 10px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cd-pv-node.entry { border-color: var(--accent-edge); background: var(--accent-wash); }
+.cd-pv-node.exit { background: var(--surface-sunken); }
+.cd-pv-kind {
+  font-size: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.cd-pv-text { font-size: var(--t-sm); color: var(--text); line-height: 1.45; }
+.cd-pv-note { font-size: var(--t-xs); color: var(--text-muted); line-height: 1.45; }
+
+/* The connector. A short vertical line above each row, drawn by the row so
+   nothing has to know what follows it. */
+.cd-pv-row { display: flex; flex-direction: column; }
+.cd-pv-link {
+  width: 1px;
+  height: 14px;
+  margin-left: 20px;
+  background: var(--border-strong);
+  flex: none;
+}
+
+/* A wait is a chip. Giving it a card's weight makes a three-message journey
+   read as six steps. */
+.cd-pv-wait {
+  align-self: flex-start;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border: 1px solid var(--hairline-soft);
+  border-radius: var(--r-pill);
+  padding: 2px 10px;
+}
+
+/* A fork, with EVERY path drawn. The rest path is the one that matters most
+   and the one a schematic is most tempted to drop. */
+.cd-pv-fork { display: flex; flex-direction: column; gap: 8px; }
+.cd-pv-forkq {
+  font-size: var(--t-sm);
+  font-weight: 560;
+  color: var(--text);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: 8px 13px;
+}
+.cd-pv-paths { display: flex; flex-direction: column; gap: 10px; padding-left: 14px; }
+.cd-pv-path {
+  border-left: 2px solid var(--accent-edge);
+  padding-left: 12px;
+  display: flex;
+  flex-direction: column;
+}
+.cd-pv-plabel {
+  font-size: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 5px;
+}
+.cd-pv-path .cd-pv-row:first-child .cd-pv-link { display: none; }
+.cd-pv-stop { font-size: var(--t-xs); color: var(--text-muted); margin-top: 10px; }
+
+.cd-skeleton {
+  margin-top: auto;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-xl);
+  background: var(--surface-sunken);
+  padding: 26px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  opacity: 0.75;
+}
+.cd-sk-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cd-sk-row.indent {
+  padding-left: 54px;
+}
+.cd-sk-node {
+  width: 74px;
+  height: 26px;
+  border-radius: var(--r-md);
+  background: var(--n-200);
+}
+.cd-sk-node.small {
+  width: 56px;
+  height: 22px;
+}
+.cd-sk-node.entry {
+  background: var(--accent-edge);
+}
+.cd-sk-line {
+  width: 26px;
+  height: 2px;
+  background: var(--n-200);
+}
+.cd-sk-line.v {
+  width: 2px;
+  height: 20px;
+}
+.cd-sk-caption {
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+}
+
+.cd-upload-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.cd-upload-hint {
+  margin: 0;
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+}
+
+/* The provider's untouched text, under the readable sentence. Closed by
+   default so a failure reads as a sentence, open in one click when someone
+   needs the original rather than our paraphrase of it. */
+.cd-errdetail {
+  margin-top: 12px;
+  width: 100%;
+  max-width: 620px;
+  text-align: left;
+}
+.cd-errdetail summary {
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.cd-errdetail summary:hover {
+  color: var(--text);
+}
+.cd-errdetail pre {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  line-height: 1.55;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+/* --- What the agent knows ------------------------------------------- */
+.cd-know-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+.cd-knowcard {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: 16px;
+}
+.cd-know-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.cd-know-n {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.cd-know-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cd-know-list dt {
+  font-size: var(--t-sm);
+  font-weight: 550;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cd-know-list dd {
+  margin: 2px 0 0;
+  font-size: var(--t-xs);
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+/* Provenance, shown because the agent is given it too. */
+.cd-know-tag {
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.cd-know-tag.ok {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.cd-know-tag.edited {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.cd-know-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+}
+.cd-doc-empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
+  background: var(--surface-sunken);
+  padding: 24px;
+  text-align: center;
+}
+.cd-doc-empty p {
+  margin: 0 auto 16px;
+  max-width: 56ch;
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* Editing an entry. The affordance is hidden until hover so 35 rows do not
+   each carry a visible button, which would turn a reference page into a form. */
+.cd-know-row dt {
+  position: relative;
+}
+.cd-know-edit {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  font: inherit;
+  font-size: var(--t-micro);
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.cd-know-row:hover .cd-know-edit,
+.cd-know-edit:focus-visible {
+  opacity: 1;
+}
+.cd-know-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: var(--t-xs);
+  line-height: 1.55;
+  color: var(--text);
+  padding: 8px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  resize: vertical;
+}
+.cd-know-input:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+.cd-know-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.cd-btn.sm {
+  padding: 4px 10px;
+  font-size: var(--t-xs);
+}
+
+/* --- Knowledge Base: changes first, reference below ------------------ */
+.cd-kb-headrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.cd-kb-headrow .hf-h2 {
+  margin: 0;
+}
+.cd-kb-filter {
+  font: inherit;
+  font-size: var(--t-xs);
+  padding: 5px 10px;
+  width: 200px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.cd-kb-filter:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+.cd-kbgroup {
+  margin-bottom: 20px;
+}
+.cd-kbgroup .hf-table td:first-child {
+  width: 34%;
+}
+.cd-kbgroup .hf-table td:last-child {
+  width: 1%;
+  white-space: nowrap;
+}
+/* Long values are reference, not reading. Two lines, then it stops. */
+.cd-kb-value {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cd-know-row:hover .cd-kb-value {
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+.cd-was {
+  margin-top: 3px;
+  font-size: var(--t-micro);
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+.cd-removed td {
+  color: var(--text-faint);
+}
+.cd-kb-add {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--accent-edge);
+  border-radius: var(--r-md);
+  background: var(--accent-wash);
+}
+.cd-kb-add input,
+.cd-kb-add textarea {
+  font: inherit;
+  font-size: var(--t-xs);
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  resize: vertical;
+}
+.cd-kb-add input:focus-visible,
+.cd-kb-add textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+/* Row actions stay out of the way until you are on the row.
+   Thirty-five rows with two permanent links each is seventy pieces of
+   chrome on a page whose job is to be read. */
+.cd-kbgroup .cd-row-actions .cd-link {
+  opacity: 0;
+  transition: opacity 0.12s;
+  color: var(--text-muted);
+}
+.cd-kbgroup tr:hover .cd-row-actions .cd-link,
+.cd-kbgroup .cd-row-actions .cd-link:focus-visible {
+  opacity: 1;
+}
+.cd-kbgroup .cd-row-actions .cd-link:hover {
+  color: var(--text);
+}
+/* Red on hover, not at rest. Removing a seeded entry is reversible from
+   Your changes, so permanent danger styling overstates it — and a page of
+   red words reads as a page of warnings. */
+.cd-kbgroup .cd-row-actions .cd-link.danger:hover {
+  color: var(--bad);
+}
+.cd-kb-addrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.cd-kb-addrow input {
+  flex: 1 1 auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+/* One section-header shape, used by every section: heading and its lede on
+   the left, the section's single primary action on the right. Mirrors the
+   page header rather than inventing a third placement. */
+.cd-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+.cd-section-head .hf-h2 {
+  margin: 0 0 4px;
+}
+.cd-section-head .cd-lede {
+  margin: 0;
+  max-width: 68ch;
+}
+.cd-section-head .cd-btn {
+  flex: 0 0 auto;
+}
+
+/* The filter belongs with the content it filters, not with the heading. */
+.cd-kb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.cd-kb-toolbar .cd-kb-filter {
+  width: 280px;
+}
+.cd-kb-count {
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.cd-kb-grouphead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cd-logs-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}

@@ -212,13 +212,28 @@ export function selectTemplate(need: TemplateNeed, channelsByPreference: Channel
 export function proposeMessaging(need: TemplateNeed, channel: Channel): TemplateProposal {
   const cta =
     need.stage === 'reminder' ? 'Complete now' : need.stage === 'outcome' ? 'View details' : 'Get started';
+  // `describe` IS NOT GUARANTEED TO BE A STRING, and assuming it was took
+  // down a live Confirm with "Cannot read properties of undefined (reading
+  // 'replace')". The type says `string`; the value comes from a model that
+  // omitted both `name` and `describe`, and `build_campaign` requires
+  // neither. On a real tenant the template library is unreachable, so EVERY
+  // send lands here — one missing field, no canvas, a raw TypeError in the
+  // transcript.
+  //
+  // A type annotation is a statement about what callers should pass, not a
+  // guarantee about what arrives from outside the program.
+  const direction = String(need.describe ?? '').trim();
   return {
     kind: 'proposal',
     channel,
     templateId: null,
     reason: 'Proposed by the agent. Not a bank-registered template.',
-    messagingDirection: need.describe,
-    sampleCopy: `Hi \${customerFirstName}, ${need.describe.replace(/^./, (c) => c.toLowerCase())} \${shortUrl}`,
+    messagingDirection: direction,
+    // With nothing to say, the placeholder says nothing — rather than
+    // inventing a purpose for a message whose purpose was never stated.
+    sampleCopy: direction
+      ? `Hi \${customerFirstName}, ${direction.replace(/^./, (c) => c.toLowerCase())} \${shortUrl}`
+      : 'Hi \${customerFirstName}, \${shortUrl}',
     cta,
     personalisationFields: knownPersonalisationFields().filter((f) =>
       ['customerFirstName', 'shortUrl'].includes(f),

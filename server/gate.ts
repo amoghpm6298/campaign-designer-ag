@@ -22,7 +22,7 @@
 // test check the invariant instead of trusting it. Anything worth telling the
 // agent that does NOT have a clearing mutation is advice, and advice does not
 // block.
-import type { WorkingBrief } from './discovery';
+import { isPlatformDimension, recordDimensions, type WorkingBrief } from './discovery';
 import { designableBarriers, convertersSettled, type Barrier, type Converters } from './findings';
 import { outstanding, exhausted } from './record';
 
@@ -56,7 +56,8 @@ export type Mutation =
    * invariant checks that the block names a field on the proposal instead of
    * trying to synthesise one.
    */
-  | { field: 'hypotheses'; how: string };
+  | { field: 'hypotheses'; how: string }
+  | { field: 'touches'; how: string };
 
 export interface Block {
   /** Stable identity, so two turns can be compared and only the DELTA shown. */
@@ -64,12 +65,12 @@ export interface Block {
     | 'no-participation'
     | 'success-unsettled'
     | 'converters-unknown'
-    | 'converters-unreacted'
     | 'no-barrier'
     | 'too-few-dimensions'
     | 'dimension-unreasoned'
     | 'awaiting-reply'
-    | 'belief-untested';
+    | 'belief-untested'
+    | 'cadence-unnamed';
   /** Said to the user, in their terms. Never names a field or an id. */
   reason: string;
   /** What would clear it. Required by construction. */
@@ -97,9 +98,19 @@ export interface Decision {
  */
 export function decide(
   brief: WorkingBrief,
-  opts: { proceedRequested?: boolean; proposed?: ProposalUnderReview | null } = {},
+  opts: { proceedRequested?: boolean; proposed?: ProposalUnderReview | null; building?: boolean } = {},
 ): Decision {
-  const blocks = [...blocksFor(brief), ...proposalBlocks(brief, opts.proposed ?? null)];
+  // CADENCE IS CHECKED WHEN THE PLAN IS WRITTEN, NOT WHEN IT IS BUILT.
+  //
+  // `building` is true on a Confirm or a refinement, where the manager has
+  // already approved this plan. Refusing it there would be both useless and
+  // insulting: there is nothing they can do about a missing field from the
+  // build turn, and the moment to have said so was before they agreed.
+  const blocks = [
+    ...blocksFor(brief),
+    ...proposalBlocks(brief, opts.proposed ?? null),
+    ...(opts.building ? [] : cadenceBlocks(opts.proposed ?? null)),
+  ];
   const advice = adviceFor(brief);
 
   if (opts.proceedRequested) {
@@ -113,9 +124,43 @@ export function decide(
 
 /** Just enough of a proposal to check it against the record. */
 export interface ProposalUnderReview {
-  strategy?: { hypotheses?: string[]; unknowns?: string[] } | null;
+  strategy?: {
+    hypotheses?: string[];
+    unknowns?: string[];
+    touches?: { day: number; path: string }[];
+  } | null;
   openItems?: { kind: string }[];
 }
+
+/**
+ * Every path, with how many sends it carries.
+ *
+ * THE RULE WAS BACKWARDS AND THIS IS THE CORRECTION, 2026-10-22. It used to
+ * measure the BUSIEST path on the reasoning that a group which mostly acts
+ * unprompted may need only a light touch. Read against the run that prompted
+ * all of this, that is exactly the failure: the high-limit cohort — the one
+ * that self-activates anyway — got two nudges and cleared the gate, while
+ * everyone else, the people the campaign exists for, got a single send that
+ * nothing ever looked at. A thin path hid behind a busier one.
+ *
+ * EVERY NAMED PATH NEEDS A SEQUENCE. Lighter still means fewer, and fewer
+ * still means a mid-window touch and a last chance before the window closes.
+ * A single row is not a sequence, whichever group it belongs to.
+ *
+ * A HOLDOUT IS NOT A PATH. `touches` lists customer-facing sends, so an arm
+ * that is deliberately not messaged contributes no rows and never appears
+ * here — the rule cannot accidentally demand two sends for a control group.
+ * A holdout listed as one row fails, correctly: it does not belong in this
+ * list at all.
+ */
+const sendsPerPath = (touches: { path?: string }[]): { path: string; count: number }[] => {
+  const counts = new Map<string, number>();
+  for (const t of touches) {
+    const key = t.path?.trim() || 'all';
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([path, count]) => ({ path, count }));
+};
 
 /**
  * Blocks that are about the PROPOSAL, not the record.
@@ -155,6 +200,46 @@ export function proposalBlocks(brief: WorkingBrief, proposed: ProposalUnderRevie
   ];
 }
 
+/**
+ * A plan that never names its sends.
+ *
+ * MEASURED 2026-10-22. A fourteen-day activation plan described "a staggered
+ * multi-touch sequence over the full 14 days, spaced by read/response rather
+ * than a fixed clock" and listed not one message. The manager approved a
+ * cadence they could not see, and the build turn then invented it from that
+ * sentence. Under-dosing is invisible in prose: three touches and nine read
+ * the same.
+ *
+ * NO WINDOW IS PARSED, deliberately. There is no structured window on the
+ * brief — "14 days" lives only inside free text — and reading a number out of
+ * prose to CREATE a block would break the rule this application runs on: a
+ * judgement about someone's words may only ever release a block, never raise
+ * one (see `record.ts`). So the requirement is unconditional and the tool
+ * schema carries most of it with `minItems: 2`. This is the backstop for a
+ * payload that arrives without the field at all.
+ */
+export function cadenceBlocks(proposed: ProposalUnderReview | null): Block[] {
+  if (!proposed?.strategy) return [];
+  const touches = proposed.strategy.touches ?? [];
+  const thin = sendsPerPath(touches).filter((p) => p.count < 2);
+  if (touches.length && !thin.length) return [];
+  return [
+    {
+      code: 'cadence-unnamed',
+      reason:
+        touches.length === 0
+          ? 'This plan does not say when the messages go out. "Multi-touch" is not a sequence a campaign manager can approve — name each send, the day it lands, and what happens if it does not.'
+          : `${thin.map((p) => (p.path === 'all' ? 'The plan' : `"${p.path}"`)).join(' and ')} ${
+              thin.length === 1 ? 'gets' : 'get'
+            } a single message, which is not a sequence anyone can approve. Give that path a mid-window reminder and a last chance before the window closes.`,
+      clears: {
+        field: 'touches',
+        how: 'List every send in "touches": day, channel, path, what it is for, and what happens if it does not land. Every named path needs at least two.',
+      },
+    },
+  ];
+}
+
 /** Every reason the agent may not propose yet, most actionable first. */
 export function blocksFor(brief: WorkingBrief): Block[] {
   const out: Block[] = [];
@@ -188,36 +273,29 @@ export function blocksFor(brief: WorkingBrief): Block[] {
     });
   }
 
-  // TWO blocks, not one, and the clearability invariant is what forced the
-  // split. `convertersSettled` deliberately requires a second turn when
-  // nobody knows who converts: two candidate segments, AND a reply from the
-  // manager after they were raised, because the agent treating its own
-  // suggestion as agreed is the failure that rule guards against.
+  // ONE block again, and the second one is gone rather than reworded.
   //
-  // One block could not describe that honestly. "Record who converts" does
-  // not clear it, so the block named a fix that does not work — the exact
-  // defect this gate exists to prevent, caught by the property test before it
-  // reached a conversation. It also read badly: the agent said "I do not yet
-  // know who does this today" on a turn where it had just put two candidates
-  // up and was waiting to hear back.
-  if (!convertersSettled(brief.converters, brief.answers.map((a) => a.round))) {
-    const raised = typeof brief.converters?.raisedInRound === 'number';
-    out.push(
-      raised
-        ? {
-            code: 'converters-unreacted',
-            reason: 'I have put up two possible groups to go after and I am waiting to hear which one you would back.',
-            clears: { field: 'reply', questionId: '', how: 'The user reacts to the candidate segments.' },
-          }
-        : {
-            code: 'converters-unknown',
-            reason: 'I do not yet know who does this today, so I cannot say who the campaign should go after.',
-            clears: {
-              field: 'converters',
-              how: 'Record who converts, or that nobody knows plus two candidate segments resting on different things.',
-            },
-          },
-    );
+  // There were two: `converters-unknown` for "nothing recorded", and
+  // `converters-unreacted` for "candidates up, manager has not replied yet".
+  // The split existed because the clearability invariant would not accept one
+  // block for both — "record who converts" does not clear a state that is
+  // waiting on a reply, so a single block would have named a fix that does
+  // not work.
+  //
+  // `converters-unreacted` is unreachable now that `convertersSettled` stops
+  // demanding that reply, and the reason it stops is in `findings.ts`: the
+  // turn it produced asked the manager to pick a targeting group out of the
+  // agent's own guesses. Deleted rather than left dead, so nobody has to work
+  // out later whether an unreachable branch was load-bearing.
+  if (!convertersSettled(brief.converters)) {
+    out.push({
+      code: 'converters-unknown',
+      reason: 'I do not yet know who does this today, so I cannot say who the campaign should go after.',
+      clears: {
+        field: 'converters',
+        how: 'Record who converts, or that nobody knows plus two candidate segments resting on different things.',
+      },
+    });
   }
 
   if (designableBarriers(brief.barriers).length === 0) {
@@ -228,7 +306,7 @@ export function blocksFor(brief: WorkingBrief): Block[] {
     });
   }
 
-  const dims = brief.dimensions ?? [];
+  const dims = (brief.dimensions ?? []).filter((d) => !isPlatformDimension(d.name));
   if (dims.length < MIN_DIMENSIONS) {
     out.push({
       code: 'too-few-dimensions',
@@ -310,8 +388,10 @@ export function satisfy(brief: WorkingBrief, m: Mutation): WorkingBrief {
         shape: 'Nobody can say yet.',
         basis: 'user',
         knowledge: 'none-yet',
-        // Raised NOW, so the next reply is what settles it. Setting this in
-        // the past would fake the manager's reaction.
+        // Still recorded, because the brief keeps when a thing was raised.
+        // It no longer decides anything: two distinct candidates settle this
+        // on the turn they are recorded, so the mutation this block names
+        // clears it without waiting for another reply.
         raisedInRound: brief.rounds,
         candidates: [
           { segment: 'A', restsOn: 'existing relationship', why: 'already onboarded' },
@@ -330,16 +410,33 @@ export function satisfy(brief: WorkingBrief, m: Mutation): WorkingBrief {
       return { ...brief, barriers: [...(brief.barriers ?? []), barrier] };
     }
     case 'dimensions': {
+      // NAMES A REAL AGENT WOULD EMIT, and that is the point.
+      //
+      // This used to generate "Angle 1", "Angle 2". Those cleared the block in
+      // the property test while proving nothing: `recordDimensions` now drops
+      // any dimension that names a platform setting, so the path an agent
+      // actually takes — raising three, having them silently refused — was
+      // never exercised. A synthetic name that no model would produce makes
+      // the invariant pass over a route nobody can walk.
       const dims = brief.dimensions ?? [];
-      const add = Array.from({ length: Math.max(0, MIN_DIMENSIONS - dims.length) }, (_, i) => ({
-        name: `Angle ${dims.length + i + 1}`,
-        rationale: 'Could change who this reaches.',
+      const realistic = [
+        { name: 'Assigned credit limit', rationale: 'A larger limit may change who acts.' },
+        { name: 'Already started the request', rationale: 'Stopping halfway is a different problem from never starting.' },
+        { name: 'App on the phone', rationale: 'Someone who cannot act on the message needs a different route.' },
+      ];
+      // Routed through `recordDimensions`, not spliced onto the array. That
+      // is the function an agent's output actually passes through, filter and
+      // all, so the invariant is proved over the real path rather than around
+      // it.
+      const add = realistic.slice(0, Math.max(0, MIN_DIMENSIONS - dims.length)).map((d) => ({
+        ...d,
         status: 'retained' as const,
         basis: 'user' as const,
       }));
-      return { ...brief, dimensions: [...dims, ...add] };
+      return recordDimensions(brief, add);
     }
     case 'hypotheses':
+    case 'touches':
       // Not a record change, so there is nothing to synthesise here. The
       // clearability test treats a proposal mutation separately: it checks the
       // block names a field the model can write, not that the brief can be
@@ -405,10 +502,18 @@ export function renderBlocks(d: BlockDelta, advice: string[] = []): string {
   if (d.carried.length) {
     // Named, not restated. The point is that they have not moved, and a
     // paragraph each would bury the one thing that did.
+    //
+    // `reason` ON BOTH BRANCHES, since 2026-10-21. The multi-carried line
+    // used to join `clears.how`, and `how` is written for the MODEL: "Record
+    // who converts, or that nobody knows plus two candidate segments resting
+    // on different things." A campaign manager cannot act on that sentence —
+    // it is not addressed to them, and it names our record rather than their
+    // business. `reason` is the manager-facing half of a block and the single
+    // branch already used it; the two were simply inconsistent.
     parts.push(
       d.carried.length === 1
         ? `Still open: ${d.carried[0].reason}`
-        : `Still open, and unchanged since last time: ${d.carried.map((b) => b.clears.how).join(' ')}`,
+        : `Still open, and unchanged since last time: ${d.carried.map((b) => b.reason).join(' ')}`,
     );
   }
   for (const a of advice) parts.push(a);

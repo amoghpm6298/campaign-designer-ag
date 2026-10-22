@@ -163,7 +163,20 @@ describe('every other failure path preserves state too', () => {
     });
     const res = await run();
     expect(res.phase).toBe('error');
-    expect(res.reply).toMatch(/socket hang up/);
+    // The user gets a SENTENCE, not the provider's wording. This used to
+    // assert `/socket hang up/` reached the screen — which it did, along with
+    // raw JSON, an HTTP status and a request id on the usage-limit path. The
+    // raw text is kept on the run event for whoever is debugging.
+    // BOTH. The sentence is what a campaign manager reads; the provider's
+    // untouched text travels with it so nobody has to go hunting for the
+    // original. The old behaviour showed only the raw text, which on the
+    // usage-limit path meant JSON, an HTTP status and a request id in the chat.
+    expect(res.reply).toMatch(/did not respond in time/);
+    expect(res.reply).toMatch(/Nothing was saved/);
+    expect(res.errorDetail).toMatch(/socket hang up/);
+    const failure = res.events.find((e) => e.type === 'model.failed');
+    expect((failure?.data as { raw?: string })?.raw).toMatch(/socket hang up/);
+    // The point of the test, unchanged: a failed turn does not cost the brief.
     expect(res.brief!.facts.map((f) => f.statement)).toContain(PRIOR_FACT);
     expect(res.session!.confirmation).not.toBeNull();
   });

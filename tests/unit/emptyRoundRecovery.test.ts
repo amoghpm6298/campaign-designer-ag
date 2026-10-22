@@ -107,7 +107,11 @@ describe('an empty terminal round is recovered, not reported', () => {
 
   it('reports the retry in the run record', () => {
     expect(orch).toMatch(/retryOfEmptyRound: true/);
-    expect(orch).toMatch(/Agent answer unusable, asking again/);
+    // The title is now a sentence about what happened rather than a verdict
+    // on the agent: "Agent answer unusable, asking again" described our
+    // parse, not the manager's run. Retargeted 2026-10-21 with the rest of
+    // the activity titles.
+    expect(orch).toMatch(/That reply came back empty, asking again/);
   });
 });
 
@@ -142,7 +146,12 @@ describe('the existing limits are untouched', () => {
     // builder's vocabulary is withheld until an intervention is stated, and
     // within a turn the tool list only ever grows, so history can never cite
     // a tool that is missing from the current list.
-    expect(orch).toMatch(/tools: \[\.\.\.toolsForPhase\(designSeen\), \.\.\.outputToolsForPhase\(isBuildTurn\)\]\.map/);
+    // `designSeen || isBuildTurn`, since 2026-10-22. `designSeen` starts false,
+    // so a Confirm turn had `build_campaign` and no `list_*` — the model wrote
+    // entity names, attributes and operators from memory on the one turn where
+    // each has to be exact. Discovery is unchanged: both false still means no
+    // lookups, which is what keeps turn one from being a channel inventory.
+    expect(orch).toMatch(/tools: \[\.\.\.toolsForPhase\(designSeen \|\| isBuildTurn\), \.\.\.outputToolsForPhase\(isBuildTurn\)\]\.map/);
   });
 
   it('still fails explicitly when the budget is genuinely spent', () => {
