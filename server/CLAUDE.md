@@ -2528,3 +2528,135 @@ after it, and it fails for two reasons while proving neither.
 
 No IN_APP send node, no new discovery question beyond the named-axis probe, no
 Confirm-time refusal from either new check, and nothing pushed.
+
+## 2026-10-23 (cont'd) — The canvas may not be a clock when the plan claimed
+a reaction
+
+`eval/runs/ui-s-1792738033056` turn 4, the Confirm. The approved strategy
+declared `branch-on-response` and named another channel for when the first
+does not land. What reached the canvas, read off the record rather than
+remembered:
+
+```
+condition on Transaction.Transaction Amount Greater than 10000
+  yes: 2 WhatsApp sends, exit
+  no:  experiment (wording), two arms of 4 identical-cadence WhatsApp sends, exit
+```
+
+Ten WhatsApp sends, one who-split, a copy test, and a Goal Check stamped after
+every send by the compiler. The reply read **"Built the journey: 10 message
+steps, 36 steps in total. It is on the canvas now."**
+
+### Measured first, and it changed the design twice
+
+**The approved plan is not on the build turn.** `propose_strategy` is not
+offered on a Confirm, so the strategy that turn carries is the SYNTHETIC EMPTY
+one — turn 4 has `summary: ''`, `architectures: []`, zero touches. A check
+reading only `proposed.strategy` would have been inert in the app and green in
+every hand-fed test: the `confirmedStrategy` trap from two slices ago, in a new
+costume. So it reads `req.confirmedStrategy ?? proposed.strategy`, and the
+client chain that fills it — `setPendingStrategy(res.strategy ?? null)`, posted
+as `confirmedStrategy` when `intent === 'confirm'` — is now pinned in a test,
+because that link is what makes the whole slice live. (The orchestrator comment
+claiming `confirmedStrategy` is always undefined is about a field name the
+client never reads; it is wrong about the mechanism, and the test says so.)
+
+**`checkFidelity` could not have caught this, and not for the reason I
+assumed.** I expected it to have passed by luck because `derive()` counts ANY
+condition as `branch-on-response` — which it does, and which is a real hole.
+But on turn 4 there were no architectures on the turn at all, so fidelity
+returned null and never ran. Both facts are true; only the second one explains
+the live miss.
+
+### `journeyReacts(blueprint)`, in `optionAudit.ts`
+
+True for a `waitForEvent`; for a condition on the PRECEDING SEND's delivery or
+read result (`outcomes`) whose two sides do structurally different things; or
+for that same condition routing the failure path to a different channel.
+
+False for everything the live build actually did: `condition.on` is a customer
+attribute and therefore segmentation, a `branch` is n-way segmentation, an
+experiment is randomised arms, `fallbackChannel` is a field rather than a fork
+anyone takes, and a compiler-injected Goal Check is not in the blueprint at
+all — which is why this reads the blueprint.
+
+**Kept separate from `CHECKS['conditional branching']`** on purpose. That one
+decides whether to downgrade a `used` claim in the options table, several tests
+rest on any condition counting there, and a footnote and a hard build
+consequence should not share a definition without being asked to.
+
+### One retry, then the truth
+
+On a build turn, when the approved winner declared `branch-on-response` or
+`wait-for-event` and the blueprint does not react, the model is asked for the
+journey once more with `tool_choice: build_campaign` — the same second chance
+the empty-blueprint case gets, because a first miss is usually a miss. The
+instruction lives on the build turn, NOT in `SYSTEM`: the cap is on the prompt
+that travels every turn and this is needed on one. It names the three things
+that do not count, each of which the live build did instead of reacting.
+
+If the second journey is still a clock the campaign is **compiled anyway** —
+same rule as a send with no description, because an empty canvas helps nobody
+— and then:
+
+- the success sentence is not available. `renderBuildSummary` takes a
+  `reactionGap` and leads with "… I am not going to call that done", then the
+  mismatch, then the two ways forward. A build that did not do what was agreed
+  is reported in the first line or it is not reported at all.
+- the gap goes on `campaignBlockers` **first**, ahead of the proposal's own
+  blockers, rather than only into `designWarnings` and the options table.
+- the export invitation is suppressed. "You can export the configuration now"
+  under "this is not your plan" is the success sentence coming back through a
+  different door.
+
+**Not skipped on `building`.** Every propose-time block is, and that skip is
+precisely why Confirm printed a clock: the moment to catch a PLAN is before
+approval, but the moment to catch a BUILD is when it is built, and there is no
+earlier turn at which this journey existed.
+
+A declared `linear` winner does nothing here — `reactionBlocks` should have
+held that plan at propose time, and inventing a reaction the manager never
+agreed to is not this function's job. No declared journey does nothing either,
+rather than guessing one.
+
+### The fixture had to be copied, not imagined — twice in one slice
+
+My first turn-4 reconstruction gave the ticket-size condition the same steps on
+both sides. The revert that should have failed it PASSED, because
+`structuralSignature` already called those branches identical, so the
+`outcomes` filter was never what the test measured. The real journey is
+lopsided — two sends one side, a four-send experiment the other — which is
+exactly the shape that makes "any condition counts" a false positive. Reading
+the recorded blueprint fixed it in one minute. Second time this slice that
+measuring beat guessing, and the lesson is the same one as "reading the code is
+not measuring it".
+
+### Verified
+
+1348 unit (from 1329; 19 new in `canvasMustReact.test.ts`) and 118
+agent-proto. `tsc --noEmit`, `server:typecheck` and `npm run build` clean.
+`SYSTEM` unchanged at **33,433 / 33,500** — no method prose was added to it.
+Reverting `journeyReacts` so any condition counts fails 3; reverting the retry
+fails 3.
+
+**Replayed against the live run**: approved journey `branch-on-response`,
+`journeyReacts(turn-4 blueprint)` false — so this fires on the exact turn that
+printed "It is on the canvas now." Unlike last slice's propose-time checks,
+which the same run's prose already satisfied.
+
+### Known, and not in this slice
+
+- `derive()` in `architectureAudit.ts` still counts any condition as
+  `branch-on-response`, so `checkFidelity` would call a ticket-size split a
+  reaction whenever architectures DO travel. It feeds the comparison verdict
+  and several tests; pointing it at `journeyReacts` is the obvious follow-up
+  and was not asked for.
+- The live blueprint used `Greater than` on `Transaction Amount`, and the
+  builder accepts only `Equals` / `Not Equals` on a number. The fixture keeps
+  it for fidelity. That is a capability gap, reported as a limitation, not a
+  reaction problem.
+- The `intent === 'confirm' && req.confirmedBlueprint` short-circuit gets no
+  reaction check. It cannot fire in the app — a propose turn returns
+  `pendingBlueprint: null` — and every test that walks it supplies the
+  blueprint by hand.
+- Nothing pushed, no live run.

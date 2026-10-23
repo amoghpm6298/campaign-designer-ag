@@ -274,6 +274,62 @@ const CHECKS: Record<string, (bp: CampaignBlueprint) => string | null> = {
 };
 
 /**
+ * Does the BUILT journey move on what the customer did?
+ *
+ * MEASURED, `eval/runs/ui-s-1792738033056` turn 4. The approved strategy said
+ * branch-on-response and named SMS for when WhatsApp does not land. What was
+ * built: one condition on Transaction Amount, an experiment whose two arms ran
+ * the same cadence, and ten WhatsApp sends. The compiler stamped a Goal Check
+ * after each one. The manager read "Built the journey… It is on the canvas
+ * now." and looked at a vanilla drip.
+ *
+ * THREE THINGS THAT LOOK LIKE A REACTION AND ARE NOT:
+ *
+ *  - `condition.on` — a customer ATTRIBUTE read at a point in the journey.
+ *    Ticket size, prior holding, limit band. That is segmentation: it decides
+ *    which path a person takes on the way IN, and says nothing about what
+ *    they did with the last message.
+ *  - a Goal Check after every send, which the COMPILER inserts. It is the
+ *    platform's own terminal, not a decision the agent designed, and it is
+ *    not in the blueprint at all — which is why this reads the blueprint.
+ *  - `fallbackChannel` on a Send. A field, not a fork: nobody takes a
+ *    different route, the delivery attempt is simply retried.
+ *
+ * SEPARATE FROM `CHECKS['conditional branching']`, deliberately. That one
+ * decides whether to downgrade a `used` claim in the options table, several
+ * tests rest on any condition counting there, and a footnote and a hard build
+ * consequence should not share a definition without being asked to.
+ */
+export function journeyReacts(bp: CampaignBlueprint | null | undefined): boolean {
+  if (!bp) return false;
+  // Holding until the customer does something is the purest form of it.
+  if (waitsForEvent(bp).length) return true;
+
+  // A fork on the PRECEDING SEND's delivery or read outcome, whose two sides
+  // then do different things. Both halves are needed: a condition on
+  // `outcomes` that runs the identical sequence either way is a label.
+  const outcomeForks = conditions(bp).filter(
+    (c): c is Extract<BpStep, { kind: 'condition' }> => c.kind === 'condition' && (c.outcomes ?? []).length > 0,
+  );
+  if (outcomeForks.some((c) => structuralSignature(c.yes) !== structuralSignature(c.no))) return true;
+
+  // The channel-fallback shape, asked of the same conditions: the failure
+  // path is attempted on a channel other than the one that just failed.
+  //
+  // REDUNDANT TODAY AND KEPT ON PURPOSE. `structuralSignature` includes each
+  // send's channel, so a fallback to a different channel already differs
+  // above. It is written out because it is the mechanism's own definition
+  // rather than a consequence of how the signature happens to be built — if
+  // the signature ever stops carrying the channel, this leg still holds.
+  return conditionsWithPrecedingSend(bp.steps).some(({ condition, precededBy }) => {
+    if (!(condition.outcomes ?? []).length) return false;
+    const failure = channelOf(firstSend(condition.no));
+    const tested = channelOf(precededBy);
+    return Boolean(failure && tested) && failure !== tested;
+  });
+}
+
+/**
  * Options whose truth is not a property of the journey's shape. Named rather
  * than silently skipped, so "unchecked" never reads as "verified".
  */

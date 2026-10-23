@@ -24,7 +24,7 @@ import { outputToolsForPhase, isOutputTool, toolKind, applyOutputTool } from './
 import { decide, blockDelta, renderBlocks } from './gate';
 import { saysProceed, saysBuildNow, REOPEN_LIMIT } from './record';
 import { EventEmitterSeq, type RunEvent } from './runEvents';
-import { auditOptions, applyAudit, unsupportedClaims, copyOnlyExperiments, type OptionAudit } from './optionAudit';
+import { auditOptions, applyAudit, unsupportedClaims, copyOnlyExperiments, journeyReacts, type OptionAudit } from './optionAudit';
 import { compareArchitectures, checkFidelity, checkExperimentClaims, checkAudienceLearning, checkBarrierCoverage, checkBarrierTesting, JOURNEY_BEHAVIOURS } from './architectureAudit';
 import { jargonNotes } from './plainLanguage';
 import { journeySummary, longestSendPath, readableBlocker } from './journeySummary';
@@ -394,6 +394,23 @@ const BUILDER_VOCAB_RULE =
 
 const DISCOVERY_VOCAB_RULE =
   '- Do not go looking for events, entities or attributes yet. Nothing is being built this turn, so what the builder supports is not a question you need answered. Talk about customers and what should happen to them.';
+
+/**
+ * What the model is told when the journey it built is a clock.
+ *
+ * ON THE BUILD TURN, NOT IN `SYSTEM`. The cap this file keeps is on the
+ * system prompt that travels on EVERY turn, and this is needed on one: the
+ * turn after a build that did not react. A method rule read nine times to
+ * change behaviour once is the expensive way to say this, and the standing
+ * lesson here is that method prose has never changed what gets designed
+ * anyway. The three sentences naming what does NOT count are the whole point
+ * — each one is a thing the live build actually did instead.
+ */
+const REACTION_RETRY =
+  'The journey you sent is a clock. The approved plan reacts to whether the last message was delivered, read, or ignored, and another channel is the job when the first one does not land. ' +
+  `Send the SAME plan again with condition steps on the preceding send's delivery or read result ("outcomes"), different next steps on each side, and the failure path on a different channel. ` +
+  'A split on ticket size is segmentation, not a reaction. A goal check after every send is not a reaction — the compiler adds those itself. fallbackChannel on a send is a field, not a fork anyone takes. ' +
+  'Do not invent a second barrier. Do not drop the who-split the manager evidenced. Keep every message, every day and every channel job you already had.';
 
 export function systemForPhase(isBuildTurn: boolean): string {
   if (isBuildTurn) return SYSTEM;
@@ -2237,7 +2254,112 @@ export async function* orchestrateStream(
     };
   }
 
-  const { blueprint } = proposed;
+  // `let`, because the reaction retry below may replace it. Everything
+  // downstream — the option audit, fidelity, readiness, the build — must read
+  // the journey that is actually going to be compiled.
+  let { blueprint } = proposed;
+
+  // =====================================================================
+  // THE CANVAS MAY NOT BE A CLOCK WHEN THE PLAN PROMISED A REACTION.
+  //
+  // `eval/runs/ui-s-1792738033056` turn 4. The strategy the manager approved
+  // declared branch-on-response and named a different channel for when the
+  // first does not land. The build was ten WhatsApp sends, one condition on
+  // Transaction Amount and an experiment of identical cadences — and the
+  // reply read "Built the journey: 10 message steps… It is on the canvas
+  // now."
+  //
+  // WHY THE EXISTING CHECKS DID NOT CATCH IT. `optionAudit` only DOWNGRADES a
+  // `used` claim in the options table, which is a footnote under a success
+  // sentence. `checkFidelity` would have compared the declared journey
+  // against `derive()` — but `derive()` counts ANY condition as
+  // branch-on-response, so a ticket-size split satisfies it. Both are
+  // reports; neither is a consequence.
+  //
+  // ONE RETRY, THEN THE TRUTH. The model gets the same second chance the
+  // empty-blueprint case gets, because the first miss is usually a miss
+  // rather than a refusal. If the second journey is still a clock the
+  // campaign is COMPILED ANYWAY — the same rule as a send with no
+  // description: build it and report the gap, because an empty canvas helps
+  // nobody — and the reply says plainly that the canvas is not the plan that
+  // was approved.
+  //
+  // NOT SKIPPED ON `building`, unlike the propose-time blocks. That skip is
+  // exactly why Confirm prints a clock today: the moment to catch a plan is
+  // before approval, but the moment to catch a BUILD is when it is built, and
+  // there is no earlier turn at which this journey existed.
+  //
+  // WHAT WAS APPROVED, and where it comes from. `req.confirmedStrategy` is
+  // the plan the manager clicked Confirm on: the client sets its
+  // `pendingStrategy` from `res.strategy` on every non-error turn and posts it
+  // back with `intent: 'confirm'`. On a live Confirm the strategy THIS turn
+  // carries is the synthetic empty one — measured on turn 4, `summary: ''`,
+  // `architectures: []` — so reading only this turn would have made the whole
+  // check inert in the app while passing every hand-fed test. That is the
+  // `confirmedStrategy` trap from two slices ago, and the fallback order is
+  // what avoids it rather than a comment saying so.
+  const approvedStrategy = (req.confirmedStrategy ?? proposed.strategy) as Strategy | null;
+  const chosenJourney = String((approvedStrategy?.architectures ?? []).find((a) => a?.chosen)?.journey ?? '')
+    .trim()
+    .toLowerCase();
+  // The same two the propose-time block treats as reactive. A declared
+  // `linear` does nothing here: `reactionBlocks` should have held that plan
+  // before it was ever approved, and inventing a reaction the manager did not
+  // agree to is not this function's job. No declared journey means no claim
+  // to check, and guessing one would be the application designing again.
+  const promisedReaction = chosenJourney === 'branch-on-response' || chosenJourney === 'wait-for-event';
+  let reactionGap: string | null = null;
+  if (isBuildTurn && promisedReaction && blueprint && !journeyReacts(blueprint)) {
+    const retryStart = Date.now();
+    em.emit('model.started', 'generating', 'The journey does not react, asking again', {
+      status: 'running',
+      correlationId: 'reaction-retry',
+      detail: `The approved plan chose a "${chosenJourney}" journey and the one that came back is a timed sequence.`,
+    });
+    yield* drain();
+    const again: { id: string; name: string; input: Record<string, unknown> }[] = [];
+    try {
+      for await (const chunk of streamClaude({
+        system: `${systemForPhase(true)}\n\n${REACTION_RETRY}`,
+        messages: conversation,
+        tools: outputToolsForPhase(true).map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+        toolChoice: { type: 'tool', name: 'build_campaign' },
+        disableThinking: true,
+        maxTokens: 32000,
+      })) {
+        if (chunk.toolUse) again.push(chunk.toolUse);
+        if (chunk.done) usage = chunk.done.usage;
+      }
+    } catch {
+      // Keep the journey we already have. A failed retry is not a reason to
+      // lose a built campaign, and the gap below is reported either way.
+    }
+    for (const tu of again) {
+      if (!isOutputTool(tu.name)) continue;
+      const applied = applyOutputTool(brief, tu.name, tu.input);
+      brief = applied.brief;
+      if (applied.blueprint) blueprint = applied.blueprint;
+      em.emit(applied.error ? 'model.tool_call.failed' : 'model.tool_call.completed', 'generating', toolTitle(tu.name), {
+        status: applied.error ? 'failed' : 'ok',
+        detail: applied.error ?? applied.ok,
+        correlationId: tu.id,
+        data: { tool: tu.name, kind: 'output' as const },
+      });
+    }
+    const reacts = journeyReacts(blueprint);
+    em.emit('model.completed', 'generating', reacts ? 'The second journey reacts' : 'The second journey is still a clock', {
+      correlationId: 'reaction-retry',
+      status: reacts ? 'ok' : 'failed',
+      durationMs: Date.now() - retryStart,
+      data: { toolCalls: again.length, reactionRetry: true, declared: chosenJourney },
+    });
+    yield* drain();
+    if (!reacts) {
+      reactionGap =
+        'The journey on the canvas is a timed sequence. The plan you approved said the next step would depend on whether each message was delivered, read or acted on, and nothing in what was built branches on that. A split by ticket size is segmentation, and the goal check after each send is the platform checking whether they converted, not the campaign reacting.';
+    }
+  }
+
   // RULE 2.4. Verify every `used` option against the journey actually
   // proposed, and downgrade the ones it does not support. The application
   // never rewrites the journey and never invents a capability — it reads the
@@ -2362,7 +2484,7 @@ export async function* orchestrateStream(
     // rule, and a refinement rebuilds the journey exactly as a first build
     // does.
     session = { ...session, state: transition(session.state, 'GENERATING_CAMPAIGN') };
-    const out = buildAndValidate(req, tenant, bank, availableChannels, blueprint, strategy, em);
+    const out = buildAndValidate(req, tenant, bank, availableChannels, blueprint, strategy, em, reactionGap);
     yield* drain();
     session = {
       ...session,
@@ -2664,7 +2786,7 @@ export async function* orchestrateStream(
     // Confirm lands here. The comment below already warned that no test walks
     // this path; that stayed true until the one covering this fix.
     session = { ...session, state: transition(session.state, 'GENERATING_CAMPAIGN') };
-    const out = buildAndValidate(req, tenant, bank, availableChannels, blueprint, strategy, em);
+    const out = buildAndValidate(req, tenant, bank, availableChannels, blueprint, strategy, em, reactionGap);
     // Resolve the row opened by run.started. Without this the build turn
     // returns with that spinner still turning, because every other exit from
     // this function emits one and this path was added later.
@@ -2810,9 +2932,11 @@ function buildAndValidate(
   blueprint: CampaignBlueprint,
   strategy: Strategy | null,
   em: EventEmitterSeq,
+  /** Set when the built journey does not react and the approved plan said it would. */
+  reactionGap: string | null = null,
 ): Partial<OrchestratorResponse> & { stage: Stage } {
   try {
-    return buildAndValidateUnguarded(req, tenant, bank, availableChannels, blueprint, strategy, em);
+    return buildAndValidateUnguarded(req, tenant, bank, availableChannels, blueprint, strategy, em, reactionGap);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     // Resolves the row `graph.generation.started` opened, so the activity
@@ -2844,6 +2968,7 @@ function buildAndValidateUnguarded(
   blueprint: CampaignBlueprint,
   strategy: Strategy | null,
   em: EventEmitterSeq,
+  reactionGap: string | null = null,
 ): Partial<OrchestratorResponse> & { stage: Stage } {
   const started = Date.now();
   em.emit('graph.generation.started', 'generating', 'Building the journey', {
@@ -2973,7 +3098,7 @@ function buildAndValidateUnguarded(
 
   return {
     stage: proposal.usable ? 'proposed' : 'blocked',
-    reply: renderBuildSummary(strategy, built, validation, unresolvedSends.length, exportable),
+    reply: renderBuildSummary(strategy, built, validation, unresolvedSends.length, exportable, reactionGap),
     strategy,
     blueprint,
     pendingBlueprint: null,
@@ -2981,7 +3106,11 @@ function buildAndValidateUnguarded(
     graph: built.graph,
     provenance: proposal.provenance,
     unresolvedCampaignFields: proposal.unresolvedCampaignFields,
-    campaignBlockers: proposal.blockers as string[],
+    // FIRST, AND AS A BLOCKER RATHER THAN A FOOTNOTE. A journey that does not
+    // do what the approved plan said it would is the most important thing
+    // about this build, and the option-audit downgrade it also produces is a
+    // line in a table nobody scrolls to.
+    campaignBlockers: [...(reactionGap ? [reactionGap] : []), ...(proposal.blockers as string[])],
     validation,
     buildIssues: built.issues,
     templateChoices: built.templateChoices,
@@ -3281,6 +3410,17 @@ export function renderBuildSummary(
   validation: ValidationReport,
   unresolved: number,
   exportable: boolean,
+  /**
+   * The journey was built and it is not the one that was approved.
+   *
+   * THE SUCCESS SENTENCE IS NOT AVAILABLE IN THIS CASE, which is the whole
+   * point of the parameter. "Built the journey… It is on the canvas now." is
+   * what the manager read on a turn that produced a vanilla drip against a
+   * plan promising a reaction, and the mismatch sat three paragraphs down in
+   * an options table. A build that did not do what was agreed is reported in
+   * the first line or it is not reported at all.
+   */
+  reactionGap: string | null = null,
 ): string {
   const sends = Object.values(built.graph.nodes).filter((n) => (n as { type: string }).type === 'SEND').length;
   // A DRIP CAMPAIGN WITH NO MESSAGES IS NOT A BUILT CAMPAIGN.
@@ -3297,7 +3437,15 @@ export function renderBuildSummary(
     ? [
         `Generation did not produce any message steps, so there is no campaign to review yet. ${Object.keys(built.graph.nodes).length} structural step${Object.keys(built.graph.nodes).length === 1 ? '' : 's'} were created.`,
       ]
-    : [
+    : reactionGap
+      ? [
+          // Counted honestly — the steps exist and the canvas is drawn — and
+          // then the mismatch, in the same breath rather than underneath.
+          `${sends} message step${sends === 1 ? '' : 's'} and ${Object.keys(built.graph.nodes).length} steps in total were built, and you can see them on the canvas. I am not going to call that done.`,
+          `\n${reactionGap}`,
+          '\nTell me to fix it and I will rebuild the journey so each message depends on what happened to the last one, or say go ahead and it stays a timed sequence.',
+        ]
+      : [
     `Built the journey: ${sends} message step${sends === 1 ? '' : 's'}, ${Object.keys(built.graph.nodes).length} steps in total. It is on the canvas now.`,
   ];
   if (unresolved) {
@@ -3365,7 +3513,10 @@ export function renderBuildSummary(
   if (gaps.length) {
     lines.push(`\nPlatform cannot express yet:\n${gaps.map((g) => `- ${g.attribute}: ${g.note}`).join('\n')}`);
   }
-  lines.push(exportable ? '\nYou can export the configuration now.' : '');
+  // NOT WHEN THE JOURNEY IS NOT THE ONE THAT WAS APPROVED. Offering the
+  // export in the same breath as "this does not match your plan" is the
+  // success sentence coming back through a different door.
+  lines.push(exportable && !reactionGap ? '\nYou can export the configuration now.' : '');
   if (strategy?.unknowns?.length) lines.push(`\nOpen questions: ${strategy.unknowns.join('; ')}`);
   return lines.filter(Boolean).join('\n');
 }
