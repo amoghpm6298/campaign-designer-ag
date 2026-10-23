@@ -7,6 +7,7 @@ import { fmtDay, fmtTime, fmtStamp } from './time';
 import { useMemo, useState } from 'react';
 import { clearRunLogs, deleteSession, listSessions } from './storage';
 import { DripCanvas } from '../canvas/DripCanvas';
+import { computeDagreLayout } from '../canvas/layoutGraph';
 import { detailsText, friendlyEvent } from './status';
 import type { RunLog } from './types';
 import './designer.css';
@@ -259,6 +260,33 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
     return null;
   }, [session]);
 
+  /**
+   * The journey's own proportions, so the panel is the shape of the graph.
+   *
+   * A FIXED BOX WASTES ONE AXIS OR THE OTHER. At 78vh a wide, shallow journey
+   * — four parallel checkpoints, say — sat in the middle of 300px of empty
+   * dotted background above and below it, while `fitView` shrank the text to
+   * fit a width it could not use. The complaint was "so much space wasted"
+   * and it was two different wastes: a reading-measure cap on the left, and
+   * this.
+   *
+   * `computeDagreLayout` is the same pure layout the canvas itself runs, so
+   * this is the real shape rather than a guess — called with no measured
+   * heights, which is the fallback the first paint uses anyway. The ratio
+   * goes to CSS `aspect-ratio`; min/max-height still bound it, so a very tall
+   * journey is capped and pans rather than growing without limit.
+   */
+  const aspect = useMemo(() => {
+    const root = built?.root;
+    if (!root?.rootId) return null;
+    const boxes = Object.values(computeDagreLayout(root, {}).positions);
+    if (!boxes.length) return null;
+    const w = Math.max(...boxes.map((b) => b.x + b.width)) - Math.min(...boxes.map((b) => b.x));
+    const h = Math.max(...boxes.map((b) => b.y + b.height)) - Math.min(...boxes.map((b) => b.y));
+    return w > 0 && h > 0 ? `${Math.round(w)} / ${Math.round(h)}` : null;
+  }, [built]);
+
+
   // STORED CHATS COUNT TOO. This was `!logs.length`, so clearing the logs —
   // or any chat that exists in storage with no completed run — showed "No
   // chats yet" over a list that was about to render rows.
@@ -372,8 +400,13 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
         </table>
       )}
 
+      {/* `wide` only while the canvas is up. `.cd-page > *` caps every child
+          at a 1024px reading measure, which is right for the transcript and
+          the event list and wrong for a journey — it threw away 640px of a
+          1900px window and clipped the graph to what was left. The measure
+          stays for the two tabs that are prose. */}
       {session && (
-      <div className="cd-logs single">
+      <div className={`cd-logs single ${tab === 'journey' && built ? 'wide' : ''}`}>
         <div className="cd-logdetail">
           {/* OPENS ON THE CHAT, NOT ON ITS LAST RUN.
               This was gated on `current` — the most recent RunLog — so a chat
@@ -557,8 +590,13 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
               {tab === 'journey' && built && (
                 <div className="cd-chat-journey">
                   <div className="cd-transcript-h">{built.name || 'The journey this chat built'}</div>
-                  <div className="cd-chat-canvas">
-                    <DripCanvas graph={built.root!} editable={false} goal={built.goal ?? null} />
+                  <div className="cd-chat-canvas" style={aspect ? { aspectRatio: aspect } : undefined}>
+                    {/* `minZoom` 0.15: this is a journey being read back, not
+                        one being edited, so fitting the whole thing beats
+                        keeping every label legible at rest. The controls zoom
+                        in. React Flow's 0.5 default clamped the fit and the
+                        graph ran off all four edges. */}
+                    <DripCanvas graph={built.root!} editable={false} goal={built.goal ?? null} minZoom={0.15} />
                   </div>
                 </div>
               )}

@@ -340,7 +340,9 @@ describe('a chat shows the journey it built', () => {
     // past chat's canvas from a log page would change a campaign with no
     // conversation around it. Continue the chat to change it.
     expect(logsView).toMatch(/import \{ DripCanvas \} from '\.\.\/canvas\/DripCanvas';/);
-    expect(logsView).toMatch(/<DripCanvas graph=\{built\.root!\} editable=\{false\} goal=\{built\.goal \?\? null\} \/>/);
+    // `minZoom` added 2026-10-23 so `fitView` can fit a real journey; the
+    // read-only and goal props are unchanged.
+    expect(logsView).toMatch(/<DripCanvas graph=\{built\.root!\} editable=\{false\} goal=\{built\.goal \?\? null\} minZoom=\{0\.15\} \/>/);
   });
 
   it('reads the snapshot from the newest turn that HAS one', () => {
@@ -479,5 +481,61 @@ describe('a stored response missing a field cannot take the page down', () => {
     // because a source-text assertion that reads its own documentation is not
     // checking the code.
     expect(designer).not.toMatch(/last\?\.[a-zA-Z]+\.length/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2026-10-23 — "can barely see anything, why is there so much space wasted"
+//
+// A screenshot of the Journey tab on a 1900px window: the journey squeezed
+// into a 1024px column with 640px of empty page beside it, and the graph
+// still running off every edge of that column.
+//
+// MEASURED IN THE BROWSER before anything was changed, because "looks
+// broken" on a canvas is a geometry question — the same lesson the
+// parallel-path label episode left. Three separate causes, none of them the
+// canvas being wrong:
+//
+//   1. `.cd-page > * { max-width: 1024px }`, a reading measure, applied to
+//      the ancestor the journey sits in.
+//   2. React Flow's default `minZoom: 0.5`, which clamped `fitView` so a
+//      twenty-node journey could not fit however much room it was given.
+//   3. A fixed 78vh box, which left a wide shallow journey floating in a
+//      band of empty dotted background.
+// ---------------------------------------------------------------------------
+
+const css = readFileSync(new URL('../../src/designer/designer.css', import.meta.url), 'utf8');
+const canvasSrc = readFileSync(new URL('../../src/canvas/DripCanvas.tsx', import.meta.url), 'utf8');
+
+describe('the journey panel is the size of the journey', () => {
+  it('breaks the reading measure, and only for the canvas', () => {
+    // The cap lands on `.cd-logs`, so the override has to as well — the
+    // first attempt targeted the panel and lost, because the panel was not
+    // the element being capped.
+    expect(logsView).toMatch(/cd-logs single \$\{tab === 'journey' && built \? 'wide' : ''\}/);
+    expect(css).toMatch(/\.cd-logs\.wide \{ max-width: none; \}/);
+  });
+
+  it('anchors the width so the ratio cannot satisfy itself sideways', () => {
+    // With only a ratio and a min-height, the box came out 1960px wide
+    // inside a 1600px column: the same overflow in a new costume.
+    const block = css.slice(css.indexOf('.cd-chat-canvas {'), css.indexOf('}', css.indexOf('.cd-chat-canvas {')));
+    expect(block).toMatch(/width: 100%/);
+    expect(block).toMatch(/max-width: 100%/);
+    expect(block).toMatch(/height: auto/);
+    expect(block).toMatch(/max-height: 82vh/);
+  });
+
+  it('takes its proportions from the real layout, not a guess', () => {
+    expect(logsView).toMatch(/computeDagreLayout\(root, \{\}\)/);
+    expect(logsView).toMatch(/aspectRatio: aspect/);
+  });
+
+  it('lets fitView zoom out far enough to actually fit', () => {
+    expect(logsView).toMatch(/minZoom=\{0\.15\}/);
+    // And the shared canvas keeps React Flow's default for everyone else: a
+    // surface being worked on should refuse to shrink past legibility.
+    expect(canvasSrc).toMatch(/minZoom\?: number;/);
+    expect(canvasSrc).toMatch(/\{\.\.\.\(minZoom === undefined \? \{\} : \{ minZoom \}\)\}/);
   });
 });

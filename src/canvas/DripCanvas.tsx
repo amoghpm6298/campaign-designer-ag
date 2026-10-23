@@ -41,9 +41,21 @@ interface DripCanvasInnerProps {
   onRemoveGoalCheck?: (nodeId: string) => void;
   metrics?: DripCanvasMetrics;
   goal?: DripGoal | null;
+  /**
+   * How far out `fitView` may zoom. React Flow's default is 0.5, which is
+   * right for a canvas someone is working on — past that the node text stops
+   * being readable and panning is the better answer.
+   *
+   * It is wrong for a canvas someone is READING BACK. A twenty-node journey
+   * needs roughly 0.3 to fit a page panel, so the default silently clamped
+   * the fit and the graph ran off every edge while looking like a rendering
+   * bug. Passed in rather than lowered globally: the builder's own canvas
+   * should keep refusing to shrink past legibility.
+   */
+  minZoom?: number;
 }
 
-function DripCanvasInner({ graph, editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onAddParallel, onRenameEdge, onRemoveGoalCheck, metrics, goal }: DripCanvasInnerProps) {
+function DripCanvasInner({ graph, editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onAddParallel, onRenameEdge, onRemoveGoalCheck, metrics, goal, minZoom }: DripCanvasInnerProps) {
   const opts: ToFlowOptions = useMemo(
     () => ({ editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onAddParallel, onRenameEdge, onRemoveGoalCheck, metrics, goal }),
     [editable, onEditNode, onRemoveRoot, onReplaceAuto, onRemoveEdge, onAddAtEdge, onAddAtGrowLeaf, onAddAtMidEdge, onAddParallel, onRenameEdge, onRemoveGoalCheck, metrics, goal],
@@ -92,6 +104,7 @@ function DripCanvasInner({ graph, editable, onEditNode, onRemoveRoot, onReplaceA
         nodesConnectable={false}
         elementsSelectable={editable}
         proOptions={{ hideAttribution: true }}
+        {...(minZoom === undefined ? {} : { minZoom })}
       >
         <Background gap={16} size={1} />
         <Controls showInteractive={false} />

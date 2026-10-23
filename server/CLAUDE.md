@@ -2278,3 +2278,44 @@ every reader now, which is what "one boundary" was supposed to mean.
 
 Verified: 1280 unit (from 1279) and 118 agent-proto. Reverting the hoist
 fails the audience-only case; reverting the flat read fails the fallback.
+
+## 2026-10-23 (cont'd) — "Can barely see anything, why is there so much space
+wasted"
+
+A screenshot of the Journey tab on a 1900px window: the journey squeezed into
+a 1024px column with 640px of empty page beside it, and the graph still
+running off every edge of that column.
+
+Measured in the browser before changing anything, because "looks broken" on a
+canvas is a geometry question — the lesson the parallel-path label episode
+left. Three causes, none of them the canvas:
+
+**A reading measure applied to a canvas.** `.cd-page > * { max-width: 1024px }`
+is right for the transcript and the event list and wrong for a journey. The
+first fix targeted `.cd-chat-journey` and did nothing: the cap lands on
+`.cd-logs`, the direct child, so the override has to go there. It is scoped
+to the journey tab, so the two tabs that are prose keep their measure.
+
+**`fitView` could not fit.** React Flow's default `minZoom` is 0.5 and a
+twenty-node journey needs about 0.4, so the fit was clamped and the graph
+overflowed however much room it was given. `DripCanvas` takes a `minZoom`
+prop now, defaulting to React Flow's own: a surface being WORKED ON should
+refuse to shrink past legibility, a surface being READ BACK should fit.
+
+**A fixed box wastes one axis.** At 78vh a wide, shallow journey floated in a
+band of empty dotted background. The panel takes its aspect ratio from
+`computeDagreLayout` — the same pure layout the canvas itself runs, so it is
+the real shape rather than a guess — with min/max-height still bounding it.
+
+One wrong turn worth keeping: given only a ratio and a min-height, the box
+satisfied the ratio by growing SIDEWAYS, 1960px inside a 1600px column. The
+same overflow in a new costume. `width: 100%` is the anchor; height follows.
+
+### Verified across every shape, not just the one in the screenshot
+
+All six seed journeys, 1900px window: every node rendered, **zero overflow**,
+box height adapting from 360px (wide and shallow) to the 82vh cap (deep), and
+the eight-node campaign no longer shrunk to 0.5 when it fits at 1.0.
+
+1284 unit (from 1280) and 118 agent-proto; `tsc --noEmit` and `npm run build`
+clean.

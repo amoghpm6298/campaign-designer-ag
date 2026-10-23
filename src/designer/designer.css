@@ -1151,8 +1151,20 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 /* React Flow measures its container, so the canvas needs a real height here.
    Capped rather than full-bleed: this is a record being read, not a surface
    being worked on, and the transcript above it has to stay in reach. */
+/* The cap lands on `.cd-logs`, the direct child of `.cd-page` — not on the
+   journey panel — so the override has to go there. Specificity (0,2,0) beats
+   the (0,1,0) of `.cd-page > *`, so order does not matter. */
+.cd-logs.wide { max-width: none; }
+
+/* FULL WIDTH, BREAKING `.cd-page > * { max-width: 1024px }`.
+   That cap is a reading measure and it is right for the transcript, the logs
+   and every other child of this page. Applied to a canvas it threw away 640px
+   of a 1900px window and then clipped the journey to fit what was left — the
+   graph was being squeezed into a column sized for prose. */
 .cd-chat-journey {
   margin-top: 16px;
+  max-width: none;
+  width: 100%;
 }
 .cd-chat-canvas {
   /* Tall enough that a real campaign reads without immediately panning.
@@ -1160,7 +1172,17 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
      and a twenty-node vertical journey needs far less than that to fit — so
      a short panel shows the top of the graph and nothing else. The canvas
      pans and zooms with its own controls from here. */
-  height: clamp(420px, 72vh, 900px);
+  /* Height comes from the graph's own aspect ratio, set inline. These only
+     bound it: a shallow journey no longer sits in a band of empty canvas,
+     and a very deep one is capped and pans instead of growing for ever. */
+  /* WIDTH IS THE ANCHOR. Without this the ratio was free to satisfy itself by
+     growing sideways — the box came out 1960px wide inside a 1600px column,
+     which is the same overflow in a new costume. */
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  min-height: 360px;
+  max-height: 82vh;
   border: 1px solid var(--gray-200);
   border-radius: 10px;
   overflow: hidden;
