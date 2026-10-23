@@ -1996,3 +1996,100 @@ the built journey, not another sentence here.
 agent-proto. `tsc --noEmit`, `server:typecheck` and `npm run build` clean.
 One pin retargeted in `promptMethod`, to the surviving copy of the sentence
 whose duplicate paid for this slice. Nothing pushed.
+
+## 2026-10-23 — A plan may not spend a signal it does not have, nor decline
+to produce one
+
+Live EMI run on 2efe2e3. Discovery finally asked the right question — "have
+you seen a pattern in who does this already, or do you not track it?" — and
+the manager answered plainly: they do not track prior EMI, merchant category
+or ticket size; one track; the first run should generate that signal.
+
+The strategy then did both wrong things at once:
+
+- **It split day-0 copy by prior EMI versus first-time**, and said the
+  manager had flagged that factor — about a factor they had just said they do
+  not record. Listing something as untracked is not seeing a trend in it.
+- **It parked the wording and dosage test in "hypotheses for future"** while
+  designing a seven-day run. There is no later run to inherit a test: with
+  nothing compared this time, the next campaign starts exactly as blind.
+
+§2, §3 and §6 already said all of this in words, and the run happened anyway.
+So it is checked against the proposal now.
+
+### `trendBlocks`, in the same shape as `cadenceBlocks`
+
+One precondition, two ways of failing it:
+
+```
+if (statedTrend(brief) || tests) return [];
+return splits ? ['split-without-trend'] : ['nothing-tested'];
+```
+
+A stated trend is a pattern they have SEEN, so the cut itself produces the
+reading. A comparison produces it directly. What is left is a plan with
+neither — and it either cuts the journey on a factor nobody has observed, or
+runs flat and learns nothing.
+
+**`statedTrend` reads basis AND status**: `basis: 'user'` with `status:
+'retained'`. That pair is the whole point. "We do not track prior EMI" is
+recorded against the same dimension NAME with basis `user` — they said the
+words — and status `unavailable`. A check reading only the basis would have
+taken the live brief as permission to split on prior EMI, which is the
+defect. The status is what separates a factor they described from one they
+merely named.
+
+**The split is counted as well as claimed.** `Segmentation: used` is the
+agent's verdict; two distinct non-`all` paths in `touches` is evidence. The
+live plan split the copy by path — a verdict alone would have missed it.
+
+**Experiment arms are not a cut.** Randomly assigned arms make no claim about
+who these people are, so they need no stated trend. That is also the legal
+move out of the block, which matters: a guard with no legal move is a trap.
+
+**Before Confirm, never after**, like the cadence block. `building` is true
+once approved, and refusing then leaves them with an approval that did
+nothing.
+
+### A draft that was wrong, recorded because it was plausible
+
+The first version keyed the test rule on `converters.knowledge !== 'known'`
+and the split rule on dimensions, reasoning that they answer different
+questions. It demanded an experiment ON TOP of a split the manager had asked
+for — a second instrument for a question the first one answers. Caught by the
+fixture where they HAD stated a trend; collapsed to the single precondition
+above.
+
+### The prompt line that was still fighting all of this
+
+§1 said: *"When nobody knows who converts, give TWO candidate segments
+resting on different things and wait for their reaction."* A targeting menu,
+plus a wait `convertersSettled` stopped requiring three days ago. Replaced
+with candidate TRENDS, how this run tells them apart, and "a trend nobody has
+seen is what the campaign MEASURES, not what it acts on". The same sentence
+lived in `outputTools`' `knowledge` enum description and was replaced there
+too — one lie in two places.
+
+`SYSTEM` is 33,500 against the 33,500 cap, not raised. Paid for by trimming
+yesterday's own additions: §3 kept only its distinctive half (§6 already
+carries the cadence/channel/copy list) and §6 dropped a consequence that is
+now the gate's own refusal text.
+
+### A vacuous test, exposed
+
+`entryAndTrends.test.ts` had "does not block a proposal that experiments on a
+no-trend brief" whose fixture declared no experiment at all. It passed
+because nothing was checking. The new block turned it red, which is the only
+reason it was found. It declares the test it names now.
+
+### Verified
+
+1268 unit (from 1252; 16 new) and 118 agent-proto. `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. Reverting the gate wiring fails
+2 tests; ignoring the path evidence fails 1.
+
+### Not in this slice
+
+The architecture comparison failing on a missing `.measurement` — the model
+omitted a field §6 asks for in prose and the tool schema does not require.
+That is a schema fix, not this rule.

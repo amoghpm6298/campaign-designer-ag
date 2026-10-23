@@ -384,7 +384,7 @@ export const OUTPUT_TOOLS: ToolDef[] = [
             knowledge: {
               type: 'string',
               enum: ['known', 'none-yet', 'unknown'],
-              description: '"none-yet" means nobody can say. That demands MORE work, not less: supply at least two candidate segments resting on different things, then wait for the manager to react before designing.',
+              description: '"none-yet" means nobody can say. That demands MORE work, not less: supply at least two candidate trends resting on different things, and design a run that tells them apart. Do not wait for the manager to pick one, and do not split the journey on a trend nobody has seen.',
             },
             candidates: {
               type: 'array',

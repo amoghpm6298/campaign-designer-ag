@@ -158,7 +158,9 @@ describe('the trends are derived from this objective, not from a standing list',
 
   it('keeps the entry whole when a trend turns up', () => {
     expect(SYSTEM).toMatch(/A TREND ABOUT WHO IS LIKELIER CHANGES THE TREATMENT, NEVER THE DOOR/);
-    expect(SYSTEM).toMatch(/everyone eligible still enters, and "I am not sure" does not shrink that/);
+    // Trimmed 2026-10-23 to pay for the trends rewrite in §1: §6 already
+    // carries the cadence/channel/copy list, so §3 keeps only its own half.
+    expect(SYSTEM).toMatch(/and "I am not sure" does not shrink the entry either/);
     // The structural half, which predates this slice and is what actually
     // enforces it: an entry condition is not segmentation.
     expect(SYSTEM).toMatch(/A SPLIT BELONGS INSIDE THE JOURNEY, NOT AT THE DOOR/);
@@ -168,7 +170,10 @@ describe('the trends are derived from this objective, not from a standing list',
 describe('no history is a reason to test, not a reason to ship a flat sequence', () => {
   it('says one track AND says the campaign must produce the trend', () => {
     expect(SYSTEM).toMatch(/IF THEY HAVE SEEN NO PATTERN, OR DO NOT TRACK IT: one track for everyone eligible/);
-    expect(SYSTEM).toMatch(/the campaign itself has to produce the trend/);
+    // The consequence ("or the next run starts as blind") is the gate's own
+    // refusal text now, so the prompt keeps the instruction and drops the
+    // sermon.
+    expect(SYSTEM).toMatch(/THIS run has to produce the trend/);
   });
 
   it('derives the comparison rather than defaulting to a copy test or more sends', () => {
@@ -185,14 +190,20 @@ describe('no history is a reason to test, not a reason to ship a flat sequence',
   });
 
   it('does not block a proposal that experiments on a no-trend brief', () => {
-    // The gate must not refuse the very thing the prompt asks for. A brief
-    // with no known converters, proposing a test, proceeds.
+    // THIS TEST WAS VACUOUS WHEN WRITTEN, 2026-10-22, and the gate check added
+    // on 2026-10-23 is what exposed it. Its name says "a proposal that
+    // experiments"; its fixture declared no experiment at all, so it proved
+    // only that nothing was checking. It now declares the test it claims to.
     const b = oneTrack();
     const d = decide(b, {
       proposed: {
         strategy: {
           summary: 'One track for everyone eligible, with the wording tested.',
           approach: ['Everyone eligible enters; two openings are compared.'],
+          strategyOptions: [
+            { option: 'Segmentation', verdict: 'not-applicable', why: 'No trend has been seen, so nothing to cut on.' },
+            { option: 'Experimentation', verdict: 'used', why: 'Two openings, randomly assigned, read on conversion.' },
+          ],
           touches: [
             { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'Remind on day 3.' },
             { day: 3, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'Stop.' },

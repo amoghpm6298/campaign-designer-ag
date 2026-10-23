@@ -22,7 +22,7 @@
 // test check the invariant instead of trusting it. Anything worth telling the
 // agent that does NOT have a clearing mutation is advice, and advice does not
 // block.
-import { isPlatformDimension, recordDimensions, type WorkingBrief } from './discovery';
+import { briefDimensions, isPlatformDimension, recordDimensions, type WorkingBrief } from './discovery';
 import { designableBarriers, convertersSettled, type Barrier, type Converters } from './findings';
 import { outstanding, exhausted } from './record';
 
@@ -57,7 +57,9 @@ export type Mutation =
    * trying to synthesise one.
    */
   | { field: 'hypotheses'; how: string }
-  | { field: 'touches'; how: string };
+  | { field: 'touches'; how: string }
+  | { field: 'experiment'; how: string }
+  | { field: 'treatmentSplit'; how: string };
 
 export interface Block {
   /** Stable identity, so two turns can be compared and only the DELTA shown. */
@@ -70,7 +72,9 @@ export interface Block {
     | 'dimension-unreasoned'
     | 'awaiting-reply'
     | 'belief-untested'
-    | 'cadence-unnamed';
+    | 'cadence-unnamed'
+    | 'split-without-trend'
+    | 'nothing-tested';
   /** Said to the user, in their terms. Never names a field or an id. */
   reason: string;
   /** What would clear it. Required by construction. */
@@ -110,6 +114,7 @@ export function decide(
     ...blocksFor(brief),
     ...proposalBlocks(brief, opts.proposed ?? null),
     ...(opts.building ? [] : cadenceBlocks(opts.proposed ?? null)),
+    ...(opts.building ? [] : trendBlocks(brief, opts.proposed ?? null)),
   ];
   const advice = adviceFor(brief);
 
@@ -128,6 +133,13 @@ export interface ProposalUnderReview {
     hypotheses?: string[];
     unknowns?: string[];
     touches?: { day: number; path: string }[];
+    /**
+     * The agent's own verdict on each strategic option. Read here for the
+     * same reason `checkExperimentClaims` reads it: a claim the agent makes
+     * about its own design is the one thing the application can check
+     * without judging the design itself.
+     */
+    strategyOptions?: { option: string; verdict: string; why?: string }[];
   } | null;
   openItems?: { kind: string }[];
 }
@@ -238,6 +250,112 @@ export function cadenceBlocks(proposed: ProposalUnderReview | null): Block[] {
       },
     },
   ];
+}
+
+/**
+ * A trend the MANAGER has seen, which is the only thing a treatment cut may
+ * rest on.
+ *
+ * `basis: 'user'` is what they stated; `status: 'retained'` is the agent
+ * saying it resolved and was used. Both are needed, and the second is what
+ * separates a factor they described from one they merely NAMED. "We do not
+ * track prior EMI" is recorded against the same dimension name, with status
+ * `unavailable` or `deferred` — a fact about the data, not a pattern they
+ * have observed. Reading only the basis would let an untracked factor
+ * authorise a split, which is the live defect this exists to stop.
+ *
+ * A described audience counts too: if they can say who converts today, they
+ * have seen the trend by definition.
+ */
+const statedTrend = (brief: WorkingBrief): boolean =>
+  briefDimensions(brief).some((d) => d.basis === 'user' && d.status === 'retained') ||
+  (brief.converters?.knowledge === 'known' && brief.converters.basis === 'user');
+
+/**
+ * TWO RULES ABOUT WHAT A PLAN MAY DO WITH A TREND IT DOES NOT HAVE.
+ *
+ * MEASURED on a live EMI run, 2026-10-23. Discovery asked the right question
+ * and the manager answered it plainly: they do not track prior EMI, category
+ * or ticket size, they want one track, and they want the first run to
+ * generate that signal. The strategy then split day-0 copy by prior EMI
+ * versus first-time and said the manager had flagged that factor — about a
+ * factor they had just said they do not record — and parked the wording test
+ * in "hypotheses for future" so this run tested nothing at all.
+ *
+ * Both halves are failures of the same kind: the plan spent a signal it did
+ * not have, and declined to produce the one it was asked for.
+ *
+ * WHY THE GATE AND NOT THE PROMPT. §2, §3 and §6 already say all of this in
+ * words, and the run above happened anyway. A rule the application enforces
+ * against the proposal is the only kind that has moved this agent's output.
+ *
+ * BEFORE CONFIRM, NEVER AFTER. Same reasoning as `cadenceBlocks`: `building`
+ * is true once the manager has approved, and refusing then leaves them with
+ * an approval that did nothing and nothing they can do about it.
+ */
+export function trendBlocks(brief: WorkingBrief, p: ProposalUnderReview | null): Block[] {
+  const s = p?.strategy;
+  if (!s) return [];
+  const verdict = (name: string) =>
+    (s.strategyOptions ?? []).find((o) => String(o.option ?? '').toLowerCase().startsWith(name))?.verdict;
+  const tests = verdict('experiment') === 'used';
+  const cuts = verdict('segmentation') === 'used';
+  // A path that is not "all" is a group being treated differently. Counted as
+  // well as read from the verdict, because the defect was a plan that split
+  // the copy while its own options list said nothing about segmentation.
+  const paths = new Set(
+    (s.touches ?? []).map((t) => String(t.path ?? '').trim().toLowerCase()).filter((x) => x && x !== 'all'),
+  );
+  const splits = cuts || paths.size >= 2;
+
+  // ONE PRECONDITION, TWO WAYS OF FAILING IT.
+  //
+  // Neither rule has anything to say once the manager has stated a trend, or
+  // once the plan runs a comparison:
+  //
+  //  - a stated trend is a pattern they have SEEN, so there is something real
+  //    to cut on and the cut itself is what produces the reading;
+  //  - a comparison produces the reading directly.
+  //
+  // What is left is a plan with neither, and it fails in one of two ways: it
+  // cuts the journey on a factor nobody has observed, or it runs flat and
+  // learns nothing. The first is the sharper thing to say, so a plan doing
+  // both gets one block rather than two making the same point twice.
+  //
+  // An earlier draft keyed the test rule on `converters.knowledge` instead,
+  // which demanded an experiment ON TOP of a split the manager had asked for
+  // — a second instrument for a question the first one answers.
+  if (statedTrend(brief) || tests) return [];
+
+  if (splits) {
+    return [
+      {
+        code: 'split-without-trend',
+        reason:
+          'This plan gives different groups different messages, and nothing you have told me says those groups behave differently. A factor you do not track cannot decide who gets what — it is the thing this campaign should be measuring, not the thing it acts on.',
+        clears: {
+          field: 'treatmentSplit',
+          how: 'Either put everyone on one track and compare the groups in "measurement", or make the split a real experiment with randomly assigned arms. A cut by a customer factor needs a trend the manager has stated they have seen.',
+        },
+      },
+    ];
+  }
+
+  {
+    const parked = (s.hypotheses ?? []).length > 0;
+    return [
+      {
+        code: 'nothing-tested',
+        reason: parked
+          ? 'Nobody can say yet who responds, and this plan keeps its test for a future run. There is no later run to inherit it: with nothing compared this time, the next campaign starts exactly as blind as this one.'
+          : 'Nobody can say yet who responds, and this plan compares nothing, so it will return one number with nothing to read it against. The first run is where the signal comes from.',
+        clears: {
+          field: 'experiment',
+          how: 'Run one comparison this time — wording, dosage, channel or timing, whichever this objective is actually uncertain about — and mark Experimentation "used" with what each arm gets and how the result would be read.',
+        },
+      },
+    ];
+  }
 }
 
 /** Every reason the agent may not propose yet, most actionable first. */
@@ -437,6 +555,8 @@ export function satisfy(brief: WorkingBrief, m: Mutation): WorkingBrief {
     }
     case 'hypotheses':
     case 'touches':
+    case 'experiment':
+    case 'treatmentSplit':
       // Not a record change, so there is nothing to synthesise here. The
       // clearability test treats a proposal mutation separately: it checks the
       // block names a field the model can write, not that the brief can be
