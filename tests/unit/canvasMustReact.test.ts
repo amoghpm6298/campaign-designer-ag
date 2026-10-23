@@ -217,13 +217,43 @@ describe('journeyReacts reads the blueprint, not the claim', () => {
 describe('the retry instruction names what does NOT count', () => {
   it('is in the source, on the build turn', () => {
     expect(orch).toMatch(/The journey you sent is a clock/);
-    expect(orch).toMatch(/delivery or read result \("outcomes"\)/);
+    expect(orch).toMatch(/A FORK BELONGS AFTER A SEND WHOSE ARMS WOULD DO DIFFERENT JOBS/);
     expect(orch).toMatch(/A split on ticket size is segmentation, not a reaction/);
-    expect(orch).toMatch(/A goal check after every send is not a reaction/);
-    expect(orch).toMatch(/fallbackChannel on a send is a field, not a fork/);
+    expect(orch).toMatch(/Never branch on QUEUED, SENT or PENDING/);
+    expect(orch).toMatch(/Arms must not overlap/);
     // It must not cost the manager their evidenced split or invent a problem.
     expect(orch).toMatch(/Do not invent a second barrier/);
-    expect(orch).toMatch(/Do not drop the who-split the manager evidenced/);
+    expect(orch).toMatch(/Keep every message, every day and every channel job you already had/);
+  });
+
+  it('does not ask for a split after every send', () => {
+    // THE SECOND MISTAKE THIS SLICE REFUSES. A check after every message is a
+    // clock with extra nodes, and nested three-way forks on a four-touch path
+    // are unreadable. The retry asks for a DECISION about which send is worth
+    // reading back, so this pins the instruction against its own worst
+    // reading — an earlier draft of it said "after each Send, branch on what
+    // that send reported", which is the stamp.
+    const retry = orch.slice(orch.indexOf('const REACTION_RETRY ='), orch.indexOf('export function systemForPhase'));
+    expect(retry.length).toBeGreaterThan(0);
+    expect(retry).not.toMatch(/after each send/i);
+    expect(retry).not.toMatch(/after every send, branch|branch after every/i);
+    expect(retry).toMatch(/WHERE EVERY ARM WOULD WAIT THE SAME TIME AND SEND THE SAME KIND OF REMINDER, DO NOT SPLIT/);
+    expect(retry).toMatch(/One or two designed checks on a whole path is the shape/);
+  });
+
+  it('does not ask for the failure path on another channel', () => {
+    // THE WRONG INSTRUCTION, measured on `ui-s-1792748248345`: the retry told
+    // the model to route the failure to a different channel, and undelivered
+    // is `fallbackChannel` on the Send — a field, not a route anybody walks.
+    const retry = orch.slice(orch.indexOf('const REACTION_RETRY ='), orch.indexOf('export function systemForPhase'));
+    expect(retry).not.toMatch(/failure path on a different channel/);
+    expect(retry).toMatch(/do not route the failure to another channel as a step/);
+    expect(retry).toMatch(/Do NOT add a FAILED, UNKNOWN or NOT_DELIVERED arm/);
+    expect(retry).toMatch(/Do not add a converted arm/);
+    // And the definition it came from is gone from the audit as well.
+    const audit = readFileSync(new URL('../../server/optionAudit.ts', import.meta.url), 'utf8');
+    expect(audit).toMatch(/THE CHANNEL-FALLBACK LEG IS GONE/);
+    expect(audit).not.toMatch(/const failure = channelOf\(firstSend\(condition\.no\)\);[\s\S]{0,200}return Boolean\(failure && tested\)/);
   });
 
   it('is NOT method prose in SYSTEM, which has a cap this does not touch', () => {
@@ -310,7 +340,7 @@ const APPROVED = {
     { name: 'Work the statement date', barrier: 'cost-perception', entry: 'The same purchases', timing: 'Before the statement', lever: 'timing', journey: 'linear', mechanism: 'Pitch it with the bill.', tradeoff: 'Later.' },
   ],
   touches: [
-    { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is not delivered, SMS the same day.' },
+    { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is still sitting unread, send the same fact again sooner; if it is not delivered at all, SMS the same day.' },
     { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance.', ifStillUnconverted: 'If it was read and nothing happened, stop.' },
   ],
 };

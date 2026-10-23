@@ -225,6 +225,17 @@ describe('renderStrategy shows the verdicts', () => {
     expect(out).toContain('**Success criteria**');
     expect(out).not.toContain('Options weighed');
   });
+
+  it('does not crash when rejected is a sentence instead of a list', () => {
+    // Live EMI turn, 2026-10-23: the model sent rejected as one string.
+    // `s.rejected.map is not a function` — Confirm never appeared.
+    const out = renderStrategy({
+      ...base,
+      rejected: 'A daily digest would miss the 30-minute window.' as never,
+    });
+    expect(out).toContain('**Considered and not used**');
+    expect(out).toContain('A daily digest would miss the 30-minute window.');
+  });
 });
 
 // ---------------------------------------------------------------------------

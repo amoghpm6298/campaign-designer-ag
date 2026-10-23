@@ -37,7 +37,7 @@ const settled = () => {
 
 /** Two touches that tell not-delivered from read-and-ignored. */
 const reactingTouches = [
-  { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Say the purchase can be split.', ifStillUnconverted: 'If it is not delivered, SMS the same day.' },
+  { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Say the purchase can be split.', ifStillUnconverted: 'If it is still sitting unread, send the same fact again sooner; if it is not delivered at all, SMS the same day.' },
   { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance before it lapses.', ifStillUnconverted: 'If it was read and nothing happened, stop.' },
 ];
 
@@ -139,17 +139,37 @@ describe('claiming a reaction is not having one', () => {
     expect(reactionBlocks({ strategy: plan() } as never)).toEqual([]);
   });
 
-  it('accepts a converted-and-stop case as one of the two', () => {
+  it('accepts a converted-and-stop case alongside a landed one', () => {
     expect(
       reactionBlocks({
         strategy: plan({
           touches: [
-            { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it does not deliver, send on SMS.' },
+            { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is still sitting unread, repeat the same fact sooner.' },
             { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance.', ifStillUnconverted: 'If they have converted, the campaign stops for them.' },
           ],
         }),
       } as never),
     ).toEqual([]);
+  });
+
+  it('no longer counts "not delivered, try SMS" as one of the two', () => {
+    // MEASURED, and it is why this changed. Undelivered was the easiest of
+    // the cases to write, so "if it is not delivered, SMS the same day"
+    // satisfied half the requirement while saying nothing about anybody who
+    // actually received the message. It is a real decision and it belongs in
+    // the plan — as `fallbackChannel` on that send, not as a person who did
+    // something.
+    const blocks = reactionBlocks({
+      strategy: plan({
+        touches: [
+          { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is not delivered, SMS the same day.' },
+          { day: 2, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'If it does not deliver either, stop.' },
+        ],
+      }),
+    } as never);
+    expect(blocks.map((b) => b.code)).toEqual(['no-reaction']);
+    expect(blocks[0].clears.how).toMatch(/name at least two cases where the message LANDED/);
+    expect(blocks[0].clears.how).toMatch(/Undelivered is worth mentioning as the fallback channel/);
   });
 });
 

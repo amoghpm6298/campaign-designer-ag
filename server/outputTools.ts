@@ -179,15 +179,27 @@ const STEP_DEF = {
     attribute: { type: 'string' },
     paths: {
       type: 'array',
+      description:
+        'Arms of a "branch". TWO SHAPES. On an attribute branch (you sent "entity" and "attribute") every path carries "operator" and "value" — that is who the customer IS. On an outcome branch (no entity, no attribute) every path carries "statuses" — the delivery statuses of the SEND immediately before it, which is what the customer DID. Do not mix the two on one branch.',
       items: {
         type: 'object',
         properties: {
           label: { type: 'string' },
-          operator: { type: 'string', enum: BUILDER_OPERATORS },
-          value: { type: 'string' },
+          operator: { type: 'string', enum: BUILDER_OPERATORS, description: 'Attribute branch only.' },
+          value: { type: 'string', description: 'Attribute branch only.' },
+          statuses: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Outcome branch only. Statuses from the preceding send\'s channel, e.g. ["DELIVERED"] / ["READ"] / ["DELETED"] on WhatsApp. Never QUEUED, SENT or PENDING: the message is still in flight and that is not a person. Never a FAILED, UNKNOWN or NOT_DELIVERED arm: undelivered is "fallbackChannel" on the send itself, and an arm there would have nothing different to say.',
+          },
           steps: { type: 'array', items: { $ref: '#/$defs/step' } },
         },
-        required: ['label', 'operator', 'value', 'steps'],
+        // `operator` and `value` ARE NO LONGER REQUIRED, because an outcome
+        // path has neither. The compiler checks the pair that applies to the
+        // shape it was given; requiring both here would have made the outcome
+        // branch unsendable while the API reported it as a schema error.
+        required: ['label', 'steps'],
       },
     },
   },
@@ -806,8 +818,29 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       // That is the precise failure the comment below was already warning
       // about for `architectureAudit`, reintroduced one check earlier. One
       // boundary, and it has to come first.
+      const asRejected = (value: unknown): NonNullable<Strategy['rejected']> => {
+        if (typeof value === 'string' && value.trim()) return [{ option: value.trim(), why: '' }];
+        return asList<{ option?: string; why?: string } | string>(value)
+          .map((r) =>
+            typeof r === 'string'
+              ? { option: r, why: '' }
+              : { option: String(r.option ?? '').trim(), why: String(r.why ?? '').trim() },
+          )
+          .filter((r) => r.option);
+      };
+      const asStrings = (value: unknown): string[] => {
+        if (typeof value === 'string' && value.trim()) return [value.trim()];
+        return asList<unknown>(value).map((x) => String(x ?? '').trim()).filter(Boolean);
+      };
       const normalised: Strategy = {
         ...strategy,
+        approach: asStrings(strategy.approach),
+        assumptions: asStrings(strategy.assumptions),
+        unknowns: asStrings(strategy.unknowns),
+        hypotheses: asStrings(strategy.hypotheses),
+        successCriteria: asStrings(strategy.successCriteria),
+        measurement: asStrings(strategy.measurement),
+        rejected: asRejected(strategy.rejected),
         architectures: asList<NonNullable<Strategy['architectures']>[number]>(strategy.architectures).map((a) => {
           const raw = a as typeof a & { audience?: string; tradeOff?: string; why?: string };
           return {

@@ -101,7 +101,7 @@ const sawOnlyAClock = () =>
 // `channelJobBlocks` and `reactionBlocks` hold the turn and these tests prove
 // nothing about trends.
 const touches = (path = 'all') => [
-  { day: 0, channel: 'WHATSAPP', path, purpose: 'Say what the instalment costs.', ifStillUnconverted: 'If it is not delivered, SMS the same day.' },
+  { day: 0, channel: 'WHATSAPP', path, purpose: 'Say what the instalment costs.', ifStillUnconverted: 'If it is still sitting unread, send the same fact again sooner; if it is not delivered at all, SMS the same day.' },
   { day: 3, channel: 'SMS', path, purpose: 'Remind them the window closes.', ifStillUnconverted: 'If it was read and nothing happened, stop; the request lapses.' },
 ];
 
@@ -377,6 +377,18 @@ describe('the prompt no longer fights the rule', () => {
   });
 
   it('still forbids a click condition on a channel that cannot report one', () => {
-    expect(SYSTEM).toMatch(/Never put a click condition on a WhatsApp or SMS send/);
+    // Widened to opens as well, 2026-10-23: WhatsApp and SMS report neither,
+    // and the compiler now refuses the status outright rather than coercing
+    // it. The prompt still says so, because the cheapest place to stop it is
+    // before it is written.
+    expect(SYSTEM).toMatch(/Never put a click or open condition on a WhatsApp or SMS send/);
+  });
+
+  it('names the three WhatsApp statuses rather than two', () => {
+    // DELIVERED-and-unread, READ, DELETED are three different people, and the
+    // prompt used to say "delivered and read" — which is where "two waits and
+    // a reminder" comes from.
+    expect(SYSTEM).toMatch(/WhatsApp reports DELIVERED, READ and DELETED/);
+    expect(SYSTEM).toMatch(/FAILED IS NOT AN ARM/);
   });
 });

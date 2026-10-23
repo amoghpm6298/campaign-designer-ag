@@ -2711,3 +2711,114 @@ Known and still not done: `derive()` does not walk `branch` paths, so sends
 nested inside an n-way split contribute no `linear` tag. Pre-existing, nothing
 in this slice depends on it, and changing it moves fidelity verdicts that
 nothing currently covers.
+
+## 2026-10-23 (cont'd) — The journey can branch on what the last message
+reported, and it is a decision rather than a stamp
+
+`eval/runs/ui-s-1792748248345` turn 5. The Confirm built a Transaction Amount
+branch, waits of 24/48/72 hours, SMS as a field on the send, seventeen Goal
+Checks, and not one split on the previous step's outcome. The reply correctly
+called the canvas a clock — and `REACTION_RETRY` then asked for "the failure
+path on a different channel", which was the application asking for the wrong
+thing twice over.
+
+### The blueprint had no words for the fix
+
+The builder's Decision Split has routed on "Previous step outcome" since long
+before any of this, and `kind: 'branch'` could only ask for an attribute. So
+`condition.outcomes` (Yes/No) was the agent's only engagement fork, and
+WhatsApp reports THREE people once a message lands: delivered-and-unread, read
+-and-not-acted-on, dismissed. Two nested Yes/Nos put one of them a level
+deeper for no reason a customer experiences.
+
+`kind: 'branch'` now has a second shape, discriminated by what is present
+rather than by a new kind, because the builder draws both with one node and
+only its `source` differs. Attribute branch: `entity` + `attribute`, paths
+carry `operator`/`value`. Outcome branch: neither, paths carry `statuses`, and
+it needs a preceding Send. Compiled through `dcConfirmAddNode('DECISION_SPLIT')`
+with `branches[].values` — the multi-select the form itself stores — and the
+catch-all stays the reducer's.
+
+### A CAPABILITY, NOT AN INJECT, and this is the half that was easy to get wrong
+
+A split after every send is a clock with extra nodes. The compiler builds an
+outcome split only where the blueprint asks for one, never inserts one, and a
+test pins that a send/wait/send blueprint compiles zero of them.
+`reactsToDelivery` asks whether the journey has ONE designed check whose arms
+do different jobs — not whether every send has one. One or two checks on a
+path is the shape; the retry and the vocabulary both say so in those words,
+and a test greps the retry for the stamp wording an earlier draft of mine
+actually had ("after each Send, branch on what that send reported").
+
+### What is not an arm, enforced at compile time
+
+- **Undelivered.** FAILED*, UNKNOWN, NOT_DELIVERED, HARD_BOUNCE and the SMS
+  FAILED_* codes are `fallbackChannel` on that Send — the same message
+  attempted elsewhere. A FAILED-only arm is dropped with a limitation saying
+  exactly that, and the rest of the journey is built.
+- **In flight.** QUEUED, SENT, PENDING. The arm would catch whoever the
+  campaign looked at mid-flight rather than a person who did something.
+- **A status the channel does not emit.** CLICKED on a WhatsApp send is
+  reported and never coerced to the nearest thing it does report.
+- **Overlapping arms.** READ claimed by two arms routes one person two ways
+  and the reducer would take whichever edge matched first. The earlier arm
+  keeps it; the later one is reported.
+- **A "converted" arm.** The Goal Check after each send already takes anyone
+  who booked off the path, and those Goal Checks stay visible.
+
+`server/deliveryStatuses.ts` holds the classification and imports the
+vocabulary — `DELIVERY_STATUS_BY_CHANNEL` and `deliveryStatusOptionsForSend`,
+which already knew the subtlety nobody would guess: a send with a fallback
+could have landed on either channel, so both vocabularies apply. That is why
+OPENED is legal after a WhatsApp send whose fallback is EMAIL, and there is a
+test for it.
+
+### The channel-fallback leg of `reactsToDelivery` is gone
+
+It counted "the No arm goes out on a different channel" as the reaction, and
+that definition is where the retry's SMS-arm instruction came from. Deleted,
+with the live run named in the comment. `walk()` also descends into
+`branch.paths` now — it never did, so an outcome branch was invisible to every
+check in `optionAudit`, and so was anything nested in a ticket-size arm.
+`derive()` walks them too, for the linear tag.
+
+### Done when, measured
+
+The full EMI design compiles: eligible-purchase event entry, the ₹10,000
+attribute branch, a wording experiment on the fuller path, WhatsApp with SMS
+fallback on three sends, **exactly one** Previous-step-outcome split with
+DELIVERED / READ / DELETED arms, 12 Goal Checks, zero open paths, zero issues,
+and `journeyReacts` true.
+
+One thing the fixture taught: a trailing `exit` after a fork produces the
+compiler's existing "N open slots exist; the continuation is ambiguous" issue.
+That rule is older than this slice and the vocabulary already says a trailing
+exit is optional — the fixture drops them and compiles clean.
+
+### Verified
+
+1390 unit (from 1357; 26 new in `outcomeBranch.test.ts` plus the retry and
+status pins) and 118 agent-proto. `tsc --noEmit`, `server:typecheck` and
+`npm run build` clean. `SYSTEM` is **33,475 / 33,500**, not raised — the new
+channel sentence was paid for by two §7 bullets the slice makes wrong
+("the message did not reach them at all" is a field, not a journey case) and
+by trimming its own prose.
+
+Reverting the outcome-branch compile fails 12; reverting `walk()`'s descent
+fails 2; reverting `derive()`'s fails 1.
+
+**Fixtures retargeted, and the reason is the measured one:** `namedOutcomes`
+no longer counts "not delivered, try another channel" as one of the two named
+cases, because it was the easiest of the four to write and said nothing about
+anyone who actually received the message. Six fixtures used exactly that
+sentence as half their requirement. They now name the unread case as well, and
+a test pins the old pairing as insufficient.
+
+### Superseded mid-slice, deliberately recorded
+
+The first version of this work made the three-way WhatsApp split a rule — the
+retry said "after each Send, branch", and the vocabulary said those three
+statuses "want three different next steps". That is the stamp, and it was
+replaced before anything shipped: the agent must DECIDE which send is worth
+reading back and say why in `approach`. No auto-insert was ever built, so
+there was nothing to tear out of the compiler.

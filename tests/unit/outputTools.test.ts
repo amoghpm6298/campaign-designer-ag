@@ -301,6 +301,20 @@ describe('a proposal must compare two genuinely different theories of the proble
   it('needs a summary in the manager\'s terms', () => {
     expect(applyOutputTool(started(), 'propose_strategy', { approach: [] }).error).toMatch(/needs a "summary"/);
   });
+
+  it('coerces rejected from a sentence so the renderer is not handed a string', () => {
+    const out = applyOutputTool(withBarriers(['awareness']), 'propose_strategy', {
+      ...plan([
+        { name: 'Catch them at checkout', barrier: 'awareness', entry: 'On authorisation', timing: 'Within 30 minutes', lever: 'timing', journey: 'single-touch', chosen: true },
+        { name: 'Work the window', barrier: 'awareness', entry: 'On authorisation', timing: 'Day 1, 3, 6', lever: 'message', journey: 'reminder' },
+      ]),
+      rejected: 'A daily digest would miss the moment of purchase.',
+    });
+    expect(out.error).toBeUndefined();
+    expect(out.strategy?.rejected).toEqual([
+      { option: 'A daily digest would miss the moment of purchase.', why: '' },
+    ]);
+  });
 });
 
 describe('building is separate from proposing', () => {

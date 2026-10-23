@@ -75,7 +75,15 @@ export function derive(bp: CampaignBlueprint | null | undefined): Set<JourneyBeh
       if (s.kind === 'waitForEvent') found.add('wait-for-event');
       // Descended into, never tagged. A condition is the step that CARRIES a
       // reaction; whether it is one is `reactsToDelivery`'s to say, below.
+      // The same goes for a branch, which is either a who-split or an outcome
+      // split and is tagged by neither its presence nor its shape here.
       if (s.kind === 'condition') { walk(s.yes); walk(s.no); }
+      // DESCENDED INTO SINCE 2026-10-23. It was not, so sends and waits
+      // nested in any branch arm contributed no `linear` tag — a journey
+      // whose entire body sat under a ticket-size split read as doing
+      // nothing at all, and a declared `linear` winner was then told it also
+      // does "nothing of the kind".
+      if (s.kind === 'branch') for (const p of s.paths ?? []) walk(p.steps);
       if (s.kind === 'experiment') {
         found.add('experiment');
         for (const a of s.arms ?? []) walk(a.steps);

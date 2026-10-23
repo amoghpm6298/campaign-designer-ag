@@ -13,7 +13,7 @@
 import { dcConfirmAddNode, type DcAddingAt } from '../src/reducer/campaignReducer';
 import { dcDefaultConfig } from '../src/reducer/defaultConfig';
 import { dcResetIdCounters } from '../src/reducer/idGen';
-import { COMMS_TEMPLATES, EVENT_CATEGORIES, ELIGIBILITY_META, DC_EVENT_ENTITY, dcOperatorsForAttribute, type AttrMeta, type Channel } from '../src/data/sharedConstants';
+import { COMMS_TEMPLATES, EVENT_CATEGORIES, ELIGIBILITY_META, DC_EVENT_ENTITY, DELIVERY_STATUS_BY_CHANNEL, dcOperatorsForAttribute, type AttrMeta, type Channel } from '../src/data/sharedConstants';
 import {
   validateEventConditions,
   validateAudienceConditions,
@@ -25,6 +25,7 @@ import {
   type ConditionLimitation,
 } from '../src/data/conditionValidation';
 import { selectTemplate, proposeMessaging, type TemplateNeed } from '../agent-proto/templateSelect';
+import { statusVocabularyFor, isInFlight, isUndelivered, engagementStatusesFor } from './deliveryStatuses';
 import type { DripGraph, DripGoal, DripGoalCondition } from '../src/data/graphTypes';
 
 // --- the closed vocabulary the model may use -------------------------
@@ -177,10 +178,33 @@ export type BpStep =
        */
       kind: 'branch';
       label: string;
-      entity: string;
-      attribute: string;
-      /** Each path routes on its own comparison against that one attribute. */
-      paths: { label: string; operator: string; value: string; steps: BpStep[] }[];
+      /**
+       * TWO SHAPES OF THE SAME STEP, discriminated by what is present rather
+       * than by a new `kind`, because the builder draws them with the same
+       * node (DECISION_SPLIT) and only its `source` differs.
+       *
+       *  - ATTRIBUTE branch: `entity` + `attribute`, and every path carries
+       *    `operator` + `value`. Who the customer IS. Ticket size lives here.
+       *  - OUTCOME branch: neither, and every path carries `statuses` — the
+       *    real per-channel delivery statuses from the preceding Send. What
+       *    the customer DID with the last message.
+       *
+       * WHY N-WAY AND NOT NESTED YES/NO. WhatsApp reports three different
+       * people once a message lands: unread in the inbox, read and not acted
+       * on, and dismissed. `condition` with `outcomes` can separate two of
+       * them; the third needs this, and two nested Yes/Nos put one group a
+       * level deeper than the others for no reason a customer experiences.
+       */
+      entity?: string;
+      attribute?: string;
+      paths: {
+        label: string;
+        operator?: string;
+        value?: string;
+        /** Outcome branch only. Statuses the preceding Send's channel emits. */
+        statuses?: string[];
+        steps: BpStep[];
+      }[];
     };
 
 export interface CampaignBlueprint {
@@ -957,14 +981,123 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
       }
 
       if (step.kind === 'branch') {
-        // N-way routing on one attribute, built as the app's own
-        // DECISION_SPLIT. Same reducer call the builder's UI makes.
+        // N-way routing, built as the app's own DECISION_SPLIT. Same reducer
+        // call the builder's UI makes, for both shapes.
         if (!step.paths?.length) {
           issues.push({ path, problem: 'A branch needs at least one path.' });
           return;
         }
+
+        // --- OUTCOME BRANCH: what they did with the last message ----------
+        if (!step.entity && !step.attribute) {
+          if (!lastSend) {
+            issues.push({ path, problem: 'A branch on delivery statuses needs a preceding Send.' });
+            return;
+          }
+          // CAPTURED, not re-read. `lastSend` is reassigned by every Send,
+          // including the ones inside the arms this step is about to build,
+          // so the vocabulary has to be the one belonging to the send in
+          // front of the split.
+          const prevSend = lastSend;
+          const vocabulary = statusVocabularyFor({
+            channel: prevSend.channel as Channel,
+            fallbackChannel: (prevSend.fallbackChannel || null) as Channel | null,
+          });
+          const spoken = new Set(vocabulary.map((s) => s.toUpperCase()));
+          const kept: { label: string; statuses: string[]; steps: BpStep[] }[] = [];
+          step.paths.forEach((b, i) => {
+            const asked = (Array.isArray(b.statuses) ? b.statuses : []).map((s) => String(s ?? '').trim().toUpperCase()).filter(Boolean);
+            if (!asked.length) {
+              issues.push({ path: `${path}.paths[${i}]`, problem: `"${b.label}" names no delivery status, so nothing routes to it.` });
+              return;
+            }
+            // NOT COERCED. A status this channel does not emit is the agent
+            // reaching for a signal that does not exist — CLICKED on a
+            // WhatsApp send is the live example — and substituting the
+            // nearest one would build a different campaign than the one
+            // described. Reported, and the arm keeps whatever was real.
+            const unknown = asked.filter((s) => !spoken.has(s));
+            if (unknown.length) {
+              issues.push({
+                path: `${path}.paths[${i}]`,
+                problem: `${prevSend.channel} does not report ${unknown.join(', ')}. It reports: ${vocabulary.join(', ')}.`,
+              });
+            }
+            const real = asked.filter((s) => spoken.has(s));
+            const flight = real.filter(isInFlight);
+            if (flight.length) {
+              issues.push({
+                path: `${path}.paths[${i}]`,
+                problem: `${flight.join(', ')} means the message is still on its way, so "${b.label}" would catch whoever the campaign looked at mid-flight rather than a person who did something.`,
+              });
+            }
+            const usable = real.filter((s) => !isInFlight(s));
+            if (!usable.length) return;
+            // UNDELIVERED IS THE FALLBACK'S JOB, NOT AN ARM. Dropped with a
+            // limitation rather than refused, and the rest of the journey is
+            // built: there is nothing to SAY to someone who never received
+            // anything, so an arm for them can only repeat the send that
+            // already failed — which is what `fallbackChannel` does, once,
+            // on another channel.
+            if (usable.every(isUndelivered)) {
+              limitations.push({
+                attribute: `${b.label} (${usable.join(', ')})`,
+                note: 'A path for an undelivered message is not built. Undelivered is the fallback channel on the Send itself, which re-attempts the same message elsewhere; a graph arm there would have nothing different to say.',
+              });
+              return;
+            }
+            // ARMS MUST NOT OVERLAP. Two arms claiming READ route the same
+            // person two ways, and the reducer would send them down whichever
+            // edge it matched first — a campaign nobody designed. The earlier
+            // arm keeps the status, because the model wrote it first and
+            // guessing which it meant would be inventing.
+            const taken = new Set(kept.flatMap((k) => k.statuses));
+            const clash = usable.filter((s) => taken.has(s));
+            if (clash.length) {
+              issues.push({
+                path: `${path}.paths[${i}]`,
+                problem: `${clash.join(', ')} is already routed by an earlier arm of this split, so "${b.label}" cannot also claim it. One status, one arm.`,
+              });
+            }
+            const mine = usable.filter((s) => !taken.has(s));
+            if (!mine.length) return;
+            kept.push({ label: b.label, statuses: mine, steps: b.steps });
+          });
+          if (!kept.length) {
+            issues.push({ path, problem: 'No usable arm is left on this branch, so the split was not built.' });
+            return;
+          }
+          const cfg = {
+            ...dcDefaultConfig('DECISION_SPLIT', goal),
+            name: step.label,
+            // The builder's own source name, and no `attribute` — that field
+            // is what makes a DECISION_SPLIT an attribute split.
+            source: 'Previous step outcome',
+            branches: kept.map((b, i) => ({
+              id: `bo${i}`,
+              label: b.label,
+              // The form stores a multi-select in `values[]`; `value` stays
+              // empty, exactly as `dcSelectedMulti` expects.
+              operator: '',
+              value: '',
+              values: b.statuses,
+              value2: '',
+            })),
+          };
+          const beforeOutcome = new Set(Object.keys(graph.nodes));
+          graph = dcConfirmAddNode(graph, 'DECISION_SPLIT', cfg, where, goal);
+          const outcomeId = Object.keys(graph.nodes).find((id) => !beforeOutcome.has(id));
+          const outcomeArms = graph.edges.filter((e) => e.from === outcomeId);
+          kept.forEach((b, i) => {
+            const edge = outcomeArms.find((e) => e.branchLabel === b.label) ?? outcomeArms[i];
+            if (edge) addSteps(b.steps, `${path}.paths[${i}]`, { kind: 'edge', edgeId: edge.id });
+          });
+          return;
+        }
+
+        // --- ATTRIBUTE BRANCH: who the customer is ------------------------
         const owns = ELIGIBILITY_META[step.entity as keyof typeof ELIGIBILITY_META];
-        if (!owns || !Object.keys(owns).includes(step.attribute)) {
+        if (!owns || !Object.keys(owns).includes(step.attribute ?? '')) {
           issues.push({ path, problem: `${step.entity} has no attribute "${step.attribute}".` });
           return;
         }
@@ -972,12 +1105,12 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
           ...dcDefaultConfig('DECISION_SPLIT', goal),
           name: step.label,
           source: `${step.entity} attribute`,
-          attribute: step.attribute,
+          attribute: step.attribute ?? '',
           branches: step.paths.map((b, i) => ({
             id: `bp${i}`,
             label: b.label,
-            operator: b.operator,
-            value: b.value,
+            operator: b.operator ?? 'Equals',
+            value: b.value ?? '',
             value2: '',
           })),
         };
@@ -1155,7 +1288,22 @@ export function blueprintVocabulary(
         ]),
     '',
     '### Step kinds you may use',
-    '- send (has its own clock time and optional delayDays / fallbackChannel — those are fields on the Send, not extra steps), wait, waitForEvent, exit, experiment (A/B arms), condition (Yes/No on a previous send outcome, or on a customer attribute via "on"), branch (n-way on one attribute)',
+    '- send (has its own clock time and optional delayDays / fallbackChannel — those are fields on the Send, not extra steps), wait, waitForEvent, exit, experiment (A/B arms), condition (Yes/No on a previous send outcome via "outcomes", or on a customer attribute via "on"), branch (n-way: on one attribute, OR on the preceding send\'s delivery statuses)',
+    '',
+    '### Branching on what the last message DID — the real per-channel statuses',
+    '(these are the platform\'s own delivery vocabulary, not a list to invent from. A "branch" with no entity/attribute and `statuses` on each path is an outcome split; one with entity+attribute is a who-split.)',
+    ...availableChannels.map((c) => {
+      const engagement = engagementStatusesFor(c as Channel);
+      const all = DELIVERY_STATUS_BY_CHANNEL[c as Channel] ?? [];
+      return `- ${c}: worth branching on — ${engagement.join(', ') || 'nothing it reports is an engagement signal'}. Everything else it reports (${all.filter((s) => !engagement.includes(s)).join(', ')}) is either in flight or undelivered.`;
+    }),
+    '- WhatsApp and SMS do NOT report opens or clicks. Never put OPENED or CLICKED on one. Email and RCS do report them.',
+    '- DELIVERED on its own means it landed and has NOT been read yet. READ means they saw it and did not act. DELETED means they dismissed the thread.',
+    '- A SPLIT IS A DECISION, NOT A HABIT. Put one after a send only when the arms would do DIFFERENT JOBS: unread needs the same fact sooner, read-and-not-booked needs a different argument, dismissed needs leaving alone. Where every arm would wait the same time and send the same kind of reminder, do not split — that is a clock with extra nodes. One or two designed checks on a whole path is the shape, never one after every message, and never nested three-way forks on a four-touch path. Say in "approach" which send you chose to read back and why that one.',
+    '- Use only the statuses that change the next job on THAT send. A later check may be READ against everything else; email or RCS may be OPENED against CLICKED. Arms on one split must not overlap — on WhatsApp, READ is not also DELIVERED. The leftovers are the reducer\'s catch-all.',
+    '- Never branch on QUEUED, SENT or PENDING: the message is still on its way and that is not a person.',
+    '- Never create a FAILED / UNKNOWN / NOT_DELIVERED arm. Undelivered is "fallbackChannel" on the send itself, which re-attempts the same message elsewhere. An arm for someone who received nothing has nothing different to say.',
+    '- Do not add a "converted" arm. The Goal Check after each send already takes anyone who booked off the path.',
     '',
     '### What the application builds FOR you — do not ask for these',
     '- After every send and every wait, if a Goal is set, the application automatically inserts a Goal Check and a "Goal Reached" exit on its Yes arm. Anyone who reaches the goal leaves the journey there.',

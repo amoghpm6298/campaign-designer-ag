@@ -215,7 +215,7 @@ describe('no history is a reason to test, not a reason to ship a flat sequence',
             { name: 'Work the statement date', journey: 'linear' },
           ],
           touches: [
-            { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is not delivered, SMS the same day.' },
+            { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is still sitting unread, send the same fact again sooner; if it is not delivered at all, SMS the same day.' },
             { day: 3, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'If it was read and nothing happened, stop.' },
           ],
           assumptions: [],

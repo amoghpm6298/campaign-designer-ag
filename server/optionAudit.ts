@@ -18,6 +18,7 @@
 // a journey and are left to the model, named here so the gap is explicit
 // rather than silent.
 import type { CampaignBlueprint, BpStep } from './blueprint';
+import { isEngagement } from './deliveryStatuses';
 
 export type OptionVerdict = 'used' | 'not-applicable' | 'cannot-evaluate';
 
@@ -36,11 +37,20 @@ export interface OptionAudit {
   gap?: string;
 }
 
-/** Flattens a journey, descending into experiment arms and condition branches. */
+/**
+ * Flattens a journey, descending into every container a step can have.
+ *
+ * `branch.paths` WAS MISSING, and that made an outcome branch invisible to
+ * every check in this file — the one shape this slice exists to recognise.
+ * The attribute branch has been compilable for days and nothing here could
+ * see inside it either, so a send nested in a ticket-size arm cited no
+ * barrier as far as the audits were concerned.
+ */
 function walk(steps: BpStep[] | undefined, out: BpStep[] = []): BpStep[] {
   for (const s of steps ?? []) {
     out.push(s);
     if (s.kind === 'experiment') for (const a of s.arms ?? []) walk(a.steps, out);
+    if (s.kind === 'branch') for (const p of s.paths ?? []) walk(p.steps, out);
     if (s.kind === 'condition') {
       walk(s.yes, out);
       walk(s.no, out);
@@ -320,27 +330,46 @@ export function journeyReacts(bp: CampaignBlueprint | null | undefined): boolean
 export function reactsToDelivery(bp: CampaignBlueprint | null | undefined): boolean {
   if (!bp) return false;
 
-  // A fork on the PRECEDING SEND's delivery or read outcome, whose two sides
-  // then do different things. Both halves are needed: a condition on
-  // `outcomes` that runs the identical sequence either way is a label.
+  // TWO ENGAGEMENT ARMS, DOING DIFFERENT THINGS. Both halves are needed and
+  // each rules out a different near-miss:
+  //
+  //  - two arms, so FAILED-versus-DELIVERED is not a reaction. One of those
+  //    is a person and the other is a delivery receipt; splitting on it tells
+  //    you nothing about what anybody did.
+  //  - different things, so an outcome fork whose arms run the same journey
+  //    is still a label on a clock.
+  //
+  // THE CHANNEL-FALLBACK LEG IS GONE, deliberately. It used to count "the No
+  // arm goes out on a different channel" as the reaction, which taught the
+  // retry to ask for an SMS arm — and undelivered is `fallbackChannel` on the
+  // Send, a field, not a route anybody walks. That instruction was measured
+  // on `ui-s-1792748248345` and it was the application asking for the wrong
+  // thing.
+  const engaged = (statuses: (string | undefined)[]) => statuses.filter((s): s is string => Boolean(s)).filter(isEngagement);
+
+  // Yes/No on the preceding send's outcome: two arms by construction, so what
+  // is left is whether the YES side is an engagement status and the sides
+  // differ. (`no` is "everyone else", which includes the engagement statuses
+  // the yes side did not name.)
   const outcomeForks = conditions(bp).filter(
     (c): c is Extract<BpStep, { kind: 'condition' }> => c.kind === 'condition' && (c.outcomes ?? []).length > 0,
   );
-  if (outcomeForks.some((c) => structuralSignature(c.yes) !== structuralSignature(c.no))) return true;
+  if (
+    outcomeForks.some(
+      (c) => engaged(c.outcomes ?? []).length > 0 && structuralSignature(c.yes) !== structuralSignature(c.no),
+    )
+  )
+    return true;
 
-  // The channel-fallback shape, asked of the same conditions: the failure
-  // path is attempted on a channel other than the one that just failed.
-  //
-  // REDUNDANT TODAY AND KEPT ON PURPOSE. `structuralSignature` includes each
-  // send's channel, so a fallback to a different channel already differs
-  // above. It is written out because it is the mechanism's own definition
-  // rather than a consequence of how the signature happens to be built — if
-  // the signature ever stops carrying the channel, this leg still holds.
-  return conditionsWithPrecedingSend(bp.steps).some(({ condition, precededBy }) => {
-    if (!(condition.outcomes ?? []).length) return false;
-    const failure = channelOf(firstSend(condition.no));
-    const tested = channelOf(precededBy);
-    return Boolean(failure && tested) && failure !== tested;
+  // N-way on the preceding send's outcome: at least two arms whose statuses
+  // are engagement, and not every arm the same journey.
+  const outcomeBranches = walk(bp.steps).filter(
+    (s): s is Extract<BpStep, { kind: 'branch' }> => s.kind === 'branch' && !s.entity && !s.attribute,
+  );
+  return outcomeBranches.some((b) => {
+    const arms = (b.paths ?? []).filter((p) => engaged(p.statuses ?? []).length > 0);
+    if (arms.length < 2) return false;
+    return new Set(arms.map((p) => structuralSignature(p.steps))).size > 1;
   });
 }
 

@@ -460,11 +460,19 @@ const REACTIVE_JOURNEYS = ['branch-on-response', 'wait-for-event'];
 const namedOutcomes = (touches: { ifStillUnconverted?: string }[]): Set<string> => {
   const text = touches.map((t) => String(t.ifStillUnconverted ?? '')).join(' ␞ ').toLowerCase();
   const found = new Set<string>();
-  if (/not deliver|undeliver|does ?n[o']?t deliver|fail(s|ed|ure)?\s+to\s+deliver|delivery (fail|error)|bounce|not reach|unreachable/.test(text))
-    found.add('not-delivered');
-  if (/not read|unread|does ?n[o']?t read|no read receipt|not opened|unopened|not seen|never saw/.test(text)) found.add('not-read');
-  if (/read (it )?(and|but)|opened (it )?(and|but)|clicked (and|but)|read and no|ignore|no action|engaged but|took no/.test(text))
+  // LANDED CASES ONLY, since 2026-10-23. `not-delivered` used to count here,
+  // and it was the easiest of the four to write — so "if it is not delivered,
+  // SMS the same day" satisfied half the requirement while saying nothing
+  // about anyone who actually received the message. Undelivered is
+  // `fallbackChannel` on the send: a real decision, worth stating, and not a
+  // thing the journey branches on. It may still be mentioned; it no longer
+  // counts towards the two.
+  if (/not read|unread|does ?n[o']?t read|no read receipt|not opened|unopened|not seen|never saw|still sitting|sitting unread/.test(text))
+    found.add('delivered-not-read');
+  if (/read (it )?(and|but)|opened (it )?(and|but)|clicked (and|but)|read and no|ignore|no action|engaged but|took no|seen it and/.test(text))
     found.add('read-and-ignored');
+  if (/delete|dismiss|binned|cleared the (chat|thread)/.test(text)) found.add('dismissed');
+  if (/\bclicked\b|\btapped\b|\bopened the link\b/.test(text)) found.add('clicked');
   if (/convert|\bbook(ed|s|ing)?\b|\bopt(ed|s)? in\b|goal/.test(text)) found.add('converted');
   return found;
 };
@@ -517,7 +525,7 @@ export function reactionBlocks(p: ProposalUnderReview | null): Block[] {
         'This plan says it reacts to the customer, and then every message does the same thing regardless: the person who never received it, the person who has not read it and the person who read it and did nothing all get the next reminder. Those are three different people.',
       clears: {
         field: 'touches',
-        how: 'In "ifStillUnconverted", say what happens in at least two different cases by name: not delivered (try another channel), not read, read and no action, or converted and the campaign stops.',
+        how: 'In "ifStillUnconverted", name at least two cases where the message LANDED and say what each one gets: delivered but still unread, read and no action taken, dismissed, clicked without booking (email and RCS only), or converted and the campaign stops. Undelivered is worth mentioning as the fallback channel on that send, but it is not one of the two — nobody who never received the message has done anything yet.',
       },
     },
   ];

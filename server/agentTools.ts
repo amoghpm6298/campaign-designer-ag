@@ -18,6 +18,7 @@ import {
   type AttrMeta,
   type Channel,
 } from '../src/data/sharedConstants';
+import { engagementStatusesFor, IN_FLIGHT_STATUSES } from './deliveryStatuses';
 import { generateSchemaArtefact } from '../agent-proto/schema/generateSchema';
 import type { TenantConfig } from './tenants';
 import { bankContext } from './knowledge';
@@ -359,7 +360,29 @@ export function runTool(name: string, input: Record<string, unknown>, ctx: ToolC
         /** Can a person add it from the builder's own step picker? */
         addableFromPicker: m.addableFromPicker,
       }));
-      return { ok: true, result, summary: `${result.length} step types, with how each may be wired` };
+      // WHAT A ROUTING STEP MAY ROUTE ON, which the flags above cannot say.
+      // `routesOneWay` is true of a Decision Split whichever source it uses,
+      // so the agent could see that a step routes and not that it can route
+      // on the last message's delivery status — the one signal this journey
+      // is supposed to move on. Derived from the application's own
+      // per-channel table, never retyped.
+      const branchesOn = {
+        attribute: 'A branch with `entity` + `attribute` and `operator`/`value` on each path. Who the customer IS — ticket band, card type. Not a reaction.',
+        previousStepOutcome:
+          'A branch with NO entity/attribute and `statuses` on each path, or a Yes/No `condition` with `outcomes`. What the customer DID with the send immediately before it.',
+        engagementByChannel: Object.fromEntries(
+          (Object.keys(DELIVERY_STATUS_BY_CHANNEL) as Channel[]).map((c) => [c, engagementStatusesFor(c)]),
+        ),
+        neverBranchOn: {
+          inFlight: IN_FLIGHT_STATUSES,
+          undelivered: 'FAILED*, UNKNOWN, NOT_SENT, NOT_DELIVERED, HARD_BOUNCE, SOFT_BOUNCE, SPAM, SUPPRESSED, REJECTED, DND — these are `fallbackChannel` on the send, not an arm.',
+        },
+      };
+      return {
+        ok: true,
+        result: { nodeTypes: result, branchesOn },
+        summary: `${result.length} step types, with how each may be wired and what a branch may route on`,
+      };
     }
     default:
       return { ok: false, result: { error: `Unknown tool "${name}"` }, summary: `Unknown tool "${name}"` };

@@ -273,7 +273,14 @@ describe('step types report how they may be wired', () => {
     routesOneWay: boolean;
     addableFromPicker: boolean;
   };
-  const steps = () => runTool('list_step_types', {}, { tenant }).result as StepReport[];
+  // `.nodeTypes`, since 2026-10-23. The tool also reports what a branch may
+  // ROUTE ON, which the four flags could not say: `routesOneWay` is true of a
+  // Decision Split whichever source it uses, so the agent could see that a
+  // step routes and not that it can route on the last message's delivery
+  // status.
+  const steps = () => (runTool('list_step_types', {}, { tenant }).result as { nodeTypes: StepReport[] }).nodeTypes;
+  const branchesOn = () =>
+    (runTool('list_step_types', {}, { tenant }).result as { branchesOn: Record<string, unknown> }).branchesOn;
 
   it('still returns every step type the builder defines', () => {
     const reported = steps();
@@ -293,6 +300,33 @@ describe('step types report how they may be wired', () => {
       expect(s.routesOneWay, `${s.type}.routesOneWay`).toBe(DC_ROUTING_TYPES.includes(t));
       expect(s.addableFromPicker, `${s.type}.addableFromPicker`).toBe(DC_STEP_TYPES.includes(t));
     }
+  });
+
+  it('says what a branch may route on, from the application\'s own status table', () => {
+    // Without this the agent knows a Decision Split exists and not that it
+    // can read the last message's delivery status — which is the one signal
+    // the journey is supposed to move on. Compared against the real
+    // per-channel table, never a list written out here.
+    const on = branchesOn() as {
+      attribute: string;
+      previousStepOutcome: string;
+      engagementByChannel: Record<string, string[]>;
+      neverBranchOn: { inFlight: string[]; undelivered: string };
+    };
+    expect(on.engagementByChannel.WHATSAPP).toEqual(['DELIVERED', 'READ', 'DELETED']);
+    // WhatsApp and SMS report neither opens nor clicks.
+    expect(on.engagementByChannel.WHATSAPP).not.toContain('CLICKED');
+    expect(on.engagementByChannel.SMS).toEqual(['DELIVERED']);
+    expect(on.engagementByChannel.EMAIL).toContain('CLICKED');
+    expect(on.engagementByChannel.RCS).toContain('READ');
+    // Nothing in flight is offered as a branch.
+    for (const s of ['QUEUED', 'SENT', 'PENDING']) expect(on.neverBranchOn.inFlight).toContain(s);
+    for (const list of Object.values(on.engagementByChannel)) {
+      for (const s of ['QUEUED', 'SENT', 'PENDING', 'FAILED']) expect(list).not.toContain(s);
+    }
+    expect(on.neverBranchOn.undelivered).toMatch(/fallbackChannel/);
+    expect(on.attribute).toMatch(/Not a reaction/);
+    expect(on.previousStepOutcome).toMatch(/statuses/);
   });
 
   it('distinguishes the three kinds of wiring the agent has to respect', () => {

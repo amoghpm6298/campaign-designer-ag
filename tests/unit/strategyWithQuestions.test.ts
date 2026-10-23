@@ -91,7 +91,7 @@ const STRATEGY = {
     },
   ],
   touches: [
-    { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Say the purchase can be split, and what it costs.', ifStillUnconverted: 'If it is not delivered, SMS the same day.' },
+    { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Say the purchase can be split, and what it costs.', ifStillUnconverted: 'If it is still sitting unread, send the same fact again sooner; if it is not delivered at all, SMS the same day.' },
     { day: 3, channel: 'SMS', path: 'all', purpose: 'Remind them the window closes.', ifStillUnconverted: 'If it was read and nothing happened, stop. The request lapses.' },
   ],
   assumptions: ['Silent non-conversion means no EMI request is raised at all.'],

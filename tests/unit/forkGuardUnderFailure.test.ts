@@ -118,7 +118,7 @@ const PROPOSAL = {
       },
     ],
     touches: [
-      { day: 0, channel: 'WhatsApp', path: 'all', purpose: 'Explain that the balance can be converted.', ifStillUnconverted: 'Try SMS if WhatsApp does not deliver.' },
+      { day: 0, channel: 'WhatsApp', path: 'all', purpose: 'Explain that the balance can be converted.', ifStillUnconverted: 'If it is still sitting unread, repeat the same fact sooner; try SMS if WhatsApp does not deliver at all.' },
       { day: 3, channel: 'SMS', path: 'all', purpose: 'Remind them before the statement date.', ifStillUnconverted: 'If it was read and nothing happened, one last message on day 6, then stop.' },
     ],
     summary: 'Enter customers near their statement due date and prompt conversion.',

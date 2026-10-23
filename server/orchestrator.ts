@@ -407,10 +407,12 @@ const DISCOVERY_VOCAB_RULE =
  * — each one is a thing the live build actually did instead.
  */
 const REACTION_RETRY =
-  'The journey you sent is a clock. The approved plan reacts to whether the last message was delivered, read, or ignored, and another channel is the job when the first one does not land. ' +
-  `Send the SAME plan again with condition steps on the preceding send's delivery or read result ("outcomes"), different next steps on each side, and the failure path on a different channel. ` +
-  'A split on ticket size is segmentation, not a reaction. A goal check after every send is not a reaction — the compiler adds those itself. fallbackChannel on a send is a field, not a fork anyone takes. ' +
-  'Do not invent a second barrier. Do not drop the who-split the manager evidenced. Keep every message, every day and every channel job you already had.';
+  'The journey you sent is a clock. Send the SAME plan again with the fork it is missing — and put it only where it earns its place. ' +
+  'A FORK BELONGS AFTER A SEND WHOSE ARMS WOULD DO DIFFERENT JOBS. The usual one is the first touch, when its job is awareness: someone who has not opened it still needs that same fact, sooner; someone who read it and did not book needs a different argument (what the instalment costs, how long the window stays open, last chance); someone who deleted it has dismissed the thread, so do not ping them again on that channel. ' +
+  'WHERE EVERY ARM WOULD WAIT THE SAME TIME AND SEND THE SAME KIND OF REMINDER, DO NOT SPLIT — that is a clock with extra nodes. One or two designed checks on a whole path is the shape; a check after every message is not, and nested three-way forks on a four-touch path are unreadable. A last chance whose every arm exits needs no fork. Fallback SMS reports no read, so it needs none either. ' +
+  'Use kind "branch" with no entity and no attribute and `statuses` on each path, taken from that channel\'s own list. Arms must not overlap: on WhatsApp, READ is not also DELIVERED. Say in "approach" which send you chose to read back and why that one. ' +
+  'Do NOT add a FAILED, UNKNOWN or NOT_DELIVERED arm, and do not route the failure to another channel as a step: undelivered is `fallbackChannel` on the Send, and it stays exactly where it is. Never branch on QUEUED, SENT or PENDING — the message is still in flight and that is not a person. WhatsApp and SMS report no opens and no clicks, so never put OPENED or CLICKED on one; Email and RCS do report them. Do not add a converted arm: the goal check already takes booked people off the path. ' +
+  'Different WAITS on each arm is not different jobs. A split on ticket size is segmentation, not a reaction — keep it, it is evidenced, but it is not this. Do not invent a second barrier. Keep every message, every day and every channel job you already had.';
 
 export function systemForPhase(isBuildTurn: boolean): string {
   if (isBuildTurn) return SYSTEM;
@@ -540,13 +542,11 @@ FIRST, FIND OUT WHO CONVERTS AND WHY THE REST DO NOT, and send "converters" and 
    NAME EVERY TOUCH. The window they gave you is the time you have to work an unfinished action, and "a staggered multi-touch sequence" names no sends. List them in "touches" across that window — the first, at least one reminder, a last chance before it closes. A group that mostly acts on its own gets FEWER touches as a NAMED path, never as everyone's default. Send count still does not make two architectures different.
    A SPLIT BELONGS INSIDE THE JOURNEY, NOT AT THE DOOR. Put the dimension on a condition, a branch or an experiment, so each group gets its own treatment and the remainder keeps a path of its own. Entry conditions decide who is ELIGIBLE; they are not segmentation, and the application does not accept them as it.
    Say what happens in each of these, as far as the channel can actually tell you:
-   - the message did not reach them at all;
    - it reached them and they did not open or read it;
    - they opened it and did nothing;
-   - they clicked and did not convert;
    - they converted, and the campaign stops for them.
    EACH CHANNEL EARNS A JOB OR IS EXPLICITLY UNUSED. Do not lead every path on WhatsApp because it is the default, and do not put the thirty-minute catch on email. In-app may be right at the moment of purchase: if the builder cannot send it, say so and substitute — never call WhatsApp in-app.
-   BRANCH ONLY ON WHAT THAT CHANNEL REPORTS. WhatsApp tells you delivered and read, and nothing about clicks. SMS tells you delivered and why it failed, and nothing about opens or clicks. Email and RCS report opens and clicks. Conversion is visible on every channel because it is the goal event, not a delivery status. Never put a click condition on a WhatsApp or SMS send, and never invent a status value — a condition on a status the channel does not emit matches nobody and looks like it works.
+   BRANCH ONLY ON WHAT THAT CHANNEL REPORTS. WhatsApp reports DELIVERED, READ and DELETED — unread, seen and not acted on, dismissed. SMS reports delivered and why it failed, nothing about opens or clicks. Email and RCS report opens and clicks; clicked-without-converting wants a closer, not another awareness line. Conversion is the goal event, not a delivery status. Never put a click or open condition on a WhatsApp or SMS send. FAILED IS NOT AN ARM: undelivered is the fallback channel field on the send. CHECK A SEND ONLY IF THE ARMS WOULD DIVERGE: one or two designed checks on a path, never one after every message.
    Size the plan to the window the customer has and to what the calendar says is happening. There is no per-campaign message limit: how many messages to send is YOUR decision to justify. Spacing is a judgement, not a rule — same day is right when they have just opened or clicked and are still in the moment, and longer is right when nothing has happened. Respect the night quiet hours.
    Say what you considered and rejected, in "rejected", and make it a real alternative you chose not to take rather than a thing the builder cannot do. A platform gap belongs in the limitations, not here.
    The journey is where the options step becomes real: every option you marked "used" should be visible in it, and an option marked "used" that leaves no trace in the steps was not used.
@@ -3196,8 +3196,35 @@ export function renderStrategy(
   unsupported: { option: string; gap?: string }[] = [],
 ): string {
   if (!s) return 'Here is the strategy.';
-  const part = (title: string, items?: string[]) =>
-    items?.length ? `\n\n**${title}**\n${items.map((i) => `- ${i}`).join('\n')}` : '';
+  // A STRING IS NOT A LIST. The schema asks for arrays; the model still
+  // sends a single sentence. `.length` is truthy on a string, then `.map`
+  // throws — measured live, `s.rejected.map is not a function`, on the turn
+  // that should have put Confirm on screen. Coerce here so a wrong shape
+  // omits a section instead of crashing the reply.
+  const asLines = (items: unknown): string[] =>
+    Array.isArray(items)
+      ? items.map((i) => (typeof i === 'string' ? i : String((i as { option?: string })?.option ?? i ?? ''))).filter((i) => i.trim())
+      : typeof items === 'string' && items.trim()
+        ? [items.trim()]
+        : [];
+  const rejectedRows = (raw: unknown): { option: string; why: string }[] => {
+    if (typeof raw === 'string' && raw.trim()) return [{ option: raw.trim(), why: '' }];
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((r) => {
+        if (typeof r === 'string') return { option: r, why: '' };
+        if (r && typeof r === 'object') {
+          const row = r as { option?: string; why?: string };
+          return { option: String(row.option ?? '').trim(), why: String(row.why ?? '').trim() };
+        }
+        return { option: '', why: '' };
+      })
+      .filter((r) => r.option);
+  };
+  const part = (title: string, items?: unknown) => {
+    const list = asLines(items);
+    return list.length ? `\n\n**${title}**\n${list.map((i) => `- ${i}`).join('\n')}` : '';
+  };
 
   const group = (kind: OpenItem['kind'], title: string, withFallback: boolean) => {
     const items = openItems.filter((i) => i.kind === kind);
@@ -3331,8 +3358,10 @@ export function renderStrategy(
     warnings +
     part('Approach', s.approach) +
     options +
-    (s.rejected?.length
-      ? `\n\n**Considered and not used**\n${s.rejected.map((r) => `- ${r.option} — ${r.why}`).join('\n')}`
+    (rejectedRows(s.rejected).length
+      ? `\n\n**Considered and not used**\n${rejectedRows(s.rejected)
+          .map((r) => `- ${r.option}${r.why ? ` — ${r.why}` : ''}`)
+          .join('\n')}`
       : '') +
     part('Success criteria', s.successCriteria) +
     part('Measurement', s.measurement) +
