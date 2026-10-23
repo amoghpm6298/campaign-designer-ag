@@ -1921,6 +1921,46 @@ export function isPlatformDimension(name: string): boolean {
   ].some((re) => re.test(n));
 }
 
+/**
+ * WHEN they act, as opposed to WHO acts.
+ *
+ * Both are real findings and only one of them can split a treatment by
+ * customer. "Most conversions happen within thirty minutes" tells you when to
+ * send; it does not tell you that one group behaves differently from another,
+ * because every eligible customer passes through the same clock.
+ *
+ * MEASURED, `eval/runs/ui-s-1792738033056`. The manager gave exactly one
+ * pattern in who converts — purchases above ₹10,000 — plus a timing fact and
+ * a barrier. The agent proposed immediately, split the whole journey on
+ * ticket size, and never asked whether anything ELSE had been seen. The
+ * record then read as two retained dimensions, which looks like a search that
+ * considered more than one axis. It had not: the second one was a clock.
+ *
+ * UNLIKE `isPlatformDimension`, THIS DOES NOT DROP ANYTHING. A timing finding
+ * is worth keeping and worth designing around — it is simply not a candidate
+ * for cutting the journey by customer, and not an answer to "what else have
+ * you seen". Classification, not rejection.
+ */
+export function isTimingDimension(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  if (!n) return false;
+  return [
+    /\btime\s*(-|\s)?(to|since|between|elapsed)\b/,
+    /\btime\s+elapsed\b/,
+    /\btiming\b/,
+    /\bwhen\s+they\s+(convert|act|respond|decide)\b/,
+    /\bhow\s+(soon|quickly|long)\b/,
+    /\b(minutes?|hours?|days?)\s+(after|since|from|to)\b/,
+    /\bdecision\s+(time|window|lag)\b/,
+    /\b(request\s+)?window\b/,
+    /\bexpiry\b/,
+    /\bstatement\s+(date|cycle|day)\b/,
+    /\bcadence\b/,
+    /\bfrequency\b/,
+    /\brecency\b/,
+  ].some((re) => re.test(n));
+}
+
 export function recordDimensions(brief: WorkingBrief, updates: DimensionUpdate[]): WorkingBrief {
   const merged = [...briefDimensions(brief)];
   const dropped: string[] = [];

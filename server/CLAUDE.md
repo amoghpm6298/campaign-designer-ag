@@ -2319,3 +2319,86 @@ the eight-node campaign no longer shrunk to 0.5 when it fits at 1.0.
 
 1284 unit (from 1280) and 118 agent-proto; `tsc --noEmit` and `npm run build`
 clean.
+
+## 2026-10-23 (cont'd) — One pattern is a candidate, not the architecture
+
+`eval/runs/ui-s-1792738033056`. The manager gave three things: purchases
+above ₹10,000 convert more (a pattern they have SEEN), customers do not
+realise the purchase qualifies (the barrier), and it usually happens within
+thirty minutes (timing). The agent proposed immediately and split the whole
+journey on ticket size. It never asked whether anything else had been seen —
+not category, not first-time versus repeat, not card type.
+
+**The record afterwards looked like a considered search and was not.** Two
+dimensions retained, two deferred. But the second retained one was a clock
+(`basis: 'tool'`) and both deferred ones were the agent's own inventions
+marked `assumption`. Nobody had been asked anything.
+
+So: ask once, then lock. One question, with "we do not track that" as a
+complete answer, and no second round of it.
+
+### `isTimingDimension`, beside `isPlatformDimension`
+
+When they act is not who acts. Everyone passes through the same clock, so a
+timing finding paces the journey and never divides the people. **Unlike
+`isPlatformDimension` this drops nothing** — a timing finding is worth
+keeping and designing around, it simply is not a candidate axis and is not an
+answer to "what else have you seen". Classification, not rejection.
+
+### `unprobed-other-axes`
+
+Fires when converters and a designable barrier are settled, exactly ONE
+segmentation dimension is `user` + `retained`, and nobody has probed. Three
+ways to be probed, all evidence rather than effort: two segmentation
+dimensions carrying `basis: 'user'`; one carrying `user` plus `deferred` or
+`unavailable` WITH a note ("we do not track category" is an answer, and the
+note is where it lives); or a question that plainly asked it having been
+answered.
+
+**A dimension the agent deferred by itself is not a probe.** That is the
+whole point — `assumption` is the agent talking to itself.
+
+Deliberately silent when there is NO seen axis yet: the who-converts block
+still owns that conversation, and two blocks asking adjacent questions read
+as the application talking over itself. It is a `blocksFor` block like its
+siblings, so `proceedRequested` and the round budget release it, and an
+approved Confirm carries it as a limitation.
+
+### `stacked-dimensions`
+
+Two evidenced patterns are a CHOICE. Cutting on both quarters the group
+behind each arm and buys a second answer nobody asked for. Refused at propose
+time when the plan's named paths echo two different `user` + `retained`
+dimensions; allowed when they echo one. Which to pick is never a question to
+the manager — "which group should we go after" is what discovery was
+rewritten to stop asking.
+
+### Two test assumptions of mine were wrong, and the code was right
+
+`recordAnswer` sets `answeredInRound` (a reply arrived this round), not
+`addressedInRound` (this question was dealt with) — the latter comes from
+`recordUncoveredQuestions`, called unconditionally in production. The probe
+keys on the second deliberately, so a model stating the probe went untouched
+cannot clear it by accident. The fixture now walks the production path.
+
+And the timing revert initially passed, because the live record happened to
+carry the clock as `basis: 'tool'`. A manager SAYING "most convert within
+thirty minutes" is `user` + `retained`, which is the case that actually needs
+the classifier — now covered, and the revert fails as it should.
+
+### Prompt
+
+Three short rules next to "ASK WHAT THEY HAVE SEEN": ask once then lock,
+time-to-act is not an axis, two seen axes mean a choice. `SYSTEM` is 33,495
+against the 33,500 cap, not raised. Paid for entirely by this slice's own
+prose plus one unpinned rationale sentence in §6 — an attempt to trim the
+segmentation bullet hit five sentences that tests pin as measured lessons and
+was reverted, which is the cap comment's own rule working.
+
+### Verified
+
+1303 unit (from 1284; 19 new in `probeThenLock.test.ts`) and 118
+agent-proto. Typechecks and build clean. Reverting the gate fails 4;
+reverting `isTimingDimension` fails 1. `forkGuardUnderFailure`'s fixture
+needed a second axis — fourth time a new structural check has invalidated a
+fixture written as a complete brief.

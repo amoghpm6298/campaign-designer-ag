@@ -22,7 +22,7 @@
 // test check the invariant instead of trusting it. Anything worth telling the
 // agent that does NOT have a clearing mutation is advice, and advice does not
 // block.
-import { briefDimensions, isPlatformDimension, recordDimensions, type WorkingBrief } from './discovery';
+import { briefDimensions, isPlatformDimension, isTimingDimension, recordDimensions, type WorkingBrief } from './discovery';
 import { designableBarriers, convertersSettled, type Barrier, type Converters } from './findings';
 import { outstanding, exhausted } from './record';
 
@@ -74,7 +74,9 @@ export interface Block {
     | 'belief-untested'
     | 'cadence-unnamed'
     | 'split-without-trend'
-    | 'nothing-tested';
+    | 'nothing-tested'
+    | 'unprobed-other-axes'
+    | 'stacked-dimensions';
   /** Said to the user, in their terms. Never names a field or an id. */
   reason: string;
   /** What would clear it. Required by construction. */
@@ -115,6 +117,7 @@ export function decide(
     ...proposalBlocks(brief, opts.proposed ?? null),
     ...(opts.building ? [] : cadenceBlocks(opts.proposed ?? null)),
     ...(opts.building ? [] : trendBlocks(brief, opts.proposed ?? null)),
+    ...(opts.building ? [] : stackedDimensionBlocks(brief, opts.proposed ?? null)),
   ];
   const advice = adviceFor(brief);
 
@@ -304,6 +307,48 @@ const words = (text: string): string[] =>
  * is true once the manager has approved, and refusing then leaves them with
  * an approval that did nothing and nothing they can do about it.
  */
+/**
+ * TWO EVIDENCED PATTERNS MEAN A CHOICE, NOT FOUR PATHS.
+ *
+ * When the manager has seen two things that split who acts, the campaign cuts
+ * on ONE of them — whichever changes the treatment of the barrier they named.
+ * Running both produces four arms, quarters the group behind each, and buys a
+ * second answer nobody asked for.
+ *
+ * Nesting is still legitimate when the two axes do different jobs — one sets
+ * intensity, the other sets copy — and a plan that means that can say so. The
+ * refusal is about stacking two cuts of the same kind, which is what shows up
+ * as paths echoing two different retained dimensions.
+ *
+ * WHICH ONE TO PICK IS NOT THE APPLICATION'S CALL, and it must never become a
+ * question to the manager: "which group should we go after" is the thing
+ * discovery was rewritten to stop asking. The agent chooses and justifies.
+ */
+export function stackedDimensionBlocks(brief: WorkingBrief, p: ProposalUnderReview | null): Block[] {
+  const axes = seenAxes(brief);
+  if (axes.length < 2) return [];
+  const paths = [...new Set((p?.strategy?.touches ?? []).map((t) => String(t.path ?? '').trim()).filter((x) => x && x.toLowerCase() !== 'all'))];
+  if (!paths.length) return [];
+  // Which retained axes do the path names echo? Same word match as
+  // `trendBlocks`, and used the same way: it only ever adds a refusal when
+  // TWO are echoed, so a near-miss costs nothing.
+  const echoed = axes.filter((d) => {
+    const own = new Set(words(d.name));
+    return paths.some((path) => words(path).some((w) => own.has(w)));
+  });
+  if (echoed.length < 2) return [];
+  return [
+    {
+      code: 'stacked-dimensions',
+      reason: `This plan cuts the journey on ${echoed.map((d) => d.name).join(' AND ')}. Both are patterns you have seen, which is why it is tempting — but running both splits everyone four ways and makes each result harder to read. Pick the one that changes what we DO about the reason they are not converting, and keep the other as something to measure.`,
+      clears: {
+        field: 'treatmentSplit',
+        how: 'Cut on ONE of the two, and say in "approach" why that one changes the treatment of the recorded barrier. If they genuinely do different jobs — one setting intensity, the other setting copy — say that explicitly rather than running two parallel cuts.',
+      },
+    },
+  ];
+}
+
 export function trendBlocks(brief: WorkingBrief, p: ProposalUnderReview | null): Block[] {
   const s = p?.strategy;
   if (!s) return [];
@@ -378,6 +423,47 @@ export function trendBlocks(brief: WorkingBrief, p: ProposalUnderReview | null):
   return [];
 }
 
+/**
+ * Dimensions that could actually cut a journey by customer.
+ *
+ * Platform settings never reach the record (`recordDimensions` drops them),
+ * and a timing finding is kept but is not an axis — see `isTimingDimension`.
+ */
+const segmentationDimensions = (brief: WorkingBrief) =>
+  briefDimensions(brief).filter((d) => !isPlatformDimension(d.name) && !isTimingDimension(d.name));
+
+/** A pattern the manager has SEEN, which is the only thing a cut may rest on. */
+const seenAxes = (brief: WorkingBrief) =>
+  segmentationDimensions(brief).filter((d) => d.basis === 'user' && d.status === 'retained');
+
+/**
+ * Has anyone asked whether there is a SECOND pattern?
+ *
+ * Three ways to be done, and all of them are evidence rather than effort:
+ *
+ *  - two or more segmentation dimensions carry `basis: 'user'`, so the
+ *    manager has spoken about more than one axis whatever became of them;
+ *  - one carries `basis: 'user'` with `deferred` or `unavailable` AND a note
+ *    — "we do not track category" is an answer, and the note is where it
+ *    lives;
+ *  - a question that plainly asked it has been answered.
+ *
+ * What does NOT count: a dimension the agent invented and deferred on its
+ * own. `basis: 'assumption'` is the agent talking to itself, and the live run
+ * had two of those sitting under a heading that read like a search.
+ */
+export function otherAxesProbed(brief: WorkingBrief): boolean {
+  const seg = segmentationDimensions(brief);
+  if (seg.filter((d) => d.basis === 'user').length >= 2) return true;
+  if (seg.some((d) => d.basis === 'user' && (d.status === 'deferred' || d.status === 'unavailable') && (d.note ?? '').trim()))
+    return true;
+  return (brief.questions ?? []).some(
+    (q) =>
+      q.addressedInRound !== undefined &&
+      /\banything else\b|\bother pattern\b|\bany other\b|\bbesides\b|\belse have you seen\b/i.test(q.text ?? ''),
+  );
+}
+
 /** Every reason the agent may not propose yet, most actionable first. */
 export function blocksFor(brief: WorkingBrief): Block[] {
   const out: Block[] = [];
@@ -441,6 +527,48 @@ export function blocksFor(brief: WorkingBrief): Block[] {
       code: 'no-barrier',
       reason: 'I do not yet know what is stopping them, so there is nothing for the campaign to work on.',
       clears: { field: 'barriers', how: 'Record at least one barrier traceable to something the user said.' },
+    });
+  }
+
+  // ONE PATTERN IS A CANDIDATE, NOT THE ARCHITECTURE.
+  //
+  // MEASURED, `eval/runs/ui-s-1792738033056`. The manager named exactly one
+  // thing they had seen — purchases above ₹10,000 convert more — plus a
+  // barrier and a timing fact. The agent proposed on the spot and split the
+  // whole journey on ticket size. It never asked whether anything ELSE had
+  // been seen: not category, not first-time versus repeat, not card type.
+  //
+  // The record afterwards looked like a considered search — two retained
+  // dimensions and two deferred ones — and was not. The second retained one
+  // was a clock (`basis: 'tool'`), and both deferred ones were the agent's
+  // own inventions marked `assumption`. **A dimension the agent raised and
+  // set aside by itself is not a probe**; nobody was asked anything.
+  //
+  // So: ask once, then lock. Not a questionnaire — one question, and "we do
+  // not track that" closes it for good. `otherAxesProbed` counts evidence,
+  // never effort.
+  //
+  // DELIBERATELY NOT RAISED WHEN THERE IS NO SEEN AXIS YET. With nothing
+  // retained from the manager, the existing who-converts block still owns the
+  // conversation and two blocks asking adjacent questions would read as the
+  // application talking over itself.
+  //
+  // It is a `blocksFor` block like its siblings, so `proceedRequested` and
+  // the round budget release it, and an approved Confirm carries it as a
+  // limitation rather than a refusal.
+  if (
+    convertersSettled(brief.converters) &&
+    designableBarriers(brief.barriers).length > 0 &&
+    seenAxes(brief).length === 1 &&
+    !otherAxesProbed(brief)
+  ) {
+    out.push({
+      code: 'unprobed-other-axes',
+      reason: `You have given me one pattern you have seen — ${seenAxes(brief)[0].name}. Before I design around it, is there anything else you have noticed that splits who acts? If you do not track anything else, say so and I will go with this one.`,
+      clears: {
+        field: 'dimensions',
+        how: 'Ask ONE question: what else have they seen that changes who acts, and accept "we do not track that" as a complete answer. Or record a second segmentation dimension with basis "user" — retained, deferred or unavailable with a note. A dimension you deferred yourself is not an answer.',
+      },
     });
   }
 

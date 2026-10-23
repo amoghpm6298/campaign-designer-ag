@@ -75,6 +75,13 @@ const PROPOSAL = {
   // why it was ruled out.
   dimensions: [
     { name: 'Funnel stage', rationale: 'Who enters.', status: 'retained', basis: 'user' },
+    // AND A SECOND AXIS THEY WERE ASKED ABOUT, since 2026-10-23. One pattern
+    // the manager has seen now holds the proposal until someone has asked
+    // whether there is another — so without this the fork would be the SECOND
+    // reason this payload is held and the test would prove nothing about
+    // forks. `unavailable` with their own note is the "we do not track that"
+    // answer, which is a complete one.
+    { name: 'Prior product holding', rationale: 'Might change who responds.', status: 'unavailable', basis: 'user', note: 'They said they do not track it.' },
     { name: 'Statement timing', rationale: 'When the message lands.', status: 'deferred', basis: 'assumption', note: 'Ruled out: no statement-date attribute exists.' },
     { name: 'Channel preference', rationale: 'Where to reach them.', status: 'unavailable', basis: 'none', note: 'Ruled out: no per-customer channel history.' },
   ],
