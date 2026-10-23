@@ -66,6 +66,14 @@ const STRATEGY = {
     'Entry on an approved EMI-eligible authorisation, because that is the moment eligibility begins.',
     'Two touches rather than three: the window is short and the message cap is 4.',
   ],
+  // AND A DECLARED TEST, since 2026-10-23, for exactly the same reason the
+  // sends were named above. `trendBlocks` refuses a plan that compares
+  // nothing when the manager has stated no trend, so without this the
+  // payload would be held for a second reason and the test would stop
+  // proving anything about the open points.
+  strategyOptions: [
+    { option: 'Experimentation', verdict: 'used', why: 'Cost framing versus deadline framing, randomly assigned.' },
+  ],
   touches: [
     { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Say the purchase can be split, and what it costs.', ifStillUnconverted: 'Follow up on day 3.' },
     { day: 3, channel: 'SMS', path: 'all', purpose: 'Remind them the window closes.', ifStillUnconverted: 'Stop. The request lapses.' },

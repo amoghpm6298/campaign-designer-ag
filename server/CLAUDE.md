@@ -2093,3 +2093,79 @@ reason it was found. It declares the test it names now.
 The architecture comparison failing on a missing `.measurement` — the model
 omitted a field §6 asks for in prose and the tool schema does not require.
 That is a schema fix, not this rule.
+
+## 2026-10-23 (cont'd) — Two holes in `trendBlocks`, both found by reading
+it against the live brief rather than against its own fixture
+
+Yesterday's rules were right and both leaked on the conversation they were
+written for.
+
+### A settled audience is not a seen trend
+
+`statedTrend` counted `converters.knowledge === 'known' && basis === 'user'`
+as a pattern the manager had observed. On this brief the manager keeps
+saying **"record that as known: every eligible purchase, one track"** — a
+statement about who ENTERS, which the model files as the converters finding
+being settled. So on the real conversation both rules no-opped entirely.
+
+The fixture never caught it because the fixture used `knowledge: 'unknown'`,
+which is not what the live run produces. **The fixture was easier than the
+case.** It now carries `knowledge: 'known'` and still raises both blocks,
+which is the whole point: who is in and who responds differently are
+different findings, and only the second one licenses a cut.
+
+`statedTrend` is now exactly one thing: a dimension with `basis: 'user'` and
+`status: 'retained'`.
+
+### An experiment is not permission to cut
+
+`if (statedTrend(brief) || tests) return []` let a wording test legalise the
+prior-EMI copy split — declare a test anywhere in the plan and the split rule
+stopped looking. The two rules are now ordered rather than ORed:
+
+```
+if (customerCut) { if (statedTrend) return []; return ['split-without-trend']; }
+if (!tests) return ['nothing-tested'];
+```
+
+A split the manager DID state a trend for still needs no second instrument —
+the cut is the instrument. That release is the only one left.
+
+### Telling an arm from a cut, and which way the doubt runs
+
+An experiment arm is a treatment variant assigned at random and claims
+nothing about who these people are. A path named for a customer property
+does. The distinction cannot be read from the label alone, so:
+
+```ts
+const armsOnly = tests && !cuts && !echoesAFactor;
+const customerCut = (cuts || paths.size >= 2) && !armsOnly;
+```
+
+**The word match only ever RELEASES.** Any two named paths are a customer cut
+by default; they are let through as arms only when the plan declares an
+experiment, does not claim segmentation, AND no path echoes a factor already
+on the record. Reading it the other way — "that looks like an arm" — would
+have the application inventing a reason to ALLOW a split, which is the
+mistake `record.ts` warns about, pointed at the model instead of the manager.
+
+So "Prior EMI users" / "First-time" is refused even with Experimentation
+declared, because those words are on the record as dimensions. "Arm A — cost
+framing" / "Arm B — deadline framing" passes.
+
+### Four fixtures were weaker than the rule, again
+
+`forkGuardUnderFailure` and `strategyWithQuestions` both carry proposals
+written as "good in every respect except the thing under test". Dropping the
+converters clause made both plans testless, so they were held for a second
+reason and proved nothing about forks or open points. Both now declare an
+experiment, exactly as they were given `touches` when the cadence block
+landed. **Third time this has happened in three slices** — a new structural
+check invalidates every fixture written as a valid proposal, and the fixture
+list is now the first thing to check, not the last.
+
+### Verified
+
+1270 unit (from 1268) and 118 agent-proto. `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. Reopening the converters
+clause fails 3 tests; restoring the `|| tests` short-circuit fails 1.

@@ -268,8 +268,19 @@ export function cadenceBlocks(proposed: ProposalUnderReview | null): Block[] {
  * have seen the trend by definition.
  */
 const statedTrend = (brief: WorkingBrief): boolean =>
-  briefDimensions(brief).some((d) => d.basis === 'user' && d.status === 'retained') ||
-  (brief.converters?.knowledge === 'known' && brief.converters.basis === 'user');
+  briefDimensions(brief).some((d) => d.basis === 'user' && d.status === 'retained');
+
+/**
+ * Content words of a path label and of the dimension names on the brief.
+ *
+ * Used ONLY to release, never to block — see the arms rule in `trendBlocks`.
+ */
+const words = (text: string): string[] =>
+  String(text ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter((w) => w.length > 2 && !['the', 'and', 'for', 'who', 'all', 'arm', 'path', 'group', 'with', 'vs', 'versus'].includes(w));
 
 /**
  * TWO RULES ABOUT WHAT A PLAN MAY DO WITH A TREND IT DOES NOT HAVE.
@@ -306,28 +317,36 @@ export function trendBlocks(brief: WorkingBrief, p: ProposalUnderReview | null):
   const paths = new Set(
     (s.touches ?? []).map((t) => String(t.path ?? '').trim().toLowerCase()).filter((x) => x && x !== 'all'),
   );
-  const splits = cuts || paths.size >= 2;
+  // ARMS ARE NOT A CUT, AND A TEST DOES NOT EXCUSE ONE.
+  //
+  // An experiment arm is a treatment variant assigned at random; it makes no
+  // claim about who these people are, so it needs no trend behind it. A path
+  // named for a customer property — "Prior EMI users", "First-time", a ticket
+  // band — does make that claim, and needs one.
+  //
+  // THE FIRST DRAFT LET A WORDING TEST LEGALISE A PRIOR-EMI COPY SPLIT,
+  // because `tests` short-circuited the whole function. Declaring an
+  // experiment somewhere in the plan is not permission to cut the journey on
+  // a factor nobody tracks.
+  //
+  // THE MATCH ONLY EVER RELEASES. Any two named paths are treated as a
+  // customer cut by default; they are let through as arms only when the plan
+  // declares an experiment, does NOT claim segmentation, and no path echoes a
+  // factor already on the record. Reading it the other way round — guessing
+  // "that looks like an arm" — would have the application inventing a reason
+  // to allow a split, which is the mistake `record.ts` warns about pointed at
+  // the model instead of the manager.
+  const onRecord = new Set(briefDimensions(brief).flatMap((d) => words(d.name)));
+  const echoesAFactor = [...paths].some((p) => words(p).some((w) => onRecord.has(w)));
+  const armsOnly = tests && !cuts && !echoesAFactor;
+  const customerCut = (cuts || paths.size >= 2) && !armsOnly;
 
-  // ONE PRECONDITION, TWO WAYS OF FAILING IT.
-  //
-  // Neither rule has anything to say once the manager has stated a trend, or
-  // once the plan runs a comparison:
-  //
-  //  - a stated trend is a pattern they have SEEN, so there is something real
-  //    to cut on and the cut itself is what produces the reading;
-  //  - a comparison produces the reading directly.
-  //
-  // What is left is a plan with neither, and it fails in one of two ways: it
-  // cuts the journey on a factor nobody has observed, or it runs flat and
-  // learns nothing. The first is the sharper thing to say, so a plan doing
-  // both gets one block rather than two making the same point twice.
-  //
-  // An earlier draft keyed the test rule on `converters.knowledge` instead,
-  // which demanded an experiment ON TOP of a split the manager had asked for
-  // — a second instrument for a question the first one answers.
-  if (statedTrend(brief) || tests) return [];
-
-  if (splits) {
+  // ORDER MATTERS. The split rule is checked first and independently of
+  // `tests`, so an experiment cannot buy its way past it. A split the manager
+  // DID state a trend for is the learning instrument, so it needs no second
+  // one — that is the only thing `statedTrend` releases here.
+  if (customerCut) {
+    if (statedTrend(brief)) return [];
     return [
       {
         code: 'split-without-trend',
@@ -341,7 +360,7 @@ export function trendBlocks(brief: WorkingBrief, p: ProposalUnderReview | null):
     ];
   }
 
-  {
+  if (!tests) {
     const parked = (s.hypotheses ?? []).length > 0;
     return [
       {
@@ -356,6 +375,7 @@ export function trendBlocks(brief: WorkingBrief, p: ProposalUnderReview | null):
       },
     ];
   }
+  return [];
 }
 
 /** Every reason the agent may not propose yet, most actionable first. */

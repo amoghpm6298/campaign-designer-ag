@@ -85,6 +85,14 @@ const PROPOSAL = {
     // payload is held and the test would stop proving anything about forks.
     // Everything else about the proposal stays deliberately well-formed so
     // the fork remains the only variable.
+    // AND A DECLARED TEST, since 2026-10-23, for exactly the same reason the
+    // sends were named above. `trendBlocks` refuses a plan that compares
+    // nothing when the manager has stated no trend, so without this the
+    // payload would be held for a second reason and the test would stop
+    // proving anything about forks.
+    strategyOptions: [
+      { option: 'Experimentation', verdict: 'used', why: 'Two openings, randomly assigned, read on conversion.' },
+    ],
     touches: [
       { day: 0, channel: 'WhatsApp', path: 'all', purpose: 'Explain that the balance can be converted.', ifStillUnconverted: 'Try SMS if WhatsApp does not deliver.' },
       { day: 3, channel: 'SMS', path: 'all', purpose: 'Remind them before the statement date.', ifStillUnconverted: 'One last message on day 6, then stop.' },

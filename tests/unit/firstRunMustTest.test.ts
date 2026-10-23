@@ -51,10 +51,21 @@ const EMI =
 const noTrack = () => {
   let b = discovered(newBrief(EMI));
   b = recordAnswer(b, 'we do not track prior EMI, category or ticket size. one track. the first run should generate that signal.');
+  // KNOWLEDGE IS 'known', AND THAT IS THE POINT, corrected 2026-10-23.
+  //
+  // The manager keeps saying "record that as known: every eligible purchase,
+  // one track". They are describing WHO IS IN, which is the entry, and the
+  // model files it as the converters finding being settled. The first
+  // fixture used 'unknown' and so never met the brief the live run actually
+  // produces — while `statedTrend` read `knowledge === 'known'` as a pattern
+  // they had seen, which no-opped both rules on exactly that brief.
+  //
+  // An audience is not a trend. Nothing here says one group behaves
+  // differently from another.
   b = recordConverters(b, {
     shape: 'every eligible purchase, one track, no split',
     basis: 'user',
-    knowledge: 'unknown',
+    knowledge: 'known',
   });
   b = recordDimensions(b, [
     { name: 'Prior EMI usage', rationale: 'Someone who has done it before may need less explaining.', status: 'unavailable', basis: 'user', note: 'They said they do not track it.' },
@@ -122,6 +133,19 @@ describe('a treatment split needs a trend the manager has seen', () => {
     expect(blocks).toEqual([]);
   });
 
+  it('an experiment does not excuse the cut', () => {
+    // THE SECOND HOLE. `tests` short-circuited the whole function, so
+    // declaring a wording test anywhere in the plan legalised a prior-EMI
+    // copy split. A test is not permission to cut on a factor nobody tracks.
+    const blocks = trendBlocks(noTrack(), {
+      strategy: plan({
+        strategyOptions: [OPTION('Experimentation', 'used', 'Cost framing versus deadline framing.')],
+        touches: [...touches('Prior EMI users'), ...touches('First-time')],
+      }),
+    });
+    expect(blocks.map((b) => b.code)).toEqual(['split-without-trend']);
+  });
+
   it('allows randomly assigned arms, which need no trend at all', () => {
     // An experiment arm is not a claim about who these people are, so it is
     // not a cut on a factor and needs nothing stated.
@@ -170,10 +194,20 @@ describe('with no history, the first run has to test something', () => {
     ).toEqual([]);
   });
 
-  it('does not demand a test once they can say who converts', () => {
+  it('a settled audience is not a trend, so it buys no exemption', () => {
+    // REVERSED 2026-10-23. This used to assert that `knowledge: 'known'`
+    // excused a flat plan, which is how the live brief slipped through both
+    // rules: the manager says "record converters as known, every eligible
+    // purchase, one track", and that is a statement about who ENTERS. Who is
+    // in and who responds differently are different findings.
     let b = discovered(newBrief(EMI));
-    b = recordConverters(b, { shape: 'mostly large-ticket purchases', basis: 'user', knowledge: 'known' });
-    expect(trendBlocks(b, { strategy: plan() })).toEqual([]);
+    b = recordConverters(b, { shape: 'every eligible purchase, one track', basis: 'user', knowledge: 'known' });
+    expect(trendBlocks(b, { strategy: plan() }).map((x) => x.code)).toEqual(['nothing-tested']);
+  });
+
+  it('a retained trend they stated still exempts the plan', () => {
+    // The release that remains, and the only one.
+    expect(trendBlocks(sawATrend(), { strategy: plan({ touches: [...touches('Late in the window'), ...touches('Early')] }) })).toEqual([]);
   });
 });
 
