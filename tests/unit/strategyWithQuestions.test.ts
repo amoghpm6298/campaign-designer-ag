@@ -74,9 +74,25 @@ const STRATEGY = {
   strategyOptions: [
     { option: 'Experimentation', verdict: 'used', why: 'Cost framing versus deadline framing, randomly assigned.' },
   ],
+  // AND A WINNER THAT REACTS, plus a fallback that tells the three
+  // non-converters apart, since 2026-10-23. Same reason again:
+  // `reactionBlocks` refuses a plan paced off the calendar, and a payload held
+  // for a second reason proves nothing about the open points.
+  architectures: [
+    {
+      name: 'Catch the authorisation', barrier: 'cost-perception', audience: 'Every approved EMI-eligible authorisation',
+      timing: 'Within the hour', lever: 'message', journey: 'branch-on-response',
+      mechanism: 'Say what the instalment costs while the purchase is fresh.', tradeOff: 'Needs the event quickly.', chosen: true,
+    },
+    {
+      name: 'Work the statement date', barrier: 'cost-perception', audience: 'The same purchases, at the statement run',
+      timing: 'Two days before the statement', lever: 'timing', journey: 'linear',
+      mechanism: 'Pitch it when the bill is in view.', tradeOff: 'Later, and the request may have lapsed.',
+    },
+  ],
   touches: [
-    { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Say the purchase can be split, and what it costs.', ifStillUnconverted: 'Follow up on day 3.' },
-    { day: 3, channel: 'SMS', path: 'all', purpose: 'Remind them the window closes.', ifStillUnconverted: 'Stop. The request lapses.' },
+    { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Say the purchase can be split, and what it costs.', ifStillUnconverted: 'If it is not delivered, SMS the same day.' },
+    { day: 3, channel: 'SMS', path: 'all', purpose: 'Remind them the window closes.', ifStillUnconverted: 'If it was read and nothing happened, stop. The request lapses.' },
   ],
   assumptions: ['Silent non-conversion means no EMI request is raised at all.'],
   unknowns: [],

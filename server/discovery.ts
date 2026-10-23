@@ -1956,8 +1956,11 @@ export function isTimingDimension(name: string): boolean {
     /\bexpiry\b/,
     /\bstatement\s+(date|cycle|day)\b/,
     /\bcadence\b/,
-    /\bfrequency\b/,
-    /\brecency\b/,
+    // NOT `frequency` OR `recency`. Both were here and both were wrong:
+    // purchase frequency and recency of last spend are things ONE customer
+    // does more than another, which is exactly a who-axis. Classifying them
+    // as timing would have discarded the strongest pattern a manager is
+    // likely to have actually noticed.
   ].some((re) => re.test(n));
 }
 

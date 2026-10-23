@@ -75,21 +75,55 @@ const noTrack = () => {
   return recordSuccessCriteria(b, ['More authorised purchases converted before they lapse.']);
 };
 
-/** The same conversation, but they named a pattern they have actually seen. */
+/**
+ * The same conversation, but they named a pattern they have actually seen.
+ *
+ * RETARGETED 2026-10-23. This used to carry "Days left in the window", which
+ * `isTimingDimension` now classifies as a clock — so it stopped being a
+ * stated trend, correctly, and the three tests resting on it went red. When
+ * they act is not who acts, and the fixture has to carry a WHO pattern to
+ * keep testing what it names. The clock case is tested on its own below.
+ */
 const sawATrend = () =>
   recordDimensions(noTrack(), [
-    { name: 'Days left in the window', rationale: 'They said late ones almost never convert.', status: 'retained', basis: 'user', note: 'Their own observation.' },
+    { name: 'Purchase ticket band', rationale: 'They said the bigger ones almost always convert.', status: 'retained', basis: 'user', note: 'Their own observation.' },
   ]);
 
+/** They described the CLOCK and nothing else: how soon it happens, not who. */
+const sawOnlyAClock = () =>
+  recordDimensions(noTrack(), [
+    { name: 'Time between purchase and EMI decision', rationale: 'They said it usually happens within thirty minutes.', status: 'retained', basis: 'user', note: 'Their own observation.' },
+  ]);
+
+// VALID IN EVERY OTHER RESPECT, which is the only way the thing under test is
+// the only variable. Two channels with jobs, two days apart, and a fallback
+// that distinguishes not-delivered from read-and-ignored — otherwise
+// `channelJobBlocks` and `reactionBlocks` hold the turn and these tests prove
+// nothing about trends.
 const touches = (path = 'all') => [
-  { day: 0, channel: 'WHATSAPP', path, purpose: 'Say what the instalment costs.', ifStillUnconverted: 'Follow up on day 3.' },
-  { day: 3, channel: 'SMS', path, purpose: 'Remind them the window closes.', ifStillUnconverted: 'Stop; it lapses.' },
+  { day: 0, channel: 'WHATSAPP', path, purpose: 'Say what the instalment costs.', ifStillUnconverted: 'If it is not delivered, SMS the same day.' },
+  { day: 3, channel: 'SMS', path, purpose: 'Remind them the window closes.', ifStillUnconverted: 'If it was read and nothing happened, stop; the request lapses.' },
+];
+
+/** The winner reacts; the rival is the clock, which is a legitimate rival. */
+const ARCHITECTURES = [
+  {
+    name: 'Catch them in the moment', barrier: 'cost-perception', entry: 'Every authorised eligible purchase',
+    timing: 'Within the hour of authorisation', lever: 'message', journey: 'branch-on-response',
+    mechanism: 'Say what the instalment costs while the purchase is still fresh.', tradeoff: 'Needs the authorisation event quickly.', chosen: true,
+  },
+  {
+    name: 'Work the statement date', barrier: 'cost-perception', entry: 'Eligible purchases on the current statement',
+    timing: 'Two days before the statement', lever: 'timing', journey: 'linear',
+    mechanism: 'Pitch it when the bill is in view.', tradeoff: 'Later, and the request may already have lapsed.',
+  },
 ];
 
 const plan = (over: Record<string, unknown> = {}) => ({
   summary: 'Prompt conversion inside the open window.',
   approach: ['Everyone eligible enters.'],
   touches: touches(),
+  architectures: ARCHITECTURES,
   assumptions: [],
   unknowns: [],
   ...over,
@@ -126,11 +160,25 @@ describe('a treatment split needs a trend the manager has seen', () => {
   it('allows the same split once they have stated the trend', () => {
     const blocks = trendBlocks(sawATrend(), {
       strategy: plan({
-        strategyOptions: [OPTION('Segmentation', 'used', 'Late ones get the urgent wording.')],
-        touches: [...touches('Late in the window'), ...touches('Early in the window')],
+        strategyOptions: [OPTION('Segmentation', 'used', 'Bigger tickets get the cost breakdown.')],
+        touches: [...touches('Above their own median'), ...touches('Everyone else')],
       }),
     });
     expect(blocks).toEqual([]);
+  });
+
+  it('refuses a who-cut that rests on nothing but a clock they described', () => {
+    // THE LEFTOVER FROM THE PROBE SLICE. `statedTrend` read every dimension
+    // on the brief, timing included, so a manager who had only said "most of
+    // them convert within thirty minutes" authorised a ticket-size split they
+    // had never evidenced. Everyone passes through the same clock.
+    const blocks = trendBlocks(sawOnlyAClock(), {
+      strategy: plan({
+        strategyOptions: [OPTION('Segmentation', 'used', 'Above ten thousand gets the breakdown.')],
+        touches: [...touches('Above 10000'), ...touches('Everyone else')],
+      }),
+    });
+    expect(blocks.map((b) => b.code)).toEqual(['split-without-trend']);
   });
 
   it('an experiment does not excuse the cut', () => {
@@ -207,7 +255,7 @@ describe('with no history, the first run has to test something', () => {
 
   it('a retained trend they stated still exempts the plan', () => {
     // The release that remains, and the only one.
-    expect(trendBlocks(sawATrend(), { strategy: plan({ touches: [...touches('Late in the window'), ...touches('Early')] }) })).toEqual([]);
+    expect(trendBlocks(sawATrend(), { strategy: plan({ touches: [...touches('Above their own median'), ...touches('Everyone else')] }) })).toEqual([]);
   });
 });
 

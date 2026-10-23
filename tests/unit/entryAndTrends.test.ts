@@ -194,6 +194,12 @@ describe('no history is a reason to test, not a reason to ship a flat sequence',
     // on 2026-10-23 is what exposed it. Its name says "a proposal that
     // experiments"; its fixture declared no experiment at all, so it proved
     // only that nothing was checking. It now declares the test it claims to.
+    //
+    // AND IT NEEDED A REACTING WINNER AND TWO CHANNEL JOBS, 2026-10-23, for
+    // the same reason: `reactionBlocks` and `channelJobBlocks` would otherwise
+    // hold this turn and the assertion below would be about them rather than
+    // about trends. Fifth fixture written as "a good proposal" that a later
+    // structural check invalidated.
     const b = oneTrack();
     const d = decide(b, {
       proposed: {
@@ -204,9 +210,13 @@ describe('no history is a reason to test, not a reason to ship a flat sequence',
             { option: 'Segmentation', verdict: 'not-applicable', why: 'No trend has been seen, so nothing to cut on.' },
             { option: 'Experimentation', verdict: 'used', why: 'Two openings, randomly assigned, read on conversion.' },
           ],
+          architectures: [
+            { name: 'Catch the moment', journey: 'branch-on-response', chosen: true },
+            { name: 'Work the statement date', journey: 'linear' },
+          ],
           touches: [
-            { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'Remind on day 3.' },
-            { day: 3, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'Stop.' },
+            { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is not delivered, SMS the same day.' },
+            { day: 3, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'If it was read and nothing happened, stop.' },
           ],
           assumptions: [],
           unknowns: [],

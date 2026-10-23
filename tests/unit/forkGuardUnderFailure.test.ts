@@ -100,9 +100,26 @@ const PROPOSAL = {
     strategyOptions: [
       { option: 'Experimentation', verdict: 'used', why: 'Two openings, randomly assigned, read on conversion.' },
     ],
+    // AND A WINNER THAT REACTS, since 2026-10-23, for the third time and the
+    // same reason as the two notes above. `reactionBlocks` refuses a plan
+    // whose chosen architecture is a clock, so without this the fork is again
+    // the second reason the payload is held. The rival here IS the clock,
+    // which is a legitimate alternative to weigh and reject.
+    architectures: [
+      {
+        name: 'Catch the authorisation', barrier: 'cost-perception', audience: 'Every account carrying an eligible balance',
+        timing: 'Within the hour', lever: 'message', journey: 'branch-on-response',
+        mechanism: 'Explain the cost while the balance is in view.', tradeOff: 'Needs the event quickly.', chosen: true,
+      },
+      {
+        name: 'Work the statement date', barrier: 'cost-perception', audience: 'The same accounts, on the statement run',
+        timing: 'Two days before the statement', lever: 'timing', journey: 'linear',
+        mechanism: 'Pitch it when the bill is in view.', tradeOff: 'Later, and some have already paid.',
+      },
+    ],
     touches: [
       { day: 0, channel: 'WhatsApp', path: 'all', purpose: 'Explain that the balance can be converted.', ifStillUnconverted: 'Try SMS if WhatsApp does not deliver.' },
-      { day: 3, channel: 'SMS', path: 'all', purpose: 'Remind them before the statement date.', ifStillUnconverted: 'One last message on day 6, then stop.' },
+      { day: 3, channel: 'SMS', path: 'all', purpose: 'Remind them before the statement date.', ifStillUnconverted: 'If it was read and nothing happened, one last message on day 6, then stop.' },
     ],
     summary: 'Enter customers near their statement due date and prompt conversion.',
     approach: ['Entry on Account Status = Active, assuming the never-started cohort.'],

@@ -2402,3 +2402,129 @@ agent-proto. Typechecks and build clean. Reverting the gate fails 4;
 reverting `isTimingDimension` fails 1. `forkGuardUnderFailure`'s fixture
 needed a second axis — fourth time a new structural check has invalidated a
 fixture written as a complete brief.
+
+## 2026-10-23 (cont'd) — A clock may not authorise a cut, and a channel has
+to earn its job
+
+One pass over the leftover from the probe slice plus the two slices held back
+from it. The honest headline is at the bottom: of the three new refusals, the
+two new ones do NOT fire on the live run they were specified from, and the
+reason is in the spec's own release clauses.
+
+### A. `statedTrend` was still counting the clock
+
+It read every dimension on the brief — `basis: 'user'`, `status: 'retained'`,
+timing included. So a manager who had only said "most of them convert within
+thirty minutes" authorised a ticket-size split they had never evidenced. It is
+now exactly the set `seenAxes` reads, which is also the set
+`unprobed-other-axes` reads: segmentation dimensions only. The two rules
+cannot drift apart because they are the same question asked twice.
+
+`isTimingDimension` LOST `frequency` and `recency`, which were both wrong.
+Purchase frequency and recency of last spend are things one customer does more
+than another — a who-axis, and probably the strongest pattern a manager has
+actually noticed. Classifying them as timing would have discarded it.
+
+**`sawATrend()` in `firstRunMustTest` was carrying "Days left in the window"**,
+which the new classifier correctly calls a clock, so three tests resting on it
+went red. The fixture carries a ticket band now and the clock case is its own
+test — the one the slice exists for, and it is the one that fails when
+`statedTrend` is reverted.
+
+### B. The one probe has to name its axes (prompt only)
+
+The gate forces one extra question and cannot force it to be useful. A blank
+"anything else?" gives the manager nothing to react to, so "no" is the only
+cheap answer.
+
+**The examples live in the gate's `clears.how`, NOT in SYSTEM**, and that was
+not the first draft. `entryAndTrends` pins that EMI's own factors never appear
+in the prompt — a measured defect, because when they did, every objective got
+EMI's dimensions handed back to it. So SYSTEM asks for "one or two nouns you
+derived from THIS objective" and bans `"anything else?" with no noun`, while
+the refusal — shown only when the block fires, with the brief in hand — names
+category, first-time versus repeat and card type. The pin caught this; reading
+the spec did not.
+
+### C. The journey must move on what the customer did
+
+`reactionBlocks`, propose-time, skipped when `building`. Two failures of one
+rule, in order: the chosen architecture's `journey` is not
+branch-on-response or wait-for-event (an `experiment` is NOT a reaction —
+randomised arms learn something, they do not respond to this customer), or it
+says it reacts and every touch falls back to the same reminder. The second is
+a cheap string check over `ifStillUnconverted` requiring two outcomes named by
+type: not delivered, not read, read and no action, converted and stop.
+
+**It never reads a blueprint, and a test greps the function to keep it that
+way.** There is no blueprint at propose time, `optionAudit` owns the built
+journey after Confirm, and a compiler-injected Goal Check after every send is
+not branching — so this check must not be able to be fooled by one, which it
+cannot be, because it never looks.
+
+The refusal offers the clock as the RIVAL to reject rather than asking for a
+second barrier. Statement-date pacing is a real alternative; inventing a
+second customer problem is the thing this file has spent two days removing.
+
+### D. Channels are jobs
+
+`channelJobBlocks` refuses two shapes. One channel for every send while the
+others sit unused is habit — unless a different channel is named in
+`ifStillUnconverted` as the fallback, which is the only release and does not
+require the fallback to have a scheduled row of its own. And two channels to
+the same path on the same day is fatigue dressed as coverage; keyed on path
+AND day, because different channels on different days is the shape wanted and
+two groups each getting their own opening is not spray.
+
+### The measurement, which does not flatter the slice
+
+Run against `eval/runs/ui-s-1792738033056/turns/turn-3.json` — the plan this
+pass was specified from — **both new checks return nothing**:
+
+- its chosen architecture declares `branch-on-response`, and its fallbacks
+  distinguish not-delivered from not-read from read-with-no-action;
+- all six touches are WhatsApp, but every one of them names SMS as the retry,
+  which is the release D was specified to grant ("even if SMS is not its own
+  touch row").
+
+So what actually held that turn is slice 1's `unprobed-other-axes`, and these
+two catch the SHAPE that run risked rather than the payload it produced. That
+is worth stating rather than burying: the prose was better than the plan, and
+a check that reads the prose inherits that. The backstop is already in place
+and is the right one — `optionAudit`'s `channel fallback` reports a gap when
+no condition routes the failure path to another channel, so an SMS fallback
+that exists only in a sentence is downgraded on the build turn. Tightening the
+propose-time release instead would mean refusing a correctly-described
+fallback for not having a row, which is a formatting rule.
+
+### Prompt
+
+`SYSTEM` is **33,433 / 33,500**, not raised. Paid for by: the EVEN SPACING
+second sentence (now the gate's own refusal text, verbatim), two rationale
+clauses in NAME EVERY TOUCH, the "application will downgrade a claim" sentence
+in §6 (a mechanism that exists whether or not the prompt mentions it), and the
+"made-up number invites them to argue with the number" tail in §2 — the
+instruction against inventing a cutoff stays, only its reasoning went. One cut
+was WRONG and is restored: "every option you marked 'used' should be visible
+in it" is pinned by `strategyOptions`, which is the cap comment's own rule
+working for the second slice running.
+
+### Verified
+
+1329 unit (from 1304; 13 in `reactionBlocks.test.ts`, 9 in
+`channelJobs.test.ts`, 3 in `probeThenLock`, plus the clock case in
+`firstRunMustTest`) and 118 agent-proto. `tsc --noEmit`, `server:typecheck`
+and `npm run build` clean. Reverting `statedTrend` to the old `some()` fails
+1; reverting the linear refuse fails 5; reverting the habit check fails 3.
+
+**Four fixtures needed a reacting winner** — `firstRunMustTest`,
+`entryAndTrends`, `forkGuardUnderFailure`, `strategyWithQuestions`. Fifth
+slice running, and `forkGuardUnderFailure`'s third note of this kind in three
+days. The fixture list is now genuinely the first thing to check: a payload
+written as "a good proposal" is invalidated by every structural check added
+after it, and it fails for two reasons while proving neither.
+
+### Not in this slice
+
+No IN_APP send node, no new discovery question beyond the named-axis probe, no
+Confirm-time refusal from either new check, and nothing pushed.

@@ -63,6 +63,18 @@ describe('timing is not a second axis', () => {
     expect(isTimingDimension('Card type')).toBe(false);
   });
 
+  it('does not classify frequency or recency as a clock', () => {
+    // BOTH WERE IN THE LIST AND BOTH WERE WRONG. How often someone buys, and
+    // how recently they last spent, are things ONE customer does more than
+    // another — a who-axis, and probably the strongest pattern a manager has
+    // actually noticed. Calling them timing would have discarded it.
+    expect(isTimingDimension('purchase frequency')).toBe(false);
+    expect(isTimingDimension('Recency of last spend')).toBe(false);
+    // The genuine clocks are still clocks.
+    expect(isTimingDimension('send cadence')).toBe(true);
+    expect(isTimingDimension('time to act after authorisation')).toBe(true);
+  });
+
   it('does not let a clock satisfy the probe', () => {
     // The live record read as two retained dimensions. One was a clock.
     expect(otherAxesProbed(liveShape())).toBe(false);
@@ -220,6 +232,31 @@ describe('two evidenced patterns are a choice, not four paths', () => {
 describe('the prompt teaches the same three moves', () => {
   it('ask once, then lock', () => {
     expect(SYSTEM).toMatch(/ONE PATTERN IS NOT THE END: ask ONCE if anything else they SAW splits who acts, then lock/);
+  });
+
+  it('and that one question has to name its axes', () => {
+    // The gate forces ONE extra question and cannot force it to be useful. A
+    // blank "anything else?" is the failure this names: the manager has
+    // nothing to react to, so "no" is the only cheap answer.
+    expect(SYSTEM).toMatch(/NAME THE AXES IN THAT ONE QUESTION/);
+    expect(SYSTEM).toMatch(/nouns you derived from THIS objective/);
+    expect(SYSTEM).toMatch(/Never "anything else\?" with no noun in it/);
+    expect(SYSTEM).toMatch(/"We do not track that" closes it/);
+    // AND NOT A STANDING LIST. The examples live in the gate's clearing
+    // instruction, which is shown when the block fires, rather than in a
+    // prompt every objective reads — `entryAndTrends` pins that EMI's own
+    // factors never appear in SYSTEM, because when they did every objective
+    // got EMI's dimensions handed back to it.
+    for (const banned of ['merchant category', 'ticket size', 'prior EMI', 'card type']) {
+      expect(SYSTEM.toLowerCase(), banned).not.toContain(banned.toLowerCase());
+    }
+  });
+
+  it('names those axes in the refusal instead, where the brief is known', () => {
+    const block = blocksFor(liveShape()).find((x) => x.code === 'unprobed-other-axes');
+    expect(block!.clears.how).toMatch(/NAME one or two axes in it/);
+    expect(block!.clears.how).toMatch(/merchant category, first-time versus repeat, or card type/);
+    expect(block!.clears.how).toMatch(/with no noun is not a question anyone can answer/);
   });
 
   it('time-to-act is not an axis', () => {

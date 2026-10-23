@@ -59,7 +59,9 @@ export type Mutation =
   | { field: 'hypotheses'; how: string }
   | { field: 'touches'; how: string }
   | { field: 'experiment'; how: string }
-  | { field: 'treatmentSplit'; how: string };
+  | { field: 'treatmentSplit'; how: string }
+  /** Which candidate wins, and what its journey DOES — not a change to the record. */
+  | { field: 'architecture'; how: string };
 
 export interface Block {
   /** Stable identity, so two turns can be compared and only the DELTA shown. */
@@ -76,7 +78,10 @@ export interface Block {
     | 'split-without-trend'
     | 'nothing-tested'
     | 'unprobed-other-axes'
-    | 'stacked-dimensions';
+    | 'stacked-dimensions'
+    | 'no-reaction'
+    | 'single-channel-habit'
+    | 'channel-spray';
   /** Said to the user, in their terms. Never names a field or an id. */
   reason: string;
   /** What would clear it. Required by construction. */
@@ -118,6 +123,8 @@ export function decide(
     ...(opts.building ? [] : cadenceBlocks(opts.proposed ?? null)),
     ...(opts.building ? [] : trendBlocks(brief, opts.proposed ?? null)),
     ...(opts.building ? [] : stackedDimensionBlocks(brief, opts.proposed ?? null)),
+    ...(opts.building ? [] : reactionBlocks(opts.proposed ?? null)),
+    ...(opts.building ? [] : channelJobBlocks(opts.proposed ?? null)),
   ];
   const advice = adviceFor(brief);
 
@@ -135,7 +142,16 @@ export interface ProposalUnderReview {
   strategy?: {
     hypotheses?: string[];
     unknowns?: string[];
-    touches?: { day: number; path: string }[];
+    /**
+     * `channel` and `ifStillUnconverted` are REQUIRED by the tool schema and
+     * were simply not declared here, so the propose-time checks could not see
+     * two of the five fields the model already sends. Optional in this type
+     * because this PARSES a payload rather than constructing one — the same
+     * reasoning as `ViewStep` in the client preview.
+     */
+    touches?: { day: number; path: string; channel?: string; ifStillUnconverted?: string }[];
+    /** Only what a propose-time check reads: which candidate won, and what its journey DOES. */
+    architectures?: { journey?: string; chosen?: boolean }[];
     /**
      * The agent's own verdict on each strategic option. Read here for the
      * same reason `checkExperimentClaims` reads it: a claim the agent makes
@@ -267,11 +283,15 @@ export function cadenceBlocks(proposed: ProposalUnderReview | null): Block[] {
  * have observed. Reading only the basis would let an untracked factor
  * authorise a split, which is the live defect this exists to stop.
  *
- * A described audience counts too: if they can say who converts today, they
- * have seen the trend by definition.
+ * A DESCRIBED WHO PATTERN IS A TREND; A CLOCK IS NOT. This used to read every
+ * dimension on the brief, timing included, so a manager who had only said
+ * "most of them convert within thirty minutes" authorised a ticket-size split
+ * they had never evidenced. When they act is not who acts: everyone passes
+ * through the same clock. So this is now exactly the set `seenAxes` reads —
+ * segmentation dimensions, `basis: 'user'`, `status: 'retained'` — and the two
+ * rules cannot drift apart, because they are the same question asked twice.
  */
-const statedTrend = (brief: WorkingBrief): boolean =>
-  briefDimensions(brief).some((d) => d.basis === 'user' && d.status === 'retained');
+const statedTrend = (brief: WorkingBrief): boolean => seenAxes(brief).length > 0;
 
 /**
  * Content words of a path label and of the dimension names on the brief.
@@ -423,6 +443,170 @@ export function trendBlocks(brief: WorkingBrief, p: ProposalUnderReview | null):
   return [];
 }
 
+/** The two journey behaviours in which the NEXT step depends on the customer. */
+const REACTIVE_JOURNEYS = ['branch-on-response', 'wait-for-event'];
+
+/**
+ * What a touch says it does when the message does not land, sorted into the
+ * outcomes a channel can actually distinguish.
+ *
+ * A CHEAP STRING CHECK, DELIBERATELY. The blueprint is the place to read a
+ * journey properly, and `optionAudit` already does that on the build turn.
+ * Here there is no journey yet — only the manager-facing list — so the
+ * question is narrower: does the plan distinguish the person who never got it
+ * from the person who read it and did nothing? Two different outcomes named
+ * anywhere in the list is the whole bar.
+ */
+const namedOutcomes = (touches: { ifStillUnconverted?: string }[]): Set<string> => {
+  const text = touches.map((t) => String(t.ifStillUnconverted ?? '')).join(' ␞ ').toLowerCase();
+  const found = new Set<string>();
+  if (/not deliver|undeliver|does ?n[o']?t deliver|fail(s|ed|ure)?\s+to\s+deliver|delivery (fail|error)|bounce|not reach|unreachable/.test(text))
+    found.add('not-delivered');
+  if (/not read|unread|does ?n[o']?t read|no read receipt|not opened|unopened|not seen|never saw/.test(text)) found.add('not-read');
+  if (/read (it )?(and|but)|opened (it )?(and|but)|clicked (and|but)|read and no|ignore|no action|engaged but|took no/.test(text))
+    found.add('read-and-ignored');
+  if (/convert|\bbook(ed|s|ing)?\b|\bopt(ed|s)? in\b|goal/.test(text)) found.add('converted');
+  return found;
+};
+
+/**
+ * THE JOURNEY MUST MOVE ON WHAT THE CUSTOMER DID.
+ *
+ * MEASURED, `eval/runs/ui-s-1792738033056`. The approved plan was a WhatsApp
+ * drip on a fixed clock with a copy experiment on top. §7 has said EVEN
+ * SPACING WITH NO REACTION IS NOT A PLAN for a day, in words, and the plan
+ * shipped anyway — which is this repo's standing lesson about prompt rules.
+ *
+ * A clock treats unread, unreached and ignored as the same person. One of
+ * those three never got the message, one is still deciding, and one has made
+ * up their mind; sending all three the same reminder on day 3 is the campaign
+ * declining to use the only information it has.
+ *
+ * TWO FAILURES OF THE SAME RULE, checked in order. The winner's declared
+ * `journey` may be a clock — which is the claim — or it may say
+ * branch-on-response while every touch falls back to the same reminder, which
+ * is the claim without the thing. Neither is read off a blueprint here: there
+ * is no blueprint at propose time, and `optionAudit` owns that job after
+ * Confirm. A compiler-injected Goal Check after every send is NOT branching
+ * and is deliberately invisible to this check, because the blueprint is the
+ * source for that question and this is not it.
+ */
+export function reactionBlocks(p: ProposalUnderReview | null): Block[] {
+  const s = p?.strategy;
+  if (!s) return [];
+  const chosen = (s.architectures ?? []).find((a) => a?.chosen);
+  const journey = String(chosen?.journey ?? '').trim().toLowerCase();
+  if (!chosen || !REACTIVE_JOURNEYS.includes(journey)) {
+    return [
+      {
+        code: 'no-reaction',
+        reason:
+          'A clock that treats unread, unreached and ignored as the same person is not a plan. What happens next has to depend on what the customer did — delivered, read, acted — as far as the channel can tell you. A ticket-size split and a wording test are not that.',
+        clears: {
+          field: 'architecture',
+          how: `Make the winner a candidate whose "journey" is ${REACTIVE_JOURNEYS.join(' or ')}. The rival it beats may be the clock — a statement-date or fixed-cadence plan is a legitimate alternative to weigh and reject. Do not invent a second customer problem to justify it.`,
+        },
+      },
+    ];
+  }
+  if (namedOutcomes(s.touches ?? []).size >= 2) return [];
+  return [
+    {
+      code: 'no-reaction',
+      reason:
+        'This plan says it reacts to the customer, and then every message does the same thing regardless: the person who never received it, the person who has not read it and the person who read it and did nothing all get the next reminder. Those are three different people.',
+      clears: {
+        field: 'touches',
+        how: 'In "ifStillUnconverted", say what happens in at least two different cases by name: not delivered (try another channel), not read, read and no action, or converted and the campaign stops.',
+      },
+    },
+  ];
+}
+
+/** Channel words a plan may name, including inside a fallback sentence. */
+const CHANNEL_WORDS: { key: string; re: RegExp }[] = [
+  { key: 'whatsapp', re: /\bwhats ?app\b/ },
+  { key: 'sms', re: /\bsms\b|\btext message\b/ },
+  { key: 'email', re: /\be-?mail\b/ },
+  { key: 'rcs', re: /\brcs\b/ },
+  { key: 'inapp', re: /\bin-? ?app\b/ },
+  { key: 'push', re: /\bpush\b/ },
+];
+
+/** The channel a touch is sent on, folded so WHATSAPP and "WhatsApp" are one. */
+const channelKey = (channel: string | undefined): string => {
+  const n = String(channel ?? '').trim().toLowerCase();
+  if (!n) return '';
+  return CHANNEL_WORDS.find((c) => c.re.test(n))?.key ?? n.replace(/[^a-z0-9]+/g, '');
+};
+
+/**
+ * EACH CHANNEL IS A JOB, NOT A DEFAULT.
+ *
+ * WhatsApp for the catch while they are still in the moment is a job. SMS when
+ * WhatsApp does not land is a job. Email when the message has to be read later,
+ * or re-read, is a job. Using one channel for all of it while three others sit
+ * unused is habit, and the live plan was four WhatsApp sends.
+ *
+ * NAMING A FALLBACK COUNTS, even when it has no row of its own. "If it is not
+ * delivered, SMS the same day" gives SMS a job; the second channel does not
+ * have to appear as a scheduled touch to be a decision rather than an
+ * oversight. That is the only release here, and it reads the manager-facing
+ * sentence the model already writes.
+ *
+ * THE OPPOSITE MISTAKE IS ALSO REFUSED. Firing every channel at the same
+ * person on the same day is fatigue dressed as coverage. Different channels on
+ * different days, or SMS only on the failure fork, is the shape wanted.
+ */
+export function channelJobBlocks(p: ProposalUnderReview | null): Block[] {
+  const touches = p?.strategy?.touches ?? [];
+  if (!touches.length) return [];
+  const out: Block[] = [];
+
+  const used = new Set(touches.map((t) => channelKey(t.channel)).filter(Boolean));
+  if (touches.length >= 2 && used.size === 1) {
+    const only = [...used][0];
+    const fallbackText = touches.map((t) => String(t.ifStillUnconverted ?? '')).join(' ').toLowerCase();
+    const namesAnother = CHANNEL_WORDS.some((c) => c.key !== only && c.re.test(fallbackText));
+    if (!namesAnother) {
+      out.push({
+        code: 'single-channel-habit',
+        reason: `Every message in this plan goes out on the same channel, and nothing says what the others are for. WhatsApp for the catch while they are still in the moment is a job; SMS for when that does not land is a job; email for a message they need to read later is a job. One channel for all of it, while the rest sit unused, is habit rather than a decision.`,
+        clears: {
+          field: 'touches',
+          how: 'Give at least two channels a job — a different channel on a later day, or named in "ifStillUnconverted" as the fallback when the first does not land — or say in "approach" why the others cannot do this job. Do not fire every channel at everyone.',
+        },
+      });
+    }
+  }
+
+  // Same person, same day, two channels. Keyed on path AND day, because
+  // different channels on different days is exactly the shape wanted, and a
+  // failure fork that re-sends on SMS the same day is a named path.
+  const sprayed = new Map<string, Set<string>>();
+  for (const t of touches) {
+    const key = `${String(t.path ?? 'all').trim().toLowerCase()}@${t.day}`;
+    const set = sprayed.get(key) ?? new Set<string>();
+    const ch = channelKey(t.channel);
+    if (ch) set.add(ch);
+    sprayed.set(key, set);
+  }
+  const clash = [...sprayed.entries()].filter(([, set]) => set.size >= 2);
+  if (clash.length) {
+    out.push({
+      code: 'channel-spray',
+      reason: `This plan sends the same group two messages on two channels on the same day (${clash
+        .map(([key, set]) => `day ${key.split('@')[1]}: ${[...set].join(' and ')}`)
+        .join('; ')}). That is fatigue rather than coverage — the second one arrives before the first has had a chance to work.`,
+      clears: {
+        field: 'touches',
+        how: 'Put the second channel on a different day, or on the failure fork only — reached when the first was not delivered — rather than alongside it.',
+      },
+    });
+  }
+  return out;
+}
+
 /**
  * Dimensions that could actually cut a journey by customer.
  *
@@ -567,7 +751,7 @@ export function blocksFor(brief: WorkingBrief): Block[] {
       reason: `You have given me one pattern you have seen — ${seenAxes(brief)[0].name}. Before I design around it, is there anything else you have noticed that splits who acts? If you do not track anything else, say so and I will go with this one.`,
       clears: {
         field: 'dimensions',
-        how: 'Ask ONE question: what else have they seen that changes who acts, and accept "we do not track that" as a complete answer. Or record a second segmentation dimension with basis "user" — retained, deferred or unavailable with a note. A dimension you deferred yourself is not an answer.',
+        how: 'Ask ONE question, and NAME one or two axes in it, derived from this objective — on an EMI-eligible-purchase campaign that is merchant category, first-time versus repeat, or card type. "Anything else?" with no noun is not a question anyone can answer. Accept "we do not track that" as a complete answer. Or record a second segmentation dimension with basis "user" — retained, deferred or unavailable with a note. A dimension you deferred yourself is not an answer.',
       },
     });
   }
@@ -705,6 +889,7 @@ export function satisfy(brief: WorkingBrief, m: Mutation): WorkingBrief {
     case 'touches':
     case 'experiment':
     case 'treatmentSplit':
+    case 'architecture':
       // Not a record change, so there is nothing to synthesise here. The
       // clearability test treats a proposal mutation separately: it checks the
       // block names a field the model can write, not that the brief can be
