@@ -1427,9 +1427,16 @@ export async function* orchestrateStream(
         if (applied.evidence?.length) toolEvidence = applied.evidence as typeof toolEvidence;
         if (!applied.error) recordedViaTools = true;
         if (tu.name === 'propose_strategy') {
-          const sent = (tu.input ?? {}) as { strategy?: { summary?: string } };
+          // THE PAYLOAD IS FLAT. `propose_strategy` takes `summary`,
+          // `approach`, `architectures` at the top level — `applyOutputTool`
+          // reads it as `obj as Strategy` — so there is no `strategy`
+          // wrapper to reach through. Reading one meant the fallback below
+          // knew a plan had been refused and could never say what it was.
+          // The nested read is kept as a second chance rather than removed,
+          // because a model that wraps it is sending a plan either way.
+          const sent = (tu.input ?? {}) as { summary?: string; strategy?: { summary?: string } };
           proposeRefused = applied.error
-            ? { error: applied.error, summary: String(sent.strategy?.summary ?? '').trim() }
+            ? { error: applied.error, summary: String(sent.summary ?? sent.strategy?.summary ?? '').trim() }
             : null;
         }
         em.emit(applied.error ? 'model.tool_call.failed' : 'model.tool_call.completed', 'discovery', toolTitle(tu.name), {

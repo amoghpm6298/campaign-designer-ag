@@ -101,6 +101,22 @@ describe('one barrier is not a reason to refuse the plan', () => {
     expect(out.strategy).toBeTruthy();
   });
 
+  it('accepts two that differ only in WHO THEY REACH, sent as the schema spells it', () => {
+    // The schema field is `audience`; everything downstream reads `entry`.
+    // The treatment comparison ran BEFORE that reconciliation, so it read
+    // undefined on both candidates and refused two plans whose whole
+    // difference was the audience — the exact failure the alias comment had
+    // already recorded for `architectureAudit`, one check earlier.
+    const out = applyOutputTool(answered(), 'propose_strategy', plan([
+      { name: 'Everyone eligible', barrier: 'awareness-gap', audience: 'Every authorised purchase', timing: 'Within 30 minutes', lever: 'timing', journey: 'single-touch', mechanism: 'Tell them.', tradeOff: 'Broad.', chosen: true },
+      { name: 'Bigger purchases first', barrier: 'awareness-gap', audience: 'Purchases above their own median', timing: 'Within 30 minutes', lever: 'timing', journey: 'single-touch', mechanism: 'Tell them.', tradeOff: 'Narrow.' },
+    ]));
+    expect(out.error).toBeUndefined();
+    // And the alias still lands, so nothing downstream reads `undefined`.
+    expect(out.strategy?.architectures?.[0].entry).toBe('Every authorised purchase');
+    expect(out.strategy?.architectures?.[0].tradeoff).toBe('Broad.');
+  });
+
   it('still refuses when the second is the first, renamed', () => {
     const out = applyOutputTool(answered(), 'propose_strategy', plan([
       arch({ name: 'Catch them at checkout', chosen: true }),
@@ -132,19 +148,22 @@ const refusedPropose = () =>
       index: 0,
       delta: {
         type: 'input_json_delta',
+        // FLAT, the way the schema defines it and the live turn sends it.
+        // This fixture nested the plan under `strategy`, which is the only
+        // reason the fallback could find a summary — the orchestrator was
+        // reading the wrapper too. Both are fixed; the test now sends what
+        // the model actually sends.
         partial_json: JSON.stringify({
-          strategy: {
-            summary: 'Catch them while the purchase is still in mind.',
-            approach: ['Enter on authorisation.'],
-            touches: [
-              { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Say it qualifies.', ifStillUnconverted: 'Remind on day 2.' },
-              { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance.', ifStillUnconverted: 'Stop.' },
-            ],
-            assumptions: [], unknowns: [],
-            // One architecture: refused for a reason that is NOT the
-            // same-barrier rule, so the turn still ends without a proposal.
-            architectures: [{ name: 'Only one', barrier: 'awareness-gap', entry: 'x', timing: 'y', mechanism: 'z', tradeoff: 'w', chosen: true }],
-          },
+          summary: 'Catch them while the purchase is still in mind.',
+          approach: ['Enter on authorisation.'],
+          touches: [
+            { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Say it qualifies.', ifStillUnconverted: 'Remind on day 2.' },
+            { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance.', ifStillUnconverted: 'Stop.' },
+          ],
+          assumptions: [], unknowns: [],
+          // One architecture: refused for a reason that is NOT the
+          // same-barrier rule, so the turn still ends without a proposal.
+          architectures: [{ name: 'Only one', barrier: 'awareness-gap', audience: 'x', timing: 'y', mechanism: 'z', tradeOff: 'w', chosen: true }],
         }),
       },
     },

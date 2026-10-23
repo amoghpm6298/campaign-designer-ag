@@ -2244,3 +2244,37 @@ replace-on-sent. All three replaced, with the reasoning kept.
 walks the live sequence) and 118 agent-proto. `tsc --noEmit`,
 `server:typecheck` and `npm run build` clean. Reverting the tool rule fails
 2, replace-on-sent fails 3, the fallback fails 1.
+
+### Same day — three leftovers from that fix, two of which made it inert
+
+**The schema still told the model the opposite.** `architectures[].barrier`
+read *"Two candidates attacking the SAME barrier are one architecture
+described twice."* That description is the instruction the model actually
+reads; the validator had been changed and the thing being validated had not.
+It now says to cite a recorded id and that two candidates MAY share one when
+entry, timing, lever or journey differ. The stale comment at the case said
+the same old thing and is rewritten with what the rule cost.
+
+**`proposeRefused` reached through a wrapper that does not exist.**
+`propose_strategy` is flat — `applyOutputTool` reads `obj as Strategy` — so
+`sent.strategy?.summary` was always undefined and the new fallback could
+never name the plan it was built to name. My own fixture had nested the
+payload under `strategy`, which is the only reason the test passed: **the
+test and the code were wrong in the same direction, so they agreed.** The
+fixture sends the flat shape now, and the read takes `summary ??
+strategy?.summary`.
+
+**The treatment check ran before the aliasing.** The schema asks for
+`audience`; everything downstream reads `entry`. That reconciliation sat at
+the END of the case, so the comparison added hours earlier read `a.entry` on
+a payload carrying `audience`, found undefined on both candidates, and called
+two plans differing only in WHO THEY REACH one architecture described twice.
+
+That is precisely the failure the alias block's own comment already recorded
+for `architectureAudit` — "two plans differing only in who they reach would
+have been called one plan described twice" — reintroduced one check earlier,
+in a file that warns against exactly this. The normalisation is hoisted above
+every reader now, which is what "one boundary" was supposed to mean.
+
+Verified: 1280 unit (from 1279) and 118 agent-proto. Reverting the hoist
+fails the audience-only case; reverting the flat read fails the fallback.

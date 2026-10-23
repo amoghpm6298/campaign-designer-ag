@@ -224,7 +224,7 @@ export const OUTPUT_TOOLS: ToolDef[] = [
             type: 'object',
             properties: {
               name: { type: 'string' },
-              barrier: { type: 'string', description: 'The customer problem this one attacks. Two candidates attacking the SAME barrier are one architecture described twice.' },
+              barrier: { type: 'string', description: 'The recorded id of the customer problem this one attacks — use an id from the findings record, not free prose. Two candidates MAY cite the same barrier: when only one is recorded that is the normal shape, and the rival is a different TREATMENT of it. They must then differ in entry, timing, lever or journey.' },
               lever: { type: 'string' },
               audience: { type: 'string' },
               timing: { type: 'string' },
@@ -773,20 +773,52 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       if (!strategy.summary?.trim()) {
         return { brief, error: 'A proposal needs a "summary" saying what the campaign is, in the manager\'s own terms.' };
       }
-      // TWO candidates, and they must attack DIFFERENT barriers.
+      // TWO candidates, and they must be tellable apart BY A CUSTOMER.
       //
-      // This is the strategy weakness measured on the activation run: both
+      // The weakness measured on the activation run was real: both
       // "architectures considered" segmented or branched differently while
-      // sharing one theory of the problem ("they are not being nudged"). Two
-      // mechanics for one barrier is one architecture described twice, and the
-      // double-down-versus-expand comparison collapses.
+      // sharing one theory of the problem ("they are not being nudged"), and
+      // the double-down-versus-expand comparison collapsed.
+      //
+      // The rule drawn from it — cite two DIFFERENT barriers — was too
+      // strong, and 2026-10-23 shows what it cost: with one barrier recorded
+      // it refused a good plan and told the agent to invent a second reason,
+      // which then overwrote the manager's own. One recorded barrier is the
+      // ordinary case when someone answers clearly. What two candidates must
+      // not share is the TREATMENT — entry, timing, lever and journey, the
+      // same tuple `architectureAudit` compares.
       //
       // Checked structurally on the model's OWN declaration, the same shape as
       // the experiment-arms check: the application cannot judge whether two
       // barriers are meaningfully different, but it can insist they are not
       // the same string.
       // `.map` below, so a string reaches it the same way `.some` did.
-      const arch = asList<NonNullable<Strategy['architectures']>[number]>(strategy.architectures);
+      // ALIASED BEFORE ANYTHING READS IT, moved up 2026-10-23.
+      //
+      // The schema asks for `audience`, `tradeOff` and `why`; everything
+      // downstream reads `entry`, `tradeoff` and `whyChosen`. That
+      // reconciliation used to happen at the END of this case, after the
+      // checks — so the treatment comparison added the same day read
+      // `a.entry` on a payload that carries `audience`, found undefined on
+      // both candidates, and called two plans that differ only in WHO THEY
+      // REACH one architecture described twice.
+      //
+      // That is the precise failure the comment below was already warning
+      // about for `architectureAudit`, reintroduced one check earlier. One
+      // boundary, and it has to come first.
+      const normalised: Strategy = {
+        ...strategy,
+        architectures: asList<NonNullable<Strategy['architectures']>[number]>(strategy.architectures).map((a) => {
+          const raw = a as typeof a & { audience?: string; tradeOff?: string; why?: string };
+          return {
+            ...a,
+            entry: a.entry ?? raw.audience,
+            tradeoff: a.tradeoff ?? raw.tradeOff,
+            whyChosen: a.whyChosen ?? raw.why,
+          };
+        }),
+      };
+      const arch = asList<NonNullable<Strategy['architectures']>[number]>(normalised.architectures);
       if (arch.length < 2) {
         return {
           brief,
@@ -878,21 +910,9 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       // differing only in who they reach would have been called one plan
       // described twice.
       //
-      // Normalised here rather than in the renderer: there is one boundary
-      // where model output becomes application state, and a second alias in
-      // each reader is how this drifts again.
-      const normalised: Strategy = {
-        ...strategy,
-        architectures: strategy.architectures?.map((a) => {
-          const raw = a as typeof a & { audience?: string; tradeOff?: string; why?: string };
-          return {
-            ...a,
-            entry: a.entry ?? raw.audience,
-            tradeoff: a.tradeoff ?? raw.tradeOff,
-            whyChosen: a.whyChosen ?? raw.why,
-          };
-        }),
-      };
+      // Normalised ABOVE rather than here or in the renderer: there is one
+      // boundary where model output becomes application state, and a second
+      // alias in each reader is how this drifts again.
       return { brief, strategy: normalised, openItems, ok: 'Plan recorded. The manager approves it before anything is built.' };
     }
 
