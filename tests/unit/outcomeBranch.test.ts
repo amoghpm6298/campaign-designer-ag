@@ -24,7 +24,10 @@
 // `DELIVERY_STATUS_BY_CHANNEL`, never retyped here.
 import { describe, it, expect } from 'vitest';
 import { buildFromBlueprint, type CampaignBlueprint } from '../../server/blueprint';
-import { auditOptions, journeyReacts, reactsToDelivery } from '../../server/optionAudit';
+import { auditOptions, copyOnlyExperiments, journeyReacts, reactsToDelivery } from '../../server/optionAudit';
+import { decide } from '../../server/gate';
+import { newBrief, recordAnswer, recordBarriers, recordConverters, recordDimensions, recordSuccessCriteria } from '../../server/discovery';
+import { readFileSync } from 'node:fs';
 import { derive } from '../../server/architectureAudit';
 import { DELIVERY_STATUS_BY_CHANNEL } from '../../src/data/sharedConstants';
 import { engagementStatusesFor } from '../../server/deliveryStatuses';
@@ -529,5 +532,242 @@ describe('reactsToDelivery, on the shapes that look close', () => {
 
   it('is false for a wait-and-send clock', () => {
     expect(reactsToDelivery(bp([send(), { kind: 'wait', durationHours: 48 }, send({ name: 'Reminder', stage: 'reminder' })]))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The lock: Confirm is offered only when the STEPS do the fork
+// ---------------------------------------------------------------------------
+
+describe('a trailing exit after a fork is a habit, not a defect', () => {
+  /** Arms that leave their own path open, which is what makes the fork ambiguous. */
+  const forkWith = (armsTerminate: boolean) => [
+    send({ fallbackChannel: 'SMS' }),
+    {
+      kind: 'branch',
+      label: 'Engagement',
+      paths: [
+        {
+          label: 'Unread',
+          statuses: ['DELIVERED'],
+          steps: [
+            { kind: 'wait', durationHours: 24 },
+            send({ name: 'Sooner', stage: 'reminder' }),
+            ...(armsTerminate ? [{ kind: 'exit', reason: 'The window closed.' }] : []),
+          ],
+        },
+        {
+          label: 'Read',
+          statuses: ['READ'],
+          steps: [send({ name: 'Argument', stage: 'outcome' }), ...(armsTerminate ? [{ kind: 'exit', reason: 'The window closed.' }] : [])],
+        },
+      ],
+    },
+    { kind: 'exit', reason: 'The window closed.' },
+  ];
+
+  it('compiles with no ambiguity issue when the arms leave paths open', () => {
+    // MEASURED, and it corrected my own first pin. With arms that TERMINATE
+    // there is exactly one open slot left — the reducer's catch-all — so
+    // `nextInChain` resolves it and there was never an issue to fix; that
+    // version of this test passed against the unfixed compiler and proved
+    // nothing. The real case is arms that end on a send: three open slots,
+    // and the trailing exit the agent writes out of habit was reported as
+    // "the continuation is ambiguous" on a journey that was correct.
+    const out = build(forkWith(false));
+    const said = out.issues.map((i) => i.problem).join(' ');
+    expect(said).not.toMatch(/open slots exist/);
+    expect(said).not.toMatch(/continuation is ambiguous/);
+    expect(out.issues).toEqual([]);
+    // Nothing is lost by skipping it: every path still ends, and the exits
+    // the compiler closes with are the same number either way.
+    expect(out.graph.edges.filter((e) => e.to === null)).toHaveLength(0);
+    expect(Object.values(out.graph.nodes).filter((n) => n.type === 'EXIT')).toHaveLength(3);
+    // And the arms still built.
+    expect(Object.values(out.graph.nodes).filter((n) => n.type === 'SEND').length).toBe(3);
+  });
+
+  it('is equally quiet when the arms do terminate', () => {
+    const out = build(forkWith(true));
+    expect(out.issues).toEqual([]);
+    expect(out.graph.edges.filter((e) => e.to === null)).toHaveLength(0);
+  });
+
+  it('still builds an exit that is the only step on an arm', () => {
+    // The guard is `i > 0`: an arm whose single step is an exit is that arm's
+    // real ending, and dropping it would leave the path to the automatic
+    // close instead of the reason the agent gave.
+    const out = build([
+      send(),
+      {
+        kind: 'branch',
+        label: 'Engagement',
+        paths: [
+          { label: 'Read', statuses: ['READ'], steps: [send({ name: 'Different argument', stage: 'reminder' })] },
+          { label: 'Dismissed', statuses: ['DELETED'], steps: [{ kind: 'exit', reason: 'They dismissed it. Stop here.' }] },
+        ],
+      },
+    ]);
+    expect(out.issues).toEqual([]);
+    const reasons = Object.values(out.graph.nodes)
+      .filter((n) => n.type === 'EXIT')
+      .map((n) => (n._config as { reason?: string })?.reason);
+    expect(reasons).toContain('They dismissed it. Stop here.');
+  });
+});
+
+describe('different waits are not different jobs', () => {
+  const twoWaits = (a: number, b: number) =>
+    bp([
+      send(),
+      {
+        kind: 'branch',
+        label: 'Engagement',
+        paths: [
+          { label: 'Unread', statuses: ['DELIVERED'], steps: [{ kind: 'wait', durationHours: a }, send({ name: 'Reminder', stage: 'reminder' })] },
+          { label: 'Read', statuses: ['READ'], steps: [{ kind: 'wait', durationHours: b }, send({ name: 'Reminder', stage: 'reminder' })] },
+        ],
+      },
+    ]);
+
+  it('is false when the arms differ only in how long they wait', () => {
+    // `structuralSignature` carries wait:24 against wait:72 as a difference,
+    // which would make two clocks read as a reaction. The retry has said
+    // "different WAITS on each arm is not different jobs" since it was
+    // written; this is the check agreeing with it.
+    expect(reactsToDelivery(twoWaits(24, 72))).toBe(false);
+  });
+
+  it('is true when one arm argues something else', () => {
+    expect(
+      reactsToDelivery(
+        bp([
+          send(),
+          {
+            kind: 'branch',
+            label: 'Engagement',
+            paths: [
+              { label: 'Unread', statuses: ['DELIVERED'], steps: [{ kind: 'wait', durationHours: 24 }, send({ name: 'Same fact sooner', stage: 'reminder' })] },
+              { label: 'Read', statuses: ['READ'], steps: [send({ name: 'What it costs', stage: 'outcome' })] },
+            ],
+          },
+        ]),
+      ),
+    ).toBe(true);
+  });
+
+  it('leaves structuralSignature alone, because the experiment audits share it', () => {
+    // A timing experiment is one of the four claims the schema allows, so a
+    // different wait IS a legitimate difference between ARMS. The wait-blind
+    // comparison is local to the engagement check.
+    const src = readFileSync(new URL('../../server/optionAudit.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/const jobSignature = /);
+    expect(src).toMatch(/wait:\$\{s\.durationHours\}/);
+    const timingArms = bp([
+      {
+        kind: 'experiment',
+        label: 'Same day versus next day',
+        tests: 'timing',
+        arms: [
+          { label: 'Same day', pct: 50, steps: [send(), { kind: 'wait', durationHours: 6 }, send({ name: 'Nudge', stage: 'reminder' })] },
+          { label: 'Next day', pct: 50, steps: [send(), { kind: 'wait', durationHours: 48 }, send({ name: 'Nudge', stage: 'reminder' })] },
+        ],
+      },
+    ]);
+    // Still two different arms as far as the experiment audit is concerned.
+    expect(copyOnlyExperiments(timingArms)).toEqual([]);
+  });
+});
+
+describe('the gate reads the steps, not only the essay', () => {
+  const settled = () => {
+    let b = recordAnswer(newBrief('Customers are not converting eligible purchases to EMI.'), 'purchases above 10,000 convert more, they do not realise the purchase qualifies');
+    b = recordBarriers(b, [
+      { id: 'awareness-gap', statement: 'They do not realise the purchase qualifies.', basis: 'user-belief', lever: 'message', quote: 'they do not realise the purchase qualifies' },
+    ]);
+    b = recordConverters(b, { shape: 'Purchases above ₹10,000 convert more often.', basis: 'user', knowledge: 'known' });
+    b = recordDimensions(b, [
+      { name: 'purchase ticket size', rationale: 'They said bigger ones convert.', status: 'retained', basis: 'user', note: 'Theirs.' },
+      { name: 'merchant category and card type', rationale: 'Asked together.', status: 'unavailable', basis: 'user', note: 'They do not track either.' },
+      { name: 'Channel preference', rationale: 'Where to reach them.', status: 'unavailable', basis: 'none', note: 'No history.' },
+    ]);
+    return recordSuccessCriteria(b, ['More eligible purchases converted before they lapse.']);
+  };
+
+  /** The essay: a winner that reacts, and prose naming two landed cases. */
+  const REACTIVE_PLAN = {
+    summary: 'Catch them while the purchase is fresh.',
+    approach: ['Everyone eligible enters.'],
+    strategyOptions: [{ option: 'Experimentation', verdict: 'used', why: 'Two openings, randomly assigned.' }],
+    architectures: [
+      { name: 'Catch the moment', journey: 'branch-on-response', chosen: true },
+      { name: 'Work the statement date', journey: 'linear' },
+    ],
+    touches: [
+      { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is still sitting unread, repeat the same fact sooner.' },
+      { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance.', ifStillUnconverted: 'If they read it and did nothing, argue the instalment instead.' },
+    ],
+    assumptions: [],
+    unknowns: [],
+  };
+
+  /** The live EMI shape: a who-split and a copy test, no engagement fork. */
+  const CLOCK_STEPS = [
+    {
+      kind: 'branch',
+      label: 'Ticket band',
+      entity: 'Transaction',
+      attribute: 'Transaction Amount',
+      paths: [
+        { label: 'Above 10000', operator: 'Greater than', value: '10000', steps: [send(), { kind: 'wait', durationHours: 48 }, send({ name: 'Reminder', stage: 'reminder' })] },
+        { label: 'Everyone else', operator: 'Less than', value: '10000', steps: [send({ name: 'Other opening' }), { kind: 'wait', durationHours: 72 }, send({ name: 'Other reminder', stage: 'reminder' })] },
+      ],
+    },
+  ];
+
+  it('holds the plan whose essay claims a reaction and whose steps are the live clock', () => {
+    const d = decide(settled(), { proposed: { strategy: REACTIVE_PLAN, blueprint: bp(CLOCK_STEPS) } as never });
+    expect(d.blocks.map((b) => b.code)).toContain('no-reaction');
+    expect(d.proceed).toBe(false);
+  });
+
+  it('lets the same essay through once the steps carry one engagement fork', () => {
+    const d = decide(settled(), { proposed: { strategy: REACTIVE_PLAN, blueprint: bp(GOLD) } as never });
+    expect(d.blocks.map((b) => b.code), d.blocks.map((b) => b.reason).join(' | ')).not.toContain('no-reaction');
+  });
+
+  it('accepts a wait-for-event journey against a wait-for-event winner', () => {
+    const waiting = {
+      ...REACTIVE_PLAN,
+      architectures: [{ name: 'Hold for the booking', journey: 'wait-for-event', chosen: true }, { name: 'Clock', journey: 'linear' }],
+    };
+    const steps = [
+      send(),
+      { kind: 'waitForEvent', eventCategory: 'EMI Events', eventType: 'EMI_STATUS_CHANGED', timeoutDays: 7 },
+      send({ name: 'Last chance', stage: 'outcome' }),
+    ];
+    const d = decide(settled(), { proposed: { strategy: waiting, blueprint: bp(steps) } as never });
+    expect(d.blocks.map((b) => b.code)).not.toContain('no-reaction');
+  });
+
+  it('is skipped on the build turn, like every other propose-time block', () => {
+    const d = decide(settled(), { proposed: { strategy: REACTIVE_PLAN, blueprint: bp(CLOCK_STEPS) } as never, building: true });
+    expect(d.blocks.map((b) => b.code)).not.toContain('no-reaction');
+  });
+
+  it('says nothing when the turn carries no steps, because propose has none', () => {
+    // MEASURED on `ui-s-1792748248345`: the proposing turn carries `strategy`
+    // and `blueprint: false`. `propose_strategy` has no blueprint in its
+    // schema and `systemForPhase(false)` withholds the grammar deliberately,
+    // so blocking on a missing journey there would be a refusal with no legal
+    // move. The JSON propose path DOES carry one, and that is where this
+    // binds today.
+    const d = decide(settled(), { proposed: { strategy: REACTIVE_PLAN } as never });
+    expect(d.blocks.map((b) => b.code)).not.toContain('no-reaction');
+  });
+
+  it('is handed the journey by the orchestrator, not just by tests', () => {
+    const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+    expect(orch).toMatch(/blueprint: proposed\.blueprint \?\? null/);
   });
 });

@@ -2822,3 +2822,93 @@ statuses "want three different next steps". That is the stamp, and it was
 replaced before anything shipped: the agent must DECIDE which send is worth
 reading back and say why in `approach`. No auto-insert was ever built, so
 there was nothing to tear out of the compiler.
+
+## 2026-10-23 (cont'd) — Confirm is offered only when the STEPS do the fork
+
+`ui-s-1792748248345`. The strategy declared branch-on-response and named
+unread against read; the journey was a Transaction Amount branch and three
+waits. Both halves came out of one model call on one turn, so the essay could
+not stand in for the step list — and the manager was shown Confirm, approved
+it, and the build-turn retry had to ask for the fork after the fact.
+
+`reactionBlocks` now reads the journey as well as the prose, through the SAME
+`journeyReacts` the build turn uses. One definition of "the next step depends
+on what they did with the last message", read on both turns, rather than a
+propose-time approximation that can drift from it. The refusal names the one
+fork to add and what to keep: the who-split stays, no split after every send,
+no FAILED arm.
+
+### Where the lock binds, measured rather than assumed
+
+The slice brief said `propose_strategy` already returns a blueprint. **It does
+not.** Measured before writing anything: `propose_strategy`'s schema has no
+blueprint, its handler returns `{strategy, openItems}`, the live proposing turn
+(turn 4) carries `strategy: true, blueprint: false`, and
+`systemForPhase(false)` replaces the grammar with "OMITTED THIS TURN" on
+purpose — the standing principle that the plan is agreed in business terms
+before it is mapped to the builder.
+
+So the rule as literally specified — hold when there is no blueprint — would
+have refused EVERY first propose with no legal move, which is the unclearable
+block `gate.ts` exists to make impossible. What shipped instead: **the steps
+decide where they travel, and the prose checks stand alone where they do
+not.** The JSON propose path (`{action:'propose', strategy, blueprint}`) has
+always carried steps and binds today — three existing fixtures went red the
+moment the wiring landed, which is how I know. The tool path does not, and
+making it carry them is a product decision about that principle rather than a
+gate fix. Stated here, and pinned by a test, so the limit is not rediscovered
+as a bug.
+
+### Three holes in the same lock
+
+**Converting is not a landed case.** "Still unread" plus "if they converted we
+stop" cleared the gate while the plan said nothing about the person who read
+the message and did not act. Whoever books is taken off the path by the Goal
+Check the compiler inserts after every send — the platform's own terminal, not
+a person who needs a next job. `namedOutcomes` drops it, the `clears.how` says
+why, and the test that accepted that pairing is flipped.
+
+**`ifStillUnconverted`'s own description still led with "not delivered".** The
+schema description is the thing the model actually reads, and it was teaching
+the case the gate had stopped counting. It now names the people who GOT the
+message, with undelivered as `fallbackChannel` and converting excluded.
+
+**Different waits were reading as different jobs.** `structuralSignature`
+carries `wait:24` against `wait:72`, so two arms that both wait and then send
+the same reminder passed as a reaction. `jobSignature` is the same walk with
+the duration dropped, used ONLY by the engagement comparison —
+`structuralSignature` is shared with the experiment audits, where a different
+wait is a legitimate difference between arms, and a timing experiment is one
+of the four claims the schema allows. Changing it globally would have silently
+reclassified every one of those.
+
+### A trailing exit after a fork
+
+Pre-existing, and the agent writes one almost every time: after a fork there
+is no single continuation, so `nextInChain` reported "N open slots exist; the
+continuation is ambiguous" on a correct journey. The exit is now skipped
+silently when there is more than one open slot and it is not the first step on
+its path — never attached to one arbitrary arm, and `i > 0` keeps an exit that
+is an arm's only step exactly as it was.
+
+**My first pin for this was vacuous and measuring it is what showed me.** With
+arms that TERMINATE there is exactly one open slot left — the reducer's
+catch-all — so the issue never arose and the test passed against the unfixed
+compiler. The real case is arms that end on a send: three open slots, one
+reported issue before, zero after, and the same number of exits either way.
+
+### Verified
+
+1406 unit (from 1390) and 118 agent-proto. `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. `SYSTEM` untouched at 33,475 —
+this slice adds no method prose.
+
+Reverting the steps leg fails 3; the converted removal fails 1; `jobSignature`
+fails 1; the trailing-exit skip fails 1.
+
+**Three fixtures needed one engagement fork** — `strategyWithQuestions`,
+`firstRunMustTest` and `forkGuardUnderFailure`, the last for the fourth time.
+Each declares a branch-on-response winner and carried a clock, so each was
+held for a reason its own file is not about. `forkGuardUnderFailure` is on
+EMAIL, so its arms are OPENED and CLICKED — the statuses that channel actually
+reports.

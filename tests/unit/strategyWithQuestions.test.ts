@@ -120,16 +120,31 @@ const BLUEPRINT = {
       // recorded barrier long before any of this is reached.
       barrier: 'cost-perception',
     },
-    { kind: 'wait', durationHours: 72, why: 'Give them time to act on the first message.' },
+    // AND ONE ENGAGEMENT FORK, since 2026-10-23. The declared winner is
+    // branch-on-response and `reactionBlocks` now reads the STEPS as well as
+    // the essay, so a clock here would hold this turn for a second reason and
+    // the test would stop proving anything about the open points. Fourth note
+    // of this kind on this fixture; the pattern is in server/CLAUDE.md.
     {
-      kind: 'send',
-      name: 'Window closing',
-      objective: ['emi', 'expiry'],
-      stage: 'reminder',
-      describe: 'Remind them the request lapses.',
-      copy: 'Your EMI option closes soon.',
-      channelPreference: ['SMS'],
-      barrier: 'cost-perception',
+      kind: 'branch',
+      label: 'What happened to the first message',
+      paths: [
+        {
+          label: 'Delivered, still unread',
+          statuses: ['DELIVERED'],
+          steps: [
+            { kind: 'wait', durationHours: 24, why: 'It is sitting unopened.' },
+            { kind: 'send', name: 'Same fact, sooner', objective: ['emi', 'convert'], stage: 'reminder', describe: 'Repeat that it qualifies.', copy: 'Still available.', channelPreference: ['WHATSAPP'], barrier: 'cost-perception' },
+          ],
+        },
+        {
+          label: 'Read, not booked',
+          statuses: ['READ'],
+          steps: [
+            { kind: 'send', name: 'What it costs a month', objective: ['emi', 'expiry'], stage: 'outcome', describe: 'Argue the instalment.', copy: 'From Rs 2,100 a month.', channelPreference: ['SMS'], barrier: 'cost-perception' },
+          ],
+        },
+      ],
     },
     { kind: 'exit', reason: 'The authorisation window has closed.' },
   ],

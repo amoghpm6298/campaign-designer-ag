@@ -2042,7 +2042,15 @@ export async function* orchestrateStream(
     // The proposal is handed in so a belief-dependent design can be refused
     // on the turn it is written, which is the one check that cannot be made
     // from the record alone.
-    proposed: proposed ? { strategy: proposed.strategy, openItems: proposed.openItems } : null,
+    // AND THE JOURNEY, WHEN THE TURN HAS ONE. The essay and the step list are
+    // two outputs of one model call, so `reactionBlocks` checks them against
+    // the same `journeyReacts` the build turn uses rather than trusting the
+    // prose. Absent on today's first propose — `propose_strategy` has no
+    // blueprint and `systemForPhase(false)` withholds the grammar on purpose
+    // — and present on a refinement or any payload that carries steps.
+    proposed: proposed
+      ? { strategy: proposed.strategy, openItems: proposed.openItems, blueprint: proposed.blueprint ?? null }
+      : null,
     // Already approved: the cadence question belonged to the propose turn.
     building: isBuildTurn,
   });

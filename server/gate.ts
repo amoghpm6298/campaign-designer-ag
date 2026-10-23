@@ -24,6 +24,8 @@
 // block.
 import { briefDimensions, isPlatformDimension, isTimingDimension, recordDimensions, type WorkingBrief } from './discovery';
 import { designableBarriers, convertersSettled, type Barrier, type Converters } from './findings';
+import { journeyReacts } from './optionAudit';
+import type { CampaignBlueprint } from './blueprint';
 import { outstanding, exhausted } from './record';
 
 /** Lines of enquiry to weigh before designing. Being sure of one is not the same as having considered the alternatives. */
@@ -161,6 +163,25 @@ export interface ProposalUnderReview {
     strategyOptions?: { option: string; verdict: string; why?: string }[];
   } | null;
   openItems?: { kind: string }[];
+  /**
+   * The journey, WHEN THE TURN CARRIES ONE.
+   *
+   * `reactionBlocks` reads the same `journeyReacts` the build turn reads, so
+   * the essay and the step list are checked against one definition rather
+   * than two — a plan may not name unread-versus-read while its steps are a
+   * ticket split and a clock.
+   *
+   * MEASURED, AND THE LIMIT IS WORTH STATING HERE. `propose_strategy` has no
+   * blueprint in its schema and the propose turn returns none: on
+   * `ui-s-1792748248345` the proposing turn (turn 4) carries `strategy` and
+   * `blueprint: false`, and `systemForPhase(false)` tells the model the
+   * grammar is "OMITTED THIS TURN" on purpose — the standing principle that
+   * the plan is agreed in business terms before it is mapped to the builder.
+   * So this is populated on a refinement, and on any turn whose payload does
+   * carry steps, and is absent on today's first propose. Where it is absent
+   * the prose checks stand alone; where it is present the steps decide.
+   */
+  blueprint?: CampaignBlueprint | null;
 }
 
 /**
@@ -473,7 +494,12 @@ const namedOutcomes = (touches: { ifStillUnconverted?: string }[]): Set<string> 
     found.add('read-and-ignored');
   if (/delete|dismiss|binned|cleared the (chat|thread)/.test(text)) found.add('dismissed');
   if (/\bclicked\b|\btapped\b|\bopened the link\b/.test(text)) found.add('clicked');
-  if (/convert|\bbook(ed|s|ing)?\b|\bopt(ed|s)? in\b|goal/.test(text)) found.add('converted');
+  // CONVERTING IS NOT A LANDED CASE, and counting it was a hole in the same
+  // lock: "still unread" plus "if they converted, we stop" cleared the gate
+  // while the plan said nothing about anyone who read the message and did
+  // not act. Whoever books is taken off the path by the Goal Check the
+  // compiler inserts after every send — it is the platform's own terminal,
+  // not a person who did something with this message and needs a next job.
   return found;
 };
 
@@ -517,18 +543,50 @@ export function reactionBlocks(p: ProposalUnderReview | null): Block[] {
       },
     ];
   }
-  if (namedOutcomes(s.touches ?? []).size >= 2) return [];
-  return [
-    {
-      code: 'no-reaction',
-      reason:
-        'This plan says it reacts to the customer, and then every message does the same thing regardless: the person who never received it, the person who has not read it and the person who read it and did nothing all get the next reminder. Those are three different people.',
-      clears: {
-        field: 'touches',
-        how: 'In "ifStillUnconverted", name at least two cases where the message LANDED and say what each one gets: delivered but still unread, read and no action taken, dismissed, clicked without booking (email and RCS only), or converted and the campaign stops. Undelivered is worth mentioning as the fallback channel on that send, but it is not one of the two — nobody who never received the message has done anything yet.',
+  if (namedOutcomes(s.touches ?? []).size < 2)
+    return [
+      {
+        code: 'no-reaction',
+        reason:
+          'This plan says it reacts to the customer, and then every message does the same thing regardless: the person who never received it, the person who has not read it and the person who read it and did nothing all get the next reminder. Those are three different people.',
+        clears: {
+          field: 'touches',
+          how: 'In "ifStillUnconverted", name at least two cases where the message LANDED and say what each one gets: delivered but still unread, read and no action taken, dismissed, or clicked without booking (email and RCS only). Undelivered is worth mentioning as the fallback channel on that send, but it is not one of the two — nobody who never received the message has done anything yet. Nor is converting: the goal check already takes anyone who booked off the path.',
+        },
       },
-    },
-  ];
+    ];
+
+  // AND THE STEPS HAVE TO DO IT, not just the essay.
+  //
+  // MEASURED, `ui-s-1792748248345`. The strategy declared branch-on-response
+  // and named unread against read; the journey was a Transaction Amount
+  // branch and three waits. Both halves came from the same model on the same
+  // turn, so the prose above cannot stand in for the steps — and the manager
+  // was shown Confirm, approved it, and the retry had to ask for the fork
+  // after the fact. The moment to catch this is before the button appears.
+  //
+  // `journeyReacts` IS THE SAME FUNCTION THE BUILD TURN USES. One definition
+  // of "the next step depends on what they did with the last message", read
+  // twice, rather than a propose-time approximation that can drift from it.
+  //
+  // SILENT WHEN THE TURN CARRIES NO JOURNEY, deliberately. The propose turn
+  // does not have one (see `ProposalUnderReview.blueprint`), and a block
+  // whose only exit is a field the model has been told not to send is the
+  // unclearable refusal this whole file exists to make impossible.
+  if (p?.blueprint && !journeyReacts(p.blueprint)) {
+    return [
+      {
+        code: 'no-reaction',
+        reason:
+          'The plan says the journey will move on what the customer did, and the steps are a timed sequence: nothing in them forks on whether the last message was delivered, read or dismissed. A split by ticket size is who they are, not what they did.',
+        clears: {
+          field: 'touches',
+          how: 'Put ONE outcome fork on the send whose arms would do different jobs — usually the first touch, whose job is awareness: unread needs the same fact sooner, read-and-not-booked needs a different argument, dismissed needs leaving alone. Keep the who-split you have. Do not split after every send, and do not add a FAILED arm: undelivered is the fallback channel on the send.',
+        },
+      },
+    ];
+  }
+  return [];
 }
 
 /** Channel words a plan may name, including inside a fallback sentence. */

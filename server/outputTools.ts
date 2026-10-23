@@ -261,7 +261,11 @@ export const OUTPUT_TOOLS: ToolDef[] = [
               channel: { type: 'string', description: 'In plain words — WhatsApp, SMS, Email.' },
               path: { type: 'string', description: 'Which group this send is for. Use the same path names as the plan above, and say "all" when there is only one.' },
               purpose: { type: 'string', description: 'What this message is FOR, in the manager\'s terms. Not the copy.' },
-              ifStillUnconverted: { type: 'string', description: 'What happens next if this one does not land — not delivered, not read, or read and nothing done.' },
+              ifStillUnconverted: {
+                type: 'string',
+                description:
+                  'What happens next for the people who GOT this message and have not acted: still unread, read and no action taken, dismissed — plus opened or clicked only where that channel reports them (email and RCS do; WhatsApp and SMS do not). Undelivered is "fallbackChannel" on this send rather than one of these cases, and converting is not one either: the goal check already takes anyone who booked off the path.',
+              },
             },
             required: ['day', 'channel', 'path', 'purpose', 'ifStillUnconverted'],
           },

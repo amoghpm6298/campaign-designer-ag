@@ -307,8 +307,31 @@ const BLUEPRINT = {
   entry: { kind: 'audience', entity: 'Card', conditions: [{ attribute: 'Status', operator: 'Equals', value: 'Active' }] },
   steps: [
     { kind: 'send', name: 'Cost reframe', objective: ['emi', 'convert'], stage: 'first-touch', describe: 'What the instalment costs.', copy: 'Split this purchase.', channelPreference: ['WHATSAPP'], barrier: 'cost-perception' },
-    { kind: 'wait', durationHours: 72, why: 'Give them time.' },
-    { kind: 'send', name: 'Window closing', objective: ['emi', 'expiry'], stage: 'reminder', describe: 'It lapses soon.', copy: 'Closing soon.', channelPreference: ['SMS'], barrier: 'cost-perception' },
+    // AND ONE ENGAGEMENT FORK, since 2026-10-23: the fixture's winner declares
+    // branch-on-response and `reactionBlocks` reads the steps as well as the
+    // prose, so a clock here holds the turn for a reason this file is not
+    // about.
+    {
+      kind: 'branch',
+      label: 'What happened to the first message',
+      paths: [
+        {
+          label: 'Delivered, still unread',
+          statuses: ['DELIVERED'],
+          steps: [
+            { kind: 'wait', durationHours: 24, why: 'It is sitting unopened.' },
+            { kind: 'send', name: 'Same fact, sooner', objective: ['emi', 'convert'], stage: 'reminder', describe: 'Repeat that it qualifies.', copy: 'Still available.', channelPreference: ['WHATSAPP'], barrier: 'cost-perception' },
+          ],
+        },
+        {
+          label: 'Read, not booked',
+          statuses: ['READ'],
+          steps: [
+            { kind: 'send', name: 'Window closing', objective: ['emi', 'expiry'], stage: 'outcome', describe: 'It lapses soon.', copy: 'Closing soon.', channelPreference: ['SMS'], barrier: 'cost-perception' },
+          ],
+        },
+      ],
+    },
     { kind: 'exit', reason: 'The window closed.' },
   ],
 };

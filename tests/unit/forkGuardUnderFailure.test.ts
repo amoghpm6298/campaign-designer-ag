@@ -134,7 +134,28 @@ const PROPOSAL = {
     entry: { kind: 'audience', entity: 'Account', conditions: [{ attribute: 'Status', operator: 'Equals', value: 'Active' }] },
     goal: { eventCategory: 'EMI Events', eventType: 'EMI_STATUS_CHANGED', conditions: [] },
     steps: [
-      { kind: 'send', name: 'Opening', objective: ['convert'], stage: 'first-touch', describe: 'Explain EMI.', copy: 'Convert your balance to EMI.', cta: 'See plans', channelPreference: ['EMAIL'], barrier: 'cost-perception' },
+      { kind: 'send', name: 'Opening', objective: ['convert'], stage: 'first-touch', describe: 'Explain EMI.', copy: 'Convert your balance to EMI.', cta: 'See plans', channelPreference: ['EMAIL'], barrier: 'cost-perception', fallbackChannel: 'SMS' },
+      // AND ONE ENGAGEMENT FORK, since 2026-10-23, for the fourth time on
+      // this fixture and always the same reason: the declared winner is
+      // branch-on-response, `reactionBlocks` now reads the steps too, and a
+      // payload held for two reasons proves neither. EMAIL reports opens and
+      // clicks, so these are the arms that channel actually has.
+      {
+        kind: 'branch',
+        label: 'What happened to the opening',
+        paths: [
+          {
+            label: 'Opened, not clicked',
+            statuses: ['OPENED'],
+            steps: [{ kind: 'send', name: 'What it costs', objective: ['convert'], stage: 'reminder', describe: 'Argue the instalment.', copy: 'From Rs 2,100 a month.', channelPreference: ['EMAIL'], barrier: 'cost-perception' }],
+          },
+          {
+            label: 'Clicked, not booked',
+            statuses: ['CLICKED'],
+            steps: [{ kind: 'send', name: 'Closer', objective: ['convert'], stage: 'outcome', describe: 'Finish the request.', copy: 'Two taps to confirm.', channelPreference: ['SMS'], barrier: 'cost-perception' }],
+          },
+        ],
+      },
       { kind: 'exit', reason: 'Done.' },
     ],
   },

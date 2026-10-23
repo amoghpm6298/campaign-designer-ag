@@ -718,6 +718,24 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
     let target = at;
     steps.forEach((step, i) => {
       const path = `${pathPrefix}[${i}].${step.kind}`;
+      // A TRAILING EXIT AFTER A FORK IS NOT A DEFECT, IT IS A HABIT.
+      //
+      // The agent writes `{ kind: 'exit' }` after a branch or an experiment
+      // almost every time, and after a fork there is no single continuation:
+      // the sibling arms and the reducer's own catch-all are all still open.
+      // So `nextInChain` reported "N open slots exist; the continuation is
+      // ambiguous" on a journey that was correct — the EMI fixture produced
+      // two of those, and the vocabulary has always said a trailing exit is
+      // optional because every remaining path is closed automatically.
+      //
+      // The exit is skipped and nothing is reported. It is NOT attached to
+      // one arbitrary open slot, which would quietly end whichever arm the
+      // iteration order happened to reach first.
+      //
+      // `i > 0` IS THE GUARD THAT MATTERS: an exit that is the only step on
+      // an arm is the arm's real ending, and it still goes through
+      // `nextInChain` exactly as before.
+      if (step.kind === 'exit' && i > 0 && !target && openSlots().length > 1) return;
       const where = target ?? nextInChain(path);
       target = undefined;
       if (!where) return;

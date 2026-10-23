@@ -139,13 +139,31 @@ describe('claiming a reaction is not having one', () => {
     expect(reactionBlocks({ strategy: plan() } as never)).toEqual([]);
   });
 
-  it('accepts a converted-and-stop case alongside a landed one', () => {
+  it('does NOT count converting as one of the two landed cases', () => {
+    // FLIPPED 2026-10-23, and it was a hole in the same lock: "still unread"
+    // plus "if they converted, we stop" cleared the gate while the plan said
+    // nothing about the person who read the message and did not act. Whoever
+    // books is taken off the path by the Goal Check the compiler inserts —
+    // the platform's own terminal, not a person who needs a next job.
+    const blocks = reactionBlocks({
+      strategy: plan({
+        touches: [
+          { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is still sitting unread, repeat the same fact sooner.' },
+          { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance.', ifStillUnconverted: 'If they have converted, the campaign stops for them.' },
+        ],
+      }),
+    } as never);
+    expect(blocks.map((b) => b.code)).toEqual(['no-reaction']);
+    expect(blocks[0].clears.how).toMatch(/Nor is converting: the goal check already takes anyone who booked off the path/);
+  });
+
+  it('clears on unread against read-and-no-action, which are two real people', () => {
     expect(
       reactionBlocks({
         strategy: plan({
           touches: [
             { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is still sitting unread, repeat the same fact sooner.' },
-            { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance.', ifStillUnconverted: 'If they have converted, the campaign stops for them.' },
+            { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance.', ifStillUnconverted: 'If they read it and did nothing, argue the instalment instead.' },
           ],
         }),
       } as never),
@@ -197,13 +215,15 @@ describe('before Confirm, never after', () => {
   });
 });
 
-describe('what this does NOT do', () => {
-  it('never reads the blueprint, because at propose time there is not one', () => {
-    // The division of labour, stated as a test so it survives a tidy-up:
-    // `optionAudit` reads the built blueprint on the Confirm turn and owns the
-    // question of whether a fork is MEANINGFUL. A compiler-injected Goal Check
-    // after every send is not branching, and this check cannot be fooled by
-    // one because it never looks.
+describe('the steps are checked too, not just the essay', () => {
+  it('reads the blueprint when the turn carries one', () => {
+    // REVERSED, 2026-10-23, and the old assertion is worth recording: this
+    // used to pin that `reactionBlocks` never reads a blueprint "because at
+    // propose time there is not one". That was true of the tool path and
+    // false of the JSON one — `{ action: 'propose', strategy, blueprint }`
+    // has always carried steps — and the live failure is precisely a plan
+    // whose essay claimed a reaction while its steps were a clock. One
+    // definition, read on both turns.
     const src = readFileSync(new URL('../../server/gate.ts', import.meta.url), 'utf8');
     const start = src.indexOf('export function reactionBlocks');
     // END MARKER CHECKED, not assumed. A slice whose end marker has stopped
@@ -213,6 +233,58 @@ describe('what this does NOT do', () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     const fn = src.slice(start, end);
-    for (const forbidden of ['blueprint', 'GOAL_EXIT', 'steps']) expect(fn, forbidden).not.toContain(forbidden);
+    expect(fn).toMatch(/journeyReacts\(p\.blueprint\)/);
+    // The SAME function the build turn uses, imported rather than restated.
+    expect(src).toMatch(/import \{ journeyReacts \} from '\.\/optionAudit'/);
+    // And still never the compiled graph: a Goal Check the compiler inserts
+    // after every send is not a fork anybody designed, and it is not in the
+    // blueprint at all.
+    for (const forbidden of ['GOAL_EXIT', 'GOAL_CHECK', 'graph']) expect(fn, forbidden).not.toContain(forbidden);
+  });
+
+  it('holds a plan whose winner reacts and whose steps do not', () => {
+    const clock = {
+      campaignName: 'A', description: 'd', goal: null,
+      entry: { kind: 'audience', entity: 'Card', conditions: [] },
+      steps: [
+        { kind: 'send', name: 'Opening', objective: ['emi'], stage: 'first-touch', describe: 'd', channelPreference: ['WHATSAPP'], barrier: 'no-awareness' },
+        { kind: 'wait', durationHours: 48 },
+        { kind: 'send', name: 'Reminder', objective: ['emi'], stage: 'reminder', describe: 'd', channelPreference: ['WHATSAPP'], barrier: 'no-awareness' },
+      ],
+    };
+    const blocks = reactionBlocks({ strategy: plan(), blueprint: clock } as never);
+    expect(blocks.map((b) => b.code)).toEqual(['no-reaction']);
+    expect(blocks[0].reason).toMatch(/the steps are a timed sequence/);
+    expect(blocks[0].clears.how).toMatch(/Put ONE outcome fork/);
+    expect(blocks[0].clears.how).toMatch(/Do not split after every send/);
+    expect(blocks[0].clears.how).toMatch(/Keep the who-split you have/);
+  });
+
+  it('lets through a plan whose steps carry one engagement fork', () => {
+    const reacting = {
+      campaignName: 'A', description: 'd', goal: null,
+      entry: { kind: 'audience', entity: 'Card', conditions: [] },
+      steps: [
+        { kind: 'send', name: 'Opening', objective: ['emi'], stage: 'first-touch', describe: 'd', channelPreference: ['WHATSAPP'], barrier: 'no-awareness', fallbackChannel: 'SMS' },
+        {
+          kind: 'branch', label: 'What happened to it',
+          paths: [
+            { label: 'Unread', statuses: ['DELIVERED'], steps: [{ kind: 'wait', durationHours: 24 }, { kind: 'send', name: 'Sooner', objective: ['emi'], stage: 'reminder', describe: 'd', channelPreference: ['WHATSAPP'], barrier: 'no-awareness' }] },
+            { label: 'Read', statuses: ['READ'], steps: [{ kind: 'send', name: 'What it costs', objective: ['emi'], stage: 'outcome', describe: 'd', channelPreference: ['WHATSAPP'], barrier: 'no-awareness' }] },
+          ],
+        },
+      ],
+    };
+    expect(reactionBlocks({ strategy: plan(), blueprint: reacting } as never)).toEqual([]);
+  });
+
+  it('says nothing about the steps when the turn carries none', () => {
+    // THE TOOL PATH, measured: `propose_strategy` has no blueprint in its
+    // schema and `systemForPhase(false)` withholds the grammar on purpose, so
+    // the first propose carries no steps. A block whose only exit is a field
+    // the model has been told not to send is the unclearable refusal this
+    // file exists to prevent, so the prose checks stand alone there.
+    expect(reactionBlocks({ strategy: plan() } as never)).toEqual([]);
+    expect(reactionBlocks({ strategy: plan(), blueprint: null } as never)).toEqual([]);
   });
 });

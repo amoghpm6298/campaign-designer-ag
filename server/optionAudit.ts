@@ -327,6 +327,24 @@ export function journeyReacts(bp: CampaignBlueprint | null | undefined): boolean
  * depends on what happened to the last message", and `journeyReacts` is it
  * plus the wait.
  */
+/**
+ * The same walk, blind to HOW LONG a wait is.
+ *
+ * DIFFERENT WAITS ARE NOT DIFFERENT JOBS, and `structuralSignature` carries
+ * `wait:24` against `wait:72` as a difference — so two arms that both wait and
+ * then send the same reminder read as a reaction when they are one treatment
+ * on two clocks. The retry has said this in words since it was written; this
+ * is the check agreeing with it.
+ *
+ * LOCAL TO THE ENGAGEMENT COMPARISON, deliberately. `structuralSignature` is
+ * shared with the experiment audits and `copyOnlyExperiments`, where a
+ * different wait IS a legitimate difference between arms — an experiment on
+ * timing is one of the four claims the schema allows. Changing it globally
+ * would silently reclassify every timing experiment ever proposed.
+ */
+const jobSignature = (steps: BpStep[] | undefined): string =>
+  structuralSignature(steps).replace(/wait:\d+(\.\d+)?/g, 'wait');
+
 export function reactsToDelivery(bp: CampaignBlueprint | null | undefined): boolean {
   if (!bp) return false;
 
@@ -356,7 +374,7 @@ export function reactsToDelivery(bp: CampaignBlueprint | null | undefined): bool
   );
   if (
     outcomeForks.some(
-      (c) => engaged(c.outcomes ?? []).length > 0 && structuralSignature(c.yes) !== structuralSignature(c.no),
+      (c) => engaged(c.outcomes ?? []).length > 0 && jobSignature(c.yes) !== jobSignature(c.no),
     )
   )
     return true;
@@ -369,7 +387,7 @@ export function reactsToDelivery(bp: CampaignBlueprint | null | undefined): bool
   return outcomeBranches.some((b) => {
     const arms = (b.paths ?? []).filter((p) => engaged(p.statuses ?? []).length > 0);
     if (arms.length < 2) return false;
-    return new Set(arms.map((p) => structuralSignature(p.steps))).size > 1;
+    return new Set(arms.map((p) => jobSignature(p.steps))).size > 1;
   });
 }
 
