@@ -414,8 +414,36 @@ const REACTION_RETRY =
   'Do NOT add a FAILED, UNKNOWN or NOT_DELIVERED arm, and do not route the failure to another channel as a step: undelivered is `fallbackChannel` on the Send, and it stays exactly where it is. Never branch on QUEUED, SENT or PENDING — the message is still in flight and that is not a person. WhatsApp and SMS report no opens and no clicks, so never put OPENED or CLICKED on one; Email and RCS do report them. Do not add a converted arm: the goal check already takes booked people off the path. ' +
   'Different WAITS on each arm is not different jobs. A split on ticket size is segmentation, not a reaction — keep it, it is evidenced, but it is not this. Do not invent a second barrier. Keep every message, every day and every channel job you already had.';
 
-export function systemForPhase(isBuildTurn: boolean): string {
-  if (isBuildTurn) return SYSTEM;
+/**
+ * WHEN THE BUILDER'S GRAMMAR APPEARS, and it is two questions rather than one.
+ *
+ * It used to be a single boolean: a build turn saw everything, and every other
+ * turn had the step grammar stripped. Discovery and propose are both "not a
+ * build turn", so the turn that asks a campaign manager to approve a SEQUENCE
+ * could not carry one — measured on `ui-s-1792748248345`, where
+ * `propose_strategy` returned prose, `blueprint: false`, and the canvas was
+ * invented after they had already signed.
+ *
+ * That was the wrong reading of strategy-before-platform. The rule it protects
+ * is real and unchanged: WHILE STILL LEARNING WHO CONVERTS, do not talk
+ * events, attributes or step kinds, because an agent handed the
+ * filterable field list before it knows why customers behave then reasons in
+ * those terms. It says nothing about the turn that puts a plan up for
+ * approval.
+ *
+ *  - `journeyAllowed` false (every asking turn): today's omission, unchanged.
+ *  - `journeyAllowed` true, not building: the grammar travels, so the path can
+ *    be approved rather than imagined. The chat stays manager language; the
+ *    steps live in the tool call.
+ *  - `isBuildTurn`: unchanged.
+ *
+ * READY FOR A PLAN IS NOT "OUT OF QUESTIONS". The caller computes
+ * `journeyAllowed` from the gate's own verdict with no forced escape, so a
+ * spent round budget does not hand over the vocabulary — the existing pin on
+ * that is deliberate and still passes.
+ */
+export function systemForPhase(isBuildTurn: boolean, journeyAllowed = false): string {
+  if (isBuildTurn || journeyAllowed) return SYSTEM;
   const vocabAt = SYSTEM.indexOf(BUILDER_VOCAB_RULE);
   const base =
     vocabAt < 0
@@ -916,7 +944,21 @@ export async function* orchestrateStream(
   // instruction to stop refusing.
   const limitReached =
     req.discoveryRounds >= MAX_DISCOVERY_ROUNDS || Boolean(req.forceProposal) || saysProceed(latestUserText);
-  const context = buildContextPrompt(req, brief, tenant, kbText, availableChannels, limitReached, isRefinement, isBuildTurn);
+  // IS THE RECORD READY FOR A PLAN? That, and not "has discovery run out of
+  // questions", is what releases the builder's grammar to a non-build turn.
+  //
+  // `decide` with no proposal is exactly the record half of the gate, and
+  // `forcedBy` is the escape — a spent round budget or a manager saying "go
+  // ahead" lets the agent PROPOSE, and must not also hand it the vocabulary,
+  // because that is the leak this gating exists to stop. Recomputed per model
+  // call rather than once, so a turn that records the last finding in round 1
+  // can carry the path in round 2 instead of waiting for the next message.
+  const readyForPlan = () => {
+    const d = decide(brief, {});
+    return d.proceed && !d.forcedBy;
+  };
+  const journeyAllowed = () => !isBuildTurn && readyForPlan();
+  const context = buildContextPrompt(req, brief, tenant, kbText, availableChannels, limitReached, isRefinement, isBuildTurn, journeyAllowed());
 
   const conversation: ApiMessage[] = [
     { role: 'user', content: context },
@@ -1088,10 +1130,10 @@ export async function* orchestrateStream(
       const withdrawLookups = stopLookingUp && !isBuildTurn;
       for await (const chunk of streamClaude({
         system: withdrawLookups
-          ? `${systemForPhase(isBuildTurn)}\n\nSTOP CALLING TOOLS. Every lookup you need has already been made and the results are above. Answer now with the JSON object, using what you already know.`
+          ? `${systemForPhase(isBuildTurn, journeyAllowed())}\n\nSTOP CALLING TOOLS. Every lookup you need has already been made and the results are above. Answer now with the JSON object, using what you already know.`
           : stopLookingUp
-            ? `${systemForPhase(isBuildTurn)}\n\nSTOP LOOKING THINGS UP. Every lookup you need has already been made and the results are above. Call build_campaign now with what you have.`
-            : systemForPhase(isBuildTurn),
+            ? `${systemForPhase(isBuildTurn, journeyAllowed())}\n\nSTOP LOOKING THINGS UP. Every lookup you need has already been made and the results are above. Call build_campaign now with what you have.`
+            : systemForPhase(isBuildTurn, journeyAllowed()),
         messages: conversation,
         // Once there is nothing left to look up, tool USE is withdrawn rather
         // than discouraged. Asking a model to stop calling tools is a request
@@ -1259,7 +1301,7 @@ export async function* orchestrateStream(
       const retryStart = Date.now();
       try {
         for await (const chunk of streamClaude({
-          system: `${systemForPhase(isBuildTurn)}\n\nYour previous turn did not produce a usable answer. Every lookup you need has already been made and the results are above. Reply NOW with the single JSON object described in OUTPUT, complete, and nothing else before or after it.`,
+          system: `${systemForPhase(isBuildTurn, journeyAllowed())}\n\nYour previous turn did not produce a usable answer. Every lookup you need has already been made and the results are above. Reply NOW with the single JSON object described in OUTPUT, complete, and nothing else before or after it.`,
           messages: conversation,
           tools: [...toolsForPhase(designSeen || isBuildTurn), ...outputToolsForPhase(isBuildTurn)].map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
           toolChoice: { type: 'none' },
@@ -2442,6 +2484,29 @@ export async function* orchestrateStream(
     em.emit('strategy.proposed', 'strategy', 'Strategy ready', { detail: strategy?.summary?.slice(0, 160) });
     em.emit('run.completed', 'strategy', 'Waiting for you to approve the plan', { correlationId: 'run' });
     yield* drain();
+    // THE DOOR INTO GENERATION HAS TO BE OPEN WHEN THEY PRESS CONFIRM.
+    //
+    // This return used to leave the session wherever discovery had it —
+    // measured: `AWAITING_USER_ANSWER` — and the table allows generation only
+    // from `AWAITING_STRATEGY_CONFIRMATION`. That cost nothing while
+    // `pendingBlueprint` was null, because the client then posted
+    // `confirmedBlueprint: null` and Confirm fell through to the build tail,
+    // which walks the hops itself. Now the client posts a real path and takes
+    // the confirm short-circuit, where `mayGenerate` asks `canTransition`
+    // directly: without these hops the first Confirm would come back
+    // "Cannot generate from state AWAITING_USER_ANSWER" — the manager
+    // pressing a button and being told no.
+    //
+    // `confirmation: null` and a new version for the same reason the later
+    // propose path does it: a new plan is a new version, so a confirmation of
+    // the previous one cannot authorise building this one.
+    const toReady = transition(session.state === 'STRATEGY_READY' ? 'DISCOVERING' : session.state, 'STRATEGY_READY');
+    session = {
+      ...session,
+      state: transition(toReady, 'AWAITING_STRATEGY_CONFIRMATION'),
+      strategyVersion: session.strategyVersion + 1,
+      confirmation: null,
+    };
     return {
       ...base,
       phase: 'awaiting-confirmation',
@@ -2455,8 +2520,12 @@ export async function* orchestrateStream(
         unsupportedClaims(optionAudits),
       ),
       strategy,
-      blueprint: null,
-      pendingBlueprint: null,
+      // THE PATH TRAVELS WITH THE PLAN. `pendingBlueprint` is what the client
+      // posts back as `confirmedBlueprint`, and it is what the left pane
+      // draws through `previewFromBlueprint` — a preview that has had nothing
+      // to draw since it was written, because this was `null`.
+      blueprint: blueprint ?? null,
+      pendingBlueprint: blueprint ?? null,
       // NO NUMBERED QUESTIONS BESIDE AN APPROVABLE PLAN.
       //
       // MEASURED on a live EMI run. The strategy arrived with Confirm and one
@@ -3589,6 +3658,8 @@ function buildContextPrompt(
   limitReached: boolean,
   isRefinement: boolean,
   isBuildTurn: boolean,
+  /** The record is ready for a plan, so the path may travel with it. */
+  journeyAllowed = false,
 ): string {
   // The same conditions the discovery gate applies, read here so the two
   // cannot disagree about whether designing may begin.
@@ -3637,6 +3708,22 @@ function buildContextPrompt(
     '# This issuer',
     issuerContext(availableChannels, tenant.templateLibraryAccess),
     '',
+    // THE NAMES TRAVEL WITH THE GRAMMAR. A propose turn that must write steps
+    // and has not been told the real entity, attribute and event names would
+    // invent them, and Confirm now compiles exactly these steps — so the
+    // invention would reach the canvas as a dropped condition. The build-turn
+    // INSTRUCTIONS below stay where they are; this is the catalogue only.
+    !isBuildTurn && journeyAllowed
+      ? [
+          '# Vocabulary you must stay inside',
+          blueprintVocabulary(availableChannels, tenant.templateLibraryAccess),
+          '',
+          '# THE PLAN YOU PUT UP MUST CARRY ITS PATH',
+          'Send the journey in `propose_strategy`\'s "blueprint" — the same step grammar build_campaign uses. They are approving a sequence, so they have to be able to see it. Keep your MESSAGE in their language: no step kinds, no attribute names, no entity names in the chat.',
+          'Do NOT call build_campaign this turn. They approve the path first, and Confirm compiles this same one.',
+          '',
+        ]
+      : [],
     isBuildTurn
       ? [
           '# Vocabulary you must stay inside',

@@ -27,6 +27,7 @@ import { orchestrateStream } from '../../server/orchestrator';
 import { seedKnowledgeBase } from '../../server/knowledge';
 import { applyOutputTool } from '../../server/outputTools';
 import { newBrief, recordAnswer, recordBarriers, recordConverters, recordDimensions, recordSuccessCriteria, briefBarriers } from '../../server/discovery';
+import { reactingPath } from './support/journeys';
 
 const knowledge = seedKnowledgeBase();
 const EMI = 'Customers are not converting their eligible purchases to EMI. Get more of them converting.';
@@ -90,6 +91,10 @@ describe('one barrier is not a reason to refuse the plan', () => {
       { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance.', ifStillUnconverted: 'Stop.' },
     ],
     assumptions: [], unknowns: [], architectures,
+    // AND A PATH, since `propose_strategy` carries the journey it is asking
+    // them to approve. Not the subject of this file, so it is the shared
+    // reacting fixture.
+    blueprint: reactingPath({}, 'awareness-gap'),
   });
 
   it('accepts two treatments of the one barrier the manager gave', () => {

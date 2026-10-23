@@ -14,6 +14,7 @@ import { newBrief, briefDimensions, recordAnswer, type WorkingBrief } from '../.
 import { recordReply, recordAsked, outstanding } from '../../server/record';
 import { OUTPUT_TOOLS, OUTPUT_TOOL_NAMES, isOutputTool, applyOutputTool, outputToolsForPhase } from '../../server/outputTools';
 import { blocksFor } from '../../server/gate';
+import { reactingPath } from './support/journeys';
 
 const started = (): WorkingBrief =>
   recordReply(
@@ -193,12 +194,16 @@ describe('a proposal must compare two genuinely different theories of the proble
   // ("they are not being nudged"). Two mechanics for one barrier is one
   // architecture described twice, and the whole double-down-versus-expand
   // comparison collapses into routing trivia.
+  // AND A PATH, since 2026-10-23. `propose_strategy` refuses a plan with no
+  // journey: they are approving a sequence, so it has to exist before they
+  // agree, and Confirm compiles this same one rather than designing a second.
   const plan = (architectures: unknown[]) => ({
     summary: 'Nudge new cardholders to set a PIN.',
     approach: ['Enter at issuance.'],
     assumptions: [],
     unknowns: [],
     architectures,
+    blueprint: reactingPath({}, 'awareness'),
   });
 
   /**

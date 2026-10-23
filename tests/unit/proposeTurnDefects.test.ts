@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderStrategy, type Strategy } from '../../server/orchestrator';
 import { applyOutputTool } from '../../server/outputTools';
+import { reactingPath } from './support/journeys';
 import { newBrief, recordAnswer, recordBarriers, recordConverters, recordDimensions, briefForPrompt, evaluateDiscovery, type WorkingBrief } from '../../server/discovery';
 import { blocksFor } from '../../server/gate';
 import { convertersSettled, mustLearnAudience } from '../../server/findings';
@@ -70,7 +71,9 @@ const recordPlan = (architectures: unknown[]): Strategy => {
       { id: 'motivation', statement: 'They do not see a reason to use the card yet.', basis: 'user-belief', lever: 'message', quote: 'do not see a reason yet' },
     ]),
     'propose_strategy',
-    { ...base(), architectures },
+    // AND A PATH: the tool refuses a plan with no journey now, because they
+    // are approving a sequence and Confirm compiles this same one.
+    { ...base(), architectures, blueprint: reactingPath({}, 'know-how') },
   );
   expect(out.error, out.error).toBeUndefined();
   return out.strategy as Strategy;

@@ -171,15 +171,15 @@ export interface ProposalUnderReview {
    * than two — a plan may not name unread-versus-read while its steps are a
    * ticket split and a clock.
    *
-   * MEASURED, AND THE LIMIT IS WORTH STATING HERE. `propose_strategy` has no
-   * blueprint in its schema and the propose turn returns none: on
-   * `ui-s-1792748248345` the proposing turn (turn 4) carries `strategy` and
-   * `blueprint: false`, and `systemForPhase(false)` tells the model the
-   * grammar is "OMITTED THIS TURN" on purpose — the standing principle that
-   * the plan is agreed in business terms before it is mapped to the builder.
-   * So this is populated on a refinement, and on any turn whose payload does
-   * carry steps, and is absent on today's first propose. Where it is absent
-   * the prose checks stand alone; where it is present the steps decide.
+   * POPULATED ON EVERY REAL PROPOSAL, since 2026-10-23. `propose_strategy`
+   * carries the path now and the tool refuses a plan without one, so a
+   * reactive winner with no journey is a HOLD rather than a silence — the
+   * exit is to send the steps. The previous comment here recorded the
+   * opposite, and it was right at the time: on `ui-s-1792748248345` turn 4
+   * the proposing turn carried `strategy` with `blueprint: false`, because
+   * the tool had no slot for one and the prompt said the grammar was
+   * omitted. That withhold is gone for the ready-to-propose turn and intact
+   * for every asking turn.
    */
   blueprint?: CampaignBlueprint | null;
 }
@@ -569,11 +569,28 @@ export function reactionBlocks(p: ProposalUnderReview | null): Block[] {
   // of "the next step depends on what they did with the last message", read
   // twice, rather than a propose-time approximation that can drift from it.
   //
-  // SILENT WHEN THE TURN CARRIES NO JOURNEY, deliberately. The propose turn
-  // does not have one (see `ProposalUnderReview.blueprint`), and a block
-  // whose only exit is a field the model has been told not to send is the
-  // unclearable refusal this whole file exists to make impossible.
-  if (p?.blueprint && !journeyReacts(p.blueprint)) {
+  // A MISSING JOURNEY IS NOW A HOLD, because sending one is legal.
+  //
+  // THE HISTORY MATTERS HERE. This was deliberately silent two slices ago:
+  // `propose_strategy` had no blueprint, `systemForPhase` told the model the
+  // grammar was omitted, and a block whose only exit is a field the model has
+  // been forbidden to send is the unclearable refusal this file exists to make
+  // impossible. The tool now carries the path and the grammar travels on a
+  // ready-to-propose turn, so the exit exists and the hold is fair.
+  if (!p?.blueprint) {
+    return [
+      {
+        code: 'no-reaction',
+        reason:
+          'This plan says the journey will move on what the customer did, and there is no journey attached to it — so there is nothing for them to approve except the description of one.',
+        clears: {
+          field: 'touches',
+          how: 'Send the same plan again with "blueprint" filled in: the entry, then the steps in order, with ONE outcome fork on the send whose arms would do different jobs. Confirm compiles exactly that path, so it is what they are agreeing to.',
+        },
+      },
+    ];
+  }
+  if (!journeyReacts(p.blueprint)) {
     return [
       {
         code: 'no-reaction',

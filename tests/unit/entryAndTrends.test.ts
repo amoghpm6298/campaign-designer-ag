@@ -31,6 +31,7 @@ import { briefForPrompt, newBrief, recordAnswer, recordConverters, recordDimensi
 import { convertersSettled, mustLearnAudience } from '../../server/findings';
 import { decide } from '../../server/gate';
 import { discovered } from './support/findings';
+import { reactingPath } from './support/journeys';
 
 const SYSTEM = (() => {
   const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
@@ -214,6 +215,9 @@ describe('no history is a reason to test, not a reason to ship a flat sequence',
             { name: 'Catch the moment', journey: 'branch-on-response', chosen: true },
             { name: 'Work the statement date', journey: 'linear' },
           ],
+          // AND THE PATH ITSELF, since 2026-10-23: a reactive winner with no
+          // journey attached is now a hold, because sending one is legal.
+          // Sixth fixture of the day, same reason — see server/CLAUDE.md.
           touches: [
             { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is still sitting unread, send the same fact again sooner; if it is not delivered at all, SMS the same day.' },
             { day: 3, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'If it was read and nothing happened, stop.' },
@@ -222,6 +226,7 @@ describe('no history is a reason to test, not a reason to ship a flat sequence',
           unknowns: [],
         },
         openItems: [],
+        blueprint: reactingPath({}, 'cost-perception'),
       },
     } as never);
     expect(d.proceed, d.blocks.map((x) => x.code).join(', ')).toBe(true);

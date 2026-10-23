@@ -101,9 +101,16 @@ describe('the system prompt itself withholds the blueprint grammar', () => {
   // every step kind, real entity and attribute names, the existence lookback
   // and entity groups. The agent was told to omit a thing whose complete
   // grammar it had just been handed.
-  it('strips the grammar on a turn that is not building', async () => {
+  it('strips the grammar on an ASKING turn', async () => {
+    // NARROWED 2026-10-23, and the principle it protects is unchanged: while
+    // still learning who converts, the agent must not be handed the
+    // filterable field list, because it then reasons in those terms. What
+    // changed is that "not a build turn" was two different turns — asking,
+    // and putting a plan up for approval — and the second one has to carry
+    // the sequence it is asking them to approve. `journeyAllowed` is false
+    // here, which is every asking turn.
     const { systemForPhase } = await import('../../server/orchestrator');
-    const discovery = systemForPhase(false);
+    const discovery = systemForPhase(false, false);
     for (const leak of [
       '"kind":"branch"',
       '"kind":"experiment"',
@@ -115,6 +122,51 @@ describe('the system prompt itself withholds the blueprint grammar', () => {
     ]) {
       expect(discovery).not.toContain(leak);
     }
+  });
+
+  it('releases the grammar on the turn that puts a plan up for approval', async () => {
+    // MEASURED, `ui-s-1792748248345` turn 4: `propose_strategy` returned
+    // prose, the response carried `blueprint: false`, and Confirm appeared
+    // under an essay — so the canvas was invented on the turn AFTER the
+    // manager signed. A turn that asks for approval of a sequence must carry
+    // the sequence.
+    //
+    // AND WHAT `systemForPhase` ACTUALLY WITHHOLDS IS ONE GROUND RULE, which
+    // I had to measure to write this honestly. The step grammar is no longer
+    // prose in SYSTEM at all — it moved into the tool schemas — so the only
+    // live difference between the two strings is the vocabulary rule. The
+    // assertions above about `"kind":"branch"` pass because SYSTEM contains
+    // none of it on any turn; the real withholding is
+    // `outputToolsForPhase` (no build_campaign) and the catalogue block in
+    // the context prompt, both of which still apply.
+    const { systemForPhase } = await import('../../server/orchestrator');
+    const asking = systemForPhase(false, false);
+    const ready = systemForPhase(false, true);
+    expect(asking).toMatch(/Do not go looking for events, entities or attributes yet/);
+    expect(asking).not.toMatch(/Use only the events, entities, attributes, values, channels and step kinds the tools report/);
+    expect(ready).toMatch(/Use only the events, entities, attributes, values, channels and step kinds the tools report/);
+    // THE STRING ITSELF IS UNCHANGED. The release is a gate, not new prose: a
+    // ready turn gets exactly what a build turn has always had.
+    expect(ready).toBe(systemForPhase(true));
+  });
+
+  it('gives the ready turn the catalogue, so its steps can name real things', () => {
+    // Confirm compiles the proposed path, so an attribute the agent invented
+    // at propose time would reach the canvas as a dropped condition. The
+    // names travel with the grammar; the build-turn INSTRUCTIONS do not.
+    expect(orch).toMatch(/!isBuildTurn && journeyAllowed/);
+    expect(orch).toMatch(/THE PLAN YOU PUT UP MUST CARRY ITS PATH/);
+    expect(orch).toMatch(/Do NOT call build_campaign this turn/);
+  });
+
+  it('does not release it just because the round budget ran out', async () => {
+    // READY FOR A PLAN IS NOT "OUT OF QUESTIONS". The orchestrator computes
+    // `journeyAllowed` from the gate's verdict with no forced escape, so a
+    // spent budget lets the agent propose without handing it the vocabulary.
+    const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+    expect(orch).toMatch(/const d = decide\(brief, \{\}\);/);
+    expect(orch).toMatch(/return d\.proceed && !d\.forcedBy;/);
+    expect(orch).toMatch(/const journeyAllowed = \(\) => !isBuildTurn && readyForPlan\(\);/);
   });
 
   it('keeps all of it on a build turn, where it is needed', () => {

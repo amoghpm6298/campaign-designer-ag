@@ -208,6 +208,65 @@ const STEP_DEF = {
 
 const STRING_LIST = { type: 'array', items: { type: 'string' } } as const;
 
+/**
+ * The journey itself, as JSON Schema.
+ *
+ * HOISTED SO TWO TOOLS SHARE ONE GRAMMAR, 2026-10-23. `propose_strategy` now
+ * carries the path it is asking the manager to approve, and the alternative
+ * was a second copy of this object — which is how the architecture fields and
+ * the two event-label maps drifted. One definition, referenced twice.
+ */
+const BLUEPRINT_SCHEMA = {
+  type: 'object' as const,
+  properties: {
+    campaignName: { type: 'string' },
+    description: { type: 'string' },
+    controlPct: {
+      type: 'number',
+      description:
+        'Ignored. The campaign uses the builder default (10% control, DNC and NPA on). Do not design a holdout or an exclusion list.',
+    },
+    goal: {
+      type: 'object',
+      description: 'The event that proves the behaviour happened. Null if there is genuinely none.',
+      properties: {
+        eventCategory: { type: 'string' },
+        eventType: { type: 'string' },
+        conditions: { type: 'array', items: CONDITION },
+      },
+      required: ['eventCategory', 'eventType'],
+    },
+    entry: {
+      type: 'object',
+      description: 'Where the behaviour has NOT happened yet and still can.',
+      properties: {
+        kind: { type: 'string', enum: ['event', 'audience'] },
+        eventCategory: { type: 'string' },
+        eventType: { type: 'string' },
+        entity: { type: 'string' },
+        conditions: { type: 'array', items: CONDITION },
+        groups: {
+          type: 'array',
+          description: 'Further entity blocks, ANDed with the primary one. This is how one entry combines conditions across entities.',
+          items: {
+            type: 'object',
+            properties: {
+              entity: { type: 'string' },
+              conditions: { type: 'array', items: CONDITION },
+              lookbackDays: { type: 'number', description: 'Transaction only.' },
+              existence: { type: 'string', enum: ['exists', 'none'], description: 'Transaction only. "none" tests the ABSENCE of a matching record over the window — not over all time.' },
+            },
+            required: ['entity'],
+          },
+        },
+      },
+      required: ['kind'],
+    },
+    steps: { type: 'array', items: { $ref: '#/$defs/step' }, minItems: 1 },
+  },
+  required: ['campaignName', 'description', 'entry', 'steps'],
+};
+
 export const OUTPUT_TOOLS: ToolDef[] = [
   {
     name: 'propose_strategy',
@@ -270,6 +329,11 @@ export const OUTPUT_TOOLS: ToolDef[] = [
             required: ['day', 'channel', 'path', 'purpose', 'ifStillUnconverted'],
           },
         },
+        blueprint: {
+          ...BLUEPRINT_SCHEMA,
+          description:
+            'THE PATH YOU ARE ASKING THEM TO APPROVE. The same grammar build_campaign uses, and Confirm compiles exactly this — it does not design a second journey. Required: they are approving a sequence, so it has to exist. Keep your MESSAGE in their language; the steps live here.',
+        },
         openItems: {
           type: 'array',
           items: {
@@ -289,6 +353,11 @@ export const OUTPUT_TOOLS: ToolDef[] = [
       // `within_days`: a constraint the provider enforces costs nothing to
       // maintain and fires before any of our code runs.
       required: ['summary', 'approach', 'assumptions', 'unknowns', 'touches'],
+      // `$defs` HERE TOO, because `blueprint.steps` references `#/$defs/step`
+      // and a `$ref` resolves against the schema it is sent in. Without it the
+      // provider would reject the call with a schema error rather than a
+      // usable message.
+      $defs: { step: STEP_DEF },
     },
   },
   {
@@ -297,54 +366,7 @@ export const OUTPUT_TOOLS: ToolDef[] = [
     description:
       'Build the approved plan as a journey. Only ever called AFTER the manager has approved a strategy. Emit no ids of any kind — the application owns every node id, edge id and template id, and builds the graph through the product\'s own reducer. If the plan cannot be expressed in this grammar, say so in text instead of building a lesser version: a campaign that silently dropped a requirement is worse than no campaign and a plain statement of what is in the way.',
     input_schema: {
-      type: 'object',
-      properties: {
-        campaignName: { type: 'string' },
-        description: { type: 'string' },
-        controlPct: {
-          type: 'number',
-          description:
-            'Ignored. The campaign uses the builder default (10% control, DNC and NPA on). Do not design a holdout or an exclusion list.',
-        },
-        goal: {
-          type: 'object',
-          description: 'The event that proves the behaviour happened. Null if there is genuinely none.',
-          properties: {
-            eventCategory: { type: 'string' },
-            eventType: { type: 'string' },
-            conditions: { type: 'array', items: CONDITION },
-          },
-          required: ['eventCategory', 'eventType'],
-        },
-        entry: {
-          type: 'object',
-          description: 'Where the behaviour has NOT happened yet and still can.',
-          properties: {
-            kind: { type: 'string', enum: ['event', 'audience'] },
-            eventCategory: { type: 'string' },
-            eventType: { type: 'string' },
-            entity: { type: 'string' },
-            conditions: { type: 'array', items: CONDITION },
-            groups: {
-              type: 'array',
-              description: 'Further entity blocks, ANDed with the primary one. This is how one entry combines conditions across entities.',
-              items: {
-                type: 'object',
-                properties: {
-                  entity: { type: 'string' },
-                  conditions: { type: 'array', items: CONDITION },
-                  lookbackDays: { type: 'number', description: 'Transaction only.' },
-                  existence: { type: 'string', enum: ['exists', 'none'], description: 'Transaction only. "none" tests the ABSENCE of a matching record over the window — not over all time.' },
-                },
-                required: ['entity'],
-              },
-            },
-          },
-          required: ['kind'],
-        },
-        steps: { type: 'array', items: { $ref: '#/$defs/step' }, minItems: 1 },
-      },
-      required: ['campaignName', 'description', 'entry', 'steps'],
+      ...BLUEPRINT_SCHEMA,
       $defs: { step: STEP_DEF },
     },
   },
@@ -950,7 +972,31 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       // Normalised ABOVE rather than here or in the renderer: there is one
       // boundary where model output becomes application state, and a second
       // alias in each reader is how this drifts again.
-      return { brief, strategy: normalised, openItems, ok: 'Plan recorded. The manager approves it before anything is built.' };
+      // THE PLAN MUST CARRY ITS PATH.
+      //
+      // MEASURED, `ui-s-1792748248345` turn 4: this tool returned prose, the
+      // response carried `blueprint: false`, and Confirm appeared under an
+      // essay. The canvas was then invented on the turn AFTER they agreed, so
+      // what they approved and what they got were two different model outputs.
+      //
+      // Refused here rather than in the gate because the message can say what
+      // to send, and because it applies to every winner — a linear plan needs
+      // its sequence approved just as much as a reactive one.
+      const path = (obj as { blueprint?: CampaignBlueprint }).blueprint ?? null;
+      if (!path || !Array.isArray(path.steps) || !path.steps.length) {
+        return {
+          brief,
+          error:
+            'This proposal has no journey in it. Send the SAME plan again with "blueprint" filled in — the path you are asking them to approve, in the same grammar build_campaign uses: entry, then the steps in order. They are agreeing to a sequence, so it has to exist before they agree. Confirm compiles exactly this one; you will not be asked to design it again.',
+        };
+      }
+      return {
+        brief,
+        strategy: normalised,
+        openItems,
+        blueprint: path,
+        ok: `Plan recorded, with a ${path.steps.length}-step path. The manager approves it before anything is built.`,
+      };
     }
 
     case 'build_campaign': {

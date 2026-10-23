@@ -30,6 +30,9 @@ import { newBrief, recordAnswer, recordBarriers, recordConverters, recordDimensi
 import { readFileSync } from 'node:fs';
 import { derive } from '../../server/architectureAudit';
 import { DELIVERY_STATUS_BY_CHANNEL } from '../../src/data/sharedConstants';
+import { OUTPUT_TOOLS, applyOutputTool, outputToolsForPhase } from '../../server/outputTools';
+import { canTransition } from '../../server/campaignState';
+import { reactingPath } from './support/journeys';
 import { engagementStatusesFor } from '../../server/deliveryStatuses';
 
 const OPTS = { availableChannels: ['WHATSAPP', 'SMS', 'EMAIL', 'RCS'] as never, templateLibraryAccess: 'unavailable' as const };
@@ -755,19 +758,107 @@ describe('the gate reads the steps, not only the essay', () => {
     expect(d.blocks.map((b) => b.code)).not.toContain('no-reaction');
   });
 
-  it('says nothing when the turn carries no steps, because propose has none', () => {
-    // MEASURED on `ui-s-1792748248345`: the proposing turn carries `strategy`
-    // and `blueprint: false`. `propose_strategy` has no blueprint in its
-    // schema and `systemForPhase(false)` withholds the grammar deliberately,
-    // so blocking on a missing journey there would be a refusal with no legal
-    // move. The JSON propose path DOES carry one, and that is where this
-    // binds today.
+  it('holds when the turn carries no steps, because sending them is legal now', () => {
+    // MEASURED on `ui-s-1792748248345`: the proposing turn carried `strategy`
+    // and `blueprint: false`, so this used to pass silently — there was no
+    // slot for a path and the prompt said the grammar was omitted. Both have
+    // changed, so a reactive essay with no journey is a hold and the exit is
+    // to send one.
     const d = decide(settled(), { proposed: { strategy: REACTIVE_PLAN } as never });
-    expect(d.blocks.map((b) => b.code)).not.toContain('no-reaction');
+    expect(d.blocks.map((b) => b.code)).toContain('no-reaction');
+    expect(d.proceed).toBe(false);
   });
 
   it('is handed the journey by the orchestrator, not just by tests', () => {
     const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
     expect(orch).toMatch(/blueprint: proposed\.blueprint \?\? null/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The first propose carries the journey, and Confirm compiles THAT one
+// ---------------------------------------------------------------------------
+
+describe('the plan the manager approves is the plan that gets built', () => {
+  it('propose_strategy refuses a plan with no path, and says what to send', () => {
+    const b = recordBarriers(
+      recordAnswer(newBrief('Get more eligible purchases converted'), 'they do not realise the purchase qualifies'),
+      [{ id: 'awareness-gap', statement: 'They do not realise it qualifies.', basis: 'user-belief', lever: 'message', quote: 'they do not realise the purchase qualifies' }],
+    );
+    const essayOnly = {
+      summary: 'Catch them while the purchase is fresh.',
+      approach: ['Everyone eligible enters.'],
+      assumptions: [],
+      unknowns: [],
+      touches: [
+        { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If still unread, sooner.' },
+        { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance.', ifStillUnconverted: 'If read and nothing, stop.' },
+      ],
+      architectures: [
+        { name: 'Catch the moment', barrier: 'awareness-gap', entry: 'Every eligible purchase', timing: 'Within the hour', lever: 'message', journey: 'branch-on-response', chosen: true },
+        { name: 'Statement date', barrier: 'awareness-gap', entry: 'The same purchases', timing: 'Before the statement', lever: 'timing', journey: 'linear' },
+      ],
+    };
+    const refused = applyOutputTool(b, 'propose_strategy', essayOnly);
+    expect(refused.error).toMatch(/no journey in it/);
+    expect(refused.error).toMatch(/Confirm compiles exactly this one/);
+    expect(refused.strategy).toBeUndefined();
+
+    // With the path attached it is accepted, and the path comes back out.
+    const accepted = applyOutputTool(b, 'propose_strategy', { ...essayOnly, blueprint: reactingPath({}, 'awareness-gap') });
+    expect(accepted.error).toBeUndefined();
+    expect(accepted.blueprint?.steps?.length).toBeGreaterThan(0);
+    expect(accepted.ok).toMatch(/2-step path/);
+  });
+
+  it('shares ONE grammar between the two tools rather than copying it', () => {
+    // Two copies of the step grammar is how the architecture field names and
+    // the two event-label maps drifted. `propose_strategy.blueprint` and
+    // `build_campaign` are the same object.
+    const propose = OUTPUT_TOOLS.find((t) => t.name === 'propose_strategy')!.input_schema as {
+      properties: { blueprint: { properties: Record<string, unknown>; required: string[] } };
+      $defs?: Record<string, unknown>;
+    };
+    const build = OUTPUT_TOOLS.find((t) => t.name === 'build_campaign')!.input_schema as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    expect(Object.keys(propose.properties.blueprint.properties)).toEqual(Object.keys(build.properties));
+    expect(propose.properties.blueprint.required).toEqual(build.required);
+    // And the `$ref` inside it can resolve, which needs `$defs` on the tool
+    // that carries it.
+    expect(propose.$defs?.step).toBeTruthy();
+    expect(JSON.stringify(propose.properties.blueprint)).toContain('#/$defs/step');
+  });
+
+  it('build_campaign is still absent from a non-build turn', () => {
+    expect(outputToolsForPhase(false).map((t) => t.name)).not.toContain('build_campaign');
+    expect(outputToolsForPhase(false).map((t) => t.name)).toContain('propose_strategy');
+    expect(outputToolsForPhase(true).map((t) => t.name)).toContain('build_campaign');
+    expect(outputToolsForPhase(true).map((t) => t.name)).not.toContain('propose_strategy');
+  });
+
+  it('the propose return carries the path and opens the door to generation', () => {
+    const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+    // `pendingBlueprint` is what the client posts back as `confirmedBlueprint`
+    // and what the left pane draws.
+    expect(orch).toMatch(/pendingBlueprint: blueprint \?\? null,/);
+    // And the hops, without which the first Confirm returns "Cannot generate
+    // from state AWAITING_USER_ANSWER" — measured against the table.
+    expect(orch).toMatch(/state: transition\(toReady, 'AWAITING_STRATEGY_CONFIRMATION'\)/);
+    expect(canTransition('AWAITING_STRATEGY_CONFIRMATION', 'GENERATING_CAMPAIGN')).toBe(true);
+    expect(canTransition('AWAITING_USER_ANSWER', 'GENERATING_CAMPAIGN')).toBe(false);
+  });
+
+  it('compiles the approved path on Confirm without designing a second one', () => {
+    // The confirm short-circuit builds `req.confirmedBlueprint` directly — no
+    // model call, no new journey. This is the object a propose turn now hands
+    // the client, so what they approved is what the canvas shows.
+    const approved = reactingPath({}, 'awareness-gap') as unknown as CampaignBlueprint;
+    const out = buildFromBlueprint(approved, OPTS);
+    expect(out.issues).toEqual([]);
+    expect(outcomeSplits(out.graph)).toHaveLength(1);
+    expect(Object.values(out.graph.nodes).filter((n) => n.type === 'SEND').length).toBe(3);
+    expect(journeyReacts(approved)).toBe(true);
   });
 });

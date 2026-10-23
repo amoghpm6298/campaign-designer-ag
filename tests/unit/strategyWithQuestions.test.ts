@@ -228,28 +228,30 @@ describe('a proposal with open points is still a proposal', () => {
     const res = await turn({ action: 'propose', strategy: STRATEGY, blueprint: BLUEPRINT, openItems: OPEN_ITEMS }, settled());
     expect(res.phase).toBe('awaiting-confirmation');
     expect(res.strategy).toBeTruthy();
-    // `pendingBlueprint` is null here ON PURPOSE and that is not this slice:
-    // a propose turn carries no blueprint, because the plan is agreed in
-    // business terms before it is mapped to the builder. Confirm is offered
-    // off the PHASE, and the live Confirm posts `confirmedBlueprint: null`.
-    expect(res.pendingBlueprint ?? null).toBeNull();
+    // `pendingBlueprint` IS THE PATH NOW, reversed 2026-10-23. It was null on
+    // purpose while the plan was agreed in business terms and mapped to the
+    // builder afterwards — and that is exactly how a manager came to approve
+    // an essay and receive a canvas invented on the next turn. The turn that
+    // asks them to approve a sequence carries the sequence; it is what the
+    // client posts back as `confirmedBlueprint` and what the left pane draws.
+    expect(res.pendingBlueprint).toBeTruthy();
+    expect((res.pendingBlueprint as { steps: unknown[] }).steps.length).toBeGreaterThan(0);
 
-    // THE SESSION STATE IS NOT YET AWAITING_STRATEGY_CONFIRMATION, and that
-    // surprised me, so it is worth writing down. The propose return happens
-    // BEFORE the STRATEGY_READY -> AWAITING_STRATEGY_CONFIRMATION hops; a
-    // Confirm turn re-enters the same code with `isBuildTurn` true, walks
-    // those hops itself, and only then opens the door to generation. Verified
-    // against the live record: the recorded propose turn returns
-    // `phase: awaiting-confirmation` with `state: AWAITING_USER_ANSWER`.
+    // AND THE DOOR INTO GENERATION IS OPEN, not merely reachable.
     //
-    // What matters is that the door is still REACHABLE, because
-    // AWAITING_USER_ANSWER cannot enter generation directly — a propose turn
-    // that left the state somewhere else would turn the next Confirm into the
-    // "Illegal state transition" crash all over again.
+    // The old assertion here recorded a real surprise: the propose return
+    // happened BEFORE the STRATEGY_READY -> AWAITING_STRATEGY_CONFIRMATION
+    // hops, so it left `AWAITING_USER_ANSWER`, and the next Confirm walked
+    // the hops itself on its way through the build tail. That worked only
+    // because `confirmedBlueprint` was null and the short-circuit was
+    // unreachable. With a real path posted back, Confirm takes the
+    // short-circuit, where `mayGenerate` asks `canTransition` directly — and
+    // AWAITING_USER_ANSWER cannot enter generation, so the first Confirm
+    // would have come back "Cannot generate from state
+    // AWAITING_USER_ANSWER". Measured before changing it.
     const state = (res.session as { state: string }).state;
-    expect(canTransition(state, 'STRATEGY_READY')).toBe(true);
-    expect(canTransition('STRATEGY_READY', 'AWAITING_STRATEGY_CONFIRMATION')).toBe(true);
-    expect(canTransition('AWAITING_STRATEGY_CONFIRMATION', 'GENERATING_CAMPAIGN')).toBe(true);
+    expect(state).toBe('AWAITING_STRATEGY_CONFIRMATION');
+    expect(canTransition(state, 'GENERATING_CAMPAIGN')).toBe(true);
   });
 
   it('returns NO questions, which is what the client draws as a numbered list', async () => {

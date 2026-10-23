@@ -2912,3 +2912,105 @@ Each declares a branch-on-response winner and carried a clock, so each was
 held for a reason its own file is not about. `forkGuardUnderFailure` is on
 EMAIL, so its arms are OPENED and CLICKED — the statuses that channel actually
 reports.
+
+## 2026-10-23 (cont'd) — The first propose carries the journey
+
+`ui-s-1792748248345` turn 4: `propose_strategy` returned an essay,
+`blueprint: false`, and Confirm appeared under it. The canvas was invented on
+the turn AFTER the manager signed, from a second model output they never saw.
+
+The withhold that caused it was the wrong reading of strategy-before-platform.
+The rule worth keeping is narrower and unchanged: **while still learning who
+converts, do not talk events, attributes or step kinds**, because an agent
+handed the filterable field list reasons in those terms and the business
+question goes untouched. It says nothing about the turn that asks someone to
+approve a sequence. That turn must carry the sequence.
+
+### `journeyAllowed`, a second flag
+
+`systemForPhase` was one boolean, and discovery and propose are both "not a
+build turn". It now takes `(isBuildTurn, journeyAllowed)`:
+
+- asking turn: today's omission, unchanged;
+- ready to propose: the grammar travels, and so does the CATALOGUE — the
+  entity, attribute and event names from `blueprintVocabulary`. Confirm
+  compiles these steps now, so an attribute invented at propose time would
+  reach the canvas as a dropped condition. The build-turn instructions stay
+  build-only;
+- build turn: unchanged.
+
+`journeyAllowed` is `decide(brief, {}).proceed && !forcedBy` — the record half
+of the gate with the escapes excluded, so **a spent round budget does not hand
+over the vocabulary**. Recomputed per model call rather than once per turn, so
+a turn that records the last finding in round 1 can carry the path in round 2.
+
+**What `systemForPhase` actually withholds is one GROUND RULE, and I had to
+measure that to write the test honestly.** The step grammar is no longer prose
+in SYSTEM at all — it moved into the tool schemas — so the two strings differ
+by the vocabulary rule and nothing else, and the existing assertions about
+`"kind":"branch"` leaking pass because SYSTEM contains none of it on any turn.
+The real withholding is `outputToolsForPhase` (no `build_campaign`) and the
+catalogue block in the context prompt. Both still apply. `SYSTEM` is unchanged
+at 33,475: the release is a gate, not new prose.
+
+### The path travels in `propose_strategy`
+
+`BLUEPRINT_SCHEMA` is hoisted and shared by both tools — `propose_strategy`'s
+`blueprint` property and `build_campaign`'s whole input are the same object,
+with `$defs: { step: STEP_DEF }` on both so the `$ref` resolves. A second copy
+of that grammar is how the architecture field names and the two event-label
+maps drifted.
+
+The handler refuses a plan with no path and says what to send. Refused there
+rather than in the gate because the tool result is a sentence the model can
+act on, and because it applies to every winner: a linear plan needs its
+sequence approved too.
+
+### Three dead paths this turned live, all measured first
+
+1. **`pendingBlueprint` was null**, so the client posted
+   `confirmedBlueprint: null` and the confirm short-circuit was unreachable.
+   It is the proposed path now — which also gives `previewFromBlueprint`
+   something to draw for the first time since it was written.
+2. **The propose return left the session in `AWAITING_USER_ANSWER`**, and the
+   table allows generation only from `AWAITING_STRATEGY_CONFIRMATION`. That
+   cost nothing while Confirm fell through to the build tail, which walks the
+   hops itself. With a real path posted back, Confirm takes the short-circuit
+   and `mayGenerate` asks `canTransition` directly — so the first Confirm
+   would have returned *"Cannot generate from state AWAITING_USER_ANSWER"*: a
+   manager pressing the button and being told no. The propose return now walks
+   `STRATEGY_READY -> AWAITING_STRATEGY_CONFIRMATION`, bumps the version and
+   clears any stale confirmation.
+3. **The short-circuit's staleness heuristic has never run.** It fingerprints
+   the blueprint description plus the strategy summary and compares that to
+   the objective. My first probe failed it at 0.06 — and my probe was a
+   two-sentence summary I had written. Against the REAL recorded text it
+   scores 0.50 against a 0.25 floor. No change made; the risk is a terse
+   summary, and `objectiveFingerprint.test.ts` already exists because this
+   bit once before.
+
+### The lock now bites the live path
+
+A reactive winner with no journey is a hold, because sending one is legal —
+which is exactly what 20611bb declined to do while it was illegal. Replayed
+against the live record: the turn-4 essay (`branch-on-response`) is held with
+no path, and held again with the clock turn 5 actually built.
+
+### Verified
+
+1414 unit (from 1406) and 118 agent-proto. `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. `SYSTEM` unchanged at 33,475.
+
+Reverting the missing-steps hold fails 1; the tool's path requirement fails 1;
+`pendingBlueprint` fails 2; the state hop fails 2; `journeyAllowed` fails 1.
+The last of those is a source grep rather than a behaviour test, because the
+flag is a closure inside `orchestrateStream` — the behaviour either side of it
+is covered by `systemForPhase` directly.
+
+**Six fixtures needed a path**, and the shape is now shared rather than copied
+a seventh time: `tests/unit/support/journeys.ts` exports `reactingPath()`.
+`outputTools`, `proposeTurnDefects`, `refusedProposeIsNotRecorded`,
+`entryAndTrends`, `reactionBlocks` and `strategyWithQuestions` all use it.
+Two tests were FLIPPED rather than retargeted — the ones pinning that a
+missing journey is silent — and both carry the old reasoning, because it was
+correct when there was no legal way to send one.
