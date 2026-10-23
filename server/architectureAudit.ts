@@ -19,6 +19,7 @@
 // cost comprehension" are the same intervention or different ones — asking
 // code to judge that would be theatre. What code can check is consequences.
 import type { CampaignBlueprint, BpStep } from './blueprint';
+import { reactsToDelivery } from './optionAudit';
 
 /**
  * What a journey DOES, in terms the platform can actually express.
@@ -44,14 +45,37 @@ export type JourneyBehaviour = (typeof JOURNEY_BEHAVIOURS)[number];
 export const isJourneyBehaviour = (v: unknown): v is JourneyBehaviour =>
   typeof v === 'string' && (JOURNEY_BEHAVIOURS as readonly string[]).includes(v);
 
-/** Every journey behaviour actually present in a built blueprint. */
+/**
+ * Every journey behaviour actually present in a built blueprint.
+ *
+ * `branch-on-response` IS NOT "CONTAINS A CONDITION", corrected 2026-10-23.
+ * It was, and that is the same false positive `journeyReacts` was written to
+ * kill one slice earlier: a condition on Transaction Amount is a who-split,
+ * and counting it here meant `checkFidelity` would confirm a declared
+ * branch-on-response journey against a campaign that branches on the
+ * CUSTOMER rather than on anything they did. The audit would have blessed the
+ * exact build the reaction retry refuses.
+ *
+ * `reactsToDelivery` is the shared definition, imported rather than restated:
+ * a fork on the preceding send's delivery or read outcome whose sides differ,
+ * or the channel-fallback pair. Two copies of this rule would drift, and the
+ * drift would be invisible — both halves would still pass their own tests.
+ *
+ * The wait is tagged separately and deliberately NOT folded in here.
+ * `journeyReacts` is `reactsToDelivery` OR a wait-for-event, which is the
+ * right question for "does this journey move at all"; for a per-behaviour
+ * inventory, calling a wait-for-event journey `branch-on-response` as well
+ * would be a second claim the agent never made.
+ */
 export function derive(bp: CampaignBlueprint | null | undefined): Set<JourneyBehaviour> {
   const found = new Set<JourneyBehaviour>();
   const walk = (steps: BpStep[] | undefined) => {
     for (const s of steps ?? []) {
       if (s.kind === 'send' || s.kind === 'wait') found.add('linear');
       if (s.kind === 'waitForEvent') found.add('wait-for-event');
-      if (s.kind === 'condition') { found.add('branch-on-response'); walk(s.yes); walk(s.no); }
+      // Descended into, never tagged. A condition is the step that CARRIES a
+      // reaction; whether it is one is `reactsToDelivery`'s to say, below.
+      if (s.kind === 'condition') { walk(s.yes); walk(s.no); }
       if (s.kind === 'experiment') {
         found.add('experiment');
         for (const a of s.arms ?? []) walk(a.steps);
@@ -59,6 +83,7 @@ export function derive(bp: CampaignBlueprint | null | undefined): Set<JourneyBeh
     }
   };
   walk(bp?.steps);
+  if (reactsToDelivery(bp)) found.add('branch-on-response');
   return found;
 }
 

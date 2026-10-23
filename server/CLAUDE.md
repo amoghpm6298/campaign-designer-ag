@@ -2660,3 +2660,54 @@ which the same run's prose already satisfied.
   `pendingBlueprint: null` — and every test that walks it supplies the
   blueprint by hand.
 - Nothing pushed, no live run.
+
+### Same day — two holes the reaction slice left, and the comment that would
+have reopened them
+
+**`derive()` still counted any condition as `branch-on-response`.** The same
+false positive `journeyReacts` was written to kill, one function along: a
+condition on Transaction Amount is a who-split, and tagging it here meant
+`checkFidelity` would CONFIRM a declared reaction against a campaign that
+branches on the customer. The audit would have blessed the exact build the
+retry refuses.
+
+`reactsToDelivery` is now the one definition, factored out of `journeyReacts`
+and imported — not restated. Two copies of this rule would drift, and the
+drift would be invisible because both halves would keep passing their own
+tests. The wait is deliberately NOT folded in: `journeyReacts` is
+`reactsToDelivery` OR a wait-for-event, which is the right question for "does
+this journey move at all", but an inventory of behaviours must not also call a
+wait-for-event journey a branch. A condition is descended into and never
+tagged; whether it is a reaction is one function's job.
+
+**`checkFidelity` was reading the wrong strategy on the only turn that
+builds.** It took `proposed.strategy?.architectures`, which on a Confirm is
+the synthetic empty one — so on live turn 4 it received `[]`, returned null,
+and the check that asks "is this the campaign you were sold" never ran. Both
+it and `compareArchitectures` now take the same `approvedStrategy`
+(`req.confirmedStrategy ?? proposed.strategy`) the reaction retry uses. On a
+propose turn `confirmedStrategy` is null, so that path is unchanged.
+
+**`approvedPlan` is still NOT keyed on `confirmedStrategy`, and the comment
+now says why.** It claimed the field never arrives, which was wrong about the
+mechanism and dangerous in both directions: key the may-we-build flag onto it
+and a typed "Confirmed. Build this campaign." during discovery skips the gate;
+stop reading it for the plan's CONTENT and the reaction and fidelity checks go
+inert again. Two jobs, two reads — the plan's content is client-supplied, and
+a payload carrying a strategy is not evidence that discovery happened. A test
+greps the block for the old wording, which is why the correction in the
+comment paraphrases it rather than quoting it.
+
+**Replayed against the live run:** `derive(turn-4 blueprint)` is now `linear,
+experiment` — no reaction — and `checkFidelity(approved, built)` returns *ok:
+false*, "Chose a "branch-on-response" journey, but the built campaign does
+linear, experiment." On the real turn it returned null.
+
+1357 unit (from 1348; 9 new in `canvasMustReact.test.ts`) and 118 agent-proto;
+typechecks and build clean, `SYSTEM` untouched at 33,433. Reverting `derive()`
+to "any condition" fails 4; reverting the fidelity input fails 2.
+
+Known and still not done: `derive()` does not walk `branch` paths, so sends
+nested inside an n-way split contribute no `linear` tag. Pre-existing, nothing
+in this slice depends on it, and changing it moves fidelity verdicts that
+nothing currently covers.

@@ -28,7 +28,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { orchestrateStream, renderBuildSummary } from '../../server/orchestrator';
-import { journeyReacts } from '../../server/optionAudit';
+import { journeyReacts, reactsToDelivery } from '../../server/optionAudit';
+import { derive } from '../../server/architectureAudit';
 import { seedKnowledgeBase } from '../../server/knowledge';
 import { newBrief, recordDimensions, recordSuccessCriteria } from '../../server/discovery';
 import { discovered } from './support/findings';
@@ -408,6 +409,97 @@ describe('the approved plan is read from where the client puts it', () => {
 
   it('prefers the approved plan over the strategy this turn happens to carry', () => {
     expect(orch).toMatch(/const approvedStrategy = \(req\.confirmedStrategy \?\? proposed\.strategy\)/);
+  });
+});
+
+describe('derive() stopped calling a who-split a reaction', () => {
+  it('reads no branch-on-response out of the live turn-4 journey', () => {
+    // THE SAME FALSE POSITIVE, one function further along. `derive` tagged
+    // `branch-on-response` for ANY condition, so `checkFidelity` would have
+    // confirmed a declared reaction against a campaign that branches on the
+    // customer — blessing the exact build the retry refuses.
+    const built = [...derive(bp(CLOCK))];
+    expect(built).not.toContain('branch-on-response');
+    expect(built).toContain('linear');
+    expect(built).toContain('experiment');
+  });
+
+  it('reads one out of a fork on the delivery result', () => {
+    expect([...derive(bp(REACTING))]).toContain('branch-on-response');
+  });
+
+  it('does not call a wait-for-event journey a branch as well', () => {
+    // Tagged separately on purpose: `journeyReacts` is `reactsToDelivery` OR
+    // a wait, which is the right question for "does this move at all". An
+    // inventory of behaviours must not add a claim the agent never made.
+    const built = [...derive(bp([send(), { kind: 'waitForEvent', eventCategory: 'EMI Events', eventType: 'EMI_STATUS_CHANGED', timeoutDays: 7 }, { kind: 'exit', reason: 'Done.' }]))];
+    expect(built).toContain('wait-for-event');
+    expect(built).not.toContain('branch-on-response');
+  });
+
+  it('shares one definition with journeyReacts rather than restating it', () => {
+    // Two copies of this rule would drift, and the drift would be invisible:
+    // both halves would still pass their own tests.
+    const audit = readFileSync(new URL('../../server/architectureAudit.ts', import.meta.url), 'utf8');
+    expect(audit).toMatch(/import \{ reactsToDelivery \} from '\.\/optionAudit'/);
+    expect(audit).toMatch(/if \(reactsToDelivery\(bp\)\) found\.add\('branch-on-response'\)/);
+    // And the condition case no longer tags anything by itself.
+    expect(audit).not.toMatch(/'condition'\) \{ found\.add\('branch-on-response'\)/);
+  });
+
+  it('fails the turn-4 fixture if any condition counts again', () => {
+    // The revert this slice is measured by, stated as the rule rather than as
+    // a source grep: a journey whose only fork is an attribute split must
+    // report no reaction, however the function is written.
+    expect(reactsToDelivery(bp(CLOCK))).toBe(false);
+    expect(derive(bp(CLOCK)).has('branch-on-response')).toBe(false);
+  });
+});
+
+describe('fidelity runs on the turn that builds', () => {
+  it('is handed the approved plan, not the empty strategy of the Confirm turn', () => {
+    expect(orch).toMatch(/const architectureComparison = compareArchitectures\(approvedStrategy\?\.architectures\)/);
+    expect(orch).toMatch(/const fidelity = checkFidelity\(approvedStrategy\?\.architectures, blueprint\)/);
+  });
+
+  it('says the built campaign is not the one that was chosen', async () => {
+    // On live turn 4 this returned null — `architectures: []` on the turn's
+    // own strategy — so the one check that asks "is this the campaign you
+    // were sold" never ran on the only turn that builds one.
+    const { res } = await confirm([buildTurn(CLOCK), proseTurn('Built.'), buildTurn(CLOCK)]);
+    const warnings = ((res.strategy as { designWarnings?: string[] })?.designWarnings ?? []).join(' ');
+    expect(warnings).toMatch(/Chose a "branch-on-response" journey/);
+    expect(warnings).toMatch(/The strategy and the campaign disagree/);
+  });
+
+  it('stays quiet when the second journey does react', async () => {
+    const { res } = await confirm([buildTurn(CLOCK), proseTurn('Built.'), buildTurn(REACTING)]);
+    const warnings = ((res.strategy as { designWarnings?: string[] })?.designWarnings ?? []).join(' ');
+    expect(warnings).not.toMatch(/The strategy and the campaign disagree/);
+  });
+});
+
+describe('the comment that would undo all of this', () => {
+  it('no longer claims confirmedStrategy is empty', () => {
+    // It said "always undefined" and "no response has ever carried that
+    // field". Both were wrong about the mechanism, and the correction cuts
+    // both ways: key `approvedPlan` onto this field and discovery becomes
+    // skippable; stop reading it for the plan's CONTENT and the reaction and
+    // fidelity checks go inert again.
+    const block = orch.slice(
+      orch.indexOf('// A PLAN THE MANAGER ACTUALLY APPROVED'),
+      orch.indexOf('const approvedPlan ='),
+    );
+    expect(block.length).toBeGreaterThan(0);
+    expect(block).not.toMatch(/always undefined/);
+    expect(block).not.toMatch(/no response has ever carried that field/);
+    expect(block).not.toMatch(/the state it posts back is empty/);
+    // And it still says why the flag is not keyed on it.
+    // Split across two source lines by the comment wrap, so matched in two
+    // pieces rather than as one span.
+    expect(block).toMatch(/Confirmed\. Build this/);
+    expect(block).toMatch(/DURING discovery/);
+    expect(block).toMatch(/not evidence that discovery happened/);
   });
 });
 

@@ -304,6 +304,21 @@ export function journeyReacts(bp: CampaignBlueprint | null | undefined): boolean
   if (!bp) return false;
   // Holding until the customer does something is the purest form of it.
   if (waitsForEvent(bp).length) return true;
+  return reactsToDelivery(bp);
+}
+
+/**
+ * The branch-on-response half of the rule, without the wait-for-event half.
+ *
+ * SPLIT OUT FOR `derive()`, which tags each behaviour separately: a
+ * wait-for-event journey is `wait-for-event` and calling it
+ * `branch-on-response` as well would be a second claim nobody made. The two
+ * functions must not drift — this is the one definition of "the next step
+ * depends on what happened to the last message", and `journeyReacts` is it
+ * plus the wait.
+ */
+export function reactsToDelivery(bp: CampaignBlueprint | null | undefined): boolean {
+  if (!bp) return false;
 
   // A fork on the PRECEDING SEND's delivery or read outcome, whose two sides
   // then do different things. Both halves are needed: a condition on

@@ -1646,17 +1646,30 @@ export async function* orchestrateStream(
   //    to them and is waiting on an answer. It covers the manager who types
   //    the sentence instead of pressing the button, which is a real approval.
   //
-  // DELIBERATELY NOT `req.confirmedStrategy`, which looks like the obvious
-  // choice and is always undefined. `CampaignDesigner` reads
-  // `next.pendingStrategy` off the response and no response has ever carried
-  // that field, so the state it posts back is empty. Keying this on it would
-  // have made the whole branch a no-op in the app while passing every test
-  // that supplies the field by hand.
+  // DELIBERATELY NOT `req.confirmedStrategy`, AND NOT BECAUSE IT IS EMPTY.
+  //
+  // An earlier version of this comment said the field never arrives. That was
+  // wrong about the mechanism, and the correction matters in both directions.
+  // (It is phrased this way on purpose: the test guarding this block greps for
+  // the old wording, and quoting it here would defeat the guard.)
+  // `CampaignDesigner` does populate it:
+  // `setPendingStrategy(res.strategy ?? null)` on every non-error turn, posted
+  // back as `confirmedStrategy` when `intent === 'confirm'` — pinned in
+  // `canvasMustReact.test.ts`, because two checks now depend on reading it.
+  //
+  // It is not used HERE because this flag answers a different question. The
+  // plan's CONTENT is read from `confirmedStrategy` (the reaction retry and
+  // the fidelity check both do, further down, and would be inert without it).
+  // Whether we may build at all must rest on what the APPLICATION knows,
+  // because the content is client-supplied: a payload carrying a strategy is
+  // not evidence that discovery happened.
   //
   // What this excludes is the point: someone who types "Confirmed. Build this
   // campaign." DURING discovery. `saysBuildNow` matches that sentence exactly
   // and it is on screen in their own transcript, so it does get typed — and
   // nobody should be able to skip discovery by repeating a sentence back.
+  // Two jobs, two reads; moving either onto the other's signal breaks
+  // something that currently works.
   const approvedPlan =
     isBuildTurn && ((req.intent ?? 'converse') === 'confirm' || isRefinement || session.state === 'AWAITING_STRATEGY_CONFIRMATION');
 
@@ -2370,8 +2383,16 @@ export async function* orchestrateStream(
   // the application, never by the model, and both can only ever downgrade a
   // claim — see `server/architectureAudit.ts` for why one of them is a hard
   // check and the other is only a floor.
-  const architectureComparison = compareArchitectures(proposed.strategy?.architectures);
-  const fidelity = checkFidelity(proposed.strategy?.architectures, blueprint);
+  //
+  // BOTH READ THE PLAN THAT WAS APPROVED, not the one this turn happens to
+  // carry. They used to read `proposed.strategy`, which on a Confirm is the
+  // synthetic empty strategy — so on live turn 4 `checkFidelity` was handed
+  // `architectures: []`, returned null, and the one check that exists to ask
+  // "is this the campaign you were sold" never ran on the only turn where a
+  // campaign gets built. On a propose turn `req.confirmedStrategy` is null and
+  // this is `proposed.strategy`, so nothing about that path changes.
+  const architectureComparison = compareArchitectures(approvedStrategy?.architectures);
+  const fidelity = checkFidelity(approvedStrategy?.architectures, blueprint);
   // An experiment whose arms run the same journey can test wording and nothing
   // more. Folded into the comparison verdict rather than given its own field:
   // it is the same finding — alternatives that are not really alternatives.
