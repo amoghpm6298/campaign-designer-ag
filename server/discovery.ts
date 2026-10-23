@@ -1307,28 +1307,39 @@ export function recordUncoveredQuestions(brief: WorkingBrief, uncovered: string[
  * the same self-correcting shape as `asFindingOrDeferral`.
  */
 export function recordBarriers(brief: WorkingBrief, updates: Barrier[] | undefined): WorkingBrief {
-  // OMITTING A BARRIER DROPS IT. THE LIST IS REPLACED, NOT APPENDED TO.
+  // MERGED BY ID. A SENT LIST UPDATES WHAT IT NAMES AND KEEPS WHAT IT DOES
+  // NOT.
   //
-  // It used to start from the existing list and merge, so nothing the agent
-  // had ever named could be withdrawn. Measured live: it floated rival
-  // theories early — message fatigue, first-time versus repeat EMI — then
-  // narrowed to one, and the discarded two stayed on the record and blocked
-  // the build for not being addressed.
+  // THIS REPLACED THE WHOLE LIST UNTIL 2026-10-23, and the reasoning behind
+  // that is kept because it was not silly: the agent floated rival theories
+  // early — message fatigue, first-time versus repeat EMI — narrowed to one,
+  // and the discarded two stayed on the record and blocked the build for not
+  // being addressed. The prompt asks for barriers on EVERY turn, so a sent
+  // list reads as the agent's current position rather than an increment.
   //
-  // The prompt asks for converters and barriers on EVERY turn, so a sent list
-  // is the agent's current position, not an increment. `recordConverters`
-  // has always replaced for the same reason.
+  // MEASURED, end to end, in `eval/runs/ui-s-1792735473522/turns/turn-3.json`.
+  // The manager said customers do not realise the purchase qualifies; that
+  // went in as `awareness-gap`. `propose_strategy` then refused the plan for
+  // citing one barrier twice and instructed the agent to record a second
+  // explanation. It did — in a call carrying ONLY the invented rival — and
+  // replace-on-sent deleted the manager's own barrier. The brief ended the
+  // turn holding one assumption the agent had made up, and nothing the
+  // manager had said.
   //
-  // The empty guard stays and carries the whole distinction: a turn that
-  // records converters only must not wipe the barriers. Replace on SENT;
-  // keep on OMITTED.
+  // Replacement cannot tell "I withdraw the others" from "here is one more",
+  // and the second reading is the common one. The stale-rival problem it was
+  // solving is real but smaller, has an explicit instrument already —
+  // `lever: 'not-addressable'` answers a barrier without designing for it —
+  // and costs a stated limitation rather than the manager's own words.
+  //
+  // Empty or omitted still means "do not touch", unchanged.
   if (!updates?.length) return brief;
-  // The LIST is rebuilt, but a barrier that survives keeps what the update
-  // did not repeat. Re-sending a barrier without its quote is the model
-  // being terse, not retracting the evidence — and the quote is the record
-  // of what the manager actually said.
+  // Start from what is already recorded. An update NAMES what it changes; a
+  // barrier it does not mention is carried untouched, and one it re-sends
+  // keeps any field the update did not repeat — terseness is not retraction,
+  // and the quote is the record of what the manager actually said.
   const prior = brief.barriers ?? [];
-  const out: Barrier[] = [];
+  const out: Barrier[] = [...prior];
 
   for (const raw of updates) {
     if (!raw || typeof raw.statement !== 'string' || !raw.statement.trim()) continue;

@@ -715,10 +715,16 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
         notes.push('who converts');
       }
       if (barriers.length) {
-        const before = (next.barriers ?? []).length;
         next = recordBarriers(next, barriers);
         const after = (next.barriers ?? []);
-        notes.push(`${after.length - before} barrier(s)`);
+        // THE TOTAL ON THE RECORD, NOT THE DELTA.
+        //
+        // `after.length - before` reported "0 barrier(s)" every time the
+        // model re-sent a barrier it had already recorded — which reads as
+        // "nothing was saved" about a brief that holds one. In the live run
+        // it printed that four times running while the agent was trying to
+        // work out why its proposal kept being refused.
+        notes.push(`${after.length} barrier(s) on the record`);
         // Attribution is verified, not trusted, and the model is told when a
         // quote did not check out. Silently downgrading taught it nothing.
         const downgraded = after.filter((b) => b.basis === 'assumption' && barriers.some((x) => x.id === b.id && x.basis !== 'assumption'));
@@ -813,13 +819,45 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
           }`,
         };
       }
-      if (new Set(cited).size < 2) {
+      // TWO CANDIDATES MAY SHARE A BARRIER. WHAT THEY MAY NOT SHARE IS THE
+      // TREATMENT.
+      //
+      // THE DEFECT THIS REPLACES, measured end to end in
+      // `eval/runs/ui-s-1792735473522/turns/turn-3.json`. The manager had
+      // given one clear reason — customers do not realise the purchase
+      // qualifies — and the agent wrote a real plan around it. This refused
+      // the plan for citing one recorded barrier twice and told it to
+      // "record a second candidate explanation" with basis "assumption".
+      //
+      // It obeyed, and the consequences ran all the way to the screen: the
+      // follow-up `record_findings` sent only the invented rival, which
+      // REPLACED the list and deleted the manager's own barrier; the turn
+      // never proposed again; and the manager read "Recorded."
+      //
+      // The demand was wrong on its own terms. One recorded barrier is the
+      // ordinary case when someone answers clearly, and inventing a second
+      // why to satisfy a counter is not discovery — it is the application
+      // asking the agent to make something up, which every other rule here
+      // exists to prevent.
+      //
+      // WHAT A RIVAL ACTUALLY IS when there is one problem: a different
+      // treatment OF that problem — a different moment to catch them, a
+      // different intensity, a different journey shape. That is precisely the
+      // tuple `architectureAudit` already compares, so the check now asks the
+      // same question the audit does instead of a cheaper proxy for it.
+      const sameBarrier = new Set(cited).size < 2;
+      const treatment = (a: NonNullable<Strategy['architectures']>[number]) =>
+        [a.entry, a.timing, a.lever, a.journey]
+          .map((x) => String(x ?? '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim())
+          .join(' || ');
+      const sameTreatment = new Set(arch.map(treatment)).size < 2;
+      if (sameBarrier && sameTreatment) {
         return {
           brief,
           error:
             known.size < 2
-              ? 'Both candidates attack the same barrier because only one is recorded, so there is only one theory of the problem and this campaign cannot learn which explanation is right. Record a second candidate explanation — "assumption" is an honest basis for one you inferred rather than were told — and build the rival architecture around attacking that instead.'
-              : `Both candidates cite the same barrier, so they are one architecture described twice. You have ${known.size} barriers recorded; point the second candidate at a different one.`,
+              ? 'These two candidates attack the same barrier in the same way — same entry, timing, lever and journey — so they are one architecture described twice. With one barrier recorded that is expected and fine: make the rival a different TREATMENT of it. Catch them at a different moment, work it harder or lighter, or change the journey shape. Do not invent a second reason customers do not convert.'
+              : `Both candidates cite the same barrier AND the same entry, timing, lever and journey, so they are one architecture described twice. Either point the second at one of your other recorded barriers (${known.size} are on the record), or give it a genuinely different treatment of this one.`,
         };
       }
       const openItems = Array.isArray(obj.openItems) ? (obj.openItems as unknown[]) : [];

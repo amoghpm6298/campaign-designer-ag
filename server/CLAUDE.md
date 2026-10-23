@@ -2169,3 +2169,78 @@ list is now the first thing to check, not the last.
 1270 unit (from 1268) and 118 agent-proto. `tsc --noEmit`,
 `server:typecheck` and `npm run build` clean. Reopening the converters
 clause fails 3 tests; restoring the `|| tests` short-circuit fails 1.
+
+## 2026-10-23 (cont'd) — The turn that ended "Recorded."
+
+`eval/runs/ui-s-1792735473522/turns/turn-3.json`. The manager answered three
+things in one message: ₹10k purchases convert more, customers do not realise
+the purchase qualifies, and it usually happens within thirty minutes. The
+agent recorded all of it and called `propose_strategy` with a real plan.
+
+Four application failures then ran into each other, and the manager read
+**"Recorded."**
+
+### 1. The tool refused the plan for having one barrier
+
+`propose_strategy` required two architectures to cite two DIFFERENT recorded
+barrier ids, and with one recorded it said: *"Record a second candidate
+explanation — 'assumption' is an honest basis for one you inferred rather
+than were told."*
+
+That is the application instructing the agent to invent a customer problem,
+which every other rule in this file exists to prevent. **One recorded barrier
+is the ordinary case when someone answers clearly.** A rival to one problem is
+a different TREATMENT of it — a different moment, intensity or journey shape
+— which is exactly the tuple `architectureAudit` already compares. So the
+check asks that question now instead of a cheaper proxy: same barrier is
+fine, same `entry || timing || lever || journey` is still "one architecture
+described twice".
+
+### 2. Obeying it destroyed the manager's own finding
+
+The follow-up `record_findings` carried ONLY the invented rival, and
+replace-on-sent deleted `awareness-gap`. The brief ended the turn holding one
+assumption the agent had made up and nothing the manager had said.
+
+`recordBarriers` merges by id now. The replace rule was added for a real
+reason — rivals floated early, narrowed later, stayed on the record and
+blocked the build — but **replacement cannot tell "I withdraw the others"
+from "here is one more", and the second reading is the common one.** The
+stale-rival problem has its own instrument already: `lever: 'not-addressable'`
+answers a barrier without designing for it, and costs a stated limitation
+rather than the manager's words. Empty or omitted still means "do not touch".
+
+### 3. The receipt said nothing had happened
+
+`${after.length - before} barrier(s)` printed **"0 barrier(s)"** four times
+while a barrier existed, because re-sending one already recorded is a delta
+of zero. It reports the total on the record now.
+
+### 4. The reply denied the turn had tried
+
+With no proposal, the discovery fallback returned `prose || 'Recorded.'`. The
+plan was in the request the whole time. A turn that attempted a proposal can
+never again report that it merely filed something: if a propose was refused
+and the rounds ran out, the reply names the plan and offers to send it again.
+
+And a refusal is now a correction rather than a restart — the tool result
+appends *"Send the SAME plan again with that one thing fixed… two
+architectures may cite the SAME barrier as long as they differ in entry,
+timing, lever or journey."* Without it the agent abandons a finished plan and
+goes back to discovery, which is what it spent the rest of the live turn
+doing.
+
+### Two tests encoded the defect
+
+`outputTools`' "rejects two candidates citing the same recorded barrier" and
+"says what to do when only one theory of the problem exists" both asserted
+the refusal that caused this, the second one pinning the invent-a-barrier
+copy verbatim. `findings`' "drops a rival the agent stopped naming" pinned
+replace-on-sent. All three replaced, with the reasoning kept.
+
+### Verified
+
+1279 unit (from 1272; 7 new in `refusedProposeIsNotRecorded.test.ts`, which
+walks the live sequence) and 118 agent-proto. `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. Reverting the tool rule fails
+2, replace-on-sent fails 3, the fallback fails 1.

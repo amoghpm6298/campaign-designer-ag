@@ -217,13 +217,36 @@ describe('a proposal must compare two genuinely different theories of the proble
       })),
     }).brief;
 
-  it('rejects two candidates citing the same recorded barrier', () => {
+  it('rejects two candidates that share a barrier AND a treatment', () => {
+    // Identical on every axis a customer would experience, so they are one
+    // architecture described twice whatever they are called.
     const out = applyOutputTool(withBarriers(['awareness', 'friction']), 'propose_strategy', plan([
-      { name: 'Segmented reminders', barrier: 'awareness' },
-      { name: 'Escalating reminders', barrier: 'awareness' },
+      { name: 'Segmented reminders', barrier: 'awareness', entry: 'At issuance', timing: 'Day 0, 3, 7', lever: 'message', journey: 'reminder' },
+      { name: 'Escalating reminders', barrier: 'awareness', entry: 'At issuance', timing: 'Day 0, 3, 7', lever: 'message', journey: 'reminder' },
     ]));
     expect(out.error).toMatch(/one architecture described twice/);
     expect(out.strategy).toBeUndefined();
+  });
+
+  it('ACCEPTS two candidates on one barrier when the treatment differs', () => {
+    // REVERSED 2026-10-23, and this is the defect it was encoding.
+    //
+    // One recorded barrier is the ordinary case when the manager answers
+    // clearly. Refusing the plan for it told the agent to "record a second
+    // candidate explanation" with basis "assumption" — the application asking
+    // the agent to invent a customer problem, which every other rule here
+    // exists to prevent. Measured in
+    // eval/runs/ui-s-1792735473522/turns/turn-3.json: it obeyed, the invented
+    // rival then replaced the manager's own barrier, and the turn ended with
+    // "Recorded." on screen.
+    //
+    // A rival to one problem is a different TREATMENT of it.
+    const out = applyOutputTool(withBarriers(['awareness']), 'propose_strategy', plan([
+      { name: 'Catch them at checkout', barrier: 'awareness', entry: 'On authorisation', timing: 'Within 30 minutes', lever: 'timing', journey: 'single-touch', chosen: true },
+      { name: 'Work it over the window', barrier: 'awareness', entry: 'On authorisation', timing: 'Day 1, 3, 6', lever: 'message', journey: 'reminder' },
+    ]));
+    expect(out.error).toBeUndefined();
+    expect(out.strategy).toBeTruthy();
   });
 
   it('cannot be defeated by appending words to the barrier, which is how it failed live', () => {
@@ -238,16 +261,17 @@ describe('a proposal must compare two genuinely different theories of the proble
     expect(out.strategy).toBeUndefined();
   });
 
-  it('says what to do when only one theory of the problem exists', () => {
-    // The deeper finding: with one barrier recorded there IS only one theory,
-    // and the campaign cannot learn which explanation is right.
+  it('says to vary the treatment, never to invent a second why', () => {
+    // The refusal that remains when one barrier is recorded and the two
+    // candidates really are identical. What it must NOT say any more is
+    // "record a second candidate explanation".
     const out = applyOutputTool(withBarriers(['awareness']), 'propose_strategy', plan([
-      { name: 'A', barrier: 'awareness' },
-      { name: 'B', barrier: 'awareness' },
+      { name: 'A', barrier: 'awareness', entry: 'At issuance', timing: 'Day 0', lever: 'message', journey: 'reminder' },
+      { name: 'B', barrier: 'awareness', entry: 'At issuance', timing: 'Day 0', lever: 'message', journey: 'reminder' },
     ]));
-    expect(out.error).toMatch(/only one theory of the problem/);
-    expect(out.error).toMatch(/Record a second candidate explanation/);
-    expect(out.error).toMatch(/"assumption" is an honest basis/);
+    expect(out.error).toMatch(/make the rival a different TREATMENT of it/);
+    expect(out.error).toMatch(/Do not invent a second reason customers do not convert/);
+    expect(out.error).not.toMatch(/Record a second candidate explanation/);
   });
 
   it('refuses a barrier that is not in the record at all', () => {

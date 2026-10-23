@@ -933,6 +933,19 @@ export async function* orchestrateStream(
   let toolStrategy: Strategy | null = null;
   let toolBlueprint: CampaignBlueprint | null = null;
   let toolOpenItems: OpenItem[] = [];
+  /**
+   * A `propose_strategy` call that was REFUSED this turn, and what it carried.
+   *
+   * THE TURN THIS EXISTS FOR, `eval/runs/ui-s-1792735473522/turns/turn-3.json`.
+   * The agent wrote a complete plan, the tool refused it twice on the
+   * same-barrier rule, the agent went off trying to satisfy the refusal, and
+   * the turn ended with the application telling the manager "Recorded." The
+   * plan was in the request the whole time and nobody saw it.
+   *
+   * A refused proposal is not the same as nothing having happened, and the
+   * reply must never again say it was.
+   */
+  let proposeRefused: { error: string; summary: string } | null = null;
   let toolEvidence: { question: string; fields: string[]; grouping?: string; period?: string; wouldInform: string }[] = [];
   // Did the model write to the record through tools this turn?
   //
@@ -1413,6 +1426,12 @@ export async function* orchestrateStream(
         if (applied.openItems?.length) toolOpenItems = applied.openItems as OpenItem[];
         if (applied.evidence?.length) toolEvidence = applied.evidence as typeof toolEvidence;
         if (!applied.error) recordedViaTools = true;
+        if (tu.name === 'propose_strategy') {
+          const sent = (tu.input ?? {}) as { strategy?: { summary?: string } };
+          proposeRefused = applied.error
+            ? { error: applied.error, summary: String(sent.strategy?.summary ?? '').trim() }
+            : null;
+        }
         em.emit(applied.error ? 'model.tool_call.failed' : 'model.tool_call.completed', 'discovery', toolTitle(tu.name), {
           status: applied.error ? 'failed' : 'ok',
           detail: applied.error ?? applied.ok,
@@ -1424,7 +1443,16 @@ export async function* orchestrateStream(
         results.push({
           type: 'tool_result',
           tool_use_id: tu.id,
-          content: applied.error ?? applied.ok ?? 'Recorded.',
+          // A REFUSED PROPOSAL IS A CORRECTION, NOT A RESTART.
+          //
+          // The live turn shows what the bare error cost: refused twice, the
+          // agent abandoned the plan it had already written and spent the
+          // rest of the turn recording findings to satisfy the refusal. The
+          // plan was never resent. Say plainly that the work is not lost.
+          content:
+            applied.error && tu.name === 'propose_strategy'
+              ? `${applied.error}\n\nSend the SAME plan again with that one thing fixed — do not start over and do not go back to discovery. Cite barriers by their recorded ids. Two architectures may cite the SAME barrier as long as they differ in entry, timing, lever or journey: with one barrier recorded that is the normal shape, and the rival is a different treatment of it, never a second invented reason.`
+              : applied.error ?? applied.ok ?? 'Recorded.',
           ...(applied.error ? { is_error: true } : {}),
         });
         continue;
@@ -1725,7 +1753,22 @@ export async function* orchestrateStream(
       ...base,
       phase: 'discovery',
       stage: 'discovery',
-      reply: prose || 'Recorded.',
+      // NEVER "Recorded." AFTER A PROPOSAL WAS ATTEMPTED.
+      //
+      // The agent had written a plan; the application refused it on a rule
+      // that has since been fixed, and then told the manager the turn had
+      // produced a filing note. Whatever else is true, a turn that tried to
+      // propose did not merely record.
+      reply:
+        prose ||
+        (proposeRefused
+          ? [
+              proposeRefused.summary
+                ? `I have a plan ready — ${proposeRefused.summary}`
+                : 'I have a plan ready.',
+              'I could not put it up this turn because it did not pass one of my own checks, and I ran out of attempts to fix it. Tell me to go ahead and I will send it again.',
+            ].join('\n\n')
+          : 'Recorded.'),
       // ONLY WHAT WAS ASKED THIS TURN.
       //
       // This returned `outstanding(brief)` — every question still open,

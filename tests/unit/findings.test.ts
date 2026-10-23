@@ -577,18 +577,45 @@ describe('an invented barrier is the agent’s, not the manager’s', () => {
   });
 
   describe('a sent list replaces; an omitted one is kept', () => {
-    it('drops a rival the agent stopped naming', () => {
+    it('KEEPS a barrier the update did not name', () => {
+      // REVERSED 2026-10-23. This asserted that a sent list REPLACED the
+      // record, so omitting a barrier withdrew it.
+      //
+      // The reasoning was real — the agent floated rivals early, narrowed to
+      // one, and the discarded ones stayed on the record and blocked the
+      // build. But replacement cannot tell "I withdraw the others" from
+      // "here is one more", and the second reading is the common one.
+      //
+      // Measured in eval/runs/ui-s-1792735473522/turns/turn-3.json: the
+      // manager said customers do not realise the purchase qualifies, that
+      // went in as `awareness-gap`, and when the agent later added an
+      // invented rival in a call carrying only that rival, the manager's own
+      // barrier was deleted. The brief ended the turn holding one assumption
+      // the agent had made up and nothing the manager had said.
+      //
+      // Withdrawing has its own instrument: `lever: 'not-addressable'`
+      // answers a barrier without designing for it, and costs a stated
+      // limitation rather than the record.
       let b = said(theirs);
       b = recordBarriers(b, [
         { id: 'cost', statement: 'They think it is expensive.', basis: 'user-belief', lever: 'message', quote: theirs },
-        { id: 'fatigue', statement: 'They tune out repeated pings.', basis: 'assumption', lever: 'message' },
-        { id: 'first-time', statement: 'First-time EMI users hesitate.', basis: 'assumption', lever: 'message' },
       ]);
-      expect(briefBarriers(b)).toHaveLength(3);
       b = recordBarriers(b, [
-        { id: 'cost', statement: 'They think it is expensive.', basis: 'user-belief', lever: 'message' },
+        { id: 'fatigue', statement: 'They tune out repeated pings.', basis: 'assumption', lever: 'message' },
       ]);
-      expect(briefBarriers(b).map((x) => x.id)).toEqual(['cost']);
+      expect(briefBarriers(b).map((x) => x.id)).toEqual(['cost', 'fatigue']);
+      // And the manager's own stays theirs, not downgraded by the company it
+      // now keeps.
+      expect(briefBarriers(b)[0].basis).toBe('user-belief');
+    });
+
+    it('updates in place when the same id is sent again', () => {
+      let b = said(theirs);
+      b = recordBarriers(b, [{ id: 'cost', statement: 'Expensive.', basis: 'user-belief', lever: 'message', quote: theirs }]);
+      b = recordBarriers(b, [{ id: 'cost', statement: 'Too expensive to carry.', basis: 'user-belief', lever: 'timing' }]);
+      expect(briefBarriers(b)).toHaveLength(1);
+      expect(briefBarriers(b)[0].lever).toBe('timing');
+      expect(briefBarriers(b)[0].statement).toBe('Too expensive to carry.');
     });
 
     it('keeps the quote the update did not repeat', () => {
