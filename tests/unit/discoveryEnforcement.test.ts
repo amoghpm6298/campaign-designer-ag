@@ -341,7 +341,7 @@ describe('the prompt and the gate agree', () => {
     // that the agent can record them on ANY turn, which is what "every action
     // the gate reads" meant.
     for (const turn of [true, false]) {
-      expect(outputToolsForPhase(turn).map((t) => t.name)).toContain('record_dimensions');
+      expect(outputToolsForPhase(turn ? 'build' : 'asking').map((t) => t.name)).toContain('record_dimensions');
     }
     // And the tool that records them takes them as its required input, so
     // "carries dimensions" is now enforced by the schema rather than by the

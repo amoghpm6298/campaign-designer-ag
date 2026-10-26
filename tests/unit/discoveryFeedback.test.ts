@@ -144,7 +144,7 @@ describe('the prompt asks for retrieval honestly', () => {
     expect(checked.items.required.sort()).toEqual(['found', 'source']);
     expect(checked.description).toMatch(/Never imply access you do not have/);
     for (const turn of [true, false]) {
-      expect(outputToolsForPhase(turn).map((t) => t.name)).toContain('record_dimensions');
+      expect(outputToolsForPhase(turn ? 'build' : 'asking').map((t) => t.name)).toContain('record_dimensions');
     }
   });
 });

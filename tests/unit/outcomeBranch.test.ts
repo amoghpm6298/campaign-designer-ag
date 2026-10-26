@@ -781,10 +781,20 @@ describe('the gate reads the steps, not only the essay', () => {
 
 describe('the plan the manager approves is the plan that gets built', () => {
   it('propose_strategy refuses a plan with no path, and says what to send', () => {
-    const b = recordBarriers(
+    // A RECORD THE GATE CALLS READY, since 2026-10-24: this case is about a
+    // PAYLOAD miss on a turn that may propose, and an unfinished record gets
+    // a different refusal — the other half of the live turn-3 split.
+    let b = recordBarriers(
       recordAnswer(newBrief('Get more eligible purchases converted'), 'they do not realise the purchase qualifies'),
       [{ id: 'awareness-gap', statement: 'They do not realise it qualifies.', basis: 'user-belief', lever: 'message', quote: 'they do not realise the purchase qualifies' }],
     );
+    b = recordConverters(b, { shape: 'Above ten thousand converts more.', basis: 'user', knowledge: 'known' });
+    b = recordDimensions(b, [
+      { name: 'purchase ticket size', rationale: 'They said so.', status: 'retained', basis: 'user', note: 'Theirs.' },
+      { name: 'merchant category', rationale: 'Asked about.', status: 'unavailable', basis: 'user', note: 'They do not track it.' },
+      { name: 'prior EMI usage', rationale: 'Asked about.', status: 'unavailable', basis: 'user', note: 'They do not track it.' },
+    ]);
+    b = recordSuccessCriteria(b, ['More eligible purchases converted.']);
     const essayOnly = {
       summary: 'Catch them while the purchase is fresh.',
       approach: ['Everyone eligible enters.'],
@@ -832,10 +842,12 @@ describe('the plan the manager approves is the plan that gets built', () => {
   });
 
   it('build_campaign is still absent from a non-build turn', () => {
-    expect(outputToolsForPhase(false).map((t) => t.name)).not.toContain('build_campaign');
-    expect(outputToolsForPhase(false).map((t) => t.name)).toContain('propose_strategy');
-    expect(outputToolsForPhase(true).map((t) => t.name)).toContain('build_campaign');
-    expect(outputToolsForPhase(true).map((t) => t.name)).not.toContain('propose_strategy');
+    expect(outputToolsForPhase('asking').map((t) => t.name)).not.toContain('build_campaign');
+    // Nor a plan tool: an asking turn records and asks, and nothing else.
+    expect(outputToolsForPhase('asking').map((t) => t.name)).not.toContain('propose_strategy');
+    expect(outputToolsForPhase('ready').map((t) => t.name)).toContain('propose_strategy');
+    expect(outputToolsForPhase('build').map((t) => t.name)).toContain('build_campaign');
+    expect(outputToolsForPhase('build').map((t) => t.name)).not.toContain('propose_strategy');
   });
 
   it('the propose return carries the path and opens the door to generation', () => {

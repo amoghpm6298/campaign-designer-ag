@@ -675,22 +675,25 @@ describe('a Confirm turn can actually build', () => {
     // tool_result blocks with NO tools attached made the model answer with
     // an empty turn and killed three evaluation scenarios — that is the
     // failure this must not reintroduce.
-    expect(orchSrc).toMatch(/\.\.\.\(stopLookingUp \? \[\] : toolsForPhase\(designSeen \|\| isBuildTurn\)\)/);
-    expect(orchSrc).toMatch(/\.\.\.outputToolsForPhase\(isBuildTurn\),/);
+    expect(orchSrc).toMatch(/\.\.\.\(stopLookingUp \? \[\] : toolsForPhase\(phase !== 'asking' \|\| designSeen\)\)/);
+    expect(orchSrc).toMatch(/\.\.\.outputToolsForPhase\(phase\),/);
   });
 
   it('does not offer to propose the plan the manager already approved', () => {
-    const confirmTools = outputToolsForPhase(true).map((t) => t.name);
+    const confirmTools = outputToolsForPhase('build').map((t) => t.name);
     expect(confirmTools).not.toContain('propose_strategy');
     expect(confirmTools).toContain('build_campaign');
     // The record tools stay: a build turn still finds things worth writing
     // down, and losing them would empty the record on the last turn.
     expect(confirmTools).toContain('record_findings');
-    // And a propose turn is unchanged.
-    expect(outputToolsForPhase(false)).toEqual(
+    // And proposing belongs to the READY turn — not to an asking turn, where
+    // offering a plan tool in order to refuse it cost two live conversations.
+    expect(outputToolsForPhase('ready')).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'propose_strategy' })]),
     );
-    expect(outputToolsForPhase(false).map((t) => t.name)).not.toContain('build_campaign');
+    expect(outputToolsForPhase('ready').map((t) => t.name)).not.toContain('build_campaign');
+    expect(outputToolsForPhase('asking').map((t) => t.name)).not.toContain('build_campaign');
+    expect(outputToolsForPhase('asking').map((t) => t.name)).not.toContain('propose_strategy');
   });
 
   it('asks for the tool, not for a blueprint pasted into the message', () => {
@@ -723,6 +726,9 @@ describe('a Confirm turn can actually build', () => {
       orchSrc.indexOf('// A PLAN THE MANAGER ACTUALLY APPROVED'),
     );
     expect(block).toMatch(/if \(chunk\.toolUse\) forced\.push\(chunk\.toolUse\);/);
+    // THE HANDLER TAKES NO PHASE, and no longer needs one: `propose_strategy`
+    // is simply absent from a turn that may not propose, so there is nothing
+    // left for it to decide from the brief.
     expect(block).toMatch(/applyOutputTool\(brief, tu\.name, tu\.input\)/);
     expect(block).toMatch(/if \(applied\.blueprint\) toolBlueprint = applied\.blueprint;/);
   });

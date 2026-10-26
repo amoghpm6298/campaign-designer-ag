@@ -178,24 +178,33 @@ function script(bodies: string[]) {
 
 const knowledge = seedKnowledgeBase();
 
+/** The manager's reply, carrying the findings the gate requires. */
+const THE_REPLY =
+  'Success is more EMI Requests reaching Successful. No target number. The ones who do convert are mostly big spenders, the rest think the interest is too expensive.';
+
 /**
- * The state after turn 1: the agent asked two questions, declaring the
- * audience one a FORK, and the user answered only the other.
+ * The state at the START of turn 2: the agent asked two questions, one of them
+ * a FORK, and the manager has replied once.
+ *
+ * REWRITTEN 2026-10-24, and the rewrite is the point of this file now. It used
+ * to hand-build "only q1-0 was addressed" with `recordAddressedQuestions`,
+ * which is a state production can no longer produce: a reply addresses
+ * everything that was on screen, in one write, and the ONLY way a specific
+ * question stays open is the model saying so in `notCovered` — which this
+ * file's injected payload does, and which the orchestrator turns into a
+ * bounded `reopen`.
+ *
+ * So the fixture stops pre-closing anything. The questions are outstanding,
+ * the reply is the last user message, and the turn under test walks the real
+ * ingest: receive closes both, the model's `notCovered` reopens the fork, and
+ * the guard refuses the proposal. That is the live sequence rather than a
+ * hand-set field.
  */
 function stateAfterOneAnsweredRound(): WorkingBrief {
-  let b = recordQuestions(newBrief('I want to increase OS-to-EMI conversions.'), [
+  return recordQuestions(newBrief('I want to increase OS-to-EMI conversions.'), [
     { text: 'How will you judge success?', impact: 'shaping' },
     { text: AUDIENCE_FORK, impact: 'fork' },
   ]);
-  // The reply also carries the two customer findings the gate now requires:
-  // who converts, and why the rest do not. A manager answering two
-  // questions in one message is the ordinary case.
-  b = recordAnswer(
-    b,
-    'Success is more EMI Requests reaching Successful. No target number. The ones who do convert are mostly big spenders, the rest think the interest is too expensive.',
-  );
-  // Only the success question was addressed. The fork was not.
-  return recordAddressedQuestions(b, ['q1-0']);
 }
 
 async function runTurn(brief: WorkingBrief, extraUserTurn?: string) {
@@ -209,7 +218,7 @@ async function runTurn(brief: WorkingBrief, extraUserTurn?: string) {
     messages: [
       { role: 'user', content: 'I want to increase OS-to-EMI conversions.' },
       { role: 'assistant', content: 'Two questions before I design anything.' },
-      { role: 'user', content: 'Success is more EMI Requests reaching Successful. No target number.' },
+      { role: 'user', content: THE_REPLY },
       ...(extraUserTurn ? [{ role: 'user' as const, content: extraUserTurn }] : []),
     ],
   } as never);
@@ -225,15 +234,28 @@ afterEach(() => {
   process.env.ANTHROPIC_API_KEY = OLD ?? 'test-key-not-real';
 });
 
-describe('the fork is genuinely unanswered before the turn begins', () => {
-  it('records the fork, the answer, and that the fork is still open', () => {
+describe('the fork goes unanswered the way production can produce it', () => {
+  it('both questions are on screen before the turn, neither pre-closed', () => {
     const b = stateAfterOneAnsweredRound();
     expect(b.questions.map((q) => [q.id, q.impact])).toEqual([
       ['q1-0', 'shaping'],
       ['q1-1', 'fork'],
     ]);
-    expect(b.answers).toHaveLength(1);
-    expect(unansweredForks(b).map((q) => q.text)).toEqual([AUDIENCE_FORK]);
+    expect(b.answers).toHaveLength(0);
+    expect(outstanding(b).map((q) => q.id)).toEqual(['q1-0', 'q1-1']);
+  });
+
+  it('the reply closes both, and only notCovered puts the fork back', () => {
+    // THE PRODUCTION SEQUENCE, in two calls. A reply addresses what was on
+    // screen — that is one write and the gate reads it — and the model saying
+    // the fork went untouched is a bounded re-open, not a different default.
+    const replied = recordReply(stateAfterOneAnsweredRound(), THE_REPLY);
+    expect(outstanding(replied)).toHaveLength(0);
+    expect(unansweredForks(replied)).toHaveLength(0);
+
+    const reopened = reopen(replied, ['q1-1']);
+    expect(outstanding(reopened).map((q) => q.id)).toEqual(['q1-1']);
+    expect(unansweredForks(reopened).map((q) => q.text)).toEqual([AUDIENCE_FORK]);
   });
 });
 
@@ -315,12 +337,11 @@ describe('a model that proposes past an unanswered fork is stopped', () => {
 
 describe('the guard lets a resolved fork through', () => {
   it('an answered fork no longer blocks', async () => {
-    // Same injected proposal, same everything — only the fork is answered.
-    // Without this, "it blocks" could just mean "it always blocks".
-    const b = recordAddressedQuestions(stateAfterOneAnsweredRound(), ['q1-1']);
-    expect(unansweredForks(b)).toHaveLength(0);
-    script([jsonTurn(PROPOSAL)]);
-    const res = await runTurn(b);
+    // Same injected proposal, same everything — the model simply does not
+    // claim the fork went untouched, so the reply closes it like anything
+    // else. Without this, "it blocks" could just mean "it always blocks".
+    script([jsonTurn({ ...PROPOSAL, notCovered: [] })]);
+    const res = await runTurn(stateAfterOneAnsweredRound());
     expect(res.phase).not.toBe('discovery');
     expect(res.strategy).not.toBeNull();
   });
@@ -335,10 +356,16 @@ describe('the guard lets a resolved fork through', () => {
   });
 
   it('a non-fork question follows the ordinary carry/defer rules', async () => {
-    // q1-0 is 'shaping' and already answered, so nothing is outstanding.
-    const b = recordAddressedQuestions(stateAfterOneAnsweredRound(), ['q1-1']);
-    script([jsonTurn({ ...PROPOSAL, questionResolutions: [{ questionId: 'q1-0', kind: 'deferred', why: 'Default applies.' }] })]);
-    const res = await runTurn(b);
+    // The reply closed both, so nothing is outstanding and a resolution on
+    // the shaping question is commentary rather than a gate.
+    script([
+      jsonTurn({
+        ...PROPOSAL,
+        notCovered: [],
+        questionResolutions: [{ questionId: 'q1-0', kind: 'deferred', why: 'Default applies.' }],
+      }),
+    ]);
+    const res = await runTurn(stateAfterOneAnsweredRound());
     expect(res.phase).not.toBe('discovery');
   });
 });
@@ -359,18 +386,18 @@ describe('blocking does not become a trap', () => {
     const b = second.brief as WorkingBrief;
     // No new question invented, no id renumbered, impact intact.
     expect(b.questions.map((q) => [q.id, q.impact])).toEqual(a.questions.map((q) => [q.id, q.impact]));
-    expect(second.phase).toBe('discovery');
-
-    // DELIBERATE BEHAVIOUR CHANGE. A refusal is now counted, so the SAME fork
-    // does not block forever. After one refusal it still blocks; after the
-    // second it has reached MAX_FORK_REFUSALS and its stated fallback applies
-    // instead. The question itself is untouched — it is still unanswered and
-    // still on the record — which is the difference between falling back and
-    // forgetting.
+    // AND THE SECOND TURN PROCEEDS, which is the anti-trap rule rather than a
+    // weakening of the guard. `REOPEN_LIMIT` is 1: the fork was put back once,
+    // the manager's next reply closes it, and the same question cannot be
+    // re-opened a second time. The question itself is untouched and still on
+    // the record — the difference between falling back and forgetting.
     //
-    // Measured on a live run before this existed: the guard refused on turns 3
-    // and 4 with word-for-word identical text and the conversation never
-    // reached a proposal at all across five turns.
+    // Measured on a live run before any bound existed: the guard refused on
+    // turns 3 and 4 with word-for-word identical text and the conversation
+    // never reached a proposal across five turns.
+    expect(second.phase).not.toBe('discovery');
+    expect(exhausted(b).map((q) => q.id)).toContain('q1-1');
+
     // THE LADDER IS GONE, and this is the honest replacement. There is no
     // refusal counter, no escalation and no `forksFallenBack` tier, because
     // all three counted how often the APPLICATION had given up. The bound
@@ -408,7 +435,13 @@ describe('blocking does not become a trap', () => {
 
     // The fork is resolved and never blocks again.
     expect(unansweredForks(out.brief as WorkingBrief)).toHaveLength(0);
-    expect(String(out.reply)).not.toContain(AUDIENCE_FORK);
+    expect(outstanding(out.brief as WorkingBrief)).toHaveLength(0);
+    // ASSERTED ON THE RE-ASK, NOT ON THE WORDS. This used to require the fork
+    // TEXT to be absent from the reply, which only held while the turn was
+    // being refused. The turn now proposes, and the plan's own prose is
+    // entitled to mention the cohort question as an open point — what must not
+    // come back is the gate putting it to them again.
+    expect(String(out.reply)).not.toMatch(/I am still waiting on this/);
     expect(String(out.reply)).not.toMatch(/changes which campaign this is/);
   });
 });

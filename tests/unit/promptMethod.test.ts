@@ -57,7 +57,17 @@ describe('the prompt teaches a design method, not a form', () => {
     //
     // So the rule splits in two. Reaction is still required, and every touch
     // must now be named.
-    expect(SYSTEM).toMatch(/EVEN SPACING WITH NO REACTION IS NOT A PLAN/);
+    // REVERSED 2026-10-24. "Even spacing with no reaction is not a plan" was
+    // my own over-correction: the measured failure was a plan that CLAIMED a
+    // reaction and shipped a timed drip, and the sentence generalised that
+    // into "a clock is never a plan". A who-split with a sensible cadence is
+    // a campaign a manager can run; unread-versus-read is intelligence on
+    // top. What survives is the claim-versus-choice rule.
+    expect(SYSTEM).not.toMatch(/EVEN SPACING WITH NO REACTION IS NOT A PLAN/);
+    expect(SYSTEM).toMatch(/A STEADY CADENCE IS A COMPLETE PLAN/);
+    expect(SYSTEM).toMatch(/IF YOU WRITE BOTH CANDIDATES, THE REACTING ONE WINS/);
+    expect(SYSTEM).toMatch(/UNREAD AND READ ARE NOT TWO MORE AUDIENCES/);
+    expect(SYSTEM).toMatch(/If they would get the same reminder, do not fork/);
     expect(SYSTEM).toMatch(/NAME EVERY TOUCH/);
     expect(SYSTEM).not.toMatch(/A THREE-MESSAGE CLOCK IS NOT A PLAN/);
     // The window is time to work the action, and a lighter path is named
@@ -104,7 +114,7 @@ describe('the contradictions the old prompt carried are gone', () => {
     // Three paragraphs used to urge requesting aggregates, while the KB states
     // plainly that no performance history exists for this bank.
     expect(SYSTEM).not.toMatch(/An assumption you could have tested with one aggregated table/);
-    expect(SYSTEM).toMatch(/no performance history exists for this bank, so do not ask for it again/i);
+    expect(SYSTEM).toMatch(/The knowledge base already states no performance history exists for this bank, so do not ask for it again/i);
   });
 
   it('makes discovery the opening move, not a last resort', () => {

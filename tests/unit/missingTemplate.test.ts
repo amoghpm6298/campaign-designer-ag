@@ -282,9 +282,85 @@ describe('a send with no name and no description still builds', () => {
     expect(sends).toHaveLength(1);
     // Named from what the agent DID write, so the canvas card is not blank.
     expect((sends[0]._config as { name?: string }).name).toBeTruthy();
-    // And the gap is reported rather than hidden.
+    // Copy is the description. Do not also report a missing name/describe
+    // when the agent already wrote the words — that blocked EMI export on
+    // twelve labelled sends (`ui-s-1792770967470`).
     const said = r.issues.map((i) => i.problem).join(' ');
-    expect(said).toMatch(/needs a name/);
-    expect(said).toMatch(/needs a describe/);
+    expect(said).not.toMatch(/needs a name/);
+    expect(said).not.toMatch(/needs a describe/);
+  });
+
+  it('treats label and copy as name and describe', () => {
+    const bp = {
+      campaignName: 'EMI',
+      description: 'Seven days.',
+      goal: null,
+      entry: { kind: 'audience', entity: 'Card', conditions: [] },
+      steps: [
+        {
+          kind: 'send',
+          label: 'Day 0 WhatsApp - eligibility',
+          stage: 'first-touch',
+          copy: 'Hi ${customerFirstName}, your purchase qualifies for EMI.',
+          channelPreference: ['WHATSAPP'],
+        },
+        { kind: 'exit', reason: 'Window closed.' },
+      ],
+    } as never;
+    const r = buildFromBlueprint(bp, { availableChannels: ['WHATSAPP', 'SMS'], templateLibraryAccess: 'unavailable' });
+    const sends = Object.values(r.graph.nodes).filter((n) => n.type === 'SEND');
+    expect((sends[0]._config as { name?: string }).name).toBe('Day 0 WhatsApp - eligibility');
+    expect(r.issues.map((i) => i.problem).join(' ')).not.toMatch(/needs a (name|describe|objective)/);
+  });
+});
+
+describe('a labelled send is not a blank send', () => {
+  // MEASURED, `eval/runs/ui-s-1792770967470` turn 8. The Confirm's sends
+  // carried `label`, `copy` and `cta` — real messages, named in the
+  // manager's own words — and the compiler raised "needs an objective",
+  // "needs a name" and "needs a describe" on each one: twelve issues across
+  // four distinct sends, `designGenerated` false, export blocked on a journey
+  // that already had everything a person needs to read it.
+  //
+  // `describe` was the leftover: the other two already read `name || label`
+  // and `describe || copy`, and this one looked at `describe || copy` alone.
+  // The issue has to match what actually fills the step, which is
+  // `givenDescribe || givenName`.
+  const build = (step: Record<string, unknown>) =>
+    buildFromBlueprint(
+      {
+        campaignName: 'Authorisation to EMI',
+        description: 'Prompt conversion inside the open window.',
+        goal: null,
+        entry: { kind: 'audience', entity: 'Card', conditions: [] },
+        steps: [step],
+      } as never,
+      { availableChannels: ['WHATSAPP', 'SMS'] as never, templateLibraryAccess: 'unavailable' },
+    );
+
+  it('reports nothing for the live shape: a label, a stage and a channel', () => {
+    const out = build({
+      kind: 'send',
+      label: 'Day 0 WhatsApp - eligibility',
+      stage: 'first-touch',
+      channelPreference: ['WHATSAPP'],
+    });
+    expect(out.issues).toEqual([]);
+    // And the step is really there, carrying the label as its name.
+    const sends = Object.values(out.graph.nodes).filter((n) => n.type === 'SEND');
+    expect(sends).toHaveLength(1);
+    expect((sends[0]._config as { name?: string }).name).toContain('Day 0 WhatsApp');
+  });
+
+  it('still reports all three when the send says nothing at all', () => {
+    const out = build({ kind: 'send', stage: 'first-touch', channelPreference: ['WHATSAPP'] });
+    expect(out.issues.map((i) => i.path.split('.').pop()).sort()).toEqual(['describe', 'name', 'objective']);
+    // Reported, never deleted: the step is built either way.
+    expect(Object.values(out.graph.nodes).filter((n) => n.type === 'SEND')).toHaveLength(1);
+  });
+
+  it('accepts copy alone, or a name alone', () => {
+    expect(build({ kind: 'send', copy: 'Split this purchase from ₹2,100 a month.', stage: 'first-touch' }).issues).toEqual([]);
+    expect(build({ kind: 'send', name: 'Opening nudge', stage: 'first-touch' }).issues).toEqual([]);
   });
 });

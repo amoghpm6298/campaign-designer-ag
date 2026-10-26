@@ -37,79 +37,109 @@ import {
   recordAnswer,
   recordAddressedQuestions,
   recordUncoveredQuestions,
+  recordQuestionResolutions,
   unaddressedQuestions,
   briefForPrompt,
   type WorkingBrief,
 } from '../../server/discovery';
 import { OUTPUT_TOOLS, outputToolsForPhase } from '../../server/outputTools';
+import { receive, reopen, outstanding, exhausted } from '../../server/record';
 
-/** The Scenario A shape: three questions, one reply covering two of them. */
-const scenarioA = (): WorkingBrief => {
-  let b = recordQuestions(newBrief('Increase OS-to-EMI conversions'), [
+/** Three questions on screen, and the manager's reply to them. */
+const asked = (): WorkingBrief =>
+  recordQuestions(newBrief('Increase OS-to-EMI conversions'), [
     'How do you want success judged here?',
     'Is the gap customers who never started a request, or ones already Pending?',
     'What do you believe is the main reason customers do not convert?',
   ]);
-  return recordAnswer(
-    b,
-    'No fixed target. Success is more EMI Requests reaching Successful. We think interest-cost hesitation is the barrier.',
-  );
-};
 
-describe('one reply does not answer every outstanding question', () => {
-  it('answering Q1 and Q3 leaves Q2 open', () => {
-    let b = scenarioA();
-    b = recordAddressedQuestions(b, ['q1-0', 'q1-2']);
-    expect(unaddressedQuestions(b).map((q) => q.id)).toEqual(['q1-1']);
+const THE_REPLY =
+  'No fixed target. Success is more EMI Requests reaching Successful. We think interest-cost hesitation is the barrier.';
+
+/** The production shape: the questions were asked, and a reply arrived. */
+const scenarioA = (): WorkingBrief => receive(asked(), THE_REPLY).brief;
+
+// A REPLY ADDRESSES WHAT WAS ON SCREEN. One write, in one place.
+//
+// REWRITTEN 2026-10-24, and the contract it replaces is what stalled a live
+// conversation. This group used to pin model-claimed `answered` as the ONLY
+// closer — "a reply nobody attributes leaves every question open" — on the
+// reasoning that the application cannot tell which question a sentence
+// addresses. True, and the wrong conclusion: `eval/runs/ui-s-1792839251135`
+// shows the manager settling success, who converts, the barrier and the
+// extra-axis probe across three turns, every question ending
+// `answeredInRound: 0` / `addressedInRound: undefined`, and the gate holding
+// `awaiting-reply` on all four. The record could not hear them.
+//
+// What the application guarantees instead: a reply closes the questions it was
+// a reply to, `notCovered` / `reopen` is the one bounded way to say a specific
+// question went untouched, and a resolution is commentary rather than a second
+// gate. The verification rules below — ids must be real, counts come from
+// state, a proposal cannot silently drop a question — are untouched.
+describe('a reply addresses the questions that were on screen', () => {
+  it('closes all three, in the same write as the answer text', () => {
+    const b = scenarioA();
+    expect(unaddressedQuestions(b)).toHaveLength(0);
+    expect(outstanding(b)).toHaveLength(0);
+    expect(b.answers.map((a) => a.text)).toEqual([THE_REPLY]);
+    // And the reply is on the record as a confirmed fact carrying the ids it
+    // settled, which is what lets the gate tell "they told us" from "we
+    // assumed" without reading wording.
+    expect(b.facts.some((f) => f.statement === THE_REPLY && f.source === 'user-answer')).toBe(true);
   });
 
-  it('the unanswered question survives into the next model turn, with its id', () => {
-    let b = recordAddressedQuestions(scenarioA(), ['q1-0', 'q1-2']);
-    const out = briefForPrompt(b);
+  it('needs no claim from the model, and a claim adds nothing', () => {
+    const plain = scenarioA();
+    const claimed = recordAddressedQuestions(scenarioA(), ['q1-0', 'q1-1', 'q1-2']);
+    expect(unaddressedQuestions(plain)).toHaveLength(0);
+    expect(unaddressedQuestions(claimed)).toHaveLength(0);
+  });
+
+  it('notCovered is the exception, and it is bounded', () => {
+    // The protection the old default was buying: a fork discharged by
+    // inference builds the wrong campaign. It is bought here instead, where
+    // the model states which question went untouched — and `REOPEN_LIMIT`
+    // stops the same question coming back for ever.
+    const back = reopen(scenarioA(), ['q1-1']);
+    expect(outstanding(back).map((q) => q.id)).toEqual(['q1-1']);
+    const out = briefForPrompt(back);
     expect(out).toContain('Asked, but the reply did NOT appear to answer these');
     expect(out).toContain('[q1-1] Is the gap customers who never started a request, or ones already Pending?');
-    // ...and is not simultaneously claimed as answered.
-    const answeredBlock = out.slice(out.indexOf('Already asked and ANSWERED'), out.indexOf('Asked, but the reply'));
-    expect(answeredBlock).not.toContain('never started a request');
+
+    const answeredAgain = receive(back, 'the ones already Pending').brief;
+    expect(outstanding(answeredAgain)).toHaveLength(0);
+    expect(outstanding(reopen(answeredAgain, ['q1-1']))).toHaveLength(0);
+    expect(exhausted(answeredAgain).map((q) => q.id)).toContain('q1-1');
   });
 
-  it('a reply nobody attributes leaves every question open', () => {
-    // The pre-fix behaviour, now impossible: arrival of a reply is not
-    // evidence that it answered anything.
-    const b = scenarioA();
-    expect(unaddressedQuestions(b)).toHaveLength(3);
-    expect(briefForPrompt(b)).not.toContain('Already asked and ANSWERED');
-  });
-
-  it('a reply may genuinely answer several questions at once', () => {
-    const b = recordAddressedQuestions(scenarioA(), ['q1-0', 'q1-1', 'q1-2']);
-    expect(unaddressedQuestions(b)).toHaveLength(0);
-    expect(briefForPrompt(b)).not.toContain('Asked, but the reply did NOT appear to answer these');
-  });
-
-  it('a later reply can answer an older question', () => {
-    // Attribution is by id, never by recency: the user may circle back to
-    // something asked two rounds ago while a newer question goes unaddressed.
-    let b = recordAddressedQuestions(scenarioA(), ['q1-0']);
+  it('a question asked AFTER the reply stays open', () => {
+    // Attribution is to what was on screen, so a question raised later cannot
+    // have been answered by a reply that predates it.
+    let b = scenarioA();
     b = recordQuestions(b, ['Which channel do you prefer?']);
-    b = recordAnswer(b, 'Sorry — on the earlier one, it is customers already Pending.');
-    b = recordAddressedQuestions(b, ['q1-1']);
+    expect(outstanding(b).map((q) => q.id)).toEqual(['q2-0']);
+    expect(briefForPrompt(b)).toContain('Already asked and ANSWERED');
+  });
 
-    const open = unaddressedQuestions(b).map((q) => q.id);
-    expect(open).toContain('q1-2'); // never answered
-    expect(open).toContain('q2-0'); // the newer question, still open
-    expect(open).not.toContain('q1-1'); // the old one, now resolved
+  it('a resolution is commentary, not a closer', () => {
+    // `questionResolutions` records WHY the agent carried or deferred
+    // something. It does not decide whether the manager answered, and a
+    // reasoned note on a question nobody replied to leaves it outstanding.
+    const open = asked();
+    const withNote = recordQuestionResolutions(open, [
+      { questionId: 'q1-1', kind: 'carried', why: 'I will assume never-started and test it.' },
+    ]);
+    expect(outstanding(withNote).map((q) => q.id)).toEqual(['q1-0', 'q1-1', 'q1-2']);
   });
 
   it('an answered question is not asked again', () => {
-    const b = recordAddressedQuestions(scenarioA(), ['q1-0']);
-    const out = briefForPrompt(b);
+    const out = briefForPrompt(scenarioA());
     expect(out).toContain('Already asked and ANSWERED. Do not ask these again:');
     expect(out).toContain('How do you want success judged here?');
   });
 
   it('re-claiming an already-answered question does not move its round', () => {
-    let b = recordAddressedQuestions(scenarioA(), ['q1-0']);
+    let b = scenarioA();
     const first = b.questions[0].addressedInRound;
     b = recordQuestions(b, ['Another question']);
     b = recordAddressedQuestions(b, ['q1-0']);
@@ -121,18 +151,25 @@ describe('the application does not accept attribution it cannot verify', () => {
   it('ignores an id that was never asked', () => {
     // The only deterministic check available on the claim itself. A model
     // naming a question that does not exist cannot close anything with it.
-    const b = recordAddressedQuestions(scenarioA(), ['q9-9', 'not-a-question']);
-    expect(unaddressedQuestions(b)).toHaveLength(3);
+    // Read on a brief where nothing has been replied to yet, which is the
+    // only state where a claim is the thing doing any work.
+    // `outstanding`, not `unaddressedQuestions`: the latter means "a reply
+    // arrived and this one was skipped", and nothing has replied here. All
+    // three are still on screen, which is what a bogus id cannot change.
+    const b = recordAddressedQuestions(asked(), ['q9-9', 'not-a-question']);
+    expect(outstanding(b)).toHaveLength(3);
   });
 
   it('treats an empty or missing claim as claiming nothing', () => {
-    const b = scenarioA();
-    expect(unaddressedQuestions(recordAddressedQuestions(b, []))).toHaveLength(3);
-    expect(unaddressedQuestions(recordAddressedQuestions(b, undefined as unknown as string[]))).toHaveLength(3);
+    const b = asked();
+    expect(outstanding(recordAddressedQuestions(b, []))).toHaveLength(3);
+    expect(outstanding(recordAddressedQuestions(b, undefined as unknown as string[]))).toHaveLength(3);
   });
 
   it('counts come from recorded state, never from the model\'s narrative', () => {
-    const b = recordAddressedQuestions(scenarioA(), ['q1-0', 'q1-2']);
+    // The reply closed all three and the model said one went untouched, so
+    // the counts come out of `reopen` rather than out of a partial claim.
+    const b = reopen(scenarioA(), ['q1-1']);
     expect(briefForPrompt(b)).toContain(
       '3 question(s) asked across 1 round(s), 2 answered, 1 asked but not answered, 0 awaiting any reply',
     );
@@ -141,7 +178,7 @@ describe('the application does not accept attribution it cannot verify', () => {
   it('separates "asked and ignored" from "asked, no reply yet"', () => {
     // Three distinct states the old record collapsed into two. A question
     // awaiting any reply is not the same as one the user read and skipped.
-    let b = recordAddressedQuestions(scenarioA(), ['q1-0', 'q1-2']);
+    let b = reopen(scenarioA(), ['q1-1']);
     b = recordQuestions(b, ['A brand new question']);
     expect(briefForPrompt(b)).toContain(
       '4 question(s) asked across 2 round(s), 2 answered, 1 asked but not answered, 1 awaiting any reply',
@@ -149,7 +186,7 @@ describe('the application does not accept attribution it cannot verify', () => {
   });
 
   it('states both exits for an unanswered question, and forbids dropping it', () => {
-    const out = briefForPrompt(recordAddressedQuestions(scenarioA(), ['q1-0']));
+    const out = briefForPrompt(reopen(scenarioA(), ['q1-1']));
     expect(out).toMatch(/carry it \(it stays a live uncertainty the strategy works around\) or defer it \(a stated default applies\)/);
     expect(out).toMatch(/A reason attached to no question resolves no question/);
     expect(out).toMatch(/Silently dropping one is not an option/);
@@ -249,7 +286,7 @@ describe('the prompt asks for the claim, and the default favours the user', () =
     expect(findings.input_schema.properties.notCovered).toBeDefined();
     expect(findings.description).toMatch(/leaving it empty is normal and correct/);
     for (const turn of [true, false]) {
-      expect(outputToolsForPhase(turn).map((t) => t.name)).toContain('record_findings');
+      expect(outputToolsForPhase(turn ? 'build' : 'asking').map((t) => t.name)).toContain('record_findings');
     }
   });
 });

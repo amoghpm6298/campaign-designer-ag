@@ -21,7 +21,7 @@ import { describe, it, expect } from 'vitest';
 import { renderStrategy, type Strategy } from '../../server/orchestrator';
 import { applyOutputTool } from '../../server/outputTools';
 import { reactingPath } from './support/journeys';
-import { newBrief, recordAnswer, recordBarriers, recordConverters, recordDimensions, briefForPrompt, evaluateDiscovery, type WorkingBrief } from '../../server/discovery';
+import { newBrief, recordAnswer, recordBarriers, recordConverters, recordDimensions, recordSuccessCriteria, briefForPrompt, evaluateDiscovery, type WorkingBrief } from '../../server/discovery';
 import { blocksFor } from '../../server/gate';
 import { convertersSettled, mustLearnAudience } from '../../server/findings';
 
@@ -65,11 +65,24 @@ const base = (over: Partial<Strategy> = {}): Strategy => ({
 
 /** Put the architectures through the tool, which is the only way they arrive. */
 const recordPlan = (architectures: unknown[]): Strategy => {
-  const out = applyOutputTool(
-    recordBarriers(recordAnswer(newBrief('Get new cardholders activated'), 'they do not know how, or do not see a reason yet'), [
+  // A RECORD THE GATE CALLS READY, since 2026-10-24. The tool refuses a
+  // proposal differently when discovery is unfinished, so a fixture about the
+  // RENDERER has to pass the record gate or it tests that instead.
+  const ready = (() => {
+    let b = recordBarriers(recordAnswer(newBrief('Get new cardholders activated'), 'they do not know how, or do not see a reason yet'), [
       { id: 'know-how', statement: 'They do not know how to set the PIN.', basis: 'user-belief', lever: 'message', quote: 'they do not know how' },
       { id: 'motivation', statement: 'They do not see a reason to use the card yet.', basis: 'user-belief', lever: 'message', quote: 'do not see a reason yet' },
-    ]),
+    ]);
+    b = recordConverters(b, { shape: 'Welcome-offer cards activate sooner.', basis: 'user', knowledge: 'known' });
+    b = recordDimensions(b, [
+      { name: 'welcome offer at sign-up', rationale: 'They said those activate sooner.', status: 'retained', basis: 'user', note: 'Theirs.' },
+      { name: 'acquisition channel', rationale: 'Asked about.', status: 'unavailable', basis: 'user', note: 'They do not track it.' },
+      { name: 'existing relationship', rationale: 'Asked about.', status: 'unavailable', basis: 'user', note: 'They do not track it.' },
+    ]);
+    return recordSuccessCriteria(b, ['Count of cards activated in the first two weeks.']);
+  })();
+  const out = applyOutputTool(
+    ready,
     'propose_strategy',
     // AND A PATH: the tool refuses a plan with no journey now, because they
     // are approving a sequence and Confirm compiles this same one.

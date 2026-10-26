@@ -233,7 +233,7 @@ describe('the retry instruction names what does NOT count', () => {
     // reading back, so this pins the instruction against its own worst
     // reading — an earlier draft of it said "after each Send, branch on what
     // that send reported", which is the stamp.
-    const retry = orch.slice(orch.indexOf('const REACTION_RETRY ='), orch.indexOf('export function systemForPhase'));
+    const retry = orch.slice(orch.indexOf('REACTION_RETRY ='), orch.indexOf('export function systemForPhase'));
     expect(retry.length).toBeGreaterThan(0);
     expect(retry).not.toMatch(/after each send/i);
     expect(retry).not.toMatch(/after every send, branch|branch after every/i);
@@ -245,7 +245,7 @@ describe('the retry instruction names what does NOT count', () => {
     // THE WRONG INSTRUCTION, measured on `ui-s-1792748248345`: the retry told
     // the model to route the failure to a different channel, and undelivered
     // is `fallbackChannel` on the Send — a field, not a route anybody walks.
-    const retry = orch.slice(orch.indexOf('const REACTION_RETRY ='), orch.indexOf('export function systemForPhase'));
+    const retry = orch.slice(orch.indexOf('REACTION_RETRY ='), orch.indexOf('export function systemForPhase'));
     expect(retry).not.toMatch(/failure path on a different channel/);
     expect(retry).toMatch(/do not route the failure to another channel as a step/);
     expect(retry).toMatch(/Do NOT add a FAILED, UNKNOWN or NOT_DELIVERED arm/);

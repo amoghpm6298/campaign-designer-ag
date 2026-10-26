@@ -93,7 +93,7 @@ describe('an empty terminal round is recovered, not reported', () => {
     // produced nothing usable, and the answer it is asking for is prose.
     expect(block).toMatch(/toolChoice: \{ type: 'none' \},/);
     expect(block).toMatch(/Your previous turn did not produce a usable answer/);
-    expect(block).toMatch(/the single JSON object described in OUTPUT, complete/);
+    expect(block).toMatch(/ordinary text and the tool call this turn needs, complete/);
     // The build instruction is NOT here any more. Asking this block to force a
     // build is what produced a forced build nobody read.
     expect(block).not.toMatch(/Your previous turn did not build the campaign/);
@@ -178,7 +178,7 @@ describe('the existing limits are untouched', () => {
     // entity names, attributes and operators from memory on the one turn where
     // each has to be exact. Discovery is unchanged: both false still means no
     // lookups, which is what keeps turn one from being a channel inventory.
-    expect(orch).toMatch(/tools: \[\.\.\.toolsForPhase\(designSeen \|\| isBuildTurn\), \.\.\.outputToolsForPhase\(isBuildTurn\)\]\.map/);
+    expect(orch).toMatch(/tools: \[\.\.\.toolsForPhase\(phase !== 'asking' \|\| designSeen\), \.\.\.outputToolsForPhase\(phase\)\]\.map/);
   });
 
   it('still fails explicitly when the budget is genuinely spent', () => {

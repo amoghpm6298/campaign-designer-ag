@@ -10,7 +10,7 @@
 // A tool result the model cannot act on produces the same loop as a refusal
 // the user cannot act on, one level down.
 import { describe, it, expect } from 'vitest';
-import { newBrief, briefDimensions, recordAnswer, type WorkingBrief } from '../../server/discovery';
+import { newBrief, briefDimensions, recordAnswer, recordSuccessCriteria, type WorkingBrief } from '../../server/discovery';
 import { recordReply, recordAsked, outstanding } from '../../server/record';
 import { OUTPUT_TOOLS, OUTPUT_TOOL_NAMES, isOutputTool, applyOutputTool, outputToolsForPhase } from '../../server/outputTools';
 import { blocksFor } from '../../server/gate';
@@ -39,11 +39,54 @@ describe('the tools are declared where they cost no prompt budget', () => {
     // discovery turn hands the agent the builder's limits before it has a
     // plan, which is the leak `systemForPhase` closed and this reopened the
     // moment the grammar moved from the prompt into a tool.
-    expect(outputToolsForPhase(false).map((t) => t.name)).not.toContain('build_campaign');
-    expect(outputToolsForPhase(true).map((t) => t.name)).toContain('build_campaign');
-    // Everything else is available on both, because recording what you learn
-    // is never phase-dependent.
-    expect(outputToolsForPhase(false)).toHaveLength(OUTPUT_TOOLS.length - 1);
+    expect(outputToolsForPhase('asking').map((t) => t.name)).not.toContain('build_campaign');
+    expect(outputToolsForPhase('build').map((t) => t.name)).toContain('build_campaign');
+    // The record tools travel on every phase, because writing down what you
+    // learn is never phase-dependent — a build turn still finds things worth
+    // recording. What moves is which single plan tool is on the call.
+    const names = (p: 'asking' | 'ready' | 'build') => outputToolsForPhase(p).map((t) => t.name);
+    for (const always of ['ask_questions', 'record_findings', 'record_dimensions', 'request_evidence']) {
+      for (const p of ['asking', 'ready', 'build'] as const) expect(names(p), `${always} on ${p}`).toContain(always);
+    }
+    expect(outputToolsForPhase('asking')).toHaveLength(OUTPUT_TOOLS.length - 2);
+    expect(outputToolsForPhase('ready')).toHaveLength(OUTPUT_TOOLS.length - 1);
+    expect(outputToolsForPhase('build')).toHaveLength(OUTPUT_TOOLS.length - 1);
+  });
+
+  it('does not offer propose_strategy at all on an ASKING turn', () => {
+    // REWRITTEN 2026-10-24. It used to travel with `blueprint` and `$defs`
+    // stripped out, so the GATE rather than the tool list could decide when a
+    // proposal was allowed — "a model that proposes early should be refused by
+    // the record, not left unable to speak". Measured twice, that refusal was
+    // not a correction but an invitation: `ui-s-1792834072700` turn 3 sent the
+    // same plan five times and then put it in the chat by hand, and
+    // `ui-s-1792839251135` turn 3 asked the manager to type "go ahead".
+    //
+    // A tool that is absent needs no refusal, and there is no schema left to
+    // be missing a field.
+    expect(outputToolsForPhase('asking').find((t) => t.name === 'propose_strategy')).toBeUndefined();
+    const askingSchemas = JSON.stringify(outputToolsForPhase('asking').map((t) => t.input_schema));
+    for (const leak of ['"branch"', '"waitForEvent"', 'first-touch', 'campaignName', '$defs']) {
+      expect(askingSchemas, leak).not.toContain(leak);
+    }
+
+    // The turn that may propose gets the whole thing, path included.
+    const ready = outputToolsForPhase('ready').find((t) => t.name === 'propose_strategy')!.input_schema;
+    expect(ready.properties.blueprint).toBeDefined();
+    expect(ready.$defs?.step).toBeDefined();
+    expect(JSON.stringify(ready)).toContain('#/$defs/step');
+    for (const kept of ['summary', 'approach', 'architectures', 'touches', 'openItems']) {
+      expect(ready.properties[kept], kept).toBeDefined();
+    }
+    expect(ready.required).toContain('touches');
+
+    // AND THE SHARED OBJECT IS NOT MUTATED. Phasing is a filter over
+    // `OUTPUT_TOOLS`, so nothing can quietly remove `blueprint` from the
+    // definition every later caller reads.
+    expect(
+      (OUTPUT_TOOLS.find((t) => t.name === 'propose_strategy')!.input_schema.properties as Record<string, unknown>)
+        .blueprint,
+    ).toBeDefined();
   });
 
   it('expresses the recursive journey grammar with $defs, which prose could not', () => {
@@ -142,6 +185,58 @@ describe('partial credit: one bad call cannot discard a good one', () => {
   });
 });
 
+describe('success is recordable without a plan', () => {
+  // MEASURED, `eval/runs/ui-s-1792835962676`. `successCriteria` lived on
+  // `propose_strategy` alone, and `briefForPrompt` told the model to "record
+  // it in successCriteria on this turn" — a field the asking turn refuses.
+  // The brief named something the turn could not reach, which is the
+  // schema-versus-handler contradiction one layer up.
+  const theirs = ['The number of eligible purchases converted.'];
+
+  it('record_findings takes it, on its own, as a complete call', () => {
+    const out = applyOutputTool(started(), 'record_findings', { successCriteria: theirs });
+    expect(out.error).toBeUndefined();
+    expect(out.brief.successCriteria).toEqual(theirs);
+    expect(out.ok).toMatch(/how they would judge this/);
+  });
+
+  it('takes it alongside the findings, and reports all of it', () => {
+    const out = applyOutputTool(started(), 'record_findings', {
+      successCriteria: theirs,
+      barriers: [{ id: 'b', statement: 'Not nudged.', basis: 'user-belief', lever: 'message', quote: 'setting a PIN' }],
+    });
+    expect(out.error).toBeUndefined();
+    expect(out.brief.successCriteria).toEqual(theirs);
+    expect(out.brief.barriers).toHaveLength(1);
+  });
+
+  it('accepts one bare string, because a single measure is sent as one', () => {
+    const out = applyOutputTool(started(), 'record_findings', { successCriteria: 'Purchases converted.' });
+    expect(out.brief.successCriteria).toEqual(['Purchases converted.']);
+  });
+
+  it('treats an empty list as silence, not retraction', () => {
+    const filed = applyOutputTool(started(), 'record_findings', { successCriteria: theirs }).brief;
+    const after = applyOutputTool(filed, 'record_findings', {
+      successCriteria: [],
+      barriers: [{ id: 'b', statement: 'Not nudged.', basis: 'user-belief', lever: 'message', quote: 'setting a PIN' }],
+    });
+    expect(after.brief.successCriteria).toEqual(theirs);
+  });
+
+  it('still refuses a call that carries none of the three', () => {
+    expect(applyOutputTool(started(), 'record_findings', {}).error).toMatch(/recorded nothing/);
+    expect(applyOutputTool(started(), 'record_findings', { successCriteria: [] }).error).toMatch(/recorded nothing/);
+  });
+
+  it('is in the schema, so the model can see the field exists', () => {
+    const schema = OUTPUT_TOOLS.find((t) => t.name === 'record_findings')!.input_schema;
+    expect(schema.properties.successCriteria).toBeDefined();
+    // Never a target number: no performance history exists for this bank.
+    expect(JSON.stringify(schema.properties.successCriteria)).toMatch(/Never a target number/);
+  });
+});
+
 describe('every rejection says what to do instead', () => {
   const rejections = [
     ['ask_questions', { questions: [] }],
@@ -163,7 +258,7 @@ describe('every rejection says what to do instead', () => {
   }
 
   it('names the field to send, not the internal reason it failed', () => {
-    expect(applyOutputTool(started(), 'record_findings', {}).error).toMatch(/Send "converters", "barriers", or both/);
+    expect(applyOutputTool(started(), 'record_findings', {}).error).toMatch(/Send "converters", "barriers", "successCriteria"/);
     expect(applyOutputTool(started(), 'record_dimensions', { dimensions: [] }).error).toMatch(/non-empty "name"/);
   });
 });
@@ -211,8 +306,14 @@ describe('a proposal must compare two genuinely different theories of the proble
    * barrier by ID. Free text was defeatable by appending words, and a live run
    * defeated it three times out of three.
    */
-  const withBarriers = (ids: string[]) =>
-    applyOutputTool(started(), 'record_findings', {
+  // A RECORD THE GATE CALLS READY, since 2026-10-24. These cases are about
+  // the ARCHITECTURE rules, and the tool now refuses a proposal differently
+  // when discovery is not finished — so without converters, success and three
+  // reasoned dimensions, the accepting cases got the asking-turn refusal and
+  // stopped testing architectures at all.
+  const withBarriers = (ids: string[]) => {
+    const withFindings = applyOutputTool(started(), 'record_findings', {
+      converters: { shape: 'Cards issued with a welcome offer activate sooner.', basis: 'user', knowledge: 'known' },
       barriers: ids.map((id) => ({
         id,
         statement: `Problem ${id}.`,
@@ -221,6 +322,15 @@ describe('a proposal must compare two genuinely different theories of the proble
         quote: 'setting a PIN, and we count cards activated',
       })),
     }).brief;
+    const withDims = applyOutputTool(withFindings, 'record_dimensions', {
+      dimensions: [
+        { name: 'welcome offer at sign-up', rationale: 'They said those activate sooner.', status: 'retained', basis: 'user', note: 'Theirs.' },
+        { name: 'acquisition channel', rationale: 'Asked about.', status: 'unavailable', basis: 'user', note: 'They do not track it.' },
+        { name: 'existing relationship', rationale: 'Asked about.', status: 'unavailable', basis: 'user', note: 'They do not track it.' },
+      ],
+    }).brief;
+    return recordSuccessCriteria(withDims, ['Count of cards activated in the first two weeks.']);
+  };
 
   it('rejects two candidates that share a barrier AND a treatment', () => {
     // Identical on every axis a customer would experience, so they are one

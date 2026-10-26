@@ -265,7 +265,25 @@ export const convertersSettled = (c: Converters | null | undefined): boolean => 
   // campaign that cannot say who converts still has finding out as part of its
   // job. It is now carried as a limitation rather than a refusal, which is the
   // right place for it — see the audience-coverage entry in server/CLAUDE.md.
-  if (c.basis === 'user' && c.shape.trim().length > 0) return true;
+  // `user-belief` COUNTS TOO, since 2026-10-24, and barriers have always
+  // worked this way.
+  //
+  // MEASURED, `eval/runs/ui-s-1792842540156`. The manager said "10k+ txns
+  // convert more", and said it twice — the second reply reads "already said
+  // txn 10k+ convert more". The model wrote exactly that as the shape and
+  // chose `user-belief`, which is the basis the prompt teaches for what they
+  // believe about customer behaviour: a pattern they have noticed is a
+  // conjecture about cause, not a fact they own. Both labels are defensible
+  // for one sentence, and this function accepted only one of them, so who
+  // converts stayed open on a brief that held their answer, the inject
+  // reprinted the question they had answered, and the run never proposed.
+  //
+  // The distinction that matters here is not user versus user-belief — it is
+  // THEIRS versus OURS. `assumption` is the agent talking to itself and still
+  // does not settle anything. No quote checker is added: `Converters` has no
+  // quote field, and a new one would judge their words to RAISE a block,
+  // which is the one thing `record.ts` forbids.
+  if ((c.basis === 'user' || c.basis === 'user-belief') && c.shape.trim().length > 0) return true;
 
   // Nobody knows AND they did not describe the audience either, which is where
   // the work actually is.

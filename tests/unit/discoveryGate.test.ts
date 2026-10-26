@@ -275,8 +275,14 @@ describe('the orchestrator wires the gate in, not the model', () => {
     const src = await import('node:fs').then((fs) =>
       fs.readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8'),
     );
-    expect(src).toMatch(/const awaitingAnswer = brief\.questions\.some/);
-    expect(src).toMatch(/if \(awaitingAnswer\) \{\s*\n\s*brief = recordAnswer/);
+    expect(src).toMatch(/const awaitingAnswer = outstanding\(brief\)\.length > 0/);
+    // THE ONE WRITE. `recordAnswer` set `answeredInRound` only, while
+    // `outstanding` and `decide` read `addressedInRound` — two fields, two
+    // write-paths, and `eval/runs/ui-s-1792839251135` held three turns of
+    // settled discovery on `awaiting-reply`. `receive` records the answer and
+    // closes what was on screen in the same write.
+    expect(src).toMatch(/if \(awaitingAnswer\) \{[\s\S]{0,900}?brief = receive\(brief, latestUserText\)\.brief;/);
+    expect(src).not.toMatch(/brief = recordAnswer\(brief, latestUserText\)/);
   });
 });
 

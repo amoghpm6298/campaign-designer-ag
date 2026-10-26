@@ -104,7 +104,7 @@ describe('every channel at once is fatigue, not coverage', () => {
     } as never);
     expect(blocks.map((b) => b.code)).toEqual(['channel-spray']);
     expect(blocks[0].reason).toMatch(/day 0: whatsapp and email/);
-    expect(blocks[0].clears.how).toMatch(/on the failure fork only/);
+    expect(blocks[0].clears.how).toMatch(/on one ARM of a fork/);
   });
 
   it('allows the same day on two DIFFERENT paths', () => {
@@ -120,6 +120,36 @@ describe('every channel at once is fatigue, not coverage', () => {
         ]),
       } as never),
     ).toEqual([]);
+  });
+});
+
+describe('exclusive arms of one fork are not two messages to one person', () => {
+  // MEASURED, `ui-s-1792829868203` turn 5: day 2 carried an SMS for the
+  // person who had not read the first message and a WhatsApp for the person
+  // who had — both on "Standard ticket", ONE fork, and nobody receives both.
+  // Calling that fatigue sent the manager back to rename paths, which is how
+  // they ended up clerking DELIVERED by hand.
+  it('allows two channels on one day when the rows are unread versus read', () => {
+    const blocks = channelJobBlocks({
+      strategy: plan([
+        touch({ day: 0, channel: 'WhatsApp', path: 'Standard ticket', ifStillUnconverted: 'If it is delivered but still unread, repeat the fact.' }),
+        touch({ day: 2, channel: 'SMS', path: 'Standard ticket', ifStillUnconverted: 'Delivered but still unread, so the same fact on another channel.' }),
+        touch({ day: 2, channel: 'WhatsApp', path: 'Standard ticket', ifStillUnconverted: 'Read but no action taken, so argue the instalment instead.' }),
+      ]),
+    } as never);
+    expect(blocks.map((b) => b.code)).not.toContain('channel-spray');
+  });
+
+  it('still refuses two channels on one day when both would fire', () => {
+    // The same sentence on both rows means both go out. That is the fatigue
+    // this block exists for, and the exemption must not reach it.
+    const blocks = channelJobBlocks({
+      strategy: plan([
+        touch({ day: 2, channel: 'SMS', path: 'Standard ticket', ifStillUnconverted: 'Remind them again on day 4.' }),
+        touch({ day: 2, channel: 'WhatsApp', path: 'Standard ticket', ifStillUnconverted: 'Remind them again on day 4.' }),
+      ]),
+    } as never);
+    expect(blocks.map((b) => b.code)).toContain('channel-spray');
   });
 });
 

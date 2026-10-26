@@ -460,12 +460,14 @@ describe('an experiment arm is a chain, not a single step', () => {
     expect(ambiguous).toEqual([]);
   });
 
-  it('keeps a send whose objective was missing, and still says it was missing', () => {
+  it('keeps a send whose objective was missing, and does not block export for it when the send is named', () => {
     // The keywords exist to search a template library. Their absence makes
-    // that search worse; it does not make the message imaginary.
+    // that search worse; it does not make the message imaginary. A name is
+    // enough to derive from — raising twelve empty-keyword issues on labelled
+    // EMI sends blocked export (`ui-s-1792770967470`).
     const names = typed('SEND').map((n) => (n._config as { stepName?: string }).stepName ?? n.label);
     expect(names.join(' ')).toMatch(/reassurance opener/i);
-    expect(built().issues.some((i) => /objective/.test(i.problem))).toBe(true);
+    expect(built().issues.some((i) => /objective/.test(i.problem))).toBe(false);
   });
 
   it('reaches both arm exits', () => {

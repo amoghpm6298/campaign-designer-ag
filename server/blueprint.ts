@@ -63,6 +63,12 @@ export type BpStep =
   | {
       kind: 'send';
       name: string;
+      /**
+       * What the model often sends instead of `name`. Same job. Confirm on
+       * `ui-s-1792770967470` labelled every send this way and left `name`
+       * empty, so the canvas reported a missing name on a step that had one.
+       */
+      label?: string;
       /** Objective keywords used to resolve a REAL template. Never an id. */
       objective: string[];
       stage: 'first-touch' | 'reminder' | 'outcome';
@@ -771,14 +777,21 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         //
         // The keywords exist to search a template library. Their absence
         // makes the search worse; it does not make the message imaginary. So
-        // the step is built, the keywords are derived from what the agent DID
-        // write, and the issue still stands so nobody mistakes it for
-        // complete.
+        // the step is built and the keywords are derived from what the agent
+        // DID write. Raise the gap only when there is nothing to derive from.
+        // The EMI Confirm (`ui-s-1792770967470`) labelled every send and wrote
+        // copy, omitted `name` / `describe` / `objective`, and twelve empty-
+        // field issues then blocked export on a journey that already had the
+        // words.
         const stated = Array.isArray(step.objective) ? step.objective : [];
-        if (!stated.length) {
+        const givenName = step.name?.trim() || step.label?.trim() || '';
+        const givenDescribe = step.describe?.trim() || step.copy?.trim() || '';
+        if (!stated.length && !givenName && !givenDescribe) {
           issues.push({ path: `${path}.objective`, problem: 'A send needs at least one objective keyword.' });
         }
-        const derived = objectiveKeywords(stated.length ? stated : [step.name, step.describe].filter(Boolean) as string[]);
+        const derived = objectiveKeywords(
+          stated.length ? stated : ([givenName, givenDescribe].filter(Boolean) as string[]),
+        );
         // 'message' is the honest floor: it narrows nothing, which is correct
         // when nothing was said. Never a guess at what the message is for.
         const keywords = derived.length ? derived : ['message'];
@@ -799,19 +812,32 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         // the `stage` guard above follows: say what is missing and build the
         // step anyway. A send the agent wrote copy for is a real send whether
         // or not it was labelled.
-        if (!step.name?.trim()) {
+        if (!givenName && !givenDescribe) {
           issues.push({ path: `${path}.name`, problem: 'A send needs a name. The step was built without one — open it on the canvas to label it.' });
         }
-        if (!step.describe?.trim()) {
+        // ONE CONDITION FOR ALL THREE, corrected 2026-10-24. `describe` fired
+        // on its own, so a live Confirm whose sends carried `label`, `copy`
+        // and `cta` — real messages, named in the manager's own words —
+        // produced a "needs a describe" issue per send, `designGenerated`
+        // false, and a blocked export on a journey that already had
+        // everything a person needs to read it. Measured on
+        // `eval/runs/ui-s-1792770967470` turn 8: twelve issues across four
+        // distinct sends, every one of them labelled.
+        //
+        // `givenDescribe || givenName` is what actually fills the step two
+        // lines below, so the issue has to match that: report when the send
+        // says NOTHING — no name, no label, no describe, no copy — and stay
+        // quiet when it says something under a different field name.
+        if (!givenName && !givenDescribe) {
           issues.push({ path: `${path}.describe`, problem: 'A send needs a describe saying what the message is for. The step was built without one.' });
         }
         // Falls back through what the agent DID write before giving up. The
         // last resort says nothing rather than inventing a purpose.
-        const describe = step.describe?.trim() || step.name?.trim() || step.copy?.trim() || 'this message';
+        const describe = givenDescribe || givenName || 'this message';
         // The node needs a label too. Inserting a SEND whose name is
         // `undefined` is only half-inserting it: the canvas card renders
         // blank and `sendProposals` cannot be matched back to it.
-        const stepName = step.name?.trim() || describe;
+        const stepName = givenName || describe;
         const need: TemplateNeed = { objective: keywords, stage: step.stage, describe };
 
         // Has a person already supplied the real values for this step?

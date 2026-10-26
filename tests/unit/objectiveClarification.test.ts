@@ -33,13 +33,23 @@ const OBJECTIVE = 'I want to increase OS-to-EMI conversions. Design a drip campa
 const PRIOR_FACT = 'The goal event is EMI_STATUS_CHANGED, New Status = Successful, Source = OS-to-EMI.';
 const LIMITATION = 'No outstanding-balance attribute exists, so amount targeting is not expressible.';
 
-/** A brief mid-conversation, with every question already answered. */
+/**
+ * A brief mid-conversation, with every question already answered.
+ *
+ * `addressedInRound` AS WELL AS `answeredInRound`, since 2026-10-24. The two
+ * fields were written by two different functions, and a brief carrying only
+ * the first is the bug state rather than an answered conversation: `receive`
+ * sets both in one write, and `outstanding` reads the second. Without it the
+ * orchestrator correctly treats the next message as an answer to a question
+ * still on screen, and never reaches the objective-change branch these tests
+ * are about.
+ */
 function established(objective = OBJECTIVE): WorkingBrief {
   return recordDimensions(
     {
       ...newBrief(objective),
       rounds: 2,
-      questions: [{ id: 'q1-0', text: 'Entry on a pending request?', askedInRound: 1, answeredInRound: 1 }],
+      questions: [{ id: 'q1-0', text: 'Entry on a pending request?', askedInRound: 1, answeredInRound: 1, addressedInRound: 1 }],
       answers: [{ round: 1, text: 'Yes, target the pending requests.' }],
       facts: [{ statement: PRIOR_FACT, source: 'retrieved-context', round: 1, confidence: 'confirmed' }],
       limitations: [LIMITATION],

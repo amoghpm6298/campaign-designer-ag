@@ -75,10 +75,11 @@ describe('the stopping rule is value, not count', () => {
   });
 
   it('makes stopping an explicit decision rather than a limit being hit', () => {
-    expect(method).toMatch(/Stopping is a decision you must make deliberately and state, not a limit you hit/);
-    expect(method).toMatch(/there is no question count/);
+    expect(method).toMatch(/Stopping is a decision you must make deliberately and state, not a budget you pad to/);
+    expect(method).toMatch(/This round still has at most three questions/);
     expect(method).toMatch(/"nothing further would change this" is itself a finding/);
-    // And the prompt must not reintroduce a fixed target anywhere in the method.
+    // Per-round cap is not a quota to fill, and the method must not ask for a
+    // fixed number of rounds.
     expect(method).not.toMatch(/ask (at least|exactly|no more than) (two|three|four|\d+) (rounds|questions)/i);
   });
 

@@ -22,7 +22,7 @@
 // false positive therefore costs a stated assumption the user can correct,
 // not a campaign built on a guess and not a loop. Every heuristic in this file
 // is one-directional for that reason.
-import type { WorkingBrief, OpenQuestion, DiscoveryDimension } from './discovery';
+import { nextCustomerQuestion, readsAsDecline, recordAnswer, type WorkingBrief, type OpenQuestion, type DiscoveryDimension } from './discovery';
 
 /**
  * Who wrote the question.
@@ -73,14 +73,69 @@ const qs = (brief: WorkingBrief): RecordedQuestion[] => (brief.questions ?? []) 
  * a turn where the agent genuinely asked something. Budget is spent by the
  * user replying, so `recordReply` owns the counter.
  */
+/**
+ * Has the user already closed the question of performance history?
+ *
+ * Read off the record — the limitation `noteOpeningFacts` writes, the facts it
+ * records, or the objective itself — never guessed from the current reply.
+ */
+const historyIsClosed = (brief: WorkingBrief): boolean => {
+  const said = [brief.objective, ...brief.limitations, ...brief.facts.map((f) => f.statement)].join(' ');
+  return readsAsDecline(said) && /\b(history|historical|benchmarks?|baselines?|data|figures|records|rates?)\b/i.test(said);
+};
+
+/**
+ * A question that asks for the thing they have already said does not exist.
+ *
+ * MEASURED, three live runs: the manager opened with "We have no campaign
+ * history", and turn one asked "is there a target or benchmark you already
+ * have in mind (a conversion rate, an EMI book amount) or is this genuinely
+ * the first run?" — the closed question, reprinted, spending the one round
+ * that should have gone on customers. SYSTEM has forbidden it in words for
+ * weeks.
+ *
+ * NARROW ON PURPOSE. It matches the SCOREBOARD nouns only, so a question
+ * about customers can never be silenced by it — and it fires only when the
+ * record says the history is closed, so a manager who never mentioned it is
+ * still asked.
+ */
+const asksForClosedHistory = (text: string): boolean =>
+  /\b(benchmark|baseline|target|conversion rate|historical|history|past campaigns?|previous campaigns?|first run|book amount|industry average)\b/i.test(text);
+
+/**
+ * Has this turn already asked the customer question the gate would inject?
+ *
+ * Exact text is not enough: the live mixed list asked who converts in the
+ * agent's own words, and injecting the canonical sentence on top would have
+ * been two questions about the same gap. Count-versus-value mentions
+ * "convert" but not who, so it does not count as covered.
+ */
+const alreadyAsksCustomerGap = (instead: string, text: string): boolean => {
+  if (instead.startsWith('Who tends')) {
+    return /\bwho\b/i.test(text) && /\b(convert|pattern|already|activates?|tends)\b/i.test(text);
+  }
+  if (instead.startsWith('In your own words')) {
+    return /\b(stopping the rest|why .{0,80}(not |don.?t ))/i.test(text);
+  }
+  return text === instead;
+};
+
 export function recordAsked(
   brief: WorkingBrief,
   questions: { text: string; impact?: OpenQuestion['impact']; contingency?: OpenQuestion['contingency'] }[],
   author: AskAuthor,
 ): WorkingBrief {
   const existing = qs(brief);
+  const closed = historyIsClosed(brief);
   const fresh: RecordedQuestion[] = questions
     .filter((q) => q.text.trim().length > 0)
+    // A QUESTION THAT ONLY RESTATES A CLOSED FACT DOES NOT GO OUT. The same
+    // family as the de-duplication below — the application declining to print
+    // its own redundant question — and not a judgement that could refuse the
+    // USER anything: the worst a false positive costs is one unasked
+    // scoreboard question, and the substitution below guarantees the turn
+    // still carries something to answer.
+    .filter((q) => !(closed && asksForClosedHistory(q.text)))
     // Never ask the same thing twice in one breath. Matched on the exact text
     // because this is the application's own de-duplication, not a judgement
     // about whether two differently-worded questions mean the same thing.
@@ -93,18 +148,59 @@ export function recordAsked(
       ...(q.impact ? { impact: q.impact } : {}),
       ...(q.contingency ? { contingency: q.contingency } : {}),
     }));
+  // A MIXED LIST STILL HAS TO ASK ABOUT CUSTOMERS. Measured, ui-s-1792770967470
+  // turn 1: the history filter dropped the benchmark reprint and kept
+  // count-versus-value, so the "if every question was history, substitute"
+  // branch never ran — and the manager was not asked who converts. Inject
+  // whenever converters or barriers are still missing, even if another
+  // question survived. Skip the success-criteria branch: that is a later
+  // question, and it is what spent this live first turn.
+  const instead = nextCustomerQuestion(brief, { skipSuccess: true });
+  const outgoing = [
+    ...existing.filter((e) => e.answeredInRound === undefined),
+    ...fresh,
+  ];
+  if (
+    instead &&
+    !outgoing.some((q) => q.text === instead || alreadyAsksCustomerGap(instead, q.text))
+  ) {
+    fresh.push({
+      id: `q${brief.rounds}-${existing.length + fresh.length}`,
+      text: instead,
+      askedInRound: brief.rounds,
+      author: 'app' satisfies AskAuthor,
+      impact: 'shaping',
+    } as RecordedQuestion);
+  }
   return { ...brief, questions: [...existing, ...fresh] };
 }
 
 /**
- * The user replied. Attribute it to everything outstanding, and advance the
- * round.
+ * The user replied. It addresses everything that was on screen.
  *
- * This single function replaces `recordAnswer` + `recordAddressedQuestions` +
- * `recordUncoveredQuestions`. There is no longer a difference between "a reply
- * arrived" and "the reply covered this question", because the distinction was
- * only ever decidable by the model, and making the model's silence mean
- * "unanswered" is what told a manager their answer did not count.
+ * ONE DEFINITION OF DONE, and this is the function that owns it. There is no
+ * difference between "a reply arrived" and "the reply covered this question",
+ * because the distinction was only ever decidable by the model, and making the
+ * model's silence mean "unanswered" is what told a manager their answer did
+ * not count.
+ *
+ * IT WAS WRITTEN AND NEVER WIRED, which cost a whole live conversation.
+ * `eval/runs/ui-s-1792839251135`: three turns, the manager settled success,
+ * who converts, the barrier and the extra-axis probe, and all four questions
+ * ended with `answeredInRound: 0` and `addressedInRound: undefined`. Live
+ * ingest called `recordAnswer` — which sets only the first field — while
+ * `outstanding` and `decide` read the second. Two fields, two write-paths, and
+ * the gate held `awaiting-reply` on four answered questions for three turns.
+ * The orchestrator now goes through `receive` below, so attribution happens in
+ * the same write as the answer text.
+ *
+ * IT DOES NOT ADVANCE THE ROUND, since 2026-10-24. It used to, while
+ * `recordAnswer` did not — so wiring it into ingest would have counted a round
+ * for the reply AND a round for the questions that went out with it.
+ * `MAX_ROUNDS` is "rounds of questions before the agent must work with what it
+ * has", so the counter belongs to `recordQuestions` and
+ * `recordEvidenceRequests`, which is where it already lived. One meaning, one
+ * writer.
  *
  * Forks are NOT excepted here, which reverses the rule written earlier the
  * same day. The exception existed because a wrongly-discharged fork builds the
@@ -114,24 +210,21 @@ export function recordAsked(
  * in a bounded re-ask, not in a default that treats every reply as suspect.
  */
 export function recordReply(brief: WorkingBrief, text: string): WorkingBrief {
-  const round = brief.rounds + 1;
-  const outstanding = qs(brief).filter((q) => q.answeredInRound === undefined);
+  // ONE ANSWER-WRITER. `recordAnswer` appends the reply, writes it as a
+  // confirmed fact carrying the ids it settles, and sets `answeredInRound`.
+  // This used to restate all of that inline, which is how the two write-paths
+  // came to disagree about which field means done. Here it is composed:
+  // recording the answer, then closing what was on screen.
+  const answered = recordAnswer(brief, text);
+  const round = answered.rounds;
   return {
-    ...brief,
-    rounds: round,
-    answers: [...brief.answers, { round, text }],
-    facts: [
-      ...brief.facts,
-      { statement: text, source: 'user-answer', round, confidence: 'confirmed', answers: outstanding.map((q) => q.id) },
-    ],
+    ...answered,
     // Keyed on `addressedInRound`, NOT on `answeredInRound`. A question that
     // `reopen` put back needs re-addressing even though a reply had already
     // arrived once — testing the wrong field left a re-opened question
     // outstanding for ever, which is the loop this module exists to end.
-    questions: qs(brief).map((q) =>
-      q.addressedInRound === undefined
-        ? { ...q, answeredInRound: q.answeredInRound ?? round, addressedInRound: round }
-        : q,
+    questions: qs(answered).map((q) =>
+      q.addressedInRound === undefined ? { ...q, addressedInRound: round } : q,
     ),
   };
 }

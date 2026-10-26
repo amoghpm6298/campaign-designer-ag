@@ -365,6 +365,23 @@ export interface WorkingBrief {
   /** Limitations to state in the strategy, e.g. evidence that was unavailable. */
   limitations: string[];
   /**
+   * The last PROPOSAL the tool accepted: the plan and its path.
+   *
+   * WHY THE RECORD HOLDS IT. A held propose returns `strategy: null` and
+   * `pendingBlueprint: null` — correctly, because nothing is approvable — and
+   * that threw the payload away. Measured on
+   * `eval/runs/ui-s-1792770967470` turns 5 to 7: a plan with seven named
+   * paths and real fallbacks was refused, and the next turn sent two paths
+   * with a generic "still unconverted", so a passing column was lost between
+   * attempts. The brief survives a hold; this is the one place that can
+   * carry a good column across one.
+   *
+   * Written only when `propose_strategy` returns ok with non-empty steps, and
+   * only ever READ to fill a regression in a LATER call — never to invent a
+   * plan the model has not sent.
+   */
+  lastProposal?: { strategy: unknown; blueprint: unknown; round: number };
+  /**
    * Values the user stated, checked against platform metadata. Kept verbatim
    * so a mismatch can be explained without rewriting what they asked for.
    */
@@ -831,11 +848,19 @@ function alreadyCovered(uncertainty: string, brief: WorkingBrief): boolean {
 }
 
 /**
- * Records an answer against the brief and re-opens the next round.
+ * Writes the answer TEXT against the brief. It does not close anything.
  *
  * The answer is also written as a CONFIRMED fact, carrying the ids of the
  * questions it settled. That is what lets the gate tell "the user told us
  * this" apart from "we assumed this", without inspecting wording.
+ *
+ * NOT THE INGEST PATH, and calling it one cost a live conversation. It sets
+ * `answeredInRound`; `outstanding` and `decide` read `addressedInRound`. A
+ * manager reply goes through `receive` in `server/record.ts`, which composes
+ * this and then closes what was on screen in the same write. Using this alone
+ * as a fixture for "the manager replied" reproduces the bug rather than the
+ * behaviour — see `eval/runs/ui-s-1792839251135`, three turns held on four
+ * answered questions.
  */
 export function recordAnswer(brief: WorkingBrief, answer: string): WorkingBrief {
   const round = brief.rounds;
@@ -926,9 +951,18 @@ export function recordEvidenceRequests(
  */
 const DECLINE_PATTERNS = [
   /\bdon'?t have\b/i, /\bdo not have\b/i, /\bnot available\b/i,
-  // Allows words between "no" and "data" — a live run said "no historical
+  // Allows words between "no" and the noun — a live run said "no historical
   // conversion data at all", which a fixed prefix list did not match.
-  /\bno\b[^.!?]{0,40}\bdata\b/i, /\bnone\b[^.!?]{0,30}\b(data|available)\b/i,
+  //
+  // THE NOUN SET IS THE ONE `mentionsData` ALREADY USES, corrected
+  // 2026-10-23. This matched `data` and nothing else, so "We have no campaign
+  // HISTORY" — the opening sentence of three consecutive live runs — read as
+  // no decline at all: the limitation never landed, and the agent spent turn
+  // one asking whether they had a benchmark. `mentionsData` has listed
+  // history, benchmarks and rates all along; the two halves of the same check
+  // simply disagreed about what counts.
+  /\bno\b[^.!?]{0,40}\b(data|history|historical|benchmarks?|baselines?|figures|numbers|stats|statistics|metrics?|records)\b/i,
+  /\bnone\b[^.!?]{0,30}\b(data|available)\b/i,
   /\bcan'?t (get|provide|share)\b/i, /\bcannot (get|provide|share)\b/i, /\bunavailable\b/i,
   /\bwe don'?t track\b/i, /\bnot tracked\b/i, /\bno access\b/i, /\bskip\b/i, /\bproceed without\b/i,
   /\bnot measured\b/i, /\bnever measured\b/i,
@@ -989,6 +1023,246 @@ export function resolveEvidence(brief: WorkingBrief, answer: string): WorkingBri
  */
 const mentionsData = (text: string) =>
   /\b(data|figures|numbers|stats|statistics|metrics?|history|historical|records|benchmarks?|rates?)\b/i.test(text);
+
+/**
+ * A duration the user named, in their words.
+ *
+ * READ TO RECORD, NEVER TO BLOCK. The standing rule is that a judgement about
+ * someone's words may only release a block, never raise one — which is why
+ * `cadenceBlocks` deliberately parses no window. This writes a FACT: if the
+ * regex misses, the brief is as it was; if it matches, the agent stops asking
+ * how long the campaign has when they already said.
+ */
+export const statedWindow = (text: string): string | null => {
+  const m = /\b(\d{1,3})[-\s]?(day|days|week|weeks|month|months)\b/i.exec(text);
+  if (!m) return null;
+  const unit = m[2].toLowerCase().replace(/s$/, '');
+  return `${m[1]} ${unit}${Number(m[1]) === 1 ? '' : 's'}`;
+};
+
+/**
+ * What the OPENING MESSAGE already settled, recorded rather than re-asked.
+ *
+ * MEASURED, three live runs with the same first message: "We want more
+ * EMI-eligible card purchases to become EMI. We have no campaign history. I
+ * need a 7 day plan." Every one of them spent turn one on the scoreboard —
+ * count versus value, and whether there was a target or benchmark — and
+ * deferred who converts and what is stopping them. The brief recorded none of
+ * the three facts they had just given: the limitations list was empty and the
+ * window was nowhere.
+ *
+ * `brief.facts` prints under "Established (do NOT ask about these again)", so
+ * a fact here is the mechanism that already exists for exactly this.
+ */
+/**
+ * Dimensions that could actually cut a journey BY CUSTOMER.
+ *
+ * Lives here rather than in `gate.ts` because both need it and gate already
+ * imports this module — the other direction would be a cycle. A second copy
+ * of this two-line rule is exactly the drift this file's history is made of.
+ */
+export const segmentationDimensions = (brief: WorkingBrief) =>
+  briefDimensions(brief).filter((d) => !isPlatformDimension(d.name) && !isTimingDimension(d.name));
+
+/**
+ * A pattern the manager has SEEN: the only thing a cut may rest on.
+ *
+ * `user-belief` COUNTS, since 2026-10-24, for the same reason it counts in
+ * `convertersSettled`. A manager saying "10k+ transactions convert more" is
+ * describing something they have noticed, and whether the model files that as
+ * `user` (their own fact) or `user-belief` (their reading of why customers
+ * behave) is a coin toss on one sentence. Measured on
+ * `eval/runs/ui-s-1792842540156`: ticket size came back `retained` /
+ * `user-belief`, this function returned nothing, so the one-pattern probe
+ * never ran and the axis they had given was invisible to every rule that
+ * reads it.
+ *
+ * `assumption` still does not count, which is the line that matters: theirs
+ * versus ours, not which of two honest labels the model picked.
+ */
+export const seenAxes = (brief: WorkingBrief) =>
+  segmentationDimensions(brief).filter(
+    (d) => (d.basis === 'user' || d.basis === 'user-belief') && d.status === 'retained',
+  );
+
+/**
+ * "There is nothing else that splits who acts" — in their words, not ours.
+ *
+ * DELIBERATELY NOT `readsAsDecline` + `mentionsData`. That pair wants a
+ * data-noun, and "I do not track anything else" has none: the nouns here are
+ * ELSE, OTHER, SECOND, ONLY. Same family, different question.
+ */
+const closesOtherAxes = (text: string): boolean =>
+  [
+    /\b(do not|don'?t|dont|cannot|can'?t|no)\b[^.!?]{0,40}\b(track|have|see|seen|notice|noticed|know|got)\b[^.!?]{0,40}\b(anything else|any other|other pattern|another|second|else)\b/i,
+    /\b(nothing else|no other (pattern|split|factor|axis)|no second (split|pattern|axis|factor))\b/i,
+    /\bthat'?s? (the only|it|all)\b[^.!?]{0,30}\b(pattern|split|factor|thing|we track|we have)\b/i,
+    /\b(only|just)\b[^.!?]{0,20}\b(ticket size|that one|the one)\b[^.!?]{0,30}\b(pattern|split|nothing else)?/i,
+    /\bthat is all we (track|have|see)\b/i,
+    // THE SENTENCE THE PRODUCT ITSELF TEACHES. SYSTEM says "We do not track
+    // that" closes it, the hold's own text says "If you do not track anything
+    // else, say so", and the first-run fixtures type exactly that — and this
+    // matched none of it, so the manager said the taught words and the hold
+    // reprinted. Measured on `ui-s-1792770967470` and again today.
+    //
+    // ANAPHORIC ON PURPOSE: the object has to be a PRONOUN. "We do not track
+    // that" closes the question that was just asked; "we do not track
+    // conversion rates" and "we do not have conversion data" are about the
+    // scoreboard and must stay out — history has its own limitation, and
+    // letting it leak in here would close a question nobody answered.
+    /\b(do not|don'?t|dont)\s+(track|have|measure|record)\s+(that|it|those|them|any of that|either)\b/i,
+    /\bwe\s+(do not|don'?t|dont)\s+track\s+(that|it)\b/i,
+    // "NOT SOMETHING WE TRACK" — the whole of what the manager typed in
+    // `ui-s-1792839251135` turn 3, in answer to the named-axis probe. None of
+    // the patterns above reached it: there is no "else" noun and no pronoun
+    // object, because the object is the indefinite "something". The probe was
+    // answered and the record did not know.
+    //
+    // STILL ANAPHORIC. "something we track" refers to the thing just asked
+    // about; "we do not track conversion rates" names its own subject and
+    // stays out, because history has its own limitation and closing a
+    // question nobody answered is the one thing this may not do.
+    /\b(not|nothing)\s+(something|anything)\s+(we|i|they)\s+(track|measure|record|have|see)\b/i,
+    /\b(do not|don'?t|dont)\s+(track|measure|record)\s+(this|at all)\b/i,
+  ].some((re) => re.test(text));
+
+/**
+ * The fact that records a closed second-pattern question.
+ *
+ * Exported as a prefix so `otherAxesProbed` can recognise it without a second
+ * copy of the sentence. One definition, two readers.
+ */
+export const CLOSED_OTHER_AXES = 'They have closed the question of a second pattern:';
+
+/**
+ * Their reply closes the one-pattern probe, so the RECORD says so.
+ *
+ * MEASURED, `eval/runs/ui-s-1792770967470` turns 4 to 7. The manager answered
+ * it — the agent even wrote their answer down, as a dimension note reading
+ * "Manager confirmed they do not track any other pattern beyond ticket size"
+ * — and set `basis: 'none'` on those dimensions. `otherAxesProbed` reads
+ * `basis: 'user'`. So the hold reprinted for four turns over a question that
+ * had been answered in the first of them: their English did not write the
+ * field the gate reads.
+ *
+ * WHAT THIS WRITES, and nothing more: every segmentation dimension that is
+ * NOT the one axis they have seen becomes `unavailable`, `basis: 'user'`,
+ * carrying their own sentence as the note. The seen axis is untouched. No
+ * axis is invented. It only ever RELEASES a block, which is the rule this
+ * application runs on.
+ *
+ * SELF-GATING: exactly one seen axis is the state in which the probe is
+ * live, so the caller does not have to know which blocks fired.
+ */
+export function noteClosedOtherAxes(brief: WorkingBrief, text: string): WorkingBrief {
+  if (!text?.trim() || !closesOtherAxes(text)) return brief;
+  const seen = seenAxes(brief);
+  if (seen.length !== 1) return brief;
+  const seenName = seen[0].name.trim().toLowerCase();
+  const closing = segmentationDimensions(brief).filter((d) => d.name.trim().toLowerCase() !== seenName);
+  const quoted = text.trim().slice(0, 160);
+
+  // THE FACT IS WRITTEN WHETHER OR NOT THERE IS A ROW TO REWRITE, and that is
+  // the fix. This used to `return brief` when the only segmentation dimension
+  // was the seen axis — so on a brief where the agent had never parked a
+  // leftover category row, even a perfect "we don't track anything else" was
+  // a no-op and the hold reprinted. The manager answered and then clerked.
+  //
+  // ONE DEFINITION OF DONE: the fact records the closure, and
+  // `otherAxesProbed` reads it. Rewriting leftover dimensions is the same
+  // closure expressed in the rows that happen to exist, not a second rule —
+  // so both happen, every time they close.
+  //
+  // NO AXIS IS INVENTED. Writing a fake "merchant category" dimension to
+  // satisfy the two-user-dimensions rule would put a customer cut on the
+  // record that nobody named, and the next turn could design on it.
+  const withFact = recordFacts(brief, [
+    {
+      statement: `${CLOSED_OTHER_AXES} they track nothing else that splits who acts, so ${seen[0].name} is the axis. In their words: "${quoted}"`,
+      source: 'user-answer',
+      confidence: 'confirmed',
+      round: brief.rounds,
+    },
+  ]);
+  if (!closing.length) return withFact;
+  const note = `They said there is nothing else they track that splits who acts: "${quoted}"`;
+  return recordDimensions(
+    withFact,
+    closing.map((d) => ({ name: d.name, rationale: d.rationale, status: 'unavailable' as const, basis: 'user' as const, note })),
+  );
+}
+
+export function noteOpeningFacts(brief: WorkingBrief, text: string): WorkingBrief {
+  let out = noteVolunteeredLimitation(brief, text);
+  const facts: BriefFact[] = [];
+  if (readsAsDecline(text) && mentionsData(text)) {
+    facts.push({
+      statement:
+        'They have no campaign history, and said so themselves. There is no conversion rate, benchmark, baseline or past result to ask for — this run IS the first one.',
+      source: 'user-answer',
+      confidence: 'confirmed',
+      round: brief.rounds,
+    });
+  }
+  const window = statedWindow(text);
+  if (window) {
+    facts.push({
+      statement: `They asked for a plan over ${window}. That is the window the campaign has to work inside — do not ask how long they want.`,
+      source: 'user-answer',
+      confidence: 'confirmed',
+      round: brief.rounds,
+    });
+  }
+  return facts.length ? recordFacts(out, facts) : out;
+}
+
+/**
+ * The question the gate itself would ask next about CUSTOMERS.
+ *
+ * Exported so the two places that need it cannot drift: `evaluateDiscovery`'s
+ * fallback, and the substitution in `recordAsked` when a question is dropped
+ * for re-asking something already closed. Converters first, then barriers,
+ * because a campaign cannot be designed without both and the gate says so.
+ */
+export function nextCustomerQuestion(
+  brief: WorkingBrief,
+  opts?: { skipSuccess?: boolean },
+): string | null {
+  // ONCE THEY HAVE ANSWERED, THE JOB IS TO RECORD, NOT TO ASK AGAIN.
+  //
+  // This fired on exactly the state `ui-s-1792835962676` was stuck in: success
+  // not on the record AND a reply already in hand. It was written that way
+  // because `successCriteria` could only be filled from a propose payload, so
+  // "they told us and it is not recorded" had no other move. `record_findings`
+  // takes the field now, so that state means FILE IT — asking a third time for
+  // something they have said twice is the defect, not the fallback.
+  if (!opts?.skipSuccess && !(brief.successCriteria ?? []).length && !brief.answers.length) {
+    return 'How would you judge whether this campaign worked?';
+  }
+  // A SHAPE ON THE BRIEF STOPS THIS, which is stronger than waiting for
+  // `convertersSettled` and deliberately so.
+  //
+  // MEASURED, `eval/runs/ui-s-1792842540156`. The manager answered "10k+ txns
+  // convert more", the model wrote it as the shape, and `convertersSettled`
+  // was false on the basis label alone — so `recordAsked` injected this
+  // question as q0-4 AFTER they had answered q0-1 about the same thing. Their
+  // next reply reads "already said txn 10k+ convert more". The settledness
+  // rule is fixed above; this is the second lock, because the two reasons a
+  // shape can be unsettled are both reasons to say something OTHER than the
+  // generic question: an `assumption` shape needs the manager's view of what
+  // the AGENT wrote, and a non-answer shape needs the design to learn it.
+  //
+  // The BLOCK is untouched. `converters-unknown` still holds an assumption
+  // shape and its `clears.how` says what to do about it — this only stops the
+  // application printing a question they have already answered.
+  if (!convertersSettled(brief.converters) && !(brief.converters?.shape ?? '').trim()) {
+    return 'Who tends to do this already today — is there any pattern you have noticed, even a rough one? "We do not track that" is a complete answer.';
+  }
+  if (!designableBarriers(brief.barriers).length) {
+    return 'In your own words, what do you think is stopping the rest? An honest "I am not sure" is a useful answer.';
+  }
+  return null;
+}
 
 export function noteVolunteeredLimitation(brief: WorkingBrief, answer: string): WorkingBrief {
   if (!readsAsDecline(answer)) return brief;

@@ -257,8 +257,8 @@ describe('the tool loop terminates with an answer, not an error', () => {
     // Sending NO tools with that history made the model answer with an empty
     // turn and killed three evaluation scenarios outright. That is what must
     // not come back — not "every definition always travels".
-    expect(src).toMatch(/\.\.\.\(stopLookingUp \? \[\] : toolsForPhase\(designSeen \|\| isBuildTurn\)\)/);
-    expect(src).toMatch(/\.\.\.outputToolsForPhase\(isBuildTurn\),/);
+    expect(src).toMatch(/\.\.\.\(stopLookingUp \? \[\] : toolsForPhase\(phase !== 'asking' \|\| designSeen\)\)/);
+    expect(src).toMatch(/\.\.\.outputToolsForPhase\(phase\),/);
     // Still sent, now phase-filtered: the builder's vocabulary (event types,
     // audience attributes, step types) is withheld until the agent has stated
     // an intervention, so discovery is not conducted in the builder's terms.
@@ -272,7 +272,7 @@ describe('the tool loop terminates with an answer, not an error', () => {
     // entity names, attributes and operators from memory on the one turn where
     // each has to be exact. Discovery is unchanged: both false still means no
     // lookups, which is what keeps turn one from being a channel inventory.
-    expect(src).toMatch(/tools: \[\.\.\.toolsForPhase\(designSeen \|\| isBuildTurn\), \.\.\.outputToolsForPhase\(isBuildTurn\)\]\.map/);
+    expect(src).toMatch(/tools: \[\.\.\.toolsForPhase\(phase !== 'asking' \|\| designSeen\), \.\.\.outputToolsForPhase\(phase\)\]\.map/);
   });
 
   it('separates "nothing left to look up" from "budget spent"', () => {

@@ -57,7 +57,7 @@ describe('1 — the findings have a slot in every payload that can be refused fo
       expect.arrayContaining(['converters', 'barriers']),
     );
     for (const turn of [true, false]) {
-      expect(outputToolsForPhase(turn).map((t) => t.name)).toContain('record_findings');
+      expect(outputToolsForPhase(turn ? 'build' : 'asking').map((t) => t.name)).toContain('record_findings');
     }
   });
 

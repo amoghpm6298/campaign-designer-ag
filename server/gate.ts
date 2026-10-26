@@ -22,7 +22,7 @@
 // test check the invariant instead of trusting it. Anything worth telling the
 // agent that does NOT have a clearing mutation is advice, and advice does not
 // block.
-import { briefDimensions, isPlatformDimension, isTimingDimension, recordDimensions, type WorkingBrief } from './discovery';
+import { briefDimensions, isPlatformDimension, recordDimensions, seenAxes, segmentationDimensions, CLOSED_OTHER_AXES, type WorkingBrief } from './discovery';
 import { designableBarriers, convertersSettled, type Barrier, type Converters } from './findings';
 import { journeyReacts } from './optionAudit';
 import type { CampaignBlueprint } from './blueprint';
@@ -82,6 +82,7 @@ export interface Block {
     | 'unprobed-other-axes'
     | 'stacked-dimensions'
     | 'no-reaction'
+    | 'chose-clock-over-reaction'
     | 'single-channel-habit'
     | 'channel-spray';
   /** Said to the user, in their terms. Never names a field or an id. */
@@ -137,6 +138,49 @@ export function decide(
     return { proceed: true, blocks: [], advice: [...advice, ...blocks.map((b) => b.reason)], forcedBy: 'budget' };
   }
   return { proceed: blocks.length === 0, blocks, advice };
+}
+
+/**
+ * WHAT KIND OF TURN THIS IS. One fact, computed from one set of inputs, read
+ * by everything that behaves differently on a discovery turn, a propose turn
+ * and a build turn.
+ *
+ *   asking — may write the RECORD and may not write a PATH. No lookups, no
+ *            journey grammar in any schema, and a proposal is refused by the
+ *            record rather than by a missing field.
+ *   ready  — may propose. Lookups travel, the grammar travels, a plan without
+ *            its path is refused as a payload mistake.
+ *   build  — the plan is approved and this turn compiles it.
+ *
+ * WHY THIS IS A FUNCTION AND NOT SEVEN EXPRESSIONS. Each reader used to
+ * compute its own answer, and the inputs drifted: the schema asked
+ * `decide(brief, { proceedRequested: limitReached })`, the handler asked
+ * `decide(brief)` with no escape at all, and two more call sites passed only
+ * `saysProceed(latestUserText)`. So a manager typing "go ahead" on a thin
+ * record got a turn where `propose_strategy` carried `blueprint` and the
+ * handler refused the payload for being sent on an unfinished record — the
+ * schema and the handler contradicting each other, which is the shape of the
+ * live wall in `eval/runs/ui-s-1792834072700` turn 3.
+ *
+ * `limitReached` is already the union of every escape: the round budget,
+ * `forceProposal` from the button, and `saysProceed` on their latest message.
+ * Anything that reads a narrower one is a second escape set, and a refusal
+ * that outlives the instruction to stop refusing lives in the gap.
+ *
+ * EVALUATED PER MODEL ROUND, NOT ONCE PER TURN. Round one of a turn may file
+ * the last finding the record needed, and round two of the SAME turn is then
+ * genuinely ready to carry a path. Freezing this at the start of the turn
+ * would file success and then hold the asking schema for the rest of it,
+ * which is a one-round-late loop of exactly the kind this replaces.
+ */
+export type TurnPhase = 'asking' | 'ready' | 'build';
+
+export function turnPhase(
+  brief: WorkingBrief,
+  opts: { isBuildTurn: boolean; limitReached: boolean },
+): TurnPhase {
+  if (opts.isBuildTurn) return 'build';
+  return decide(brief, { proceedRequested: opts.limitReached }).proceed ? 'ready' : 'asking';
 }
 
 /** Just enough of a proposal to check it against the record. */
@@ -478,7 +522,7 @@ const REACTIVE_JOURNEYS = ['branch-on-response', 'wait-for-event'];
  * from the person who read it and did nothing? Two different outcomes named
  * anywhere in the list is the whole bar.
  */
-const namedOutcomes = (touches: { ifStillUnconverted?: string }[]): Set<string> => {
+export const namedOutcomes = (touches: { ifStillUnconverted?: string }[]): Set<string> => {
   const text = touches.map((t) => String(t.ifStillUnconverted ?? '')).join(' ␞ ').toLowerCase();
   const found = new Set<string>();
   // LANDED CASES ONLY, since 2026-10-23. `not-delivered` used to count here,
@@ -529,16 +573,31 @@ export function reactionBlocks(p: ProposalUnderReview | null): Block[] {
   const s = p?.strategy;
   if (!s) return [];
   const chosen = (s.architectures ?? []).find((a) => a?.chosen);
-  const journey = String(chosen?.journey ?? '').trim().toLowerCase();
-  if (!chosen || !REACTIVE_JOURNEYS.includes(journey)) {
+  const reactive = (a?: { journey?: string }) => REACTIVE_JOURNEYS.includes(String(a?.journey ?? '').trim().toLowerCase());
+
+  // A CLOCK IS A COMPLETE PLAN. Reversed 2026-10-24, and the reversal is of
+  // my own over-correction: the measured failure was a plan that CLAIMED a
+  // reaction and shipped a timed drip, and I generalised it into "a clock is
+  // never a plan". That is the application designing the campaign. A
+  // ticket-size split with a sensible cadence is a campaign a manager can run
+  // on Monday; unread-versus-read is intelligence worth having on top of it,
+  // not a pass mark.
+  //
+  // THE CLAIM IS STILL CHECKED AGAINST THE CHOICE, which is the shape this
+  // codebase trusts — same as an experiment declaring what it tests, or an
+  // option declaring `used`. Two things can be wrong, and only these two:
+  // claiming the upgrade without building it, and writing the upgrade then
+  // picking the weaker candidate.
+  if (!reactive(chosen)) {
+    const rival = (s.architectures ?? []).find((a) => reactive(a));
+    if (!rival) return [];
     return [
       {
-        code: 'no-reaction',
-        reason:
-          'A clock that treats unread, unreached and ignored as the same person is not a plan. What happens next has to depend on what the customer did — delivered, read, acted — as far as the channel can tell you. A ticket-size split and a wording test are not that.',
+        code: 'chose-clock-over-reaction',
+        reason: `You described a version of this campaign that treats someone who opened the message and someone who never did as two different people — "${String(rival.journey)}" — and then chose the one that goes by the calendar instead. The reacting one is the better campaign; pick it.`,
         clears: {
           field: 'architecture',
-          how: `Make the winner a candidate whose "journey" is ${REACTIVE_JOURNEYS.join(' or ')}. The rival it beats may be the clock — a statement-date or fixed-cadence plan is a legitimate alternative to weigh and reject. Do not invent a second customer problem to justify it.`,
+          how: 'Mark the candidate whose "journey" is branch-on-response or wait-for-event as the winner, and say in "whyChosen" what it does differently for the person who has not read it. Keep the who-split exactly as it is: ticket size is who they are, and the fork sits INSIDE a group. If on reflection the clock really is the better plan here, drop the reactive candidate rather than keeping it as a rival you beat.',
         },
       },
     ];
@@ -666,15 +725,33 @@ export function channelJobBlocks(p: ProposalUnderReview | null): Block[] {
   // Same person, same day, two channels. Keyed on path AND day, because
   // different channels on different days is exactly the shape wanted, and a
   // failure fork that re-sends on SMS the same day is a named path.
-  const sprayed = new Map<string, Set<string>>();
+  const sprayed = new Map<string, { channels: Set<string>; rows: typeof touches }>();
   for (const t of touches) {
     const key = `${String(t.path ?? 'all').trim().toLowerCase()}@${t.day}`;
-    const set = sprayed.get(key) ?? new Set<string>();
+    const cell = sprayed.get(key) ?? { channels: new Set<string>(), rows: [] };
     const ch = channelKey(t.channel);
-    if (ch) set.add(ch);
-    sprayed.set(key, set);
+    if (ch) cell.channels.add(ch);
+    cell.rows.push(t);
+    sprayed.set(key, cell);
   }
-  const clash = [...sprayed.entries()].filter(([, set]) => set.size >= 2);
+  // EXCLUSIVE ARMS ARE NOT TWO MESSAGES TO ONE PERSON.
+  //
+  // MEASURED, `ui-s-1792829868203` turn 5: day 2 carried an SMS for the
+  // person who had not read the first message and a WhatsApp for the person
+  // who had, both on "Standard ticket" — ONE fork, and nobody receives both.
+  // Counting them as fatigue sent the manager back to rename paths, which is
+  // how they ended up clerking DELIVERED by hand.
+  //
+  // Read off the rows themselves: two rows naming DIFFERENT landed cases are
+  // the two sides of one fork. The same sentence on both means both would
+  // fire, which is the real thing this block is for.
+  const exclusiveArms = (rows: typeof touches): boolean => {
+    const cases = rows.map((r) => [...namedOutcomes([r])].sort().join('+')).filter(Boolean);
+    return cases.length >= 2 && new Set(cases).size === cases.length;
+  };
+  const clash = [...sprayed.entries()]
+    .filter(([, cell]) => cell.channels.size >= 2 && !exclusiveArms(cell.rows))
+    .map(([key, cell]) => [key, cell.channels] as const);
   if (clash.length) {
     out.push({
       code: 'channel-spray',
@@ -683,25 +760,19 @@ export function channelJobBlocks(p: ProposalUnderReview | null): Block[] {
         .join('; ')}). That is fatigue rather than coverage — the second one arrives before the first has had a chance to work.`,
       clears: {
         field: 'touches',
-        how: 'Put the second channel on a different day, or on the failure fork only — reached when the first was not delivered — rather than alongside it.',
+        how: 'Put the second channel on a different day, or on one ARM of a fork, so one person gets one message that day — the one who has not read the first message on one channel, the one who has read it on another. If they are already exclusive arms, say which landed case each row is for in "ifStillUnconverted": unread and read-with-no-action are two different people, not two sends to the same one.',
       },
     });
   }
   return out;
 }
 
-/**
- * Dimensions that could actually cut a journey by customer.
- *
- * Platform settings never reach the record (`recordDimensions` drops them),
- * and a timing finding is kept but is not an axis — see `isTimingDimension`.
- */
-const segmentationDimensions = (brief: WorkingBrief) =>
-  briefDimensions(brief).filter((d) => !isPlatformDimension(d.name) && !isTimingDimension(d.name));
-
-/** A pattern the manager has SEEN, which is the only thing a cut may rest on. */
-const seenAxes = (brief: WorkingBrief) =>
-  segmentationDimensions(brief).filter((d) => d.basis === 'user' && d.status === 'retained');
+// `segmentationDimensions` and `seenAxes` MOVED TO discovery.ts, 2026-10-24,
+// and are imported above. `noteClosedOtherAxes` needs the same two rules to
+// decide which dimensions a manager's "nothing else" closes, and a second
+// copy of them is how this file's own history says things drift. Platform
+// settings never reach the record (`recordDimensions` drops them), and a
+// timing finding is kept but is not an axis — see `isTimingDimension`.
 
 /**
  * Has anyone asked whether there is a SECOND pattern?
@@ -724,11 +795,59 @@ export function otherAxesProbed(brief: WorkingBrief): boolean {
   if (seg.filter((d) => d.basis === 'user').length >= 2) return true;
   if (seg.some((d) => d.basis === 'user' && (d.status === 'deferred' || d.status === 'unavailable') && (d.note ?? '').trim()))
     return true;
-  return (brief.questions ?? []).some(
-    (q) =>
-      q.addressedInRound !== undefined &&
-      /\banything else\b|\bother pattern\b|\bany other\b|\bbesides\b|\belse have you seen\b/i.test(q.text ?? ''),
-  );
+  if (
+    (brief.questions ?? []).some(
+      (q) =>
+        q.addressedInRound !== undefined &&
+        /\banything else\b|\bother pattern\b|\bany other\b|\bbesides\b|\belse have you seen\b/i.test(q.text ?? ''),
+    )
+  )
+    return true;
+
+  // A FIFTH WAY, AND IT IS STRUCTURAL RATHER THAN A PHRASE.
+  //
+  // MEASURED, `eval/runs/ui-s-1792842540156`. The probe went out as "BEYOND
+  // transaction size, have you noticed any difference by purchase category or
+  // merchant type…", the manager answered it ("nothing as of now"), and the
+  // regex above wanted "besides". Adding "beyond" would buy one run and lose
+  // the next: the question is the agent's own prose and there is no list of
+  // its wordings.
+  //
+  // So this reads the RECORD instead. Once a pattern has been seen, a question
+  // we asked that NAMES another axis on the brief — and that they have
+  // answered — is the probe, whatever words it used. Two halves, each
+  // auditable: the axis is a dimension row, and `addressedInRound` is the
+  // ingest write. A question still outstanding does not count, which is the
+  // case the test pins.
+  const seen = new Set(seenAxes(brief).map((d) => d.name.trim().toLowerCase()));
+  if (seen.size) {
+    const answered = (brief.questions ?? []).filter((q) => q.addressedInRound !== undefined);
+    const others = seg.filter((d) => !seen.has(d.name.trim().toLowerCase()));
+    const namesTheAxis = (text: string, axis: string): boolean => {
+      // Content words of the axis name, matched against the question text.
+      // "purchase category or merchant type" against "...by purchase category
+      // or merchant type — for example electronics..." shares all four.
+      const words = axis
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length > 3 && !['type', 'kind', 'with', 'from', 'that', 'this', 'their'].includes(w));
+      if (!words.length) return false;
+      const hay = text.toLowerCase();
+      const hits = words.filter((w) => hay.includes(w)).length;
+      return hits >= Math.min(2, words.length);
+    };
+    if (others.some((d) => answered.some((q) => namesTheAxis(q.text ?? '', d.name)))) return true;
+  }
+
+  // A FOURTH WAY, AND IT IS THE ONE THE MANAGER ACTUALLY USES: they said so in
+  // chat, and `noteClosedOtherAxes` wrote it down as a confirmed fact.
+  //
+  // The three above read dimensions and question text, and a conversation is
+  // neither — so the taught answer ("We do not track that") could be given,
+  // recorded in prose, and still leave this false. Evidence rather than
+  // effort, like the others: the fact exists only because their own sentence
+  // closed the question, and the quote is in it.
+  return (brief.facts ?? []).some((f) => f.statement.startsWith(CLOSED_OTHER_AXES));
 }
 
 /** Every reason the agent may not propose yet, most actionable first. */
@@ -840,7 +959,23 @@ export function blocksFor(brief: WorkingBrief): Block[] {
   }
 
   const dims = (brief.dimensions ?? []).filter((d) => !isPlatformDimension(d.name));
-  if (dims.length < MIN_DIMENSIONS) {
+  // THREE RAISED LINES OF ENQUIRY ARE NOT A SECOND INVESTIGATION.
+  //
+  // MEASURED, `eval/runs/ui-s-1792842540156`. The manager had given the one
+  // pattern they have seen, and answered the probe for a second with "nothing
+  // as of now". Two real rows — ticket size, and the category they do not
+  // track — and this asked for a third. There is no third to raise: the only
+  // way to satisfy it would be for the agent to invent an axis nobody named,
+  // which is the thing every rule in this file exists to stop, and then the
+  // record would carry a customer cut out of nowhere.
+  //
+  // `MIN_DIMENSIONS` still means what it meant while the search is open: a
+  // confident single angle is not a considered one. What closes the search is
+  // a seen axis plus an ANSWERED probe for another, which is exactly the pair
+  // `unprobed-other-axes` above is built on — so the two rules agree by
+  // construction rather than by wording.
+  const searchIsDone = seenAxes(brief).length >= 1 && otherAxesProbed(brief);
+  if (dims.length < MIN_DIMENSIONS && !searchIsDone) {
     out.push({
       code: 'too-few-dimensions',
       reason: `I have only weighed ${dims.length} angle${dims.length === 1 ? '' : 's'} so far, and being confident about one is not the same as having considered the alternatives.`,

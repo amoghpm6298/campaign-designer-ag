@@ -214,11 +214,22 @@ describe('what this replaces is gone from the new path', () => {
 
   it('keeps MIN_DIMENSIONS meaningful rather than unreachable', () => {
     expect(MIN_DIMENSIONS).toBe(3);
+    // RETARGETED 2026-10-24. The fixture used to carry two `retained` /
+    // `user` rows, which is now a CLOSED search: a seen axis plus a second
+    // axis the manager has spoken about is the pair that retires this block,
+    // because the only way to reach three from there is for the agent to
+    // invent an axis nobody named. Measured on
+    // `eval/runs/ui-s-1792842540156`, where it asked for a third row on a
+    // brief holding both of the manager's answers.
+    //
+    // The rule still has to be reachable and clearable WHILE THE SEARCH IS
+    // OPEN, which is what this now uses: two angles the agent raised itself,
+    // nothing seen, no probe answered.
     const two: WorkingBrief = {
       ...recordReply(recordAsked(newBrief('o'), [{ text: 'q' }], 'agent'), 'a'),
       dimensions: [
-        { name: 'A', rationale: 'r', status: 'retained', basis: 'user' },
-        { name: 'B', rationale: 'r', status: 'retained', basis: 'user' },
+        { name: 'A', rationale: 'r', status: 'open', basis: 'assumption' },
+        { name: 'B', rationale: 'r', status: 'open', basis: 'assumption' },
       ],
     };
     const block = blocksFor(two).find((b) => b.code === 'too-few-dimensions');

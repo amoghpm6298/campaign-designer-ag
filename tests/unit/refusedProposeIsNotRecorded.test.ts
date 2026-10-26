@@ -50,6 +50,15 @@ const answered = () => {
     { name: 'Purchase size', rationale: 'They said bigger ones convert more.', status: 'retained', basis: 'user', note: 'Their own observation.' },
     { name: 'Channel preference by segment', rationale: 'Different groups may respond on different channels.', status: 'unavailable', basis: 'none', note: 'No per-customer channel history for this tenant.' },
   ]);
+  // AND A RECORD THE GATE CALLS READY, since 2026-10-24. The tool refuses a
+  // proposal differently when discovery is unfinished — "discovery is not
+  // finished, this tool has no path on it this turn" — so a fixture about
+  // anything else has to pass the record gate or it tests that instead.
+  b = recordDimensions(b, [
+    { name: 'purchase ticket size', rationale: 'They said so.', status: 'retained', basis: 'user', note: 'Theirs.' },
+    { name: 'merchant category', rationale: 'Asked about.', status: 'unavailable', basis: 'user', note: 'They do not track it.' },
+    { name: 'prior EMI usage', rationale: 'Asked about.', status: 'unavailable', basis: 'user', note: 'They do not track it.' },
+  ]);
   return recordSuccessCriteria(b, ['More eligible purchases converted.']);
 };
 

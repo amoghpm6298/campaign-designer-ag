@@ -3014,3 +3014,971 @@ a seventh time: `tests/unit/support/journeys.ts` exports `reactingPath()`.
 Two tests were FLIPPED rather than retargeted — the ones pinning that a
 missing journey is silent — and both carry the old reasoning, because it was
 correct when there was no legal way to send one.
+
+## 2026-10-23 (cont'd) — The catalogue is a tool call, not a paste
+
+The builder's vocabulary was being stuffed into the prompt — and, once
+`propose_strategy` started carrying the path, into its schema on asking turns
+too. Both are the same mistake in two places: handing the agent the filterable
+field list as TEXT, on turns that are not writing steps, while withholding the
+LOOKUPS from the one turn that is.
+
+### Three phases, two facts
+
+`outputToolsForPhase(isBuildTurn, journeyAllowed = false)`:
+
+- **asking** — record tools, `ask_questions`, `request_evidence`, and
+  `propose_strategy` **stripped of `blueprint` and `$defs`**. The tool stays,
+  because the GATE decides when a proposal is allowed; a model that proposes
+  early should be refused by the record rather than left unable to speak. Its
+  schema drops from 9,991 to 3,707 characters, and no step kind, stage enum or
+  entry shape reaches that turn.
+- **propose-ready** — the same list with the grammar back.
+- **Confirm** — unchanged: `build_campaign`, no `propose_strategy`.
+
+The stripper returns a copy, and there is a test for that: mutating
+`OUTPUT_TOOLS` in place would have removed `blueprint` for every later caller
+in the process.
+
+`toolsForPhase(isBuildTurn || journeyAllowed() || designSeen)` — lookups now
+travel with the path. Propose-ready is the turn that must name real events,
+attributes, operators and values, because **Confirm compiles exactly its
+path**, so a name guessed there becomes a condition dropped from the
+manager's canvas. Asking leaves all three operands false and gets nothing.
+
+### Nothing pastes the catalogue any more
+
+`blueprintVocabulary` is gone from `buildContextPrompt` on both the ready and
+the build branch — the import with it. What replaces it on a ready turn is
+three sentences: carry the path in `propose_strategy.blueprint`, look it up
+before writing it (naming the four tools and what each answers), and do not
+call `build_campaign`. Confirm keeps CHECK, DO NOT RECALL, which now means
+something because the lookups are actually on the call. Asking still gets NO
+BLUEPRINT THIS TURN. One joined string per branch, no nested lists.
+
+`issuerContext` stays on every turn: which channels an issuer has is bank
+context and shapes a strategy.
+
+In SYSTEM, one line changed — "Use the catalogue's per-channel list" became
+"Call list_channels for that channel's own status list". HOW TO DESIGN is
+untouched.
+
+### Retargeted, not deleted
+
+`discoveryIsBusinessOnly`'s central pin was "the vocabulary arrives only when
+something is being BUILT", enforced by gating a paste. The rule it protected
+is intact and the instrument changed, so the test now pins that **nothing**
+pastes it (`'# Vocabulary you must stay inside'` and
+`blueprintVocabulary(availableChannels` appear nowhere in the orchestrator),
+that the lookups are gated on the three-way expression, and that an asking
+turn's `propose_strategy` carries no `"branch"`, `"waitForEvent"`,
+`first-touch`, `campaignName`, `$defs` or `extraEntityGroups`.
+
+**A first version of that assertion failed on a bare `"kind"`** — which is
+`openItems[].kind`, a legitimate field with nothing to do with steps. Measured
+and narrowed to the strings that are actually the grammar.
+
+Four source-text pins on `toolsForPhase(designSeen || isBuildTurn)` and
+`outputToolsForPhase(isBuildTurn)` were repointed at the new expressions, in
+`confirmReachesGeneration`, `conversationFlow`, `emptyRoundRecovery` and
+`turnOneAndQuestionList`.
+
+### A test that was asserting something else than it said
+
+`turnOneAndQuestionList`'s "still tells the agent which channels exist" read
+`typeof req.system === 'string' ? req.system : ... req.messages` — and
+`system` is always a string, so the messages were never consulted and the
+assertion was really "the channel names are hardcoded in the method prompt".
+It now reads the whole request, which is what its own comment claims. The
+channel list lives in `issuerContext`, in the first user message, which is
+where bank context belongs.
+
+That test went red from an uncommitted SYSTEM pass in the working tree (HEAD's
+SYSTEM contains all four channel names; the working copy contains only SMS) —
+not from this change. Fixing the ternary is the repair either way.
+
+### Verified
+
+1421 unit and 118 agent-proto. `tsc --noEmit`, `server:typecheck` and
+`npm run build` clean.
+
+Reverting the asking-turn strip fails 2; reverting the lookups to
+`designSeen || isBuildTurn` fails 2.
+
+`llm-prompt.html` regenerated: the catalogue row reads "No longer pasted
+anywhere", operators and allowed values are `result` on both propose and
+Confirm, the journey grammar is `schema` on both and absent on asking, and
+the propose panel says the catalogue arrives only if the model calls a lookup.
+
+### Not in this change
+
+No short-system rewrite, no drip PRD, no IN_APP work. The uncommitted SYSTEM
+and test edits already in the tree are left exactly as they are.
+
+### Same day — the escape could not comply with the rule it was held to
+
+The phasing above was right for discovery and wrong for a forced propose.
+`journeyAllowed` excluded the gate's escapes, so a manager typing "go ahead",
+or a spent round budget, produced a turn that MUST propose with no
+`blueprint` field in `propose_strategy`'s schema and no lookups on the call —
+while `applyOutputTool` refused a plan without a path and `reactionBlocks`
+held one, both telling the model to send the thing it had no way to send.
+Before the strip, every converse turn's `propose_strategy` carried the
+grammar, so a forced propose could attach a path. The strip made that a
+regression.
+
+**The obvious fix is half a fix, and measuring showed which half.**
+`decide(brief, {}).proceed` sees the BUDGET escape, because rounds live on the
+record — and misses the typed one entirely, because "go ahead" is a fact about
+the TURN. Measured on a thin record: budget-spent gives `proceed: true,
+forcedBy: 'budget'`, while "ok go ahead" gives `proceed: false` from the
+record and `forcedBy: 'user'` only in the turn's own decision. A record-only
+reading would have left exactly the half a manager triggers by typing.
+
+So it is the same input the turn's own decision uses:
+
+```ts
+const journeyAllowed = () => !isBuildTurn && decide(brief, { proceedRequested: limitReached }).proceed;
+```
+
+`limitReached` already folds rounds spent, `forceProposal` and `saysProceed`,
+and `decide` short-circuits on it. `readyForPlan` is folded in: nothing else
+needed "ready and not forced". Verified end to end — asking gets 0 lookups and
+no blueprint field; budget-spent and "go ahead" both get 5 lookups and the
+blueprint field.
+
+**Two prompt lies went with it.** `# How to write this turn` named all five
+tools on every turn, including `build_campaign` on a discovery turn where it
+is not registered — and naming a tool the model cannot call is how a live
+Confirm came to reply that the build was unavailable to it. It is now one
+sentence per phase. And SYSTEM's journey line said "Call list_channels" on
+asking turns where that tool does not exist; it now says "Where list_channels
+is on the turn". SYSTEM is 32,301 and HOW TO DESIGN is untouched.
+
+The retargeted pin is "releases it on EVERY turn that may propose, escapes
+included" — a source grep for the expression plus the behaviour on all three
+brief states, so the next person to narrow it has to read why. Reverting to
+either the old conjunct or the record-only reading fails it.
+
+1422 unit, 118 agent-proto, typechecks and build clean. `llm-prompt.html`
+regenerated: the propose panel says a forced propose lands there too.
+
+## 2026-10-24 — The loop was the record, not the gate
+
+`eval/runs/ui-s-1792770967470`. Confirm landed on turn 7 after the manager had
+repeated the same two facts four times. Every hold was correct. What made it a
+loop is that their English did not write the fields the gate reads, and a held
+propose threw the payload away. Three fixes, all record-side.
+
+### 1. A labelled send is not a blank send
+
+Turn 8's Confirm raised "needs an objective", "needs a name" AND "needs a
+describe" on four sends that carried `label`, `copy` and `cta` — twelve issues,
+`designGenerated: false`, export blocked on a journey that already had
+everything a person needs to read it.
+
+`describe` was the leftover. The other two read `name || label` and
+`describe || copy`; this one read `describe || copy` alone, while the value
+that actually fills the step two lines below is `givenDescribe || givenName`.
+One condition for all three now: report when the send says NOTHING, stay quiet
+when it says something under a different field name. The genuinely blank send
+still reports all three and is still built, never deleted.
+
+### 2. Their sentence closes the probe
+
+`unprobed-other-axes` clears only through `otherAxesProbed`, which wants a
+second segmentation dimension with `basis: 'user'` or a recorded question
+matching "anything else". In turn 4 the manager closed it — and the agent WROTE
+their closure down, as a dimension note reading *"Manager confirmed they do not
+track any other pattern beyond ticket size"*, with `basis: 'none'`. The gate
+reads the basis, not the note. So the hold reprinted through turns 5, 6 and 7
+over a question answered in the first of them.
+
+`noteClosedOtherAxes(brief, text)` sits beside `noteOpeningFacts` and runs on
+EVERY converse turn, outside all three existing branches — each of those is
+conditional on something (pending evidence, an outstanding question, a changed
+objective) and this must not be. `brief.answers` never grew past turn 4 either,
+because every question was already addressed and nothing recorded the reply, so
+reading `latestUserText` directly is what makes it work in exactly that state.
+
+When their sentence says there is nothing else, every segmentation dimension
+that is NOT the seen axis becomes `unavailable`, `basis: 'user'`, carrying their
+words as the note. Ticket size untouched. No axis invented. It only ever
+RELEASES.
+
+**`readsAsDecline` + `mentionsData` was the wrong pair** and that is worth
+keeping: they want a data-noun, and "I do not track anything else" has none.
+The nouns here are ELSE, OTHER, SECOND, ONLY.
+
+`segmentationDimensions` and `seenAxes` moved from `gate.ts` into
+`discovery.ts` and are imported back, because both files now need the same two
+rules and gate already imports discovery — the other direction is a cycle.
+
+### 3. A refusal on one point is not a reason to start the rest again
+
+Turns 5 and 6 each produced a `propose_strategy` result and were held. The
+held branch returns `strategy: null` and `pendingBlueprint: null` — correctly,
+nothing is approvable — and that threw the payload away, so each attempt
+started from the model's MEMORY of the last one. A payload with seven named
+paths and real per-case fallbacks was refused for something else; the next one
+came back with two paths and a generic "still unconverted".
+
+`brief.lastProposal` carries the last ACCEPTED proposal (plan + path) across a
+hold, written only when `propose_strategy` returns ok with non-empty steps.
+`fillFromLastProposal` restores three regressions in a LATER call:
+
+- no steps at all → the stashed path;
+- fewer than two landed cases named, when the stash named two or more → the
+  stashed `ifStillUnconverted`, matched by path, or by channel when the path
+  was renamed;
+- paths exploded into engagement arms ("{who} — unread arm") → collapsed back
+  to the who-split. Unread and read are what the JOURNEY forks on; as path
+  names they double the audience count and leave every path one send deep.
+
+**It will not merge a linear clock over a stashed outcome fork.** If this
+payload's journey does not react and the stashed one did, the stash is left
+alone and `reactionBlocks` holds the turn — swapping the journey silently would
+hand back an approval for steps the model did not send. A first propose with no
+journey is still refused: there is nothing stashed to fill from. And the tool
+result says what it restored rather than doing it quietly.
+
+Confirm still appears only when `decide().proceed`, and a held plan still never
+reaches `pendingBlueprint`.
+
+### Verified
+
+1443 unit (from 1426; 3 in `missingTemplate`, 5 in `probeThenLock`, 9 new in
+`heldProposeKeepsItsColumns`) and 118 agent-proto. `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. SYSTEM untouched at 32,301 — no
+prompt was added for any of this.
+
+Reverting the `describe` condition fails 2; disabling `noteClosedOtherAxes`
+fails 2; dropping the stash write fails 4.
+
+## 2026-10-24 (cont'd) — A clock may win. Unread/read is an upgrade, not a
+pass mark
+
+`eval/runs/ui-s-1792829868203` turns 3 to 5. Turn 3: six prose captions
+accepted as `blueprint.steps`, then held `no-reaction`. Turn 4: a real fork,
+held `cadence-unnamed`, with path names like "High ticket - delivered, not
+read". Turn 5: two paths plus a day-2 SMS and a day-2 WhatsApp on "Standard
+ticket", held `channel-spray` — the two exclusive arms of one fork counted as
+two sends to one person. The manager ended up clerking DELIVERED by hand.
+
+### The reversal, and it is of my own over-correction
+
+`reactionBlocks` refused any winner that was not branch-on-response or
+wait-for-event. The measured failure it came from was narrower: a plan that
+CLAIMED a reaction and shipped a timed drip. I generalised that into "a clock
+is never a plan", which is the application designing the campaign — a
+ticket-size split with a sensible cadence is something a manager can run on
+Monday.
+
+What survives is the shape this codebase actually trusts: **compare the claim
+against the choice.** Two things can be wrong and only these two.
+
+- *Claimed and not built* — a reactive winner still needs two landed cases
+  named in `touches` AND a blueprint that `journeyReacts`. A ticket-size
+  diamond alone is not that fork: who they are is not what they did.
+- *Written and then abandoned* — a new code, `chose-clock-over-reaction`. If
+  the architectures include a reactive candidate and the winner is the clock,
+  they described the upgrade and picked the weaker one. The refusal says so in
+  their terms, keeps the who-split explicitly, and offers dropping the rival
+  as a legal move, so it cannot trap.
+
+If every candidate is a clock, there is no hold. **A who-split plus a clock
+Confirms**, which is the end of the story this slice is about.
+
+The old "no chosen candidate at all" hold did not need keeping: a proposal
+with a reactive candidate and no winner lands in the new rule, which is the
+case that matters.
+
+### They stack: who-split, then a fork inside a group
+
+SYSTEM's "EVEN SPACING WITH NO REACTION IS NOT A PLAN" was fighting all of
+this and is replaced in words, not shortened away: a steady cadence is a
+complete plan; unread/read is intelligence on top, worth having where it
+changes the next job; the fork may sit on the first send and on a later one
+only if those two people need a different job, and if they would get the same
+reminder, do not fork; copy matches the arm — repeat the fact to someone who
+has not read it, change the argument for someone who has; unread and read are
+NOT two more audiences; and if both candidates are written, the reacting one
+wins. 32,757 against the 33,500 cap.
+
+### The form must not mix who with what they did
+
+**Captions are not steps.** The tool accepted a "6-step path" of prose because
+the check asked only whether the array was non-empty; the compiler would have
+hit `Unknown step kind "undefined"` on each one. It now requires every element
+to be an object with a string `kind`, and the refusal names the grammar. A
+first propose with no journey is still refused the same way.
+
+**The ARM regex died on a comma.** `[^,]*?` could not match "High ticket -
+delivered, not read" or "Standard ticket - both arms", so nothing collapsed
+and the engagement arm stayed in the path name. Anchored on the separator
+after the WHO name now; once the suffix starts with a landed case the rest may
+say anything. A who-name that merely contains a hyphen ("Co-brand cards") is
+left alone, and there is a test for that.
+
+**Exclusive arms are not spray.** Two rows on one path and one day with
+different channels are the two sides of one fork when their
+`ifStillUnconverted` name DIFFERENT landed cases — nobody receives both. The
+same sentence on both still means both would fire, which is the fatigue the
+block exists for. `clears.how` no longer says "put SMS on the undelivered
+fork": unread and read are landed cases, and the fix is one arm each.
+
+Also fixed while in there: the live turn-5 tool result read "I restored the
+journey, from the last plan you sent that I accepted from the last plan you
+sent that I accepted" — my own duplicated clause from yesterday.
+
+### Verified
+
+1451 unit (from 1443) and 118 agent-proto. `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean.
+
+Reverting the clock-may-win branch fails 3; reverting the exclusive-arms
+exemption fails 1; reverting the caption guard fails 2.
+
+Nothing auto-inserts a fork, Confirm does not require unread/read, and a held
+plan still never reaches `pendingBlueprint`.
+
+### Same day — the probe reprinted after the taught answer
+
+Two bugs, both mine from the fix above, both measured before touching
+anything.
+
+**`closesOtherAxes` did not match the sentence the product teaches.** SYSTEM
+says "We do not track that" closes it, the hold's own text says *"If you do
+not track anything else, say so"*, and the first-run fixtures type exactly
+that — and the matcher only knew "anything else", "no other pattern" and
+"that is all we track". So the manager gave the taught answer and the hold
+reprinted.
+
+Added anaphoric forms: `do not track that | it | those | them | any of that |
+either`. **The object has to be a PRONOUN**, which is what keeps the
+scoreboard out: "we do not track that" closes the question just asked, while
+"we do not track conversion rates" and "we do not have conversion data" are
+about history, which has its own limitation. Letting those in would close a
+question nobody answered, and there are now four negatives pinning it.
+
+**`noteClosedOtherAxes` bailed when there was nothing to rewrite.** `if
+(!closing.length) return brief` — so on a brief whose only segmentation
+dimension was the seen axis, because the agent had never parked a leftover
+category row, even a perfect "we don't track anything else" was a no-op. The
+good sentence failed too.
+
+It now writes a confirmed FACT whenever they close — quoting them, the same
+instrument `noteOpeningFacts` uses for "no campaign history" — and rewrites
+leftover dimensions as well when there are any. **One definition of done, not
+two.** `otherAxesProbed` gains a fourth leg that reads that fact: the three
+older ones read dimensions and question text, and a conversation is neither.
+
+No axis is invented. Writing a fake "merchant category" row to satisfy the
+two-user-dimensions rule would put a customer cut on the record nobody named,
+and the next turn could design on it. The seen axis is untouched, including
+the manager's own "₹10,000 line" in its note.
+
+**A test of mine was wrong and the code was right:** I asserted that no rupee
+figure appears anywhere in the dimensions after a close, which correct
+behaviour fails — THEIR figure is in that note and must survive. The
+invention worth forbidding is a cutoff the application wrote, and the way to
+check it is that nothing changed.
+
+No new hold, no new question, one call site, SYSTEM untouched at 32,757.
+
+1453 unit and 118 agent-proto. Dropping the "track that" patterns fails 3;
+restoring the early return fails 1; letting a conversion-rate close count
+fails 1.
+
+## 2026-10-24 (cont'd) — The tool schema and the tool result were telling the
+model opposite things
+
+`eval/runs/ui-s-1792834072700` turn 3. The manager had just given the
+barrier. Discovery was not finished: no success measure, the second-pattern
+probe never asked, two dimensions one of which was the agent's own assumption.
+So `journeyAllowed` was false and `outputToolsForPhase` had stripped
+`blueprint` and `$defs` off `propose_strategy` — correctly; the agent must not
+learn the builder while it is still asking who converts.
+
+Then `applyOutputTool` refused every submit with *"Send the SAME plan again
+with "blueprint" filled in — the path you are asking them to approve, in the
+same grammar build_campaign uses"*, and the orchestrator wrapped it with *"do
+not start over and do not go back to discovery"*. **Five attempts, identical
+error**, including an invented object using `type` instead of `kind`, an
+array, and a paragraph. The agent then dumped the plan into the chat and asked
+the manager to approve it by hand. `strategy` stayed null, Confirm never
+appeared. It was right to call that a wall.
+
+The comment above `withoutJourneyGrammar` already said the intended shape: a
+model that proposes early is refused BY THE RECORD, not told to send a field
+the tool does not have.
+
+### Two exits, and they no longer share a sentence
+
+`decide(brief).proceed` false — this turn cannot carry a journey. Refused
+whatever arrived, including a `blueprint` smuggled in as an extra field. The
+message never says "filled in", "the SAME plan", "build_campaign" or a step
+kind. It says discovery is not finished, names what is actually still open
+(how they would judge success; whether anything else they have SEEN splits who
+acts), and says to ask or to record instead — plus, because this is what the
+live agent did, *do not put the plan in the chat and ask them to approve it by
+hand*. `strategy` stays undefined and nothing is stashed.
+
+`decide(brief).proceed` true — today's checks, unchanged: a real blueprint,
+steps that are objects with a string `kind`, captions refused with the grammar
+named, fill-from-stash as it was.
+
+And the orchestrator's wrapper is now gated on the ready-turn error. It is a
+PAYLOAD correction — "one thing is wrong, fix it and resend" — and appended to
+"discovery is not finished" it told the model to resend a plan it had just
+been told it may not send. That is why the live model resubmitted five times
+instead of asking.
+
+**One residual, stated rather than discovered later.** The schema is gated on
+`journeyAllowed`, which includes the turn's escapes (`limitReached` folds
+rounds, `forceProposal` and `saysProceed`); this reads `decide(brief)`, which
+sees the record and the round budget but not a manager typing "go ahead" on a
+thin record. On that one turn the field is in the schema and this still reads
+not-ready. Closing it needs the flag threaded into `applyOutputTool`, which
+the brief alone cannot supply.
+
+### Six fixtures were never gate-ready
+
+`heldProposeKeepsItsColumns`, `outputTools`, `refusedProposeIsNotRecorded`,
+`outcomeBranch`, `proposeTurnDefects` — all called `propose_strategy` on briefs
+that passed the TOOL's own checks and not the record gate, so they were
+testing the asking-turn path while claiming to test architectures, renderers
+and stash merges. Each now carries converters, success criteria and three
+reasoned dimensions. **Seventh slice running** that a new structural check
+exposed fixtures written as "valid for the checks that existed then"; the
+difference this time is that the check revealed they were never ready in the
+first place.
+
+### Verified
+
+1461 unit and 118 agent-proto. `tsc --noEmit`, `server:typecheck` and
+`npm run build` clean. SYSTEM untouched at 32,757; `blueprint` is still off
+the asking-turn schema; no prose plan is accepted so Confirm can appear.
+
+Putting "send blueprint" back on an asking-turn miss fails 3; dropping the
+path requirement on a ready turn fails 6; appending the wrapper to every
+propose failure fails 1; restoring `blueprint` on the asking schema fails 2.
+
+## 2026-10-24 (cont'd) — One fact about the turn; an asking turn may write the
+record and may not write a path; the asking prompt is discovery only
+
+Three slices in the order they depend on each other. A is plumbing, C is the
+product fix the live run demanded, B only shortens the asking prompt.
+
+### Measured first, and the second run is worse than it reads
+
+`ui-s-1792834072700` turn 3: the asking schema had no `blueprint`, the handler
+demanded one, five identical errors, the plan dumped into the chat.
+
+`ui-s-1792835962676` turn 3: **three** `propose_strategy` calls, each carrying
+the manager's own measure in `successCriteria` — *"the count of EMI-eligible
+purchases that convert during the 7-day window, per the manager's own
+instruction"* — all three refused whole, `brief.successCriteria` still `[]` on
+turns 1, 2 and 3. The reply then opened:
+
+> "I'm hitting a gate that still treats 'how success should be judged' as
+> unresolved, even though you've told me twice it's the number of purchases
+> converted."
+
+The agent reported our bug to the campaign manager, in the chat, by name. It
+also spent three `record_dimensions` retries looking for a door that did not
+exist, and one of those failed too.
+
+**And we had already written the catch-22 down.** `discovery.ts` ~2417: *"
+`successCriteria` lags by one turn because it is only populated from the
+model's own propose payload, so the brief must say 'record it', not 'ask
+again'."* That field existed on ONE tool, the one an asking turn refuses, and
+`briefForPrompt` instructed the model to record it there. The brief named a
+field the turn could not reach — the same shape as the schema-versus-handler
+contradiction, one layer up. `nextCustomerQuestion` then re-asked on exactly
+that state: success empty AND a reply already in hand.
+
+### Slice A — `turnPhase(brief, { isBuildTurn, limitReached })`
+
+`asking | ready | build`, in `gate.ts`, and every reader takes it.
+
+Seven places behaved differently per phase and each computed its own answer:
+`systemForPhase(isBuildTurn, journeyAllowed)` (two booleans, four states, one
+impossible), `toolsForPhase(isBuildTurn || journeyAllowed() || designSeen)`,
+`outputToolsForPhase(isBuildTurn, journeyAllowed())`, `applyOutputTool` —
+which asked `decide(brief)` with **no escape at all** — the "do not go back to
+discovery" wrapper, keyed on a regex over our own refusal text, and two
+`decide(...)` calls passing only `saysProceed(latestUserText)`.
+
+**The inputs diverged, and the divergence was the live wall.** `limitReached`
+folds all three escapes (round budget, `forceProposal`, `saysProceed`), so a
+manager typing "go ahead" on a thin record got a schema WITH `blueprint` and a
+handler that refused the payload for arriving on an unfinished record. The two
+`decide` calls are the mirror image: they could not see the budget or the
+button while the schema could, so a spent budget asked for a plan and then
+held the plan that came back. `evaluateDiscovery` already took `limitReached`
+as `forced`, which is how that stayed invisible.
+
+**One argument, not two booleans.** `systemForPhase` and
+`outputToolsForPhase` take a `TurnPhase`; a caller cannot pass a pair that
+cannot exist, and cannot compute the second half from a different escape set.
+
+**Evaluated per model ROUND, not once per turn.** Round one may file the last
+finding the record needed, and round two of the same turn is then genuinely
+ready to carry a path. A value frozen at the start of `orchestrateStream`
+would file success and hold the asking schema for the rest of the turn — a
+one-round-late loop of exactly the kind this replaces. The thunk stays a
+thunk; the round reads it once into `const phase`.
+
+**Inside one model response the phase is fixed, and that is deliberate.** The
+schema the model wrote against cannot change halfway through a batch, so a
+`propose_strategy` arriving beside the `record_findings` that completed the
+record is still an asking-turn propose. The NEXT round carries the path.
+`decide` is no longer imported by `outputTools.ts` at all, which is the
+structural version of "the handler does not re-derive".
+
+### Slice C — the record and the path are two capabilities
+
+`record_findings` gains `successCriteria`, and a success-only call is a
+complete call. It used to error for carrying neither converters nor barriers,
+which would have been the same trap one field along.
+
+**A refused proposal gives up its record fields before it is refused.**
+`applyRecordFields` applies `successCriteria`, `converters`, `barriers` and
+`dimensions` through the recorders that already own them — `recordBarriers`
+still verifies quotes, `recordDimensions` still normalises an assumption to
+deferred, `recordSuccessCriteria` still replaces and still treats an empty
+list as silence. No second parser, and no regex over their chat.
+
+It is the FIRST thing in the case, ahead of even the summary check: every
+check below judges a plan, and this turn is not judging a plan. The live
+payload would have been harvested anyway; a thinner one would have been thrown
+away with the manager's own words still in it.
+
+**"Still open" is composed from the brief as it now is.** Reading the incoming
+brief would file success and then tell them to go and ask for it, which is
+what the live gate did three turns running. With success filed the sentence
+drops it; with success still empty the next move names the tool that can take
+it.
+
+**Replayed against the live turn.** Phase `asking`; the manager's measure
+lands; the plan is still refused with the same sentence; `strategy` undefined
+and nothing stashed; and `decide` goes from `['awaiting-reply',
+'success-unsettled']` to `['awaiting-reply']`. The re-ask cause is gone. The
+remaining block is the record saying a reply has to arrive, which is correct.
+
+`nextCustomerQuestion`'s success clause now fires only when nothing has been
+answered yet. It had no production caller — `record.ts` passes
+`skipSuccess: true` and `evaluateDiscovery` has its own ladder — so this is
+the clause being made correct for the next caller rather than a live fix, and
+it is written up that way.
+
+**The residual, stated rather than discovered later.** Success is now
+self-certifiable one step earlier: the agent can clear a record block with
+text it wrote. In the live payload criterion 1 is theirs and criterion 2 —
+*"this run's count establishes the baseline"* — is the agent's. Propose never
+attributed success either, so the bar is unchanged; what changed is when it
+can be reached. A quote check on success was deliberately NOT added:
+`quoteIsTheirs` took two attempts to get right on barriers, and a false
+negative here would deadlock the one finding managers answer most clearly.
+
+### Slice B — the asking prompt is a straight cut
+
+§3 to §8 out: the platform mapping, the sequence and entry event, the
+hypothesis, the seven options, the journey (NAME EVERY TOUCH, A STEADY
+CADENCE, IF YOU WRITE BOTH) and the customer copy. All of it about a campaign
+the turn may not design yet, read on every discovery round of every
+conversation. §9 stays, because it is about the record.
+
+Two paragraphs the cut strands go with it: the `openItems` kind-list, the
+limitation paragraph that names those kinds and means nothing without them,
+and *"Propose a complete, coherent strategy even when something is open"* —
+which invites on an asking turn the exact move A's refusal exists to stop.
+
+**`SYSTEM` is untouched and both other phases get it whole**, so every
+`promptMethod` pin — that test regexes the constant out of this file's source
+— is unaffected. Nothing was rewritten, §2 was not touched, and no method was
+added.
+
+**It throws on a missing marker.** Both silent alternatives are worse: falling
+back to the full prompt hands the design method to a discovery turn with
+nothing to say so, and a slice whose end marker has gone quietly becomes "the
+rest of the file" — which is how two `emptyRoundRecovery` tests came to assert
+against everything to EOF. Every test run imports this, so a broken marker
+cannot reach a conversation.
+
+**One bug of mine, caught by measuring rather than reading.** The first cut
+took its end marker with it, so §9, QUESTIONS AND OPEN ITEMS and the whole
+OUTPUT chapter vanished from the asking prompt and the only sign was a length.
+The cut now stops BEFORE the second marker and searches for it from the start
+of the cut, and a test asserts the twelve things an asking turn must still
+contain rather than only the eleven it must not.
+
+**The §1 tension is left in place, deliberately**: the first turn must ask how
+success is judged AND find who converts. That is why the live EMI run opened
+on count-versus-value, and it is not a prose problem to solve in this slice.
+
+### Verified
+
+**1487 unit (from 1461) and 118 agent-proto.** `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean.
+
+Character counts: `SYSTEM` constant **32,757 / 33,500**, not raised and not
+edited. `systemForPhase('asking')` **17,837**, bounded by a new test at
+22,000 — the 33,500 cap does not reach a string the asking turn no longer
+receives in full. Ready and build **32,779** each and identical, which is the
+runtime length of the same constant.
+
+Reverts, each run: the asking prompt keeping the design chapters fails 3; the
+cut eating its end marker fails 1; the handler re-deriving the phase from the
+brief fails 3; refusing the asking propose without harvesting fails 2;
+`record_findings` losing `successCriteria` fails 4.
+
+Retargeted rather than rewritten: six source-text pins on the old expressions
+(`confirmReachesGeneration`, `conversationFlow`, `emptyRoundRecovery`,
+`turnOneAndQuestionList`, `discoveryIsBusinessOnly`, `heldProposeKeepsItsColumns`),
+and roughly forty boolean call sites across eight test files mapped to the
+phase. The wrapper pin is now the phase rather than `!/Discovery is not
+finished/`, which coupled it to copy that is free to change.
+
+`llm-prompt.html` regenerated: the method row says an asking turn gets
+discovery only, and the dump reports asking at 17,837 against 32,779.
+
+### Not in this slice
+
+No live EMI run. SYSTEM not grown, the cap not raised, no prose plan accepted,
+`blueprint` still off the asking schema, no regex over their chat, no quote
+check on success, §2 untouched, nothing committed or pushed.
+
+## 2026-10-24 (cont'd) — One definition of done, owned by the record. The
+reply closes the question; an asking turn has no plan tool
+
+`eval/runs/ui-s-1792839251135`. Three turns, and the manager finished the
+work: success is the number of conversions, ₹10,000-plus purchases convert on
+their own, the barrier is that customers think it costs extra, and the
+extra-axis probe came back *"1. not something we track"*. Every finding
+reached the brief. The run ended in discovery with nothing on the canvas, the
+plan in the chat, and a request that they type "go ahead".
+
+### The record could not hear them
+
+All four questions ended the run with `answeredInRound: 0` and
+`addressedInRound: undefined`. Read off the turn files rather than guessed:
+
+- live ingest called `recordAnswer`, which sets the FIRST field;
+- `outstanding` and `decide` read the SECOND;
+- `recordReply` had closed both since the day it was written, and nothing in
+  production called it — its own comment says it "replaces `recordAnswer` +
+  `recordAddressedQuestions` + `recordUncoveredQuestions`";
+- the tool-only exit (`!parsed.ok && recordedViaTools`) returns before the one
+  closer that did run on the parsed path;
+- `questionResolutions` with `carried` does not write the field either.
+
+So `decide(turn-3 brief)` was `['awaiting-reply']` — on four answered
+questions — and `turnPhase` was `asking`. Which still offered
+`propose_strategy` and then refused it, and the refusal's "still open" list
+named success and the second-pattern probe: **the two things they had
+answered**, and not the one thing that was actually blocking.
+
+### Live ingest uses the one write that already existed
+
+`receive` — `recordReply` plus `settleUnknowns` — is the orchestrator's ingest
+now, at both call sites. No third closer was added.
+
+`recordReply` is also COMPOSED from `recordAnswer` rather than restating it:
+the answer text, the confirmed fact carrying the ids it settles, and
+`answeredInRound` come from one function, and closing what was on screen is
+the one thing this adds. Two implementations of "a reply arrived" is how the
+two fields came to disagree in the first place.
+
+**Round counting unified by taking the bump OUT.** `recordReply` advanced
+`brief.rounds` and `recordAnswer` did not, so wiring it in would have counted
+a round for the reply AND a round for the questions that went out with it.
+`MAX_ROUNDS` is "rounds of QUESTIONS before the agent must work with what it
+has", so the counter stays with `recordQuestions` and
+`recordEvidenceRequests`. One meaning, one writer.
+
+**`awaitingAnswer` reads `outstanding(brief)`**, not `answeredInRound`. The
+old test could not see a question `reopen` had put back, which is the same
+field confusion one layer up.
+
+**`notCovered` is a bounded RE-OPEN, in both places it appears.** The parsed
+path called `recordUncoveredQuestions`, which with everything already closed
+is a no-op; it calls `reopen` now. And `record_findings` has carried
+`notCovered` in its schema and its input type since the tool existed with
+nothing reading it — the one bounded way to say "their reply did not touch
+that question" did nothing on the production path. Wired, with
+`REOPEN_LIMIT` still stopping the same question coming back for ever.
+
+### `propose_strategy` is absent on an asking turn
+
+`outputToolsForPhase('asking')` is `ask_questions`, `record_findings`,
+`record_dimensions`, `request_evidence`. `withoutJourneyGrammar` and the
+asking-turn refuse-and-harvest branch are deleted.
+
+**The stripped-schema design was mine, yesterday, and it was wrong.** The
+reasoning — the gate should decide when a proposal is allowed, and a model
+that proposes early should be refused by the record rather than left unable to
+speak — reads well and failed twice: `ui-s-1792834072700` turn 3 sent the same
+plan five times and then asked for approval by hand, and this run asked for
+"go ahead". **A tool on the list is an invitation.** Refusing an invitation we
+extended teaches the model that the plan is the move and the refusal is an
+obstacle to work around.
+
+Nothing is lost, because `record_findings` now takes `successCriteria`
+alongside the two customer findings. Findings are FILED, not smuggled through
+a refused plan.
+
+`applyOutputTool` therefore takes **no phase argument**. It read
+`decide(brief)`, then took the phase, then stopped needing one: the question
+only ever existed to serve the branch that is gone. A `propose_strategy` call
+on an asking turn is now impossible through the API and a test bug anywhere
+else.
+
+**One prompt lie went with it.** The asking turn's "how to write this turn"
+line named `propose_strategy` as the plan tool. Naming a tool the model cannot
+call is how a live Confirm came to reply that the build was unavailable to it.
+It now names the four it has and says neither plan tool is on the turn.
+
+### A refusal quotes `decide`, not a list written here
+
+Every refusal in the propose case goes through one `refuse()` that appends the
+live `decide(brief).blocks` reasons. `Block.reason` is already the
+manager-facing half, so nothing is paraphrased.
+
+Usually that is empty, because the tool is only on the list when the gate says
+ready. It is NOT empty when the turn was FORCED there — the round budget, Skip
+& propose, or a typed "go ahead" — and that is exactly the turn where what is
+still open matters. The two-item list it replaces named what I had guessed
+were the likely blocks; on the live brief both were done and the real one was
+`awaiting-reply`, which it never mentioned.
+
+The canned *"Tell me to go ahead and I will send it again"* was NOT patched.
+It is set in exactly one place — a refused `propose_strategy` — and that tool
+is no longer on an asking turn, so the path stops firing for this miss. There
+is a test pinning that there is still exactly one setter. `saysProceed` keeps
+its job (Skip & propose, an explicit stop-asking) and does not resurrect a
+refused payload.
+
+### Their sentence closes the probe, and files the axes that question named
+
+`closesOtherAxes` matched none of *"not something we track"*: no "else" noun,
+and the object is the indefinite "something" rather than a pronoun. Added, and
+still anaphoric — "we do not track conversion rates" names its own subject and
+stays out, because history has its own limitation and closing a question
+nobody answered is the one thing this may not do.
+
+The rewrite half already existed and now runs: every segmentation dimension
+that is not the seen axis becomes `unavailable`, `basis: 'user'`, carrying
+their sentence as the note. The axes came from rows already on the brief — the
+two the probe named — rather than from parsing our own question text, which
+would write dimension rows nobody can audit. Ticket size stays the seen split,
+no axis is invented, and nothing was added to satisfy `MIN_DIMENSIONS`.
+
+### Replayed against the live run
+
+The turn-3 brief, through the real ingest with their real reply:
+
+```
+outstanding   4 -> 0
+decide        ['awaiting-reply'] -> []
+turnPhase     asking -> ready          (no proceedRequested, nothing typed)
+probe         closed; merchant category and card usage unavailable/user
+rounds        0 -> 0                    (not double-counted)
+```
+
+### Tests: rewritten, not preserved
+
+`replyClosesTheQuestion.test.ts` walks the three turns of this conversation
+through `receive` and `record_findings` and ends ready with nothing
+outstanding.
+
+The pins that encoded the old split were rewritten rather than retargeted,
+because each was asserting the symptom:
+
+- `answerAttribution` pinned model-claimed `answered` as the ONLY closer — "a
+  reply nobody attributes leaves every question open". That contract is what
+  stalled this run. Now: a reply closes what was on screen, `notCovered` /
+  `reopen` is the bounded exception, a resolution is commentary, and the
+  verification rules (ids must be real, counts come from state, a proposal
+  cannot silently drop a question) are untouched.
+- `probeThenLock` called `recordUncoveredQuestions(recordAnswer(...), [])` and
+  commented it as "THE PRODUCTION PATH". It was not, and a fixture asserting a
+  path nothing walks is how three turns of this survived. Pointed at `receive`.
+- `turnOneAndQuestionList` required `outstanding(...) > 0` after a reply —
+  true only because of the bug. It now pins what the test is about: raising no
+  questions does not delete the questions already asked.
+- `forkGuardUnderFailure` hand-built "only q1-0 was addressed", a state
+  production can no longer produce. Its fixture stops pre-closing anything and
+  walks the live sequence instead: receive closes both, the model's
+  `notCovered` reopens the fork, the guard refuses. Its anti-trap test now
+  asserts the SECOND turn proceeds, which is `REOPEN_LIMIT` working.
+- `objectiveClarification`'s "every question already answered" brief carried
+  `answeredInRound` only — the bug state — so the orchestrator correctly
+  treated the next message as an answer and never reached the branch those
+  tests are about.
+
+### Verified
+
+**1493 unit (from 1483) and 118 agent-proto.** `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. `SYSTEM` untouched at 32,757 /
+33,500; asking 17,837.
+
+Reverts, each run: ingest back to `recordAnswer` fails 3; `recordReply` not
+closing `addressedInRound` fails 8; `propose_strategy` back on the asking list
+fails 9; the probe matcher losing "not something we track" fails 1; the
+refusal not quoting live blocks fails 1.
+
+`llm-prompt.html` regenerated: the asking panel says there is no plan tool,
+and the asking turn's four tools are listed.
+
+### Not in this slice
+
+Turn 1 opening on count-versus-value is leftover prompt and was left alone. No
+SYSTEM growth, no new discovery question, no auto-inserted forks, no invented
+cutoffs, `MAX_TOOL_ROUNDS` unchanged, nothing committed or pushed.
+
+### Known residual
+
+A message that arrives when NOTHING is outstanding still records no answer —
+the ingest branch is conditional on `awaitingAnswer`, as it has always been.
+So a volunteered fact after every question is closed is readable in the
+transcript and absent from `brief.answers`, which is the corpus
+`quoteIsTheirs` checks a barrier against. `noteClosedOtherAxes` reads
+`latestUserText` directly for exactly this reason. Widening ingest to record
+every message is a separate decision about what counts as an answer.
+
+## 2026-10-24 (cont'd) — A pattern they stated counts, whichever honest label
+the model gave it
+
+`eval/runs/ui-s-1792842540156`. Three turns, Confirm never appeared,
+`lastPhase` discovery, `strategy` null, the run titled "Waiting for your
+answer".
+
+**The ingest lid from the previous entry held.** All five questions carry
+`addressedInRound`, `awaiting-reply` is gone, nobody was asked to type "go
+ahead". What blocked `decide` was the record reading its own labels too
+narrowly: `['converters-unknown', 'too-few-dimensions']`.
+
+### What the manager said, and what the record did with it
+
+They said "10k+ txns convert more" — and said it twice; their second reply
+reads *"already said txn 10k+ convert more"*. Asked about category: "nothing as
+of now". The model wrote all of it down:
+
+```
+converters   shape "Transactions of ₹10,000 and above convert … at a
+             noticeably higher rate", basis user-belief, ONE candidate
+dimensions   Transaction ticket size            retained / user-belief
+             Purchase category or merchant type deferred / assumption
+```
+
+Four rules then each read one field and said no:
+
+- `convertersSettled` accepted `basis: 'user'` or two candidate groups, so
+  who-converts stayed open on a brief holding their sentence;
+- `seenAxes` accepted `basis: 'user'` only, so ticket size was **invisible** —
+  `unprobed-other-axes` never even ran, because it needs exactly one seen axis
+  to fire;
+- `recordAsked` injected "Who tends to do this already today" as q0-4, after
+  q0-1 had asked the same thing and been answered;
+- two real dimension rows then failed `MIN_DIMENSIONS`.
+
+The turn therefore stayed `asking`, `propose_strategy` was not on the list,
+and round 1 dumped a seven-day email trade-off into the chat with no tool
+calls at all. **That essay is a consequence, not a second defect** — it is
+what a model does when it has a plan and no tool to put it in.
+
+### `user-belief` counts, in both readers
+
+`convertersSettled` and `seenAxes` now accept `user` **and** `user-belief`,
+the way barriers always have. `assumption` still settles nothing.
+
+The distinction that matters is not which label — it is **theirs versus
+ours**. A pattern the manager has noticed is, read strictly, a conjecture
+about why customers behave, which is exactly what `user-belief` is for; read
+the other way it is a fact they own. Both are defensible for one sentence, and
+a gate that accepts one of them turns settledness into a coin toss on wording.
+
+No quote checker was added: `Converters` has no quote field, and a new
+judgement of their words to RAISE a block is the one thing `record.ts` forbids.
+
+### The probe is counted from the record, not from a phrase
+
+The question that closed it read *"BEYOND transaction size, have you noticed
+any difference by purchase category or merchant type…"*. The question-text leg
+of `otherAxesProbed` wanted "besides" or "anything else". Adding "beyond"
+would buy this run and lose the next: the question is the agent's own prose
+and there is no list of its wordings.
+
+So a fifth leg reads the record instead. Once a pattern has been **seen**, a
+question we asked that NAMES another axis on the brief — matched on the
+dimension row's own content words — and that carries `addressedInRound` is the
+probe, whatever words it used. Two auditable halves: a dimension row, and the
+ingest write. A question still outstanding does not count, and there is a test
+for that using `reopen`.
+
+**Nothing was added to `closesOtherAxes`.** "nothing as of now" is still not a
+taught phrase, and their words are untouched.
+
+### Three raised lines of enquiry are not a second investigation
+
+`too-few-dimensions` is skipped once there is a seen axis AND an answered
+probe — the same pair `unprobed-other-axes` is built on, so the two rules
+agree by construction rather than by wording. On this brief the only way to
+reach three rows would have been for the agent to invent an axis nobody named,
+and the record would then carry a customer cut out of nowhere.
+
+`MIN_DIMENSIONS` still means what it meant while the search is open, and
+`gateClearability`'s pin on it was retargeted to a brief where nothing has
+been seen — its old fixture (two `retained` / `user` rows) is now a CLOSED
+search, which is the new rule working.
+
+### The inject keys on the shape, not on settledness
+
+`nextCustomerQuestion` returns the who-converts question only when there is no
+`converters.shape` at all. Stronger than waiting for `convertersSettled`, and
+deliberately: both reasons a shape can be unsettled are reasons to say
+something OTHER than the generic question. An `assumption` shape needs the
+manager's view of what the AGENT wrote; a non-answer shape needs the design to
+learn it. The BLOCK is untouched either way — `converters-unknown` still holds
+an assumption shape, and its `clears.how` says what to do.
+
+### Replayed against the live brief
+
+```
+convertersSettled   false -> true
+seenAxes            []    -> ['Transaction ticket size']
+otherAxesProbed     false -> true      (their words unchanged)
+decide              ['converters-unknown','too-few-dimensions'] -> []
+turnPhase           asking -> ready    (nothing typed, no proceedRequested)
+recordAsked         injects only the question it was given
+```
+
+`tests/unit/statedPatternCounts.test.ts` reads that brief off
+`eval/runs/ui-s-1792842540156/turns/turn-3.json` rather than restating it as a
+cleaner fixture, so the pin cannot drift from what the agent actually
+produced.
+
+### Verified
+
+**1510 unit (from 1494) and 118 agent-proto.** `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. SYSTEM untouched at 32,757.
+
+Reverts, each run: `convertersSettled` back to `user`-only fails 5; `seenAxes`
+back to `user`-only fails 7; dropping the record leg of `otherAxesProbed`
+fails 5; `too-few-dimensions` demanding a third row fails 3; the inject keyed
+on settledness fails 1.
+
+**One revert initially passed and the test was the weak one, not the code.**
+Keying the inject on settledness is inert on this brief now that the basis
+rule is fixed — both locks hold it shut. The case that exercises the second
+lock on its own is an `assumption` shape: the block stands, and the generic
+question still must not reprint. With that test added the revert fails.
+
+### Not in this slice
+
+SYSTEM untouched; `recordUncoveredQuestions` neither deleted nor aliased;
+ingest not widened for volunteered lines after a closed record; the canned
+go-ahead sentence not patched; no live run; nothing committed or pushed.
+Confirm is still the act that builds — this only lets the plan tool appear.

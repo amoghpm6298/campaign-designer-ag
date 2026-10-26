@@ -19,7 +19,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { blocksFor, decide, otherAxesProbed, stackedDimensionBlocks, trendBlocks } from '../../server/gate';
-import { isTimingDimension, newBrief, recordAnswer, recordBarriers, recordConverters, recordDimensions, recordQuestions, recordSuccessCriteria, recordUncoveredQuestions, type DiscoveryDimension } from '../../server/discovery';
+import { CLOSED_OTHER_AXES, noteClosedOtherAxes, isTimingDimension, newBrief, recordAnswer, recordBarriers, recordConverters, recordDimensions, recordQuestions, recordSuccessCriteria, seenAxes, type DiscoveryDimension } from '../../server/discovery';
+import { receive, recordAsked } from '../../server/record';
 
 const SYSTEM = (() => {
   const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
@@ -124,6 +125,42 @@ describe('one seen pattern holds the proposal until someone asks about a second'
     expect(block!.reason).not.toMatch(/which group|who to target/i);
   });
 
+  it('counts a pattern they stated as user-belief, not only as user', () => {
+    // MEASURED, `eval/runs/ui-s-1792842540156`. "10k+ txns convert more" came
+    // back as `retained` / `user-belief`, so `seenAxes` was EMPTY, this block
+    // never ran at all, and the axis they had given was invisible to every
+    // rule that reads it. Both labels are defensible for one sentence; what
+    // matters is theirs versus ours.
+    const belief = withDims([
+      { name: 'purchase ticket size', rationale: 'They said bigger ones convert.', status: 'retained', basis: 'user-belief', note: 'Theirs.' },
+    ]);
+    expect(seenAxes(belief).map((d) => d.name)).toEqual(['purchase ticket size']);
+    expect(codes(belief)).toContain('unprobed-other-axes');
+    // And an axis the AGENT retained on its own is still not one.
+    const mine = withDims([
+      { name: 'purchase ticket size', rationale: 'A hunch of mine.', status: 'retained', basis: 'assumption', note: 'Mine.' },
+    ]);
+    expect(seenAxes(mine)).toHaveLength(0);
+  });
+
+  it('clears on the probe they answered, whatever words it used', () => {
+    // The question-text leg wanted "besides" or "anything else". The live
+    // probe said "Beyond transaction size, have you noticed any difference by
+    // purchase category…", they answered it, and the regex missed it. Adding
+    // "beyond" buys one run; reading the record instead is structural — a
+    // question that NAMES another axis on the brief, with `addressedInRound`
+    // set by ingest.
+    let b = withDims([
+      { name: 'purchase ticket size', rationale: 'Bigger ones convert.', status: 'retained', basis: 'user', note: 'Theirs.' },
+      { name: 'purchase category', rationale: 'Might split who acts.', status: 'deferred', basis: 'assumption', note: 'Asked.' },
+    ]);
+    b = recordAsked(b, [{ text: 'Beyond transaction size, have you noticed any difference by purchase category?', impact: 'shaping' }], 'agent');
+    expect(otherAxesProbed(b)).toBe(false);
+    const answered = receive(b, 'nothing as of now').brief;
+    expect(otherAxesProbed(answered)).toBe(true);
+    expect(codes(answered)).not.toContain('unprobed-other-axes');
+  });
+
   it('clears when they say they do not track the others', () => {
     const probed = withDims([
       { name: 'purchase ticket size', rationale: 'Bigger ones convert.', status: 'retained', basis: 'user', note: 'Theirs.' },
@@ -148,13 +185,19 @@ describe('one seen pattern holds the proposal until someone asks about a second'
     ]);
     b = recordQuestions(b, [{ text: 'Besides ticket size, is there anything else you have seen that splits who converts?', impact: 'shaping' }]);
     expect(codes(b)).toContain('unprobed-other-axes');
-    // THE PRODUCTION PATH, not `recordAnswer` alone. `answeredInRound` means
-    // a reply arrived this round; `addressedInRound` means this question was
-    // dealt with, and `recordUncoveredQuestions` is what sets it — called
-    // unconditionally on every turn, with an empty list meaning the model
-    // claims nothing went uncovered. The probe keys on the second, so a model
-    // that says the probe went untouched does not clear it by accident.
-    b = recordUncoveredQuestions(recordAnswer(b, 'no, nothing else we track'), []);
+    // THE PRODUCTION PATH, and the comment this replaces was false.
+    //
+    // It said `recordUncoveredQuestions(recordAnswer(b, ...), [])` was what
+    // production does. It was not: live ingest called `recordAnswer` alone and
+    // returned before any closer on the tool-only exit, so `addressedInRound`
+    // was never written and the probe reprinted over an answered question for
+    // three turns (`eval/runs/ui-s-1792839251135`). A fixture asserting a path
+    // nothing walks is how that survived.
+    //
+    // `receive` is the one write the orchestrator now goes through: the answer
+    // text and the attribution land together, and `notCovered` / `reopen` is
+    // the bounded way to say one question went untouched.
+    b = receive(b, 'no, nothing else we track').brief;
     expect(otherAxesProbed(b)).toBe(true);
     expect(codes(b)).not.toContain('unprobed-other-axes');
   });
@@ -269,5 +312,149 @@ describe('the prompt teaches the same three moves', () => {
 
   it('still never asks which group to target', () => {
     expect(SYSTEM).toMatch(/ASK WHAT THEY HAVE SEEN, NOT WHICH GROUP TO GO AFTER/);
+  });
+});
+
+describe('their own sentence closes the probe', () => {
+  // MEASURED, `eval/runs/ui-s-1792770967470` turns 4 to 7. The manager closed
+  // the probe in turn 4. The agent even wrote their closure down — as a
+  // dimension NOTE reading "Manager confirmed they do not track any other
+  // pattern beyond ticket size" — and set `basis: 'none'` on those
+  // dimensions, while `otherAxesProbed` reads `basis: 'user'`. So the hold
+  // reprinted through three more turns over a question that had been answered
+  // in the first of them, and `brief.answers` never grew past turn 4 either,
+  // because every question was already addressed and nothing recorded the
+  // reply.
+  //
+  // THE FIELD THE GATE READS HAS TO BE WHAT THEIR ENGLISH WRITES. That is the
+  // whole fix: not a looser gate, a record that hears them.
+  const liveTurnFour = () =>
+    recordDimensions(settled(), [
+      { name: 'transaction ticket size', rationale: 'They said above ten thousand converts more.', status: 'retained', basis: 'user', note: 'Keep the ₹10,000 line.' },
+      { name: 'merchant category', rationale: 'Might matter.', status: 'deferred', basis: 'none', note: 'Manager confirmed they do not track any other pattern beyond ticket size.' },
+      { name: 'prior EMI usage', rationale: 'Might matter.', status: 'deferred', basis: 'none', note: 'Manager confirmed they do not track any other pattern beyond ticket size.' },
+    ]);
+
+  it('holds before they answer, on the live shape', () => {
+    expect(otherAxesProbed(liveTurnFour())).toBe(false);
+    expect(codes(liveTurnFour())).toContain('unprobed-other-axes');
+  });
+
+  it('clears on what they actually typed', () => {
+    for (const said of [
+      // THE SENTENCE THE PRODUCT TEACHES, first. SYSTEM says "We do not track
+      // that" closes it, the hold's own text invites exactly that answer, and
+      // the first-run fixtures type it — and it matched nothing, so the
+      // manager said the taught words and the hold reprinted.
+      'we do not track that',
+      "i don't track that",
+      'we dont track that',
+      'we dont track anything else',
+      'no other pattern, just ticket size',
+      'nothing else that splits who converts',
+      'we do not have any second split',
+      'that is all we track',
+    ]) {
+      const after = noteClosedOtherAxes(liveTurnFour(), said);
+      expect(otherAxesProbed(after), said).toBe(true);
+      expect(codes(after), said).not.toContain('unprobed-other-axes');
+    }
+  });
+
+  it('records it as THEIRS, with their words, and leaves the seen axis alone', () => {
+    const after = noteClosedOtherAxes(liveTurnFour(), 'we dont track anything else');
+    const by = Object.fromEntries((after.dimensions ?? []).map((d) => [d.name, d]));
+    for (const name of ['merchant category', 'prior EMI usage']) {
+      expect(by[name].basis, name).toBe('user');
+      expect(by[name].status, name).toBe('unavailable');
+      expect(by[name].note, name).toMatch(/we dont track anything else/);
+    }
+    // The axis they DID see is untouched, and no axis was invented.
+    expect(by['transaction ticket size'].status).toBe('retained');
+    expect(by['transaction ticket size'].basis).toBe('user');
+    expect(after.dimensions).toHaveLength(liveTurnFour().dimensions!.length);
+  });
+
+  it('clears on a brief that has nothing but the seen axis', () => {
+    // THE EARLY RETURN, as a test. `noteClosedOtherAxes` used to bail when
+    // there was no leftover dimension to rewrite — so on a brief where the
+    // agent had never parked a category or card-type row, even a perfect
+    // "we don't track anything else" was a no-op and the hold reprinted.
+    // The manager answered, and then clerked.
+    const onlySeen = () =>
+      recordDimensions(settled(), [
+        { name: 'transaction ticket size', rationale: 'They said above ten thousand converts more.', status: 'retained', basis: 'user', note: 'Keep the ₹10,000 line.' },
+      ]);
+    expect(codes(onlySeen())).toContain('unprobed-other-axes');
+
+    for (const said of ['we do not track that', 'we dont track anything else']) {
+      const after = noteClosedOtherAxes(onlySeen(), said);
+      expect(otherAxesProbed(after), said).toBe(true);
+      expect(codes(after), said).not.toContain('unprobed-other-axes');
+
+      // NO AXIS INVENTED. A fake "merchant category" row to satisfy the
+      // two-user-dimensions rule would put a customer cut on the record that
+      // nobody named, and the next turn could design on it.
+      expect(after.dimensions).toHaveLength(1);
+      expect(after.dimensions![0].name).toBe('transaction ticket size');
+      expect(after.dimensions![0].status).toBe('retained');
+      expect(after.dimensions![0].basis).toBe('user');
+      // The row is untouched, note and all. A first version of this asserted
+      // that no rupee figure appeared anywhere in the dimensions — which the
+      // correct behaviour fails, because the manager's OWN "₹10,000 line" is
+      // in that note and must survive. The invention worth forbidding is a
+      // cutoff the application wrote, and the way to check that is that
+      // nothing changed.
+      expect(after.dimensions).toEqual(onlySeen().dimensions);
+    }
+  });
+
+  it('records the close as a quoted FACT, which is what the gate reads', () => {
+    // Not a new hold and not a new question: a confirmed fact in their own
+    // words, the same instrument `noteOpeningFacts` uses for "no campaign
+    // history". The three older legs read dimensions and question text, and
+    // a conversation is neither.
+    const after = noteClosedOtherAxes(liveTurnFour(), 'we do not track that');
+    const fact = (after.facts ?? []).find((f) => f.statement.startsWith(CLOSED_OTHER_AXES));
+    expect(fact).toBeTruthy();
+    expect(fact!.statement).toMatch(/we do not track that/);
+    expect(fact!.statement).toMatch(/transaction ticket size is the axis/i);
+    expect(fact!.source).toBe('user-answer');
+    expect(fact!.confidence).toBe('confirmed');
+
+    // The fact alone is enough, with no dimension change at all.
+    const factOnly = { ...settled(), facts: [...(settled().facts ?? []), fact!] };
+    const withAxis = recordDimensions(factOnly, [
+      { name: 'transaction ticket size', rationale: 'r', status: 'retained', basis: 'user', note: 'theirs' },
+    ]);
+    expect(otherAxesProbed(withAxis)).toBe(true);
+  });
+
+  it('does not fire on an answer about something else', () => {
+    // A converters answer, a barrier answer, a success answer: none of these
+    // says there is no second pattern, and none may silence the probe.
+    for (const said of [
+      'success is the number of transactions converting',
+      'txns above 10k get converted more',
+      'i think they dont know it is eligible for emi',
+      'we do not have conversion data',
+      // THE LEAK THIS MUST NOT HAVE. "track that" is anaphoric — it closes
+      // the question just asked. A noun object is about the scoreboard, and
+      // history already has its own limitation; letting it in here would
+      // close a question nobody answered.
+      'we do not track conversion rates',
+      'we do not track our conversion rate',
+      'we have no campaign history',
+      'we do not have any data',
+    ]) {
+      expect(otherAxesProbed(noteClosedOtherAxes(liveTurnFour(), said)), said).toBe(false);
+    }
+  });
+
+  it('does nothing when there is no single seen axis to lock', () => {
+    // Two seen axes is the `stacked-dimensions` conversation, and none is the
+    // who-converts one. Neither is this probe, so this must not touch them.
+    const none = settled();
+    expect(noteClosedOtherAxes(none, 'we dont track anything else')).toEqual(none);
   });
 });

@@ -153,7 +153,7 @@ describe('F3 — a limitation stated in the opening brief', () => {
     const src = await import('node:fs').then((fs) =>
       fs.readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8'),
     );
-    expect(src).toMatch(/req\.brief \?\? noteVolunteeredLimitation\(newBrief\(firstUserText\), firstUserText\)/);
+    expect(src).toMatch(/req\.brief \?\? noteOpeningFacts\(newBrief\(firstUserText\), firstUserText\)/);
     // ...and the gate is given the model's own classification of what is open,
     // not the retrieved context it used to score questions against.
     expect(src).toMatch(/openItems: proposed\?\.openItems/);

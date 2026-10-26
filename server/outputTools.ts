@@ -31,12 +31,14 @@
 // rather than riding along with this one.
 import {
   recordAsked,
+  reopen,
   type AskAuthor,
 } from './record';
 import {
   recordConverters,
   recordBarriers,
   recordDimensions,
+  recordSuccessCriteria,
   recordContextChecked,
   recordQuestionResolutions,
   type WorkingBrief,
@@ -49,6 +51,7 @@ import type { Converters, Barrier } from './findings';
 import type { CampaignBlueprint } from './blueprint';
 import type { Strategy } from './orchestrator';
 import { registerToolTitles, type ToolDef } from './agentTools';
+import { decide, namedOutcomes, type TurnPhase } from './gate';
 import { dcOperatorsForAttribute, LOCKED_ATTR_OPERATORS, type AttrMeta, type AttrType } from '../src/data/sharedConstants';
 
 /**
@@ -267,6 +270,110 @@ const BLUEPRINT_SCHEMA = {
   required: ['campaignName', 'description', 'entry', 'steps'],
 };
 
+
+/**
+ * Fill a regression in THIS proposal from the last one the tool accepted.
+ *
+ * MEASURED, `eval/runs/ui-s-1792770967470` turns 5 to 7. A plan arrived with
+ * seven named paths and real per-case fallbacks and was refused for something
+ * else; the next attempt came back with two paths and a generic "still
+ * unconverted" on every row. The held turn had thrown the good column away,
+ * so each attempt started from the model's memory of the last one rather than
+ * from the last one.
+ *
+ * THREE REPAIRS, AND THEY ARE ALL RESTORATIONS. Nothing here invents a field
+ * the model has never sent: every value copied came out of a payload this
+ * tool accepted earlier in the same conversation.
+ *
+ *  1. No steps at all → the stashed path. A first propose with no journey is
+ *     still refused, because there is nothing stashed to fill from.
+ *  2. Fewer than two landed cases named, when the stash named two or more →
+ *     the stashed `ifStillUnconverted` for the row that matches by path, or
+ *     by channel when the path was renamed.
+ *  3. Paths exploded into engagement arms — "{who} — unread arm" — when the
+ *     stash had the who-split alone. Unread and read are what the JOURNEY
+ *     forks on; they are not two more audiences, and splitting them here
+ *     makes every path one send deep.
+ *
+ * WHAT IT WILL NOT DO: merge a linear clock over a stashed outcome fork. If
+ * this payload's journey does not react and the stashed one did, the stash is
+ * left alone and `reactionBlocks` holds the turn — repairing that silently
+ * would hand back an approval for a journey the model did not send.
+ */
+export function fillFromLastProposal(
+  incoming: Strategy,
+  blueprint: CampaignBlueprint | null,
+  stash: { strategy: unknown; blueprint: unknown } | undefined,
+): { strategy: Strategy; blueprint: CampaignBlueprint | null; repaired: string[] } {
+  const prev = stash?.strategy as Strategy | undefined;
+  const prevBp = stash?.blueprint as CampaignBlueprint | undefined;
+  if (!prev && !prevBp) return { strategy: incoming, blueprint, repaired: [] };
+  const repaired: string[] = [];
+  let strategy = incoming;
+  let path = blueprint;
+
+  // 1. the journey itself
+  if ((!path || !Array.isArray(path.steps) || !path.steps.length) && prevBp?.steps?.length) {
+    path = prevBp;
+    // "the journey itself", not "the journey from the last plan you sent that
+    // I accepted" — the sentence this list is spliced into already says where
+    // it came from, and saying it twice is what the live turn-5 tool result
+    // did: "I restored the journey, from the last plan you sent that I
+    // accepted from the last plan you sent that I accepted".
+    repaired.push('the journey itself');
+  }
+
+  const rows = Array.isArray(strategy.touches) ? [...strategy.touches] : [];
+  const prevRows = Array.isArray(prev?.touches) ? prev!.touches : [];
+
+  // 2. the landed cases
+  if (rows.length && prevRows.length && namedOutcomes(rows).size < 2 && namedOutcomes(prevRows).size >= 2) {
+    const byPath = new Map(prevRows.map((t) => [`${String(t.path ?? '').trim().toLowerCase()}@${t.day}`, t]));
+    const byChannel = new Map(prevRows.map((t) => [`${String(t.channel ?? '').trim().toLowerCase()}@${t.day}`, t]));
+    let filled = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const match =
+        byPath.get(`${String(r.path ?? '').trim().toLowerCase()}@${r.day}`) ??
+        byChannel.get(`${String(r.channel ?? '').trim().toLowerCase()}@${r.day}`);
+      if (match?.ifStillUnconverted && String(match.ifStillUnconverted).trim() !== String(r.ifStillUnconverted ?? '').trim()) {
+        rows[i] = { ...r, ifStillUnconverted: match.ifStillUnconverted };
+        filled += 1;
+      }
+    }
+    if (filled) repaired.push(`what happens to the people who got each message, on ${filled} send(s)`);
+  }
+
+  // 3. engagement arms masquerading as audiences
+  // THE LIVE SUFFIXES, which the first version could not match: "High
+  // ticket - delivered, not read" and "Standard ticket - both arms".
+  // `[^,]*?` died on the comma, so nothing collapsed and the manager was
+  // left clerking DELIVERED inside a path name. Anchored on the separator
+  // after the WHO name; once the suffix starts with a landed case, the rest
+  // of it may say anything.
+  const ARM = /\s*[-—–:(]\s*(delivered|not delivered|unread|not read|read|opened|clicked|dismissed|deleted|both arms?|no action)\b.*$/i;
+  const prevPaths = new Set(prevRows.map((t) => String(t.path ?? '').trim().toLowerCase()).filter(Boolean));
+  if (rows.length && prevPaths.size && rows.some((r) => ARM.test(String(r.path ?? '')))) {
+    let collapsed = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const raw = String(rows[i].path ?? '');
+      if (!ARM.test(raw)) continue;
+      const base = raw.replace(ARM, '').trim();
+      const restored = prevPaths.has(base.toLowerCase())
+        ? base
+        : prevRows.find((t) => t.day === rows[i].day && String(t.channel ?? '').toLowerCase() === String(rows[i].channel ?? '').toLowerCase())?.path;
+      if (restored) {
+        rows[i] = { ...rows[i], path: restored };
+        collapsed += 1;
+      }
+    }
+    if (collapsed) repaired.push(`${collapsed} path name(s) that had split an audience by what the message did`);
+  }
+
+  if (repaired.length) strategy = { ...strategy, touches: rows };
+  return { strategy, blueprint: path, repaired };
+}
+
 export const OUTPUT_TOOLS: ToolDef[] = [
   {
     name: 'propose_strategy',
@@ -409,7 +516,7 @@ export const OUTPUT_TOOLS: ToolDef[] = [
     name: 'record_findings',
     title: 'Recording what you told me about customers',
     description:
-      'Record who converts today and why the rest do not. Call this on EVERY turn where the manager has said anything about either — you cannot propose a strategy without both. A barrier must carry the manager\'s own words in "quote"; the application checks the quote against what they actually typed and downgrades an unverifiable one to an assumption rather than rejecting it. "notCovered" is for the rare case where their reply genuinely did not touch a question you asked; leaving it empty is normal and correct.',
+      'Record who converts today, why the rest do not, and how they would judge success. Call this on EVERY turn where the manager has said anything about any of them — you cannot propose a strategy without the first two, and success is theirs to give, so file it the turn they say it. A barrier must carry the manager\'s own words in "quote"; the application checks the quote against what they actually typed and downgrades an unverifiable one to an assumption rather than rejecting it. "notCovered" is for the rare case where their reply genuinely did not touch a question you asked; leaving it empty is normal and correct.',
     input_schema: {
       type: 'object',
       properties: {
@@ -456,6 +563,11 @@ export const OUTPUT_TOOLS: ToolDef[] = [
             },
             required: ['id', 'statement', 'basis', 'lever'],
           },
+        },
+        successCriteria: {
+          ...STRING_LIST,
+          description:
+            'How the business would judge this, in their own words, the moment they tell you. Never a target number — no performance history exists. Record it here rather than waiting for a proposal: they have told you, so it belongs on the record now.',
         },
         notCovered: { type: 'array', items: { type: 'string' } },
       },
@@ -578,10 +690,38 @@ export const OUTPUT_TOOL_NAMES = OUTPUT_TOOLS.map((t) => t.name);
  * raised — and losing those would quietly empty the record on the last turn
  * of the conversation.
  */
-export const outputToolsForPhase = (isBuildTurn: boolean) =>
-  isBuildTurn
-    ? OUTPUT_TOOLS.filter((t) => t.name !== 'propose_strategy')
-    : OUTPUT_TOOLS.filter((t) => t.name !== 'build_campaign');
+/**
+ * THE TOOL DOES NOT EXIST ON A TURN THAT MAY NOT USE IT.
+ *
+ * `propose_strategy` used to travel on an asking turn with `blueprint` and
+ * `$defs` stripped out, on the reasoning that the GATE should decide when a
+ * proposal is allowed and a model that proposes early should be refused by the
+ * record rather than left unable to speak. Measured twice, that reasoning cost
+ * a conversation each time:
+ *
+ *  - `ui-s-1792834072700` turn 3: five identical refusals, then the plan
+ *    dumped into the chat for the manager to approve by hand.
+ *  - `ui-s-1792839251135` turn 3: a settled record held by a bookkeeping bug,
+ *    a tool offered and refused, and the manager asked to type "go ahead".
+ *
+ * A tool on the list is an invitation. Offering one in order to refuse it
+ * teaches the model that the plan is the move and the refusal is an obstacle,
+ * and it took five attempts to stop trying. Findings are filed with
+ * `record_findings` — which takes `successCriteria` as well as the two
+ * customer findings — so nothing has to be smuggled through a plan.
+ *
+ * ASKING: ask, record, record, request evidence. READY: the same plus
+ * `propose_strategy` carrying its path. BUILD: `build_campaign`, and no
+ * proposing, because the plan is already approved.
+ */
+export const outputToolsForPhase = (phase: TurnPhase) =>
+  OUTPUT_TOOLS.filter((t) =>
+    t.name === 'build_campaign'
+      ? phase === 'build'
+      : t.name === 'propose_strategy'
+        ? phase === 'ready'
+        : true,
+  );
 
 // So the activity timeline shows "Recording what you told me about customers"
 // rather than "Running record_findings".
@@ -668,9 +808,42 @@ const asList = <T>(value: unknown): T[] => {
   return [];
 };
 
+/** A list of non-empty strings, from a list or from one bare string. */
+const asStringList = (value: unknown): string[] => {
+  if (typeof value === 'string' && value.trim()) return [value.trim()];
+  return asList<unknown>(value).map((x) => String(x ?? '').trim()).filter(Boolean);
+};
+
+/**
+ * `converters` as an object, or nothing.
+ *
+ * Hoisted so `record_findings` and the asking-turn harvest cannot coerce it
+ * two different ways. The nested `candidates` guard is the same hole one level
+ * down: `recordConverters` does `(c.candidates ?? []).filter(...)`.
+ */
+const coerceConverters = (raw: unknown): Converters | undefined =>
+  raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? ({
+        ...(raw as Converters),
+        candidates: asList<NonNullable<Converters['candidates']>[number]>((raw as Converters).candidates),
+      } as Converters)
+    : undefined;
+
 /** Was something sent at all, as opposed to omitted? */
 const wasSent = (value: unknown): boolean => value !== undefined && value !== null;
 
+/**
+ * NO PHASE ARGUMENT, because there is nothing left for it to decide.
+ *
+ * It took one, and before that it worked the answer out from the brief. Both
+ * existed to serve a single branch: `propose_strategy` arriving on a turn that
+ * may not propose. `outputToolsForPhase` no longer puts the tool on that
+ * turn's list, so the branch — and the question — is gone. Every check below
+ * is about the payload in front of it.
+ *
+ * A `propose_strategy` call on an asking turn is now impossible through the
+ * API and a test bug anywhere else.
+ */
 export function applyOutputTool(brief: WorkingBrief, name: string, input: unknown): ApplyResult {
   const obj = (input ?? {}) as Record<string, unknown>;
 
@@ -710,19 +883,12 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       // `converters` has to be an object before anything reads `.shape` off
       // it — a string there throws just as readily as the one in `barriers`
       // did.
-      const rawConverters = obj.converters;
-      const converters =
-        rawConverters && typeof rawConverters === 'object' && !Array.isArray(rawConverters)
-          ? ({
-              ...(rawConverters as Converters),
-              // The same hole one level down: `recordConverters` does
-              // `(c.candidates ?? []).filter(...)`.
-              candidates: asList<NonNullable<Converters['candidates']>[number]>(
-                (rawConverters as Converters).candidates,
-              ),
-            } as Converters)
-          : undefined;
+      const converters = coerceConverters(obj.converters);
       const barriers = asList<Barrier>(obj.barriers);
+      // SUCCESS IS RECORDABLE WITHOUT A PLAN, since 2026-10-24. It used to
+      // live on `propose_strategy` alone, so the one thing a manager answers
+      // first had to travel on the one tool an asking turn refuses.
+      const success = asStringList(obj.successCriteria);
 
       // A WRONG SHAPE IS A TOOL ERROR, NOT A CRASH, and it is reported
       // separately from "you sent nothing" so the model can tell the two
@@ -741,12 +907,19 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
             '"converters" must be an object with "shape", "basis" and "knowledge". Send it again in that form.',
         };
       }
-      if (!converters && !barriers.length) {
+      // A SUCCESS-ONLY CALL RECORDS SOMETHING. Without this clause the tool
+      // would take the field and then refuse the call for carrying nothing
+      // else, which is the same shape of trap as the one above it.
+      if (!converters && !barriers.length && !success.length) {
         return {
           brief,
           error:
-            'That call recorded nothing. Send "converters", "barriers", or both — whichever the manager has actually told you about.',
+            'That call recorded nothing. Send "converters", "barriers", "successCriteria", or any combination — whichever the manager has actually told you about.',
         };
+      }
+      if (success.length) {
+        next = recordSuccessCriteria(next, success);
+        notes.push('how they would judge this');
       }
       if (converters) {
         next = recordConverters(next, converters);
@@ -771,6 +944,19 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
             `${downgraded.length} recorded as your own inference rather than theirs, because the quote did not match what they typed — design against it, but say it is untested`,
           );
         }
+      }
+      // `notCovered` WAS DECLARED AND IGNORED. It is in this tool's schema and
+      // in `RecordFindingsInput`, and nothing read it — so the one bounded way
+      // to say "their reply did not touch that question" did nothing on the
+      // production path. The reply closes questions at ingest now, which makes
+      // this a re-open: `REOPEN_LIMIT` stops it becoming a way to keep a
+      // manager answering the same thing for ever.
+      const missed = asStringList(obj.notCovered);
+      if (missed.length) {
+        const before = next.questions.filter((q) => q.addressedInRound === undefined).length;
+        next = reopen(next, missed);
+        const after = next.questions.filter((q) => q.addressedInRound === undefined).length;
+        if (after > before) notes.push(`${after - before} question(s) put back to them`);
       }
       return { brief: next, ok: `Recorded ${notes.join('; ')}.` };
     }
@@ -807,9 +993,39 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
     }
 
     case 'propose_strategy': {
+      // THIS TURN MAY PROPOSE, because the tool is only on the list when it
+      // may. The asking-turn branch that used to sit here — refuse the plan,
+      // harvest its record fields, name a two-item "still open" list — is
+      // gone with the stripped schema it was written for: a tool offered in
+      // order to be refused is an invitation the model took five times in
+      // `ui-s-1792834072700` and again in `ui-s-1792839251135`. Findings are
+      // filed with `record_findings`, which takes `successCriteria` too.
+      //
+      // So every check below is about the PAYLOAD, and a refusal says what to
+      // send instead — plus whatever the RECORD still holds, in the record's
+      // own words.
+      //
+      // WHY `decide` AND NOT A LIST WRITTEN HERE. The branch this replaces
+      // named two things it had decided were the likely ones: how success
+      // would be judged, and the second-pattern probe. In
+      // `ui-s-1792839251135` both were already done and the real block was
+      // `awaiting-reply` — so the refusal told a manager who had answered
+      // everything that the two things they had answered were outstanding,
+      // and never mentioned the one thing that was. `decide(brief).blocks`
+      // is the live answer, and `Block.reason` is already written in their
+      // language.
+      //
+      // Usually empty, because `propose_strategy` is only on the list when
+      // the gate says ready. It is NOT empty when the turn was forced there
+      // — the round budget, Skip & propose, or a typed "go ahead" — and that
+      // is exactly the turn where knowing what is still open matters.
+      const refuse = (message: string): ApplyResult => {
+        const open = decide(brief).blocks.map((b) => b.reason.trim()).filter(Boolean);
+        return { brief, error: open.length ? `${message} Still on the record: ${open.join(' ')}` : message };
+      };
       const strategy = obj as unknown as Strategy;
       if (!strategy.summary?.trim()) {
-        return { brief, error: 'A proposal needs a "summary" saying what the campaign is, in the manager\'s own terms.' };
+        return refuse('A proposal needs a "summary" saying what the campaign is, in the manager\'s own terms.');
       }
       // TWO candidates, and they must be tellable apart BY A CUSTOMER.
       //
@@ -854,10 +1070,10 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
           )
           .filter((r) => r.option);
       };
-      const asStrings = (value: unknown): string[] => {
-        if (typeof value === 'string' && value.trim()) return [value.trim()];
-        return asList<unknown>(value).map((x) => String(x ?? '').trim()).filter(Boolean);
-      };
+      // ONE COERCION, SHARED WITH THE RECORD HARVEST ABOVE. This was a local
+      // copy of `asStringList`, which meant `successCriteria` could be read
+      // one way when a plan was accepted and another way when it was refused.
+      const asStrings = asStringList;
       const normalised: Strategy = {
         ...strategy,
         approach: asStrings(strategy.approach),
@@ -879,10 +1095,9 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       };
       const arch = asList<NonNullable<Strategy['architectures']>[number]>(normalised.architectures);
       if (arch.length < 2) {
-        return {
-          brief,
-          error: 'Send at least two candidate architectures. If you cannot find a second, look for the factor the first one cannot carry — that is usually where it is.',
-        };
+        return refuse(
+          'Send at least two candidate architectures. If you cannot find a second, look for the factor the first one cannot carry — that is usually where it is.',
+        );
       }
       // CITED BY ID, NOT BY PROSE, and this is the second attempt at it.
       //
@@ -901,14 +1116,13 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       const cited = arch.map((a) => (a.barrier ?? '').trim().toLowerCase());
       const unknown = cited.filter((c) => !known.has(c));
       if (unknown.length) {
-        return {
-          brief,
-          error: `Cite the barrier by its recorded id. ${
+        return refuse(
+          `Cite the barrier by its recorded id. ${
             known.size
               ? `You have recorded: ${[...known.keys()].join(', ')}. Use one of those, or record a new barrier first with record_findings.`
               : 'You have not recorded any barrier yet. Call record_findings first — a strategy cannot attack a problem that is not in the record.'
           }`,
-        };
+        );
       }
       // TWO CANDIDATES MAY SHARE A BARRIER. WHAT THEY MAY NOT SHARE IS THE
       // TREATMENT.
@@ -943,13 +1157,11 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
           .join(' || ');
       const sameTreatment = new Set(arch.map(treatment)).size < 2;
       if (sameBarrier && sameTreatment) {
-        return {
-          brief,
-          error:
-            known.size < 2
+        return refuse(
+          known.size < 2
               ? 'These two candidates attack the same barrier in the same way — same entry, timing, lever and journey — so they are one architecture described twice. With one barrier recorded that is expected and fine: make the rival a different TREATMENT of it. Catch them at a different moment, work it harder or lighter, or change the journey shape. Do not invent a second reason customers do not convert.'
               : `Both candidates cite the same barrier AND the same entry, timing, lever and journey, so they are one architecture described twice. Either point the second at one of your other recorded barriers (${known.size} are on the record), or give it a genuinely different treatment of this one.`,
-        };
+        );
       }
       const openItems = Array.isArray(obj.openItems) ? (obj.openItems as unknown[]) : [];
       // ONE SHAPE FROM HERE ON, because this schema and the `Architecture`
@@ -982,20 +1194,54 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       // Refused here rather than in the gate because the message can say what
       // to send, and because it applies to every winner — a linear plan needs
       // its sequence approved just as much as a reactive one.
-      const path = (obj as { blueprint?: CampaignBlueprint }).blueprint ?? null;
-      if (!path || !Array.isArray(path.steps) || !path.steps.length) {
-        return {
-          brief,
-          error:
+      // REPAIR BEFORE REFUSING. A held turn kept the record but the model
+      // re-sends from memory, so a column that passed last time can arrive
+      // worse this time. Anything restored here came out of a payload this
+      // tool already accepted.
+      const sent = (obj as { blueprint?: CampaignBlueprint }).blueprint ?? null;
+      const mend = fillFromLastProposal(normalised, sent, brief.lastProposal);
+      const path = mend.blueprint;
+      // SIX SENTENCES ARE NOT SIX STEPS. Measured, `ui-s-1792829868203` turn
+      // 3: this accepted a "6-step path" whose steps were prose captions,
+      // because the check below asked only whether the array was non-empty.
+      // `buildFromBlueprint` would have hit `Unknown step kind "undefined"`
+      // on every one of them. Same family as the empty-steps refusal, so it
+      // says the same kind of thing: what to send instead.
+      const shaped =
+        Array.isArray(path?.steps) &&
+        path.steps.every((x) => x && typeof x === 'object' && typeof (x as { kind?: unknown }).kind === 'string');
+      const plan = mend.strategy;
+      // THE READY-TURN EXIT. The turn may carry a path, so a plan without one
+      // is a payload mistake and the message says what to send. The asking
+      // turn is handled at the top of this case and never reaches here.
+      if (!path || !Array.isArray(path.steps) || !path.steps.length || !shaped) {
+        return refuse(
+            (Array.isArray(path?.steps) && path.steps.length && !shaped
+              ? 'The "blueprint" steps are sentences, not steps. Each one has to be an object with a "kind" — send, wait, waitForEvent, branch, condition, experiment, exit — because the journey is COMPILED from them rather than read. Send the SAME plan again with the path written in that grammar. '
+              : '') +
             'This proposal has no journey in it. Send the SAME plan again with "blueprint" filled in — the path you are asking them to approve, in the same grammar build_campaign uses: entry, then the steps in order. They are agreeing to a sequence, so it has to exist before they agree. Confirm compiles exactly this one; you will not be asked to design it again.',
-        };
+        );
       }
+      // STASHED ON THE RECORD, so the next attempt starts from this rather
+      // than from the model's memory of it. Only a plan that passed every
+      // check above is stashed, and only ever read to fill a regression.
+      const stashed: WorkingBrief = {
+        ...brief,
+        lastProposal: { strategy: plan, blueprint: path, round: brief.rounds },
+      };
       return {
-        brief,
-        strategy: normalised,
+        brief: stashed,
+        strategy: plan,
         openItems,
         blueprint: path,
-        ok: `Plan recorded, with a ${path.steps.length}-step path. The manager approves it before anything is built.`,
+        ok: [
+          `Plan recorded, with a ${path.steps.length}-step path. The manager approves it before anything is built.`,
+          mend.repaired.length
+            ? `I restored ${mend.repaired.join('; ')} from the last plan you sent that I accepted — it was better there, and a refusal on one point is not a reason to start the rest again.`
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
       };
     }
 

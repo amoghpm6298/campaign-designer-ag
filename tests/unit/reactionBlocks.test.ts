@@ -65,50 +65,104 @@ const plan = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-describe('a clock cannot be the chosen architecture', () => {
-  it('refuses a winner whose journey is linear', () => {
-    const blocks = reactionBlocks(proposal(plan({
-        architectures: [
-          { name: 'Timed drip', journey: 'linear', chosen: true },
-          { name: 'Catch the moment', journey: 'branch-on-response' },
-        ],
-      })) as never);
+describe('a clock may win, and the claim is what is checked', () => {
+  // REVERSED 2026-10-24, and the group this replaces was my own
+  // over-correction. The measured failure was a plan that CLAIMED a reaction
+  // and shipped a timed drip; I generalised it into "a clock is never a
+  // plan", which is the application designing the campaign. A ticket-size
+  // split with a sensible cadence is something a manager can run on Monday.
+  // Unread-versus-read is intelligence worth having on top of it, not a pass
+  // mark.
+  //
+  // What survives is the shape this codebase trusts: compare the CLAIM
+  // against the CHOICE. Two things can be wrong — claiming the upgrade
+  // without building it, and writing the upgrade and then picking the weaker
+  // candidate.
+  const clockWinner = (over: Record<string, unknown> = {}) =>
+    plan({ architectures: [{ name: 'Statement-date drip', journey: 'linear', chosen: true }], ...over });
+
+  it('lets a linear winner through when no reactive rival was written', () => {
+    expect(reactionBlocks(proposal(clockWinner()) as never)).toEqual([]);
+  });
+
+  it('lets the whole turn proceed on a clock', () => {
+    // The end of the story: a who-split and a clock reach Confirm.
+    const d = decide(settled(), { proposed: proposal(clockWinner()) as never });
+    expect(d.blocks.map((b) => b.code), d.blocks.map((b) => b.reason).join(' | ')).toEqual([]);
+    expect(d.proceed).toBe(true);
+  });
+
+  it('holds when they wrote the upgrade and then chose the calendar', () => {
+    const blocks = reactionBlocks(
+      proposal(
+        plan({
+          architectures: [
+            { name: 'Statement-date drip', journey: 'linear', chosen: true },
+            { name: 'Catch the moment', journey: 'branch-on-response' },
+          ],
+        }),
+      ) as never,
+    );
+    expect(blocks.map((b) => b.code)).toEqual(['chose-clock-over-reaction']);
+    expect(blocks[0].reason).toMatch(/treats someone who opened the message and someone who never did as two different people/);
+    expect(blocks[0].reason).toMatch(/chose the one that goes by the calendar/);
+    expect(blocks[0].clears.field).toBe('architecture');
+    // Keep the who-split; the fork sits inside a group.
+    expect(blocks[0].clears.how).toMatch(/Keep the who-split exactly as it is/);
+    // And dropping the rival is a legal move, so this is not a trap.
+    expect(blocks[0].clears.how).toMatch(/drop the reactive candidate/);
+  });
+
+  it('holds the same way when nobody was marked the winner but a reactive candidate exists', () => {
+    // "They wrote the upgrade and picked nothing" lands in the same place,
+    // which is why the old no-chosen-candidate hold did not need keeping.
+    const blocks = reactionBlocks(
+      proposal(
+        plan({
+          architectures: [
+            { name: 'Statement-date drip', journey: 'linear' },
+            { name: 'Catch the moment', journey: 'branch-on-response' },
+          ],
+        }),
+      ) as never,
+    );
+    expect(blocks.map((b) => b.code)).toEqual(['chose-clock-over-reaction']);
+  });
+
+  it('says nothing when every candidate is a clock', () => {
+    expect(
+      reactionBlocks(
+        proposal(
+          plan({
+            architectures: [
+              { name: 'Statement-date drip', journey: 'linear', chosen: true },
+              { name: 'Fixed cadence', journey: 'experiment' },
+            ],
+          }),
+        ) as never,
+      ),
+    ).toEqual([]);
+  });
+
+  it('still holds a reactive winner whose steps are a ticket-size diamond', () => {
+    // The upgrade was claimed, so the steps have to do it. A who-split alone
+    // is not the fork — that is the live turn-4-to-5 argument in one case.
+    const ticketOnly = {
+      campaignName: 'A', description: 'd', goal: null,
+      entry: { kind: 'audience', entity: 'Card', conditions: [] },
+      steps: [
+        {
+          kind: 'branch', label: 'Ticket band', entity: 'Transaction', attribute: 'Transaction Amount',
+          paths: [
+            { label: 'Above 10000', operator: 'Greater than', value: '10000', steps: [{ kind: 'send', name: 'Opening', objective: ['emi'], stage: 'first-touch', describe: 'd', channelPreference: ['WHATSAPP'], barrier: 'no-awareness' }] },
+            { label: 'Everyone else', operator: 'Less than', value: '10000', steps: [{ kind: 'send', name: 'Other', objective: ['emi'], stage: 'first-touch', describe: 'd', channelPreference: ['WHATSAPP'], barrier: 'no-awareness' }] },
+          ],
+        },
+      ],
+    };
+    const blocks = reactionBlocks({ strategy: plan(), blueprint: ticketOnly } as never);
     expect(blocks.map((b) => b.code)).toEqual(['no-reaction']);
-    expect(blocks[0].reason).toMatch(/treats unread, unreached and ignored as the same person/);
-    // The two things the live plan DID do, named as not being this.
-    expect(blocks[0].reason).toMatch(/ticket-size split and a wording test are not that/);
-  });
-
-  it('refuses a plan with no chosen candidate at all', () => {
-    // A proposal in which nobody won has not made the decision this check is
-    // about, and reading "undefined" as linear would be a guess.
-    const blocks = reactionBlocks(proposal(plan({ architectures: [{ name: 'A', journey: 'branch-on-response' }, { name: 'B', journey: 'linear' }] })) as never);
-    expect(blocks.map((b) => b.code)).toEqual(['no-reaction']);
-  });
-
-  it('refuses an experiment as the whole answer', () => {
-    // `experiment` is a legitimate journey behaviour and it is not a REACTION:
-    // randomised arms learn something, they do not respond to what this
-    // customer did. A wording test over the same four sends is one treatment.
-    const blocks = reactionBlocks(proposal(plan({ architectures: [{ name: 'Two openings', journey: 'experiment', chosen: true }, { name: 'Clock', journey: 'linear' }] })) as never);
-    expect(blocks.map((b) => b.code)).toEqual(['no-reaction']);
-  });
-
-  it('accepts branch-on-response and wait-for-event', () => {
-    for (const journey of ['branch-on-response', 'wait-for-event']) {
-      expect(
-        reactionBlocks(proposal(plan({ architectures: [{ name: 'W', journey, chosen: true }, { name: 'L', journey: 'linear' }] })) as never),
-        journey,
-      ).toEqual([]);
-    }
-  });
-
-  it('offers the clock as the rival, and never a second invented barrier', () => {
-    const [block] = reactionBlocks(proposal(plan({ architectures: [{ name: 'Clock', journey: 'linear', chosen: true }] })) as never);
-    expect(block.clears.field).toBe('architecture');
-    expect(block.clears.how).toMatch(/branch-on-response or wait-for-event/);
-    expect(block.clears.how).toMatch(/rival it beats may be the clock/);
-    expect(block.clears.how).toMatch(/Do not invent a second customer problem/);
+    expect(blocks[0].reason).toMatch(/A split by ticket size is who they are, not what they did/);
   });
 });
 
@@ -187,8 +241,18 @@ describe('claiming a reaction is not having one', () => {
 
 describe('before Confirm, never after', () => {
   it('is raised at propose time', () => {
+    // The CLAIMED-and-not-built case, which is the one that still holds: a
+    // reactive winner whose plan names fewer than two landed cases. A linear
+    // winner is no longer this block's business — see the group above.
     const d = decide(settled(), {
-      proposed: proposal(plan({ architectures: [{ name: 'Clock', journey: 'linear', chosen: true }] })) as never,
+      proposed: proposal(
+        plan({
+          touches: [
+            { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'Remind on day 2.' },
+            { day: 2, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'Remind on day 4.' },
+          ],
+        }),
+      ) as never,
     });
     expect(d.blocks.map((b) => b.code)).toContain('no-reaction');
   });
@@ -197,7 +261,14 @@ describe('before Confirm, never after', () => {
     // Same rule as the cadence and trend blocks. Once they have approved,
     // refusing leaves them with an approval that did nothing.
     const d = decide(settled(), {
-      proposed: proposal(plan({ architectures: [{ name: 'Clock', journey: 'linear', chosen: true }] })) as never,
+      proposed: proposal(
+        plan({
+          touches: [
+            { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'Remind on day 2.' },
+            { day: 2, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'Remind on day 4.' },
+          ],
+        }),
+      ) as never,
       building: true,
     });
     expect(d.blocks.map((b) => b.code)).not.toContain('no-reaction');

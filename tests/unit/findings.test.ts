@@ -241,7 +241,22 @@ describe('who converts today — when the manager knows', () => {
     expect(convertersSettled(b.converters)).toBe(true);
   });
 
+  it('is settled by their stated pattern under either honest label', () => {
+    // `user-belief` COUNTS, 2026-10-24, the same way it has always counted for
+    // barriers. MEASURED, `eval/runs/ui-s-1792842540156`: the manager said
+    // "10k+ txns convert more", the model wrote exactly that as the shape and
+    // filed it `user-belief` — the basis the prompt teaches for what they
+    // believe about customer behaviour, which a pattern they have NOTICED
+    // reasonably is. This function took one of the two labels, so who
+    // converts stayed open on a brief holding their answer and the inject
+    // reprinted the question they had answered.
+    const b = recordConverters(newBrief('o'), known({ basis: 'user-belief' }));
+    expect(convertersSettled(b.converters)).toBe(true);
+  });
+
   it('does NOT count the agent deciding for itself', () => {
+    // The line is theirs versus ours, not which of two honest labels the
+    // model picked for one sentence.
     const b = recordConverters(newBrief('o'), known({ basis: 'assumption' }));
     expect(convertersSettled(b.converters)).toBe(false);
   });

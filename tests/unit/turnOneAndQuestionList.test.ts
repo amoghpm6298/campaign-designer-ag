@@ -128,7 +128,10 @@ describe('the client is shown this turn\'s questions, not the outstanding histor
   it('lists only the question raised this turn', async () => {
     script(askViaTool([{ text: 'Which cards count as new?', impact: 'shaping' }], 'Confirmed so far.'));
     const res = await turnTwo();
-    expect(res.questions).toEqual(['Which cards count as new?']);
+    expect(res.questions[0]).toBe('Which cards count as new?');
+    expect(res.questions).toContain(
+      'Who tends to do this already today — is there any pattern you have noticed, even a rough one? "We do not track that" is a complete answer.',
+    );
   });
 
   it('does not re-list a turn-1 question, even one the record left open', async () => {
@@ -172,10 +175,20 @@ describe('the client is shown this turn\'s questions, not the outstanding histor
       }),
       proseRound('Confirmed so far: activation means setting the PIN.'),
     ]);
+    const before = afterTurnOne().questions.length;
     const res = await turnTwo();
     expect(res.questions).toEqual([]);
-    // And the record is untouched — an empty ask is not a retraction.
-    expect(outstanding(res.brief as WorkingBrief).length).toBeGreaterThan(0);
+    // AND THE RECORD KEEPS ITS HISTORY — an empty ask is not a retraction.
+    //
+    // RETARGETED 2026-10-24. This asserted `outstanding(...) > 0`, which was
+    // only true because the manager's reply never closed anything: ingest set
+    // `answeredInRound` and the gate read `addressedInRound`. That is the bug
+    // `receive` fixed, and a test requiring the symptom would have reinstated
+    // it. What the test is actually about is that raising no questions does
+    // not delete the ones already asked.
+    const brief = res.brief as WorkingBrief;
+    expect(brief.questions.length).toBeGreaterThanOrEqual(before);
+    expect(outstanding(brief)).toHaveLength(0);
   });
 
   it('caps the list at the same number the model is allowed to raise', async () => {
@@ -204,7 +217,7 @@ describe('turn one cannot be a channel inventory', () => {
     // catalogue. That expression must not leak into discovery, where both
     // operands are false — this is the invariant the widening had to preserve.
     const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-    expect(orch).toMatch(/toolsForPhase\(designSeen \|\| isBuildTurn\)/);
+    expect(orch).toMatch(/toolsForPhase\(phase !== 'asking' \|\| designSeen\)/);
     expect(orch).not.toMatch(/toolsForPhase\(true\)/);
     expect(toolsForPhase(false)).toEqual([]);
   });
@@ -233,7 +246,13 @@ describe('turn one cannot be a channel inventory', () => {
     const sent = script(askViaTool([{ text: 'What does activation mean to you?' }], 'One thing first.'));
     await run(undefined, [{ role: 'user', content: OBJECTIVE }]);
     const req = JSON.parse(sent[0]);
-    const context = typeof req.system === 'string' ? req.system : JSON.stringify(req.system) + JSON.stringify(req.messages);
+    // THE WHOLE REQUEST, which is what this test says it reads. The ternary
+    // here used to fall back to the messages only when `system` was NOT a
+    // string — and it always is — so the assertion was really "the channel
+    // names are hardcoded in the method prompt". They belong in
+    // `issuerContext`, which travels in the first user message: which
+    // channels an issuer has is bank context, not method.
+    const context = JSON.stringify(req.system) + JSON.stringify(req.messages);
     for (const channel of ['WHATSAPP', 'SMS', 'EMAIL', 'RCS']) {
       expect(context, `${channel} must be stated in the prompt`).toContain(channel);
     }
@@ -249,6 +268,9 @@ describe('turn one cannot be a channel inventory', () => {
     // Only output tools — the ones the model writes THROUGH, never reads from.
     expect(tools.map((t) => t.name)).not.toContain('list_channels');
     expect(tools.map((t) => t.name)).toContain('ask_questions');
-    expect(res.questions).toEqual(['What does activation mean to you?']);
+    expect(res.questions[0]).toBe('What does activation mean to you?');
+    expect(res.questions).toContain(
+      'Who tends to do this already today — is there any pattern you have noticed, even a rough one? "We do not track that" is a complete answer.',
+    );
   });
 });
