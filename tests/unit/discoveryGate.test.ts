@@ -264,7 +264,10 @@ describe('the orchestrator wires the gate in, not the model', () => {
       fs.readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8'),
     );
     expect(src).toMatch(/const gate = evaluateDiscovery\(/);
-    expect(src).toMatch(/if \(gate\.outcome === 'ask_questions'\)/);
+    // GUARDED BY THE RECORD. The outcome still decides the Brief screen, and
+    // it may only reach it while the brief is open — commentary on a settled
+    // record is not a questionnaire.
+    expect(src).toMatch(/if \(!briefClosed && gate\.outcome === 'ask_questions'\)/);
     expect(src).not.toMatch(/parsed\.value\.action === 'ask' && !limitReached/);
     expect(src).toMatch(/mayGenerate\(session, brief\.objectiveFingerprint\)/);
   });

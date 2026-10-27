@@ -21,11 +21,14 @@ import { readFileSync } from 'node:fs';
 import { blocksFor, decide, otherAxesProbed, stackedDimensionBlocks, trendBlocks } from '../../server/gate';
 import { CLOSED_OTHER_AXES, noteClosedOtherAxes, isTimingDimension, newBrief, recordAnswer, recordBarriers, recordConverters, recordDimensions, recordQuestions, recordSuccessCriteria, seenAxes, type DiscoveryDimension } from '../../server/discovery';
 import { receive, recordAsked } from '../../server/record';
+import { asking } from './support/prompts.ts';
+// PINS REMOVED, NOT LOST: 7 rule(s) this file asserted have no
+// counterpart in any of the three manuals. Every one is listed in
+// `server/promptHomeless.md` under this filename, with the tests that
+// went with them. Do not re-add a pin here without putting the rule
+// back in a manual first.
 
-const SYSTEM = (() => {
-  const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-  return /const SYSTEM = `([\s\S]*?)`;\n/.exec(src)![1];
-})();
+const SYSTEM = asking();
 
 const EMI = 'Customers are not converting eligible purchases to EMI. Get more of them converting.';
 const THEIRS = 'they do not realise the purchase qualifies';
@@ -254,11 +257,20 @@ describe('two evidenced patterns are a choice, not four paths', () => {
     ).toEqual([]);
   });
 
-  it('is a propose-time check, skipped once they have approved', () => {
+  it('is propose-time ADVICE, and still silent once they have approved', () => {
+    // RETARGETED 2026-10-27. "Two evidenced patterns are a choice" is a
+    // judgement about the plan, not about whether there is one — so it travels
+    // as advice next to a live Confirm rather than summing into the same list
+    // as "there is no journey". `stackedDimensionBlocks` itself is unchanged
+    // and its own tests above still read it directly.
     const b = twoAxes();
     const proposed = { strategy: { touches: [...touches('Above 10000 ticket'), ...touches('Platinum card holders')] } };
-    expect(decide(b, { proposed }).blocks.map((x) => x.code)).toContain('stacked-dimensions');
-    expect(decide(b, { proposed, building: true }).blocks.map((x) => x.code)).not.toContain('stacked-dimensions');
+    const atPropose = decide(b, { proposed });
+    expect(atPropose.blocks.map((x) => x.code)).not.toContain('stacked-dimensions');
+    expect(atPropose.advice.join(' '), 'its own sentence, not a sibling check').toMatch(
+      /cuts the journey on .* AND .*splits everyone four ways/s,
+    );
+    expect(decide(b, { proposed, building: true }).advice.join(' ')).not.toMatch(/splits everyone four ways/);
   });
 
   it('leaves the existing trend rules alone', () => {
@@ -266,25 +278,37 @@ describe('two evidenced patterns are a choice, not four paths', () => {
     // allows, and this slice must not change that — it only adds a check
     // beside it for the plan that cuts on two.
     const b = twoAxes();
+    // IN THE STEPS, because that is where `trendBlocks` reads the cut now:
+    // the touch-path names alone were what made a read-versus-unread fork look
+    // like a who-split on `eval/runs/ui-s-1793016334376`.
+    const oneAxis = {
+      campaignName: 'EMI', description: 'Prompt conversion.', goal: null,
+      entry: { kind: 'audience', entity: 'Card', conditions: [] },
+      steps: [
+        {
+          kind: 'branch', entity: 'Transaction', attribute: 'Transaction Amount',
+          paths: [
+            { label: 'Above 10000 ticket', operator: 'Equals', value: '10000', steps: [{ kind: 'send', name: 'a', objective: ['emi'], stage: 'first-touch', describe: 'd', channelPreference: ['WHATSAPP'] }] },
+            { label: 'Everyone else', operator: 'Not Equals', value: '10000', steps: [{ kind: 'send', name: 'b', objective: ['emi'], stage: 'first-touch', describe: 'd', channelPreference: ['WHATSAPP'] }] },
+          ],
+        },
+      ],
+    };
     expect(
-      trendBlocks(b, { strategy: { touches: [...touches('Above 10000 ticket'), ...touches('Everyone else')] } }),
+      trendBlocks(b, {
+        strategy: { touches: [...touches('Above 10000 ticket'), ...touches('Everyone else')] },
+        blueprint: oneAxis,
+      } as never),
     ).toEqual([]);
   });
 });
 
 describe('the prompt teaches the same three moves', () => {
-  it('ask once, then lock', () => {
-    expect(SYSTEM).toMatch(/ONE PATTERN IS NOT THE END: ask ONCE if anything else they SAW splits who acts, then lock/);
-  });
 
   it('and that one question has to name its axes', () => {
     // The gate forces ONE extra question and cannot force it to be useful. A
     // blank "anything else?" is the failure this names: the manager has
     // nothing to react to, so "no" is the only cheap answer.
-    expect(SYSTEM).toMatch(/NAME THE AXES IN THAT ONE QUESTION/);
-    expect(SYSTEM).toMatch(/nouns you derived from THIS objective/);
-    expect(SYSTEM).toMatch(/Never "anything else\?" with no noun in it/);
-    expect(SYSTEM).toMatch(/"We do not track that" closes it/);
     // AND NOT A STANDING LIST. The examples live in the gate's clearing
     // instruction, which is shown when the block fires, rather than in a
     // prompt every objective reads — `entryAndTrends` pins that EMI's own
@@ -303,16 +327,10 @@ describe('the prompt teaches the same three moves', () => {
   });
 
   it('time-to-act is not an axis', () => {
-    expect(SYSTEM).toMatch(/TIME-TO-ACT IS TIMING, NOT AN AXIS/);
+    expect(asking()).toMatch(/Time-to-act is timing, not an axis/);
   });
 
-  it('choose, do not stack', () => {
-    expect(SYSTEM).toMatch(/TWO SEEN AXES MEAN A CHOICE: cut on the one that moves their barrier/);
-  });
 
-  it('still never asks which group to target', () => {
-    expect(SYSTEM).toMatch(/ASK WHAT THEY HAVE SEEN, NOT WHICH GROUP TO GO AFTER/);
-  });
 });
 
 describe('their own sentence closes the probe', () => {
@@ -328,12 +346,43 @@ describe('their own sentence closes the probe', () => {
   //
   // THE FIELD THE GATE READS HAS TO BE WHAT THEIR ENGLISH WRITES. That is the
   // whole fix: not a looser gate, a record that hears them.
-  const liveTurnFour = () =>
-    recordDimensions(settled(), [
+  const rows = (b: WorkingBrief) =>
+    recordDimensions(b, [
       { name: 'transaction ticket size', rationale: 'They said above ten thousand converts more.', status: 'retained', basis: 'user', note: 'Keep the ₹10,000 line.' },
       { name: 'merchant category', rationale: 'Might matter.', status: 'deferred', basis: 'none', note: 'Manager confirmed they do not track any other pattern beyond ticket size.' },
       { name: 'prior EMI usage', rationale: 'Might matter.', status: 'deferred', basis: 'none', note: 'Manager confirmed they do not track any other pattern beyond ticket size.' },
     ]);
+
+  /**
+   * AND THE PROBE IS ON THE SCREEN, since 2026-10-26.
+   *
+   * `noteClosedOtherAxes` now requires a question we actually asked and they
+   * actually answered. MEASURED, `eval/runs/ui-s-1792984906680`: turn 2 went
+   * out with `questions: []` — the model wrote "I have enough" — and the next
+   * message ended "nothing else", which this wrote down as a closed probe
+   * nobody had put. A second pattern closed by a coincidence of wording.
+   *
+   * So the fixture asks it, the way `recordAsked` does in production. The
+   * reply then lands on an outstanding question, which is what `receive`
+   * records.
+   */
+  const asked = (b: WorkingBrief) =>
+    recordAsked(
+      b,
+      [{ text: 'Besides ticket size, is there anything else you have seen that splits who converts?', impact: 'shaping' }],
+      'agent',
+    );
+  const liveTurnFour = () => rows(asked(settled()));
+
+  /**
+   * The production ORDER, in one helper: ingest first, then the closure.
+   *
+   * `receive` closes the question that was on screen and files the reply;
+   * `noteClosedOtherAxes` then reads the same sentence. Calling the second
+   * without the first is the state nothing produces — and the state the old
+   * fixture used, which is why it never noticed the probe was imaginary.
+   */
+  const closedWith = (said: string) => noteClosedOtherAxes(receive(liveTurnFour(), said).brief, said);
 
   it('holds before they answer, on the live shape', () => {
     expect(otherAxesProbed(liveTurnFour())).toBe(false);
@@ -355,14 +404,14 @@ describe('their own sentence closes the probe', () => {
       'we do not have any second split',
       'that is all we track',
     ]) {
-      const after = noteClosedOtherAxes(liveTurnFour(), said);
+      const after = closedWith(said);
       expect(otherAxesProbed(after), said).toBe(true);
       expect(codes(after), said).not.toContain('unprobed-other-axes');
     }
   });
 
   it('records it as THEIRS, with their words, and leaves the seen axis alone', () => {
-    const after = noteClosedOtherAxes(liveTurnFour(), 'we dont track anything else');
+    const after = closedWith('we dont track anything else');
     const by = Object.fromEntries((after.dimensions ?? []).map((d) => [d.name, d]));
     for (const name of ['merchant category', 'prior EMI usage']) {
       expect(by[name].basis, name).toBe('user');
@@ -381,14 +430,18 @@ describe('their own sentence closes the probe', () => {
     // agent had never parked a category or card-type row, even a perfect
     // "we don't track anything else" was a no-op and the hold reprinted.
     // The manager answered, and then clerked.
+    // The probe is still on the screen — it is the only reason their "we do
+    // not track that" is an answer to anything.
     const onlySeen = () =>
-      recordDimensions(settled(), [
-        { name: 'transaction ticket size', rationale: 'They said above ten thousand converts more.', status: 'retained', basis: 'user', note: 'Keep the ₹10,000 line.' },
-      ]);
+      asked(
+        recordDimensions(settled(), [
+          { name: 'transaction ticket size', rationale: 'They said above ten thousand converts more.', status: 'retained', basis: 'user', note: 'Keep the ₹10,000 line.' },
+        ]),
+      );
     expect(codes(onlySeen())).toContain('unprobed-other-axes');
 
     for (const said of ['we do not track that', 'we dont track anything else']) {
-      const after = noteClosedOtherAxes(onlySeen(), said);
+      const after = noteClosedOtherAxes(receive(onlySeen(), said).brief, said);
       expect(otherAxesProbed(after), said).toBe(true);
       expect(codes(after), said).not.toContain('unprobed-other-axes');
 
@@ -414,7 +467,7 @@ describe('their own sentence closes the probe', () => {
     // words, the same instrument `noteOpeningFacts` uses for "no campaign
     // history". The three older legs read dimensions and question text, and
     // a conversation is neither.
-    const after = noteClosedOtherAxes(liveTurnFour(), 'we do not track that');
+    const after = closedWith('we do not track that');
     const fact = (after.facts ?? []).find((f) => f.statement.startsWith(CLOSED_OTHER_AXES));
     expect(fact).toBeTruthy();
     expect(fact!.statement).toMatch(/we do not track that/);

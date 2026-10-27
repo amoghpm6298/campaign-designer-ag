@@ -22,14 +22,16 @@
 // test check the invariant instead of trusting it. Anything worth telling the
 // agent that does NOT have a clearing mutation is advice, and advice does not
 // block.
-import { briefDimensions, isPlatformDimension, recordDimensions, seenAxes, segmentationDimensions, CLOSED_OTHER_AXES, type WorkingBrief } from './discovery';
+import { isPlatformDimension, probeWasAsked, recordDimensions, seenAxes, segmentationDimensions, CLOSED_OTHER_AXES, type WorkingBrief } from './discovery';
 import { designableBarriers, convertersSettled, type Barrier, type Converters } from './findings';
 import { journeyReacts } from './optionAudit';
+import { whoGroups, hasExperiment, sendSteps, sendChannels, coSentPairs } from './pathReading';
 import type { CampaignBlueprint } from './blueprint';
 import { outstanding, exhausted } from './record';
 
-/** Lines of enquiry to weigh before designing. Being sure of one is not the same as having considered the alternatives. */
-export const MIN_DIMENSIONS = 3;
+// `MIN_DIMENSIONS` IS GONE. See the note in `blocksFor` where the block it
+// fed was deleted: the brief is closed by evidence — a seen pattern and an
+// answered probe — not by a count of rows.
 
 /** Rounds of questions before the agent must work with what it has. */
 export const MAX_ROUNDS = 8;
@@ -72,7 +74,6 @@ export interface Block {
     | 'success-unsettled'
     | 'converters-unknown'
     | 'no-barrier'
-    | 'too-few-dimensions'
     | 'dimension-unreasoned'
     | 'awaiting-reply'
     | 'belief-untested'
@@ -82,7 +83,11 @@ export interface Block {
     | 'unprobed-other-axes'
     | 'stacked-dimensions'
     | 'no-reaction'
-    | 'chose-clock-over-reaction'
+    // `chose-clock-over-reaction` WAS HERE and is advice now, not a block.
+    // Describing a reactive rival and then picking the cadence is a judgement
+    // a campaign manager is allowed to make; refusing their build over it is
+    // the application choosing the campaign. The sentence still travels —
+    // see `alignJourneyClaim`.
     | 'single-channel-habit'
     | 'channel-spray';
   /** Said to the user, in their terms. Never names a field or an id. */
@@ -110,6 +115,34 @@ export interface Decision {
  * the blocks are reported as advice, so the agent proceeds AND the user still
  * sees what was assumed.
  */
+/**
+ * IS THIS PATH APPROVABLE. The whole answer, in one place.
+ *
+ * Three things, and they are all about whether there is a campaign to agree
+ * to rather than whether it is the campaign we would have written:
+ *
+ *  - `cadence-unnamed` — no shaped steps, no send anywhere in them, or a
+ *    who-group the journey splits out and then never messages. Whoever lands
+ *    there gets nothing at all, and a waits-only path reaches nobody.
+ *  - `split-without-trend` — it cuts people on a factor nobody has said they
+ *    have seen. KEPT DELIBERATELY: demoting this with `nothing-tested` would
+ *    let a who-cut with no trend Confirm, which is the defect
+ *    `eval/runs/ui-s-1793077922155` is about from the other side.
+ *  - `no-reaction` — they CLAIMED a reacting journey and attached no shaped
+ *    path. There is nothing to approve, not a difference of taste.
+ *
+ * EVERYTHING ELSE IS ADVICE, and this is the locked product: a clock plus a
+ * who-split is a complete first campaign. Reaction is smarter, not mandatory.
+ * So `nothing-tested`, `single-channel-habit`, `channel-spray`,
+ * `stacked-dimensions` and `belief-untested` all still get said, next to a
+ * live button.
+ *
+ * `nothing-tested` and `split-without-trend` are two outcomes of ONE function
+ * and are split here rather than there, so the one place that decides what
+ * holds is the one place to read.
+ */
+const PATH_HOLDS = new Set(['cadence-unnamed', 'split-without-trend', 'no-reaction']);
+
 export function decide(
   brief: WorkingBrief,
   opts: { proceedRequested?: boolean; proposed?: ProposalUnderReview | null; building?: boolean } = {},
@@ -120,16 +153,48 @@ export function decide(
   // already approved this plan. Refusing it there would be both useless and
   // insulting: there is nothing they can do about a missing field from the
   // build turn, and the moment to have said so was before they agreed.
-  const blocks = [
-    ...blocksFor(brief),
-    ...proposalBlocks(brief, opts.proposed ?? null),
-    ...(opts.building ? [] : cadenceBlocks(opts.proposed ?? null)),
-    ...(opts.building ? [] : trendBlocks(brief, opts.proposed ?? null)),
-    ...(opts.building ? [] : stackedDimensionBlocks(brief, opts.proposed ?? null)),
-    ...(opts.building ? [] : reactionBlocks(opts.proposed ?? null)),
-    ...(opts.building ? [] : channelJobBlocks(opts.proposed ?? null)),
+  // THE CLAIM IS ALIGNED TO THE STEPS BEFORE ANYTHING JUDGES IT.
+  //
+  // The steps are the plan. The chosen architecture's `journey` word is a
+  // label on it, and when the two disagree the application can repair the
+  // label — it cannot repair the path, and it must not hold a plan hostage to
+  // its own vocabulary. Aligning here rather than at one call site means
+  // every reader of `decide` sees the same proposal the manager would
+  // approve: the orchestrator, a test, a replay of a recorded brief.
+  const aligned = alignJourneyClaim(opts.proposed ?? null);
+  const proposed = aligned.proposed;
+  // TWO QUESTIONS, NOT ONE BIT.
+  //
+  // `blocksFor(brief)` answers IS DISCOVERY FINISHED. The plan checks answer
+  // MAY THEY APPROVE THIS JOURNEY. They were summed into one list, so every
+  // judgement about a plan had the same power as "there is no journey" — and
+  // a channel-mix opinion kept the Confirm button off a campaign that was
+  // ready to run. MEASURED, `eval/runs/ui-s-1793084077571` turn 4: a closed
+  // brief, a ticket-size split with sends on both arms and a nested read fork,
+  // held on `single-channel-habit` and shown Revise.
+  //
+  // So the plan checks still all RUN — the sentences are worth saying — and
+  // only the ones in `PATH_HOLDS` can keep the button off. The rest travel as
+  // advice beside it.
+  const planChecks = opts.building
+    ? proposalBlocks(brief, proposed)
+    : [
+        ...proposalBlocks(brief, proposed),
+        ...cadenceBlocks(proposed),
+        ...trendBlocks(brief, proposed),
+        ...stackedDimensionBlocks(brief, proposed),
+        ...reactionBlocks(proposed),
+        ...channelJobBlocks(proposed),
+      ];
+  const blocks = [...blocksFor(brief), ...planChecks.filter((b) => PATH_HOLDS.has(b.code))];
+  // The alignment's own sentences are ADVICE: true of the plan, worth saying,
+  // never a reason to refuse. `building` keeps them too — a manager reading
+  // the build summary is still owed "a read-fork would have been smarter".
+  const advice = [
+    ...adviceFor(brief),
+    ...aligned.advice,
+    ...planChecks.filter((b) => !PATH_HOLDS.has(b.code)).map((b) => b.reason),
   ];
-  const advice = adviceFor(brief);
 
   if (opts.proceedRequested) {
     return { proceed: true, blocks: [], advice: [...advice, ...blocks.map((b) => b.reason)], forcedBy: 'user' };
@@ -229,36 +294,6 @@ export interface ProposalUnderReview {
 }
 
 /**
- * Every path, with how many sends it carries.
- *
- * THE RULE WAS BACKWARDS AND THIS IS THE CORRECTION, 2026-10-22. It used to
- * measure the BUSIEST path on the reasoning that a group which mostly acts
- * unprompted may need only a light touch. Read against the run that prompted
- * all of this, that is exactly the failure: the high-limit cohort — the one
- * that self-activates anyway — got two nudges and cleared the gate, while
- * everyone else, the people the campaign exists for, got a single send that
- * nothing ever looked at. A thin path hid behind a busier one.
- *
- * EVERY NAMED PATH NEEDS A SEQUENCE. Lighter still means fewer, and fewer
- * still means a mid-window touch and a last chance before the window closes.
- * A single row is not a sequence, whichever group it belongs to.
- *
- * A HOLDOUT IS NOT A PATH. `touches` lists customer-facing sends, so an arm
- * that is deliberately not messaged contributes no rows and never appears
- * here — the rule cannot accidentally demand two sends for a control group.
- * A holdout listed as one row fails, correctly: it does not belong in this
- * list at all.
- */
-const sendsPerPath = (touches: { path?: string }[]): { path: string; count: number }[] => {
-  const counts = new Map<string, number>();
-  for (const t of touches) {
-    const key = t.path?.trim() || 'all';
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return [...counts.entries()].map(([path, count]) => ({ path, count }));
-};
-
-/**
  * Blocks that are about the PROPOSAL, not the record.
  *
  * Separated from `blocksFor` because the two are checked at different moments
@@ -296,41 +331,134 @@ export function proposalBlocks(brief: WorkingBrief, proposed: ProposalUnderRevie
   ];
 }
 
+// `cutsPeople` AND `whoGroups` LIVE IN `pathReading` NOW, with the compiler
+// and the propose boundary reading the same file. They were a third copy of a
+// walk that had already disagreed with itself twice, and the last disagreement
+// cost a live run: a ticket-size fork written as a `condition` produced no
+// groups at all, because this version only ever iterated `step.paths` and a
+// condition has `yes`/`no`.
+//
+// `sendsInside` went with them on 2026-10-27. It was `whoGroups`' own
+// send-counter and was left behind when the walk moved, referenced only by its
+// own recursive calls — which is why `noUnusedLocals` never reported it,
+// though this project does set it. A self-recursive declaration counts as
+// read, so an unused RECURSIVE helper is invisible to the one check that
+// catches an unused plain one (measured: the plain sibling is flagged
+// TS6133 and the recursive one is not). Worth knowing, because every walk in
+// this codebase is recursive, so this is the shape of dead code the compiler
+// will not hand us.
+//
+// `sendSteps` in `pathReading` is the counter now, and it is the one the
+// compile check and the compiler agree on.
+//
+// Re-exported because the tests and `cadenceBlocks` both ask for it by name.
+export { whoGroups };
+
 /**
- * A plan that never names its sends.
+ * THE CADENCE RULE, read off the who-groups the steps create.
  *
- * MEASURED 2026-10-22. A fourteen-day activation plan described "a staggered
- * multi-touch sequence over the full 14 days, spaced by read/response rather
- * than a fixed clock" and listed not one message. The manager approved a
- * cadence they could not see, and the build turn then invented it from that
- * sentence. Under-dosing is invisible in prose: three touches and nine read
- * the same.
+ * The walk itself is `whoGroups` in `pathReading`; what stays here is why this
+ * check asks it rather than reading `touches`, and what it does with the
+ * answer.
  *
- * NO WINDOW IS PARSED, deliberately. There is no structured window on the
- * brief — "14 days" lives only inside free text — and reading a number out of
- * prose to CREATE a block would break the rule this application runs on: a
- * judgement about someone's words may only ever release a block, never raise
- * one (see `record.ts`). So the requirement is unconditional and the tool
- * schema carries most of it with `minItems: 2`. This is the backstop for a
- * payload that arrives without the field at all.
+ * READ OFF THE PATH, NOT OFF `touches`, since 2026-10-26.
+ *
+ * MEASURED, `eval/runs/ui-s-1792984906680` turns 3 and 4. The journey was
+ * complete — a ticket-size branch, a wording experiment on the smaller band,
+ * a READ against DELIVERED/DELETED fork inside each arm, a last chance on
+ * every tail, and day 0 / 2 / 5 on the band the campaign is for. The manager
+ * got no Confirm, because `touches` described that journey as SIX paths:
+ *
+ *     "Below ₹10,000 — functional framing"
+ *     "Below ₹10,000 — benefit framing"
+ *     "Below ₹10,000 — read but no action (either framing)"
+ *     "Below ₹10,000 — not read (either framing)"
+ *     "Below ₹10,000 — all still unconverted"
+ *     "₹10,000 and above"
+ *
+ * Counting each caption as a group demanded two sends per experiment arm and
+ * per engagement arm, so a journey that over-DESCRIBES itself was refused for
+ * under-dosing. The prose was never the sequence.
+ *
+ * A WHO-GROUP IS A BRANCH ON A CUSTOMER OR TRANSACTION ATTRIBUTE — ticket
+ * size, category — because that is a group of people. Experiment arms are
+ * INTERIORS of a group: the same people, split at random. Engagement arms
+ * (`statuses`) are interiors too: the same person, later. Neither is a
+ * guest list.
+ *
+ * ONE SEND PER GROUP IS APPROVABLE. That is the standing product lock: a
+ * who-split plus a clock is a complete first campaign, and forcing a
+ * mid-window and a last chance onto every band is the application writing the
+ * sequence. What is NOT approvable is a group with nothing to send it.
  */
 export function cadenceBlocks(proposed: ProposalUnderReview | null): Block[] {
   if (!proposed?.strategy) return [];
-  const touches = proposed.strategy.touches ?? [];
-  const thin = sendsPerPath(touches).filter((p) => p.count < 2);
-  if (touches.length && !thin.length) return [];
+  const path = proposed.blueprint ?? null;
+
+  // NOTHING TO APPROVE IS THE ONLY HOLD LEFT.
+  //
+  // Two shapes qualify, and neither is a judgement about dosage:
+  //
+  //  - no shaped steps at all. "A staggered multi-touch sequence over the full
+  //    14 days" is not a sequence anyone can approve, and that is measured:
+  //    the manager approved a cadence they could not see and the build turn
+  //    invented it from the sentence.
+  //  - a who-group the journey cuts out and then never messages. The split
+  //    put those people in their own lane and left the lane empty.
+  //
+  // A HOLDOUT IS NOT THAT. `whoGroups` reads the steps, and a deliberately
+  // unmessaged control arm is an `experiment` arm — an interior — so it never
+  // appears here as a group with no send.
+  if (!shapedBlueprint(path)) {
+    return [
+      {
+        code: 'cadence-unnamed',
+        reason:
+          'This plan does not say what actually goes out. "Multi-touch" is not a sequence a campaign manager can approve — send the journey itself: the entry, then the steps in order.',
+        clears: {
+          field: 'touches',
+          how: 'Put the journey in "blueprint": the entry, then every step in order. Confirm compiles exactly that path, so it is what they are agreeing to.',
+        },
+      },
+    ];
+  }
+  // AT LEAST ONE SEND IS IN THE PLAN. A path of waits and exits is shaped
+  // grammar that reaches nobody, and `propose_strategy` refuses it before it
+  // files — but `decide` is also called on replays and on a brief whose stash
+  // predates that check, and demoting `nothing-tested` to advice removed the
+  // only other thing that would have held one. This is the hold, in the file
+  // that already owns "who gets nothing".
+  //
+  // `sendSteps` COUNTS SEND OBJECTS IN THE JSON, not compiled SEND nodes —
+  // the same reading the tool's waits-only refusal uses. So this catches a
+  // plan that never wrote a message, and NOT a plan whose messages all failed
+  // to compile: that is the tool's 0-SEND-after-resolve refusal, which runs
+  // the real compiler and counts nodes. Two different questions, deliberately,
+  // and the gate is not a second compiler.
+  if (sendSteps(path!.steps as unknown[]) === 0) {
+    return [
+      {
+        code: 'cadence-unnamed',
+        reason:
+          'Nothing in this journey sends a message. The steps are real steps, but a path of waits and exits reaches nobody, and Confirm compiles exactly this path.',
+        clears: {
+          field: 'touches',
+          how: 'Put the sends into the path, each one on the arm it belongs to.',
+        },
+      },
+    ];
+  }
+  const empty = whoGroups(path!.steps as unknown[]).filter((g) => g.sends === 0);
+  if (!empty.length) return [];
   return [
     {
       code: 'cadence-unnamed',
-      reason:
-        touches.length === 0
-          ? 'This plan does not say when the messages go out. "Multi-touch" is not a sequence a campaign manager can approve — name each send, the day it lands, and what happens if it does not.'
-          : `${thin.map((p) => (p.path === 'all' ? 'The plan' : `"${p.path}"`)).join(' and ')} ${
-              thin.length === 1 ? 'gets' : 'get'
-            } a single message, which is not a sequence anyone can approve. Give that path a mid-window reminder and a last chance before the window closes.`,
+      reason: `${empty
+        .map((g) => `"${g.label}"`)
+        .join(' and ')} ${empty.length === 1 ? 'is a group this journey splits out and then never messages' : 'are groups this journey splits out and then never messages'}. Whoever lands there gets nothing at all.`,
       clears: {
         field: 'touches',
-        how: 'List every send in "touches": day, channel, path, what it is for, and what happens if it does not land. Every named path needs at least two.',
+        how: 'Give that arm at least one send, or drop the split so those people stay on the main path. One send per group is enough — a who-split with a steady sequence is a complete campaign.',
       },
     },
   ];
@@ -437,39 +565,49 @@ export function stackedDimensionBlocks(brief: WorkingBrief, p: ProposalUnderRevi
 export function trendBlocks(brief: WorkingBrief, p: ProposalUnderReview | null): Block[] {
   const s = p?.strategy;
   if (!s) return [];
-  const verdict = (name: string) =>
-    (s.strategyOptions ?? []).find((o) => String(o.option ?? '').toLowerCase().startsWith(name))?.verdict;
-  const tests = verdict('experiment') === 'used';
-  const cuts = verdict('segmentation') === 'used';
-  // A path that is not "all" is a group being treated differently. Counted as
-  // well as read from the verdict, because the defect was a plan that split
-  // the copy while its own options list said nothing about segmentation.
-  const paths = new Set(
-    (s.touches ?? []).map((t) => String(t.path ?? '').trim().toLowerCase()).filter((x) => x && x !== 'all'),
-  );
+  // THE STEPS ARE THE PLAN, AND THE STEPS ARE WHAT THIS READS.
+  //
+  // MEASURED, `eval/runs/ui-s-1793016334376`. Three turns, Confirm never
+  // appeared. Turn 3 filed exactly the campaign this product wants: one
+  // WhatsApp at purchase, then a read-versus-unread fork, a last chance on day
+  // 6 on both arms. Five sends, copy, channels, stage. `brief.lastBlocks` was
+  // `['split-without-trend']` and the bubble ended "This plan gives different
+  // groups different messages, and nothing you have told me says those groups
+  // behave differently."
+  //
+  // The "groups" were `Unread path` and `Read path` — NAMES IN `touches`, not
+  // people. This function counted any path that was not "all"; `cadenceBlocks`
+  // had known the difference since 2026-10-26, through `cutsPeople`. One
+  // definition now answers it for both: a branch with `statuses` and no
+  // attribute is the same person later, and an experiment arm is an interior.
+  //
+  // It is not fixed by filing the manager's "10k txns convert more" as a
+  // trend. That would have released the WRONG hold — treating a read/unread
+  // fork as a ticket-size cut — and 10,000 was the size of the eligible pool
+  // rather than a pattern in who acts.
+  const groups = whoGroups(p?.blueprint?.steps as unknown[] | undefined);
   // ARMS ARE NOT A CUT, AND A TEST DOES NOT EXCUSE ONE.
   //
-  // An experiment arm is a treatment variant assigned at random; it makes no
-  // claim about who these people are, so it needs no trend behind it. A path
-  // named for a customer property — "Prior EMI users", "First-time", a ticket
-  // band — does make that claim, and needs one.
+  // An experiment arm is a treatment variant assigned at random, and an
+  // outcome fork is the same person judged on what they did with the last
+  // message. Neither makes a claim about who these people are, so neither
+  // needs a trend behind it. A branch on a customer or transaction attribute
+  // does make that claim, and needs one.
   //
-  // THE FIRST DRAFT LET A WORDING TEST LEGALISE A PRIOR-EMI COPY SPLIT,
-  // because `tests` short-circuited the whole function. Declaring an
-  // experiment somewhere in the plan is not permission to cut the journey on
-  // a factor nobody tracks.
+  // `whoGroups` IS WHAT DECIDES, AND IT READS THE STEPS. The old rule read the
+  // NAMES instead — any `touches[].path` that was not "all" counted, released
+  // only when the plan declared an experiment, did not claim segmentation, and
+  // no path echoed a recorded factor. That inferred people from labels, which
+  // is how `Unread path` and `Read path` became an illegal who-split on
+  // `eval/runs/ui-s-1793016334376`. None of that scoring survives: the shape
+  // of the branch answers it, and `cadenceBlocks` asks the same function.
   //
-  // THE MATCH ONLY EVER RELEASES. Any two named paths are treated as a
-  // customer cut by default; they are let through as arms only when the plan
-  // declares an experiment, does NOT claim segmentation, and no path echoes a
-  // factor already on the record. Reading it the other way round — guessing
-  // "that looks like an arm" — would have the application inventing a reason
-  // to allow a split, which is the mistake `record.ts` warns about pointed at
-  // the model instead of the manager.
-  const onRecord = new Set(briefDimensions(brief).flatMap((d) => words(d.name)));
-  const echoesAFactor = [...paths].some((p) => words(p).some((w) => onRecord.has(w)));
-  const armsOnly = tests && !cuts && !echoesAFactor;
-  const customerCut = (cuts || paths.size >= 2) && !armsOnly;
+  // A CLAIM CANNOT INVENT A CUT THE STEPS DO NOT HAVE, and cannot excuse one
+  // they do. `Segmentation: used` on `strategyOptions` is the agent's verdict
+  // on its own plan — and that field is taught by no manual, so its absence
+  // says nothing either way. A declared wording test still does not legalise a
+  // prior-EMI copy split: if the branch is there, the hold is there.
+  const customerCut = groups.length > 0;
 
   // ORDER MATTERS. The split rule is checked first and independently of
   // `tests`, so an experiment cannot buy its way past it. A split the manager
@@ -490,7 +628,20 @@ export function trendBlocks(brief: WorkingBrief, p: ProposalUnderReview | null):
     ];
   }
 
-  if (!tests) {
+  // A CLOCK THAT COMPARES NOTHING, read off the steps as well.
+  //
+  // This used to fire on `verdict('experiment') !== 'used'`, so the live plan
+  // above would have been held a second time for omitting a field no manual
+  // teaches — after its first hold was lifted. A journey that reacts to what
+  // the customer did IS comparing something: unread against read is the
+  // reading. So the hold is for a plan that cuts nobody, runs no experiment in
+  // its steps, and does not react.
+  // THE SAME WALK AS THE COMPILER'S, from `pathReading`. This was a fourth
+  // copy, written inline here a slice ago.
+  const runsATest = hasExperiment(p?.blueprint?.steps as unknown[] | undefined);
+  const comparesNothing = !runsATest && !journeyReacts(p?.blueprint ?? null);
+
+  if (comparesNothing) {
     const parked = (s.hypotheses ?? []).length > 0;
     return [
       {
@@ -500,7 +651,7 @@ export function trendBlocks(brief: WorkingBrief, p: ProposalUnderReview | null):
           : 'Nobody can say yet who responds, and this plan compares nothing, so it will return one number with nothing to read it against. The first run is where the signal comes from.',
         clears: {
           field: 'experiment',
-          how: 'Run one comparison this time — wording, dosage, channel or timing, whichever this objective is actually uncertain about — and mark Experimentation "used" with what each arm gets and how the result would be read.',
+          how: 'Run one comparison this time, in the PATH — two arms of an experiment on the wording, dosage, channel or timing this objective is actually uncertain about, or a fork on what the last message did so unread and read get different next jobs. Say in "measurement" what result would tell you which. A field on the options list is not the test; the steps are.',
         },
       },
     ];
@@ -510,6 +661,95 @@ export function trendBlocks(brief: WorkingBrief, p: ProposalUnderReview | null):
 
 /** The two journey behaviours in which the NEXT step depends on the customer. */
 const REACTIVE_JOURNEYS = ['branch-on-response', 'wait-for-event'];
+
+const claimsReaction = (a?: { journey?: string } | null): boolean =>
+  REACTIVE_JOURNEYS.includes(String(a?.journey ?? '').trim().toLowerCase());
+
+/**
+ * A path a manager could actually be shown and approve.
+ *
+ * One step is enough, and the count is NOT the question — the live plan's
+ * `steps` array held a single `branch` carrying eight nested sends, and the
+ * accept message called it "a 1-step path". What matters is that every
+ * element is a step object rather than a sentence, because Confirm compiles
+ * these and `buildFromBlueprint` dies on a caption.
+ */
+export const shapedBlueprint = (bp: CampaignBlueprint | null | undefined): boolean =>
+  !!bp &&
+  Array.isArray(bp.steps) &&
+  bp.steps.length > 0 &&
+  bp.steps.every((s) => !!s && typeof s === 'object' && typeof (s as { kind?: unknown }).kind === 'string');
+
+/** One sentence, offered once. Never a question, never a block. */
+export const READ_FORK_ADVICE =
+  'A read-fork on the first WhatsApp would treat unread and read as different jobs: the person who has not opened it needs the same fact sooner, and the person who read it and did nothing needs a different argument.';
+
+/**
+ * THE STEPS ARE THE PLAN. A `journey` label that disagrees with them is
+ * repaired here, not held.
+ *
+ * MEASURED, `eval/runs/ui-s-1792843757296` turn 3. Discovery was finished,
+ * `decide(brief)` was empty, the turn was ready, and `propose_strategy`
+ * accepted a real path: a ticket-size branch, an experiment on the smaller
+ * band, and inside it an outcome fork on READ against DELIVERED/DELETED.
+ * `journeyReacts` on that blueprint is TRUE. Confirm never appeared anyway,
+ * the response carried `pendingBlueprint: null`, and the manager read the
+ * essay plus a hold saying the journey does not react — because
+ * `reactionBlocks` returned on `namedOutcomes` over the touch PROSE before it
+ * ever looked at the steps. Vocabulary beat the path.
+ *
+ * Three cases, and only the last one is a hold:
+ *
+ *  - the steps react: the claim is true, keep it;
+ *  - the steps are a who-split and a clock: a reaction claim is rewritten to
+ *    `linear` so the plan matches the path, and the read-fork sentence goes
+ *    out as advice. No fork is invented and the who-split is untouched;
+ *  - there is no shaped path at all: nothing is repaired, because there is
+ *    nothing to approve but a paragraph. `reactionBlocks` holds that one.
+ */
+export function alignJourneyClaim(p: ProposalUnderReview | null): {
+  proposed: ProposalUnderReview | null;
+  advice: string[];
+  /** The claim was rewritten to match the steps. */
+  stripped: boolean;
+} {
+  const s = p?.strategy;
+  if (!p || !s) return { proposed: p, advice: [], stripped: false };
+
+  const path = p.blueprint ?? null;
+  const shaped = shapedBlueprint(path);
+  const reacts = shaped && journeyReacts(path as CampaignBlueprint);
+  const before = s.architectures ?? [];
+  const chosen = before.find((a) => a?.chosen);
+
+  // A FALSE CLAIM BECOMES A CADENCE CLAIM. `linear` is what the plan actually
+  // is: everyone eligible enters, the ticket-size split still decides which
+  // treatment they get, and the sequence runs on a clock. Nothing else about
+  // the architecture is touched.
+  const stripped = shaped && !reacts && claimsReaction(chosen);
+  const architectures = stripped ? before.map((a) => (a === chosen ? { ...a, journey: 'linear' } : a)) : before;
+  const proposed: ProposalUnderReview = stripped ? { ...p, strategy: { ...s, architectures } } : p;
+
+  const advice: string[] = [];
+  // Said when the path is a clock, whether the model claimed otherwise or
+  // not. It is the better campaign and the manager should hear so once.
+  if (shaped && !reacts) advice.push(READ_FORK_ADVICE);
+  // AND THE RIVAL THEY BEAT. This was a Block (`chose-clock-over-reaction`)
+  // and is advice now: writing both candidates and picking the cadence is a
+  // judgement a manager is allowed to make.
+  const winner = architectures.find((a) => a?.chosen);
+  if (!claimsReaction(winner)) {
+    const rival = architectures.find((a) => claimsReaction(a) && a !== winner);
+    if (rival) {
+      advice.push(
+        `You described a version of this that treats someone who opened the message and someone who never did as two different people — "${String(
+          rival.journey,
+        )}" — and then chose the one that goes by the calendar. The reacting one is usually the better campaign.`,
+      );
+    }
+  }
+  return { proposed, advice, stripped };
+}
 
 /**
  * What a touch says it does when the message does not land, sorted into the
@@ -573,96 +813,41 @@ export function reactionBlocks(p: ProposalUnderReview | null): Block[] {
   const s = p?.strategy;
   if (!s) return [];
   const chosen = (s.architectures ?? []).find((a) => a?.chosen);
-  const reactive = (a?: { journey?: string }) => REACTIVE_JOURNEYS.includes(String(a?.journey ?? '').trim().toLowerCase());
 
-  // A CLOCK IS A COMPLETE PLAN. Reversed 2026-10-24, and the reversal is of
-  // my own over-correction: the measured failure was a plan that CLAIMED a
-  // reaction and shipped a timed drip, and I generalised it into "a clock is
-  // never a plan". That is the application designing the campaign. A
-  // ticket-size split with a sensible cadence is a campaign a manager can run
-  // on Monday; unread-versus-read is intelligence worth having on top of it,
-  // not a pass mark.
+  // ONE READER: THE STEPS.
   //
-  // THE CLAIM IS STILL CHECKED AGAINST THE CHOICE, which is the shape this
-  // codebase trusts — same as an experiment declaring what it tests, or an
-  // option declaring `used`. Two things can be wrong, and only these two:
-  // claiming the upgrade without building it, and writing the upgrade then
-  // picking the weaker candidate.
-  if (!reactive(chosen)) {
-    const rival = (s.architectures ?? []).find((a) => reactive(a));
-    if (!rival) return [];
-    return [
-      {
-        code: 'chose-clock-over-reaction',
-        reason: `You described a version of this campaign that treats someone who opened the message and someone who never did as two different people — "${String(rival.journey)}" — and then chose the one that goes by the calendar instead. The reacting one is the better campaign; pick it.`,
-        clears: {
-          field: 'architecture',
-          how: 'Mark the candidate whose "journey" is branch-on-response or wait-for-event as the winner, and say in "whyChosen" what it does differently for the person who has not read it. Keep the who-split exactly as it is: ticket size is who they are, and the fork sits INSIDE a group. If on reflection the clock really is the better plan here, drop the reactive candidate rather than keeping it as a rival you beat.',
-        },
+  // A CLOCK IS A COMPLETE PLAN, and that reversal stands: the measured
+  // failure was a plan that CLAIMED a reaction and shipped a timed drip, not
+  // a cadence as such. A ticket-size split with a sensible sequence is a
+  // campaign a manager can run on Monday.
+  //
+  // WHAT CHANGED 2026-10-26: this function used to return on
+  // `namedOutcomes(s.touches).size < 2` — the touch PROSE — before it read
+  // `p.blueprint` at all. Measured on `eval/runs/ui-s-1792843757296` turn 3:
+  // the steps forked on READ against DELIVERED/DELETED, `journeyReacts` was
+  // true, and Confirm still never appeared because `ifStillUnconverted` named
+  // one landed case. `namedOutcomes` is a summariser for touch lists and
+  // `channelJobBlocks` still uses it; it is not the Confirm gate.
+  //
+  // So there is exactly ONE way left to be held here, and it is the one with
+  // nothing to approve: a plan that says the journey moves on what the
+  // customer did, with no journey attached. Everything else — a true claim, a
+  // claim `alignJourneyClaim` has already rewritten to match a clock, or a
+  // cadence that never claimed otherwise — proceeds, and the read-fork
+  // sentence goes out as advice instead.
+  if (!claimsReaction(chosen)) return [];
+  if (shapedBlueprint(p?.blueprint)) return [];
+  return [
+    {
+      code: 'no-reaction',
+      reason:
+        'This plan says the journey will move on what the customer did, and there is no journey attached to it — so there is nothing for them to approve except the description of one.',
+      clears: {
+        field: 'touches',
+        how: 'Send the same plan again with "blueprint" filled in: the entry, then the steps in order, with ONE outcome fork on the send whose arms would do different jobs. Confirm compiles exactly that path, so it is what they are agreeing to.',
       },
-    ];
-  }
-  if (namedOutcomes(s.touches ?? []).size < 2)
-    return [
-      {
-        code: 'no-reaction',
-        reason:
-          'This plan says it reacts to the customer, and then every message does the same thing regardless: the person who never received it, the person who has not read it and the person who read it and did nothing all get the next reminder. Those are three different people.',
-        clears: {
-          field: 'touches',
-          how: 'In "ifStillUnconverted", name at least two cases where the message LANDED and say what each one gets: delivered but still unread, read and no action taken, dismissed, or clicked without booking (email and RCS only). Undelivered is worth mentioning as the fallback channel on that send, but it is not one of the two — nobody who never received the message has done anything yet. Nor is converting: the goal check already takes anyone who booked off the path.',
-        },
-      },
-    ];
-
-  // AND THE STEPS HAVE TO DO IT, not just the essay.
-  //
-  // MEASURED, `ui-s-1792748248345`. The strategy declared branch-on-response
-  // and named unread against read; the journey was a Transaction Amount
-  // branch and three waits. Both halves came from the same model on the same
-  // turn, so the prose above cannot stand in for the steps — and the manager
-  // was shown Confirm, approved it, and the retry had to ask for the fork
-  // after the fact. The moment to catch this is before the button appears.
-  //
-  // `journeyReacts` IS THE SAME FUNCTION THE BUILD TURN USES. One definition
-  // of "the next step depends on what they did with the last message", read
-  // twice, rather than a propose-time approximation that can drift from it.
-  //
-  // A MISSING JOURNEY IS NOW A HOLD, because sending one is legal.
-  //
-  // THE HISTORY MATTERS HERE. This was deliberately silent two slices ago:
-  // `propose_strategy` had no blueprint, `systemForPhase` told the model the
-  // grammar was omitted, and a block whose only exit is a field the model has
-  // been forbidden to send is the unclearable refusal this file exists to make
-  // impossible. The tool now carries the path and the grammar travels on a
-  // ready-to-propose turn, so the exit exists and the hold is fair.
-  if (!p?.blueprint) {
-    return [
-      {
-        code: 'no-reaction',
-        reason:
-          'This plan says the journey will move on what the customer did, and there is no journey attached to it — so there is nothing for them to approve except the description of one.',
-        clears: {
-          field: 'touches',
-          how: 'Send the same plan again with "blueprint" filled in: the entry, then the steps in order, with ONE outcome fork on the send whose arms would do different jobs. Confirm compiles exactly that path, so it is what they are agreeing to.',
-        },
-      },
-    ];
-  }
-  if (!journeyReacts(p.blueprint)) {
-    return [
-      {
-        code: 'no-reaction',
-        reason:
-          'The plan says the journey will move on what the customer did, and the steps are a timed sequence: nothing in them forks on whether the last message was delivered, read or dismissed. A split by ticket size is who they are, not what they did.',
-        clears: {
-          field: 'touches',
-          how: 'Put ONE outcome fork on the send whose arms would do different jobs — usually the first touch, whose job is awareness: unread needs the same fact sooner, read-and-not-booked needs a different argument, dismissed needs leaving alone. Keep the who-split you have. Do not split after every send, and do not add a FAILED arm: undelivered is the fallback channel on the send.',
-        },
-      },
-    ];
-  }
-  return [];
+    },
+  ];
 }
 
 /** Channel words a plan may name, including inside a fallback sentence. */
@@ -705,7 +890,23 @@ export function channelJobBlocks(p: ProposalUnderReview | null): Block[] {
   if (!touches.length) return [];
   const out: Block[] = [];
 
-  const used = new Set(touches.map((t) => channelKey(t.channel)).filter(Boolean));
+  // HABIT IS READ OFF THE STEPS, NOT OFF `touches[].channel`.
+  //
+  // MEASURED, `eval/runs/ui-s-1793084077571` turn 4. Every send carried
+  // `channelPreference: ['WHATSAPP','SMS']` AND `fallbackChannel: 'SMS'` — SMS
+  // had a job on every message — and the plan was accused of being single
+  // channel, because this counted one string per touch row and the model had
+  // written the same one four times: "WhatsApp (SMS fallback on delivery
+  // failure)". One distinct string, so one channel, so habit. The row even
+  // said SMS; only the thing being counted disagreed.
+  //
+  // Reading `ifStillUnconverted` for another channel name was the patch for
+  // that, and it is prose: it releases on a sentence and accuses on a silence.
+  // The steps are the plan, so the steps answer it. This is advice now either
+  // way — it cannot keep the button off — which is exactly why it must not be
+  // a false accusation sitting beside a live Confirm.
+  const inSteps = sendChannels(p?.blueprint?.steps as unknown[] | undefined);
+  const used = inSteps.size ? inSteps : new Set(touches.map((t) => channelKey(t.channel)).filter(Boolean));
   if (touches.length >= 2 && used.size === 1) {
     const only = [...used][0];
     const fallbackText = touches.map((t) => String(t.ifStillUnconverted ?? '')).join(' ').toLowerCase();
@@ -725,6 +926,39 @@ export function channelJobBlocks(p: ProposalUnderReview | null): Block[] {
   // Same person, same day, two channels. Keyed on path AND day, because
   // different channels on different days is exactly the shape wanted, and a
   // failure fork that re-sends on SMS the same day is a named path.
+  // SPRAY IS READ OFF THE STEPS TOO, for the same reason habit is.
+  //
+  // The touch-table version keys on `path` + `day` and escapes through an
+  // `ifStillUnconverted` prose check. Two EXCLUSIVE ARMS written under one
+  // path name are two rows, one path, one day — so it fires, and the escape
+  // only clears it if the model happened to describe each arm's landed case in
+  // the right field. Nobody receives both messages; the table cannot see that
+  // and the steps can.
+  //
+  // `coSentPairs` compares only sends one customer actually receives together:
+  // adjacent with nothing between them that passes time, or both declaring the
+  // same `delayDays`. Sibling arms are never compared. Advice either way — it
+  // cannot keep the button off — which is exactly why it must not accuse from
+  // a table the steps disprove.
+  const steps = p?.blueprint?.steps as unknown[] | undefined;
+  if (steps?.length) {
+    const together = coSentPairs(steps).filter(
+      (pair) => pair.a.size && pair.b.size && [...pair.a].some((c) => !pair.b.has(c)),
+    );
+    if (together.length) {
+      const named = [...new Set(together.map((t) => `${[...t.a].join('/')} and ${[...t.b].join('/')}`))].slice(0, 3);
+      out.push({
+        code: 'channel-spray',
+        reason: `This journey sends the same person two messages at the same point on different channels (${named.join('; ')}). That is fatigue rather than coverage — the second arrives before the first has had a chance to work.`,
+        clears: {
+          field: 'touches',
+          how: 'Put a wait between them, or put the second one on an ARM of a fork so one person gets one message — the one who has not read the first on one channel, the one who has read it on another.',
+        },
+      });
+    }
+    return out;
+  }
+
   const sprayed = new Map<string, { channels: Set<string>; rows: typeof touches }>();
   for (const t of touches) {
     const key = `${String(t.path ?? 'all').trim().toLowerCase()}@${t.day}`;
@@ -795,49 +1029,11 @@ export function otherAxesProbed(brief: WorkingBrief): boolean {
   if (seg.filter((d) => d.basis === 'user').length >= 2) return true;
   if (seg.some((d) => d.basis === 'user' && (d.status === 'deferred' || d.status === 'unavailable') && (d.note ?? '').trim()))
     return true;
-  if (
-    (brief.questions ?? []).some(
-      (q) =>
-        q.addressedInRound !== undefined &&
-        /\banything else\b|\bother pattern\b|\bany other\b|\bbesides\b|\belse have you seen\b/i.test(q.text ?? ''),
-    )
-  )
-    return true;
-
-  // A FIFTH WAY, AND IT IS STRUCTURAL RATHER THAN A PHRASE.
-  //
-  // MEASURED, `eval/runs/ui-s-1792842540156`. The probe went out as "BEYOND
-  // transaction size, have you noticed any difference by purchase category or
-  // merchant type…", the manager answered it ("nothing as of now"), and the
-  // regex above wanted "besides". Adding "beyond" would buy one run and lose
-  // the next: the question is the agent's own prose and there is no list of
-  // its wordings.
-  //
-  // So this reads the RECORD instead. Once a pattern has been seen, a question
-  // we asked that NAMES another axis on the brief — and that they have
-  // answered — is the probe, whatever words it used. Two halves, each
-  // auditable: the axis is a dimension row, and `addressedInRound` is the
-  // ingest write. A question still outstanding does not count, which is the
-  // case the test pins.
-  const seen = new Set(seenAxes(brief).map((d) => d.name.trim().toLowerCase()));
-  if (seen.size) {
-    const answered = (brief.questions ?? []).filter((q) => q.addressedInRound !== undefined);
-    const others = seg.filter((d) => !seen.has(d.name.trim().toLowerCase()));
-    const namesTheAxis = (text: string, axis: string): boolean => {
-      // Content words of the axis name, matched against the question text.
-      // "purchase category or merchant type" against "...by purchase category
-      // or merchant type — for example electronics..." shares all four.
-      const words = axis
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter((w) => w.length > 3 && !['type', 'kind', 'with', 'from', 'that', 'this', 'their'].includes(w));
-      if (!words.length) return false;
-      const hay = text.toLowerCase();
-      const hits = words.filter((w) => hay.includes(w)).length;
-      return hits >= Math.min(2, words.length);
-    };
-    if (others.some((d) => answered.some((q) => namesTheAxis(q.text ?? '', d.name)))) return true;
-  }
+  // A QUESTION WE ASKED AND THEY ANSWERED. Both legs of that live in
+  // `probeWasAsked` — the phrase one and the structural one that reads the
+  // axis names off the brief — because `noteClosedOtherAxes` needs the same
+  // answer and a second copy of this rule is how the two would drift.
+  if (probeWasAsked(brief)) return true;
 
   // A FOURTH WAY, AND IT IS THE ONE THE MANAGER ACTUALLY USES: they said so in
   // chat, and `noteClosedOtherAxes` wrote it down as a confirmed fact.
@@ -959,29 +1155,24 @@ export function blocksFor(brief: WorkingBrief): Block[] {
   }
 
   const dims = (brief.dimensions ?? []).filter((d) => !isPlatformDimension(d.name));
-  // THREE RAISED LINES OF ENQUIRY ARE NOT A SECOND INVESTIGATION.
+  // `too-few-dimensions` IS GONE, 2026-10-26, and the number went with it.
   //
-  // MEASURED, `eval/runs/ui-s-1792842540156`. The manager had given the one
-  // pattern they have seen, and answered the probe for a second with "nothing
-  // as of now". Two real rows — ticket size, and the category they do not
-  // track — and this asked for a third. There is no third to raise: the only
-  // way to satisfy it would be for the agent to invent an axis nobody named,
-  // which is the thing every rule in this file exists to stop, and then the
-  // record would carry a customer cut out of nowhere.
+  // It counted RAISED lines of enquiry — three — and a count is not a search.
+  // Last week it was narrowed to skip once a seen axis plus an answered probe
+  // existed, which was the right instinct and the wrong shape: the condition
+  // it was narrowed by IS the whole rule. `unprobed-other-axes` above already
+  // asks it, in evidence rather than tally, and refuses to be satisfied by a
+  // row the agent deferred on its own.
   //
-  // `MIN_DIMENSIONS` still means what it meant while the search is open: a
-  // confident single angle is not a considered one. What closes the search is
-  // a seen axis plus an ANSWERED probe for another, which is exactly the pair
-  // `unprobed-other-axes` above is built on — so the two rules agree by
-  // construction rather than by wording.
-  const searchIsDone = seenAxes(brief).length >= 1 && otherAxesProbed(brief);
-  if (dims.length < MIN_DIMENSIONS && !searchIsDone) {
-    out.push({
-      code: 'too-few-dimensions',
-      reason: `I have only weighed ${dims.length} angle${dims.length === 1 ? '' : 's'} so far, and being confident about one is not the same as having considered the alternatives.`,
-      clears: { field: 'dimensions', how: `Raise at least ${MIN_DIMENSIONS} lines of enquiry.` },
-    });
-  }
+  // MEASURED, `eval/runs/ui-s-1792984906680`. Two real rows — the ticket size
+  // they described, and the purchase channel the agent filed as its own
+  // `assumption` — a finished record, and a real journey on file. The third
+  // angle had nowhere to come from except invention, and `evaluateDiscovery`
+  // was saying the same thing from its own copy of the rule: "I have only
+  // looked at 2 angle(s) so far", twice, with no question attached.
+  //
+  // An unreasoned drop is still a block — that is the next rule down, and it
+  // is about a decision nobody explained rather than about a quantity.
 
   // A line of enquiry raised and then dropped with no reason. Ruling
   // something out is a decision, so it needs one.
@@ -1096,7 +1287,12 @@ export function satisfy(brief: WorkingBrief, m: Mutation): WorkingBrief {
       // is the function an agent's output actually passes through, filter and
       // all, so the invariant is proved over the real path rather than around
       // it.
-      const add = realistic.slice(0, Math.max(0, MIN_DIMENSIONS - dims.length)).map((d) => ({
+      // ENOUGH TO CLEAR ANY DIMENSION BLOCK, whichever one is live. The count
+      // this used to subtract from (`MIN_DIMENSIONS`) is gone with the block
+      // that read it; what remains to satisfy is an unreasoned drop and the
+      // second-pattern probe, both of which care about WHAT a row says rather
+      // than how many there are.
+      const add = realistic.slice(0, Math.max(0, 3 - dims.length)).map((d) => ({
         ...d,
         status: 'retained' as const,
         basis: 'user' as const,

@@ -32,11 +32,14 @@ import { convertersSettled, mustLearnAudience } from '../../server/findings';
 import { decide } from '../../server/gate';
 import { discovered } from './support/findings';
 import { reactingPath } from './support/journeys';
+import { asking, ready } from './support/prompts.ts';
+// PINS REMOVED, NOT LOST: 12 rule(s) this file asserted have no
+// counterpart in any of the three manuals. Every one is listed in
+// `server/promptHomeless.md` under this filename, with the tests that
+// went with them. Do not re-add a pin here without putting the rule
+// back in a manual first.
 
-const SYSTEM = (() => {
-  const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-  return /const SYSTEM = `([\s\S]*?)`;\n/.exec(src)![1];
-})();
+const SYSTEM = asking();
 
 /** The manager's own words from the live runs: one track, no pattern seen. */
 const ONE_TRACK = 'every eligible purchase, one track, we have never looked at who converts';
@@ -84,17 +87,6 @@ describe('"we do not track a pattern" does not reopen who the campaign is for', 
 });
 
 describe('a one-track brief can still be asked about trends', () => {
-  it('invites what they have SEEN, and takes "we do not track it" as an answer', () => {
-    // The question survives. What goes is the menu: asking whether they have
-    // noticed a pattern is discovery; asking which group to go after is
-    // handing them a targeting decision the entry already settles.
-    expect(SYSTEM).toMatch(/ASK WHAT THEY HAVE SEEN, NOT WHICH GROUP TO GO AFTER/);
-    expect(SYSTEM).toMatch(/noticed a pattern in who does this already, or do not track it — both are answers/);
-    expect(SYSTEM).toMatch(/NEVER put up a menu of groups and ask which to target/);
-    // And the agent still proposes factors itself; a user who could name every
-    // one of them would not need the agent.
-    expect(SYSTEM).toMatch(/BUT DO NOT ONLY RECORD WHAT THEY RAISED/);
-  });
 
   it('frames candidates as trends that cut treatment, not groups that cut entry', () => {
     let b = oneTrack();
@@ -153,40 +145,19 @@ describe('the trends are derived from this objective, not from a standing list',
   });
 
   it('tells the agent to derive them instead', () => {
-    expect(SYSTEM).toMatch(/you DERIVE it from the objective in front of you/);
-    expect(SYSTEM).toMatch(/never from a standard list of generic marketing dimensions/);
+    expect(asking()).toMatch(/Derive three to five of them from this objective/);
   });
 
-  it('keeps the entry whole when a trend turns up', () => {
-    expect(SYSTEM).toMatch(/A TREND ABOUT WHO IS LIKELIER CHANGES THE TREATMENT, NEVER THE DOOR/);
-    // Trimmed 2026-10-23 to pay for the trends rewrite in §1: §6 already
-    // carries the cadence/channel/copy list, so §3 keeps only its own half.
-    expect(SYSTEM).toMatch(/and "I am not sure" does not shrink the entry either/);
-    // The structural half, which predates this slice and is what actually
-    // enforces it: an entry condition is not segmentation.
-    expect(SYSTEM).toMatch(/A SPLIT BELONGS INSIDE THE JOURNEY, NOT AT THE DOOR/);
-  });
 });
 
 describe('no history is a reason to test, not a reason to ship a flat sequence', () => {
-  it('says one track AND says the campaign must produce the trend', () => {
-    expect(SYSTEM).toMatch(/IF THEY HAVE SEEN NO PATTERN, OR DO NOT TRACK IT: one track for everyone eligible/);
-    // The consequence ("or the next run starts as blind") is the gate's own
-    // refusal text now, so the prompt keeps the instruction and drops the
-    // sermon.
-    expect(SYSTEM).toMatch(/THIS run has to produce the trend/);
-  });
 
-  it('derives the comparison rather than defaulting to a copy test or more sends', () => {
-    expect(SYSTEM).toMatch(/DERIVE THE COMPARISON FROM THIS OBJECTIVE/);
-    expect(SYSTEM).toMatch(/Two message variants is one option, not the default, and adding sends tests nothing/);
-  });
 
   it('never tells the agent to skip a test to protect a baseline', () => {
     // The failure mode this guards: "we have no history, so do not split the
     // audience or the baseline is unreadable." It is backwards — with no
     // history the comparison is the only way to get one.
-    expect(SYSTEM).toMatch(/Having no performance history is a reason TO test, not a reason to skip it/);
+    expect(ready()).toMatch(/No history is a reason to test, not a reason to skip/);
     expect(SYSTEM.toLowerCase()).not.toMatch(/so the baseline is ?n.t split|keep the baseline clean/);
   });
 

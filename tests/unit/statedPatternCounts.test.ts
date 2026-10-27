@@ -25,7 +25,8 @@
 //  - `recordAsked` injected "Who tends to do this already today" as q0-4,
 //    after they had answered q0-1 about the same thing — their next reply
 //    reads "already said txn 10k+ convert more";
-//  - two real dimension rows then failed `MIN_DIMENSIONS`.
+//  - two real dimension rows then failed the old three-row count
+//    (`too-few-dimensions`, deleted 2026-10-26 — a count was never a search).
 //
 // `decide` was `['converters-unknown', 'too-few-dimensions']`. The turn stayed
 // `asking`, so `propose_strategy` was not on the list, and round 1 dumped a
@@ -35,7 +36,7 @@
 // THE BRIEF BELOW IS THAT RUN'S TURN 3, not a cleaner fixture.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { decide, turnPhase, otherAxesProbed, MIN_DIMENSIONS } from '../../server/gate';
+import { decide, turnPhase, otherAxesProbed } from '../../server/gate';
 import { seenAxes, nextCustomerQuestion, recordDimensions, type WorkingBrief } from '../../server/discovery';
 import { recordAsked, outstanding, reopen } from '../../server/record';
 import { convertersSettled } from '../../server/findings';
@@ -93,8 +94,11 @@ describe('the live brief that could not propose', () => {
 
   it('does not ask for a third line of enquiry that does not exist', () => {
     const b = live();
-    expect((b.dimensions ?? []).length).toBeLessThan(MIN_DIMENSIONS);
+    // Two rows, and no rule left that counts them: the block that did is
+    // gone, and `unprobed-other-axes` reads the probe instead.
+    expect((b.dimensions ?? []).length).toBe(2);
     expect(decide(b).blocks.map((x) => x.code)).not.toContain('too-few-dimensions');
+    expect(decide(b).blocks).toEqual([]);
   });
 
   it('has nothing left to block on', () => {
@@ -174,18 +178,25 @@ describe('the line is theirs versus ours, not which honest label the model picke
     expect(otherAxesProbed(back)).toBe(false);
     const codes = decide(back).blocks.map((x) => x.code);
     expect(codes).toContain('unprobed-other-axes');
-    // And the dimensions rule comes back with it, because the pair is one
-    // condition: the search is not done while the probe is unanswered.
-    expect(codes).toContain('too-few-dimensions');
+    // AND NOTHING COUNTS ROWS ALONGSIDE IT, since 2026-10-26: the search is
+    // one rule now, and an unanswered probe is the whole of it.
+    expect(codes).not.toContain('too-few-dimensions');
   });
 
-  it('MIN_DIMENSIONS still applies while nothing has been seen', () => {
+  it('an agent-only row leaves the record with no seen axis at all', () => {
+    // RETARGETED with the count that is gone. What this is really about is
+    // that `assumption` is the agent talking to itself: it is not a pattern
+    // anyone saw, so it cannot be the axis a cut rests on. The second-pattern
+    // probe stays silent here on purpose — the who-converts conversation owns
+    // this state, and two blocks asking adjacent things read as the
+    // application talking over itself.
     const b = live();
     const nothingSeen: WorkingBrief = {
       ...b,
       dimensions: [{ ...b.dimensions![0], basis: 'assumption', status: 'open' }],
     };
     expect(seenAxes(nothingSeen)).toHaveLength(0);
-    expect(decide(nothingSeen).blocks.map((x) => x.code)).toContain('too-few-dimensions');
+    expect(otherAxesProbed(nothingSeen)).toBe(false);
+    expect(decide(nothingSeen).blocks.map((x) => x.code)).not.toContain('unprobed-other-axes');
   });
 });

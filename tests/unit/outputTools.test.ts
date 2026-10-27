@@ -15,6 +15,7 @@ import { recordReply, recordAsked, outstanding } from '../../server/record';
 import { OUTPUT_TOOLS, OUTPUT_TOOL_NAMES, isOutputTool, applyOutputTool, outputToolsForPhase } from '../../server/outputTools';
 import { blocksFor } from '../../server/gate';
 import { reactingPath } from './support/journeys';
+import { readFileSync } from 'node:fs';
 
 const started = (): WorkingBrief =>
   recordReply(
@@ -45,12 +46,37 @@ describe('the tools are declared where they cost no prompt budget', () => {
     // learn is never phase-dependent — a build turn still finds things worth
     // recording. What moves is which single plan tool is on the call.
     const names = (p: 'asking' | 'ready' | 'build') => outputToolsForPhase(p).map((t) => t.name);
-    for (const always of ['ask_questions', 'record_findings', 'record_dimensions', 'request_evidence']) {
+    // The RECORD tools travel on every phase: writing down what you learn is
+    // never phase-dependent, and a build turn still finds things worth
+    // recording.
+    for (const always of ['record_findings', 'record_dimensions']) {
       for (const p of ['asking', 'ready', 'build'] as const) expect(names(p), `${always} on ${p}`).toContain(always);
     }
+    // `ask_questions` IS OFF A READY TURN, 2026-10-26. A question recorded
+    // through it is an OUTSTANDING question, so on a settled record it would
+    // flip the next turn back to `asking` and strip `propose_strategy` — the
+    // brief reopened by bookkeeping. A point worth making about a plan goes in
+    // `openItems`, which `renderStrategy` already prints.
+    // `request_evidence` GOES WITH IT, 2026-10-26: a `pending` request routes
+    // the next turn through `resolveEvidence` as though the manager owed us
+    // data, which is a form on a settled record. Aggregated data worth having
+    // is an `openItems` flag on the plan.
+    // AND OFF A BUILD TURN TOO, 2026-10-26 — the comment above this used to
+    // say a build turn kept them because "the record cannot be reopened by
+    // it". It can. MEASURED on the closed live brief: `decide` is `[]` and
+    // `turnPhase` is `ready`; after one `recordAsked` the blocks are
+    // `['awaiting-reply']` and the phase is `asking`. The bookkeeping does not
+    // care which turn wrote the question, so a stray thought on the turn that
+    // BUILDS puts the manager back in discovery on the turn after their
+    // campaign appeared.
+    for (const asksSomething of ['ask_questions', 'request_evidence']) {
+      expect(names('asking'), asksSomething).toContain(asksSomething);
+      expect(names('ready'), asksSomething).not.toContain(asksSomething);
+      expect(names('build'), asksSomething).not.toContain(asksSomething);
+    }
     expect(outputToolsForPhase('asking')).toHaveLength(OUTPUT_TOOLS.length - 2);
-    expect(outputToolsForPhase('ready')).toHaveLength(OUTPUT_TOOLS.length - 1);
-    expect(outputToolsForPhase('build')).toHaveLength(OUTPUT_TOOLS.length - 1);
+    expect(outputToolsForPhase('ready')).toHaveLength(OUTPUT_TOOLS.length - 3);
+    expect(outputToolsForPhase('build')).toHaveLength(OUTPUT_TOOLS.length - 3);
   });
 
   it('does not offer propose_strategy at all on an ASKING turn', () => {
@@ -430,6 +456,171 @@ describe('a proposal must compare two genuinely different theories of the proble
       { option: 'A daily digest would miss the moment of purchase.', why: '' },
     ]);
   });
+  // A PATH THAT COMPILES TO NO MESSAGES IS REFUSED BEFORE IT IS FILED.
+  //
+  // MEASURED, `eval/runs/ui-s-1793009889177`. The filed path was legal grammar
+  // and produced zero sends, so Confirm compiled a canvas of exits from a plan
+  // the record had already accepted. `assessGraphReadiness` dry-runs the same
+  // compiler but runs AFTER the stash, which is why this belongs at the
+  // boundary that writes `lastProposal`.
+  const WAITS_ONLY = {
+    campaignName: 'Waits only',
+    description: 'Prompt conversion inside the window.',
+    goal: null,
+    entry: { kind: 'audience', entity: 'Card', conditions: [] },
+    steps: [{ kind: 'wait', duration: 2, unit: 'days' }, { kind: 'exit', reason: 'Window closed.' }],
+  };
+  const twoArchitectures = [
+    { name: 'Catch the moment', barrier: 'awareness', audience: 'All', timing: 'Now', lever: 'message', journey: 'linear', chosen: true },
+    { name: 'Statement date', barrier: 'awareness', audience: 'All', timing: 'Later', lever: 'timing', journey: 'linear' },
+  ];
+
+  it('refuses a waits-only path, and does not write lastProposal', () => {
+    const before = withBarriers(['awareness']);
+    const out = applyOutputTool(before, 'propose_strategy', { ...plan(twoArchitectures), blueprint: WAITS_ONLY });
+    expect(out.error, 'refused').toBeTruthy();
+    expect(out.error).toMatch(/compiles to no messages/i);
+    expect(out.brief.lastProposal ?? null, 'nothing is filed from a path that cannot build').toBeNull();
+    expect(out.strategy ?? null).toBeNull();
+  });
+
+  // TWO MISTAKES, TWO SENTENCES.
+  //
+  // MEASURED, `eval/runs/ui-s-1793017853714` turn 3. Both forced attempts came
+  // back with the waits-only sentence and neither fixed anything, because it
+  // told a model that HAD written sends to write the sends into the path. They
+  // were written; they were not attached. A send after a fork has several arms
+  // it could continue from, so the compiler reports the ambiguity and drops the
+  // step rather than guessing one.
+  const SENDS_AFTER_A_FORK = {
+    campaignName: 'EMI', description: 'Prompt conversion inside the window.', goal: null,
+    entry: { kind: 'audience', entity: 'Card', conditions: [] },
+    steps: [
+      {
+        kind: 'branch', entity: 'Transaction', attribute: 'Transaction Amount',
+        paths: [
+          { label: 'High', operator: 'Equals', value: '10000', steps: [] },
+          { label: 'Low', operator: 'Not Equals', value: '10000', steps: [] },
+        ],
+      },
+      // Written, and after the fork: there is no single arm to continue.
+      { kind: 'send', name: 'Day 0 nudge', objective: ['emi'], stage: 'first-touch', describe: 'd', copy: 'Split this purchase.', channelPreference: ['WHATSAPP'], barrier: 'awareness' },
+    ],
+  };
+
+  it('a path whose sends are after the fork gets the nest-under-arm sentence', () => {
+    const out = applyOutputTool(withBarriers(['awareness']), 'propose_strategy', {
+      ...plan(twoArchitectures),
+      blueprint: SENDS_AFTER_A_FORK,
+    });
+    // COUNTED, since the mixed case. The sentence names how many messages the
+    // path has and how many reached the journey, because "none of them" is a
+    // lie when five of six did — see the mixed-shape case below.
+    expect(out.error).toMatch(/has 1 message in it and none of them reached the journey/i);
+    expect(out.error).toMatch(/Nest it inside the arm it belongs to/i);
+    // NOT the waits-only sentence: that one asks for sends the plan already has.
+    expect(out.error).not.toMatch(/compiles to no messages/i);
+    expect(out.brief.lastProposal ?? null, 'nothing filed').toBeNull();
+  });
+
+  // THE MIXED CASE, and the one the zero-SEND check walked straight through.
+  //
+  // MEASURED, `eval/runs/ui-s-1793009889177`. The filed path had six sends:
+  // five on the arms and one sibling after a nested fork. That compiles to
+  // five, which is more than none, so the plan was stashed and Confirm built a
+  // campaign missing a message the manager had approved. Naming the skip in
+  // the build report is not the same as refusing the plan — by then it is
+  // already on the record.
+  const MIXED = (() => {
+    const send = (name: string) => ({ kind: 'send', name, objective: ['emi'], stage: 'first-touch', describe: 'd', copy: 'Split this purchase.', channelPreference: ['WHATSAPP'], barrier: 'awareness' });
+    return {
+      campaignName: 'EMI', description: 'Prompt conversion inside the window.', goal: null,
+      entry: { kind: 'audience', entity: 'Card', conditions: [] },
+      steps: [
+        {
+          kind: 'branch', entity: 'Transaction', attribute: 'Transaction Amount',
+          paths: [
+            { label: 'High', operator: 'Equals', value: '10000', steps: [send('High day 0')] },
+            { label: 'Low', operator: 'Not Equals', value: '10000', steps: [send('Low day 0')] },
+          ],
+        },
+        // The sixth: a sibling AFTER the fork, so there is no single arm to
+        // continue and the compiler drops it.
+        send('Shared last chance'),
+      ],
+    };
+  })();
+
+  it('a path with sends on the arms AND one after the fork is refused, not filed', () => {
+    const out = applyOutputTool(withBarriers(['awareness']), 'propose_strategy', {
+      ...plan(twoArchitectures),
+      blueprint: MIXED,
+    });
+    expect(out.error, 'three in the JSON, two on the canvas').toBeTruthy();
+    expect(out.error).toMatch(/has 3 messages in it and only 2 reached the journey/i);
+    expect(out.error).toMatch(/Nest it inside the arm it belongs to/i);
+    // NOT the waits-only sentence: this path has messages.
+    expect(out.error).not.toMatch(/compiles to no messages/i);
+    // AND NOTHING IS FILED. Confirm compiles exactly `lastProposal`, so a plan
+    // stashed here is a campaign approved five-sixths of the way.
+    expect(out.brief.lastProposal ?? null).toBeNull();
+  });
+
+  it('and the same path with that send inside each arm is filed', () => {
+    const send = (name: string) => ({ kind: 'send', name, objective: ['emi'], stage: 'reminder', describe: 'd', copy: 'Last chance.', channelPreference: ['WHATSAPP'], barrier: 'awareness' });
+    const nested = {
+      ...MIXED,
+      steps: [
+        {
+          ...(MIXED.steps[0] as Record<string, unknown>),
+          paths: [
+            { label: 'High', operator: 'Equals', value: '10000', steps: [(MIXED.steps[0] as { paths: { steps: unknown[] }[] }).paths[0].steps[0], send('High last chance')] },
+            { label: 'Low', operator: 'Not Equals', value: '10000', steps: [(MIXED.steps[0] as { paths: { steps: unknown[] }[] }).paths[1].steps[0], send('Low last chance')] },
+          ],
+        },
+      ],
+    };
+    const out = applyOutputTool(withBarriers(['awareness']), 'propose_strategy', {
+      ...plan(twoArchitectures),
+      blueprint: nested,
+    });
+    expect(out.error ?? null, 'every send reached the journey').toBeNull();
+    expect(out.brief.lastProposal, 'so the plan is filed').toBeTruthy();
+  });
+
+  it('and the same sends nested under the arms are filed', () => {
+    const send = (name: string) => ({ kind: 'send', name, objective: ['emi'], stage: 'first-touch', describe: 'd', copy: 'Split this purchase.', channelPreference: ['WHATSAPP'], barrier: 'awareness' });
+    const nested = {
+      ...SENDS_AFTER_A_FORK,
+      steps: [
+        {
+          kind: 'branch', entity: 'Transaction', attribute: 'Transaction Amount',
+          paths: [
+            { label: 'High', operator: 'Equals', value: '10000', steps: [send('High day 0')] },
+            { label: 'Low', operator: 'Not Equals', value: '10000', steps: [send('Low day 0')] },
+          ],
+        },
+      ],
+    };
+    const out = applyOutputTool(withBarriers(['awareness']), 'propose_strategy', {
+      ...plan(twoArchitectures),
+      blueprint: nested,
+    });
+    expect(out.error ?? null, 'the dry-run finds its sends').toBeNull();
+    expect(out.brief.lastProposal, 'and the plan is filed').toBeTruthy();
+  });
+
+  it('and it is not the empty-steps message, because it is not that mistake', () => {
+    const out = applyOutputTool(withBarriers(['awareness']), 'propose_strategy', {
+      ...plan(twoArchitectures),
+      blueprint: WAITS_ONLY,
+    });
+    expect(out.error).not.toMatch(/has no journey in it/i);
+    // The correction that follows is the shared one `toolResultBlock` appends;
+    // this module does not import that string.
+    const src = readFileSync(new URL('../../server/outputTools.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/PROPOSE_CORRECTION/);
+  });
 });
 
 describe('building is separate from proposing', () => {
@@ -597,4 +788,5 @@ describe('every list at the tool boundary is coerced, not cast', () => {
     // refusal, and a refusal rather than a crash is the point.
     expect(out.error).toMatch(/two candidate architectures/);
   });
+
 });

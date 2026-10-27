@@ -56,9 +56,32 @@ describe('a condition can read a customer attribute, not just a delivery outcome
     expect(out.issues[0].problem).toContain('no attribute "Outstanding Balance"');
   });
 
-  it('rejects a condition that checks nothing at all', () => {
+  it('skips a condition that checks nothing, and keeps the messages inside it', () => {
+    // RETARGETED 2026-10-27. It used to assert the wording of a refusal that
+    // dropped the step AND everything under it.
+    //
+    // MEASURED, `eval/runs/ui-s-1793080526410` turn 3: the agent wrote three
+    // `condition` steps labelled "Check conversion" with no `on` and no
+    // `outcomes`, between its sends. Those are the Goal Checks the compiler
+    // already inserts after every message when a goal is set, written out by
+    // hand. Nothing is lost by skipping one; a message is lost by dropping the
+    // sends around it.
     const out = build([{ kind: 'condition', label: 'empty', yes: [send('A')], no: [send('B')] }]);
-    expect(out.issues[0].problem).toContain('either delivery outcomes or an attribute');
+    expect(out.issues[0].problem).toContain('names nothing to check');
+    // No SPLIT was built — the step named nothing, and no event is invented
+    // for it either.
+    expect(Object.values(out.graph.nodes).some((n) => n.type === 'SPLIT')).toBe(false);
+    // BOTH wrapped messages survive, IN ONE LINE — A is sent, then B, to the
+    // same customer, and neither is fanned onto every open arm. That is the
+    // honest reading of a fork with nothing to fork on: there is no condition
+    // to route anyone by, so there is one path.
+    //
+    // The three checks on the live run wrapped NOTHING, so this is not the
+    // shape that run exercised. It is pinned so the next reader knows which
+    // way it goes rather than finding out from a canvas.
+    const sends = Object.values(out.graph.nodes).filter((n) => n.type === 'SEND');
+    expect(sends).toHaveLength(2);
+    expect(out.graph.edges.filter((e) => e.branchLabel), 'one line, no arms').toHaveLength(0);
   });
 
   it('still requires a preceding Send for a delivery-outcome fork', () => {

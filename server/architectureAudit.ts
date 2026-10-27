@@ -415,11 +415,26 @@ export function checkFidelity(
   if (!chosen || !bp) return null;
   const declared = String(chosen.journey ?? '').trim();
   const built = [...derive(bp)];
-  if (!isJourneyBehaviour(declared))
+  // THE STEPS ARE THE PROMISE. MEASURED, `eval/runs/ui-s-1793086620956`
+  // turn 3: the winner described a ticket-size split and a read/unread check
+  // in a sentence, Confirm compiled that path, and the bubble said the
+  // candidate "did not declare a recognised journey behaviour" because the
+  // sentence was not one of four closed words. Guessing which word they
+  // meant would be inventing; reading the steps is not. An unrecognised
+  // label with nothing in the path is still uncheckable.
+  if (!isJourneyBehaviour(declared)) {
+    if (!built.length)
+      return {
+        ok: false, declared, built,
+        why: `The chosen candidate did not declare a recognised journey behaviour, so what was built cannot be checked against what was promised.`,
+      };
     return {
-      ok: false, declared, built,
-      why: `The chosen candidate did not declare a recognised journey behaviour, so what was built cannot be checked against what was promised.`,
+      ok: true,
+      declared: built.join(', '),
+      built,
+      why: 'The journey is read from the steps. The candidate described it in prose rather than a closed word.',
     };
+  }
   // 'linear' is present in almost every journey, so a declared 'linear' is
   // only honest if nothing MORE than linear was built. Any richer behaviour
   // means the campaign does something the strategy never claimed.

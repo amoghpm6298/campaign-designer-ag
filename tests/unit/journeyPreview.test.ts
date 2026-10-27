@@ -305,7 +305,21 @@ describe('the propose turn puts the schematic in the left pane only', () => {
     // proposal must not look like a built campaign.
     expect(designer).toMatch(/\{graph && \(/);
     expect(designer).toMatch(/graph \? 'cd-has-journey' : 'cd-no-journey'/);
-    expect(designer).toMatch(/phase === 'awaiting-confirmation' \? previewFromBlueprint\(pendingBlueprint\) : null/);
+    // RETARGETED 2026-10-26: the preview is tied to the PATH, not the phase.
+    // It was `phase === 'awaiting-confirmation' ? previewFromBlueprint(...)`,
+    // so a held turn carrying a real filed journey drew nothing at all —
+    // measured on `eval/runs/ui-s-1792843757296` turn 3, where the manager
+    // read an essay about a path the server had already accepted. Drawing is
+    // not approving: `graph` is still null above, and Confirm is still gated
+    // on the phase.
+    expect(designer).toMatch(/previewFromBlueprint\(pendingBlueprint\), \[pendingBlueprint\]/);
+    expect(designer).not.toMatch(/phase === 'awaiting-confirmation' \? previewFromBlueprint/);
+  });
+
+  it('still gates CONFIRM on the phase, so a drawing is not a decision', () => {
+    // The whole point of splitting them: a held turn may show the journey and
+    // must not show the button.
+    expect(designer).toMatch(/\{!busy && phase === 'awaiting-confirmation' && \(/);
   });
 
   it('shrinks the brief to a strip and hides the lines of enquiry', () => {
@@ -332,7 +346,12 @@ describe('the propose turn puts the schematic in the left pane only', () => {
     // so a stored response without the field took the whole designer down.
     // The condition under test — held back until something is built — is
     // unchanged.
-    expect(designer).toMatch(/last\?\.sendProposals\?\.length && phase !== 'awaiting-confirmation'/);
+    // RETARGETED: two phases carry a plan now, so the gate is `planOnScreen`
+    // (`awaiting-confirmation` or `revising`). Asking for template ids beside
+    // an unapproved plan reads as though the campaign already existed,
+    // whichever of the two it is.
+    expect(designer).toMatch(/last\?\.sendProposals\?\.length && !planOnScreen/);
+    expect(designer).toMatch(/const planOnScreen = phase === 'awaiting-confirmation' \|\| phase === 'revising';/);
   });
 
   it('keeps the schematic up while the journey is being built', () => {

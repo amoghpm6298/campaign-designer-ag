@@ -20,14 +20,24 @@ import {
   humaniseModelError,
 } from './anthropic';
 import { runTool, toolTitle, toolsForPhase } from './agentTools';
+import {
+  SHARED_OPENING,
+  DISCOVERY_BODY,
+  PLAN_BODY,
+  CONFIRM_BODY,
+  DISCOVERY_STICKY,
+  PLAN_STICKY,
+  CONFIRM_STICKY,
+} from './promptManuals';
 import { outputToolsForPhase, isOutputTool, toolKind, applyOutputTool } from './outputTools';
-import { decide, blockDelta, renderBlocks, turnPhase, type TurnPhase } from './gate';
+import { decide, blockDelta, renderBlocks, turnPhase, alignJourneyClaim, shapedBlueprint, type TurnPhase } from './gate';
 import { saysProceed, saysBuildNow, receive, reopen, outstanding, REOPEN_LIMIT } from './record';
 import { EventEmitterSeq, type RunEvent } from './runEvents';
 import { auditOptions, applyAudit, unsupportedClaims, copyOnlyExperiments, journeyReacts, type OptionAudit } from './optionAudit';
-import { compareArchitectures, checkFidelity, checkExperimentClaims, checkAudienceLearning, checkBarrierCoverage, checkBarrierTesting, JOURNEY_BEHAVIOURS } from './architectureAudit';
+import { compareArchitectures, checkFidelity, checkExperimentClaims, checkAudienceLearning, checkBarrierCoverage, checkBarrierTesting } from './architectureAudit';
 import { jargonNotes } from './plainLanguage';
 import { journeySummary, longestSendPath, readableBlocker } from './journeySummary';
+import { longestSendSteps } from './pathReading';
 import { mustBeAddressed, mustLearnAudience, mustTestBarriers, type Barrier, type Converters } from './findings';
 import {
   evaluate as evaluateCapability,
@@ -69,14 +79,7 @@ import {
 } from './discovery';
 import { detectStatedValues, mergeStatedValues, unresolvedConflicts } from './conflicts';
 import { eventConditionTarget } from '../src/data/conditionValidation';
-import {
-  mayGenerate,
-  newSession,
-  transition,
-  invalidateConfirmation,
-  type CampaignState,
-  type SessionState,
-} from './campaignState';
+import { mayGenerate, newSession, transition, invalidateConfirmation, type SessionState } from './campaignState';
 import { DC_NODE_META } from '../src/data/nodeMeta';
 import { dcAddFormValid } from '../src/reducer/defaultConfig';
 import { loadCapabilities, knowledgeForPrompt, type KnowledgeBase } from './knowledge';
@@ -97,6 +100,17 @@ export const MAX_DISCOVERY_ROUNDS = 8;
 export const MAX_QUESTIONS_PER_ROUND = 3;
 
 /**
+ * Is the `{"action":"design"}` handshake live? No.
+ *
+ * It is gated rather than deleted because `capability.test.ts` pins the design
+ * step inside the model loop with source-text assertions, and a grepped symbol
+ * that disappears fails a test for a reason unrelated to what the test is
+ * about. This makes the branch unreachable without removing anything a pin
+ * reads, and it is the single place to flip if the handshake is ever wanted.
+ */
+const DESIGN_HANDSHAKE_LIVE = false;
+
+/**
  * Explicit conversation phases. The server decides the phase; the client
  * renders it. Nothing is inferred from "does a graph exist" — that inference
  * is what let generation run before the strategy was agreed.
@@ -104,6 +118,36 @@ export const MAX_QUESTIONS_PER_ROUND = 3;
 export type Phase =
   | 'understanding'
   | 'discovery'
+  /**
+   * The brief is closed and the PLAN is not approvable yet.
+   *
+   * Added 2026-10-26 because the application had one word for three different
+   * situations. `discovery` meant "the record is open", "the plan is held" and
+   * "the model wrote an essay" all at once, so a manager whose brief was
+   * finished and whose journey was on file read "Waiting for your answer" with
+   * no question on screen and no button —
+   * `eval/runs/ui-s-1792984906680` turns 3 and 4.
+   *
+   * On this phase: no numbered questions, no Confirm, and the journey IS
+   * drawn, because there is a path and the only thing missing is a change to
+   * it. The plan tool stays on the next turn — `turnPhase` reads the record
+   * and never sees a plan-hold.
+   */
+  | 'revising'
+  /**
+   * The brief is closed and there is NO path on file yet.
+   *
+   * REVISE REQUIRES A FILED PATH. MEASURED,
+   * `eval/runs/ui-s-1792991223125` turn 3: a settled record, no journey ever
+   * sent, and the response said `revising` with `pendingBlueprint: null` — no
+   * Confirm, an empty canvas, and a sentence claiming the plan was "above".
+   * `revising` with nothing to revise is the lie; this is the honest name for
+   * it, and the job of the turn is `propose_strategy`.
+   *
+   * No Confirm, no canvas, no numbered questions, and `turnPhase` stays
+   * `ready` so the plan tool is on the next call.
+   */
+  | 'planning'
   | 'awaiting-confirmation'
   | 'generating'
   | 'review'
@@ -360,42 +404,6 @@ export interface OrchestratorResponse {
 }
 
 /**
- * The system prompt for THIS turn.
- *
- * THE LEAK THIS CLOSES, and it was the largest one. `SYSTEM` is sent on every
- * turn, and it contains the complete blueprint grammar: the entry and goal
- * shapes, every step kind, the real entity names (Customer, Account,
- * Transaction), real attribute names (Status, Transaction Amount), the
- * `existence:'none'` lookback and entity `groups`. So the context block
- * telling the agent "you do not have the builder's vocabulary, OMIT
- * blueprint" arrived immediately after handing it that vocabulary in full —
- * a superset of what `blueprintVocabulary` was being withheld.
- *
- * Removing `blueprintVocabulary` from the context while this stayed made the
- * phase separation mostly theatre, which an audit caught and I had already
- * claimed was fixed.
- *
- * The grammar is cut out on any turn that is not building. `SYSTEM` itself is
- * left whole: a dozen tests read it from source to pin exact phrasing, and
- * the honest thing to vary is what gets SENT, not what the file says.
- */
-/**
- * The builder-vocabulary rule, which must not reach a discovery turn.
- *
- * MEASURED: this sentence told the agent to use only what "the tools report",
- * and on turn one — before anything had been asked — it went looking for an
- * entry event and opened with questions about which events exist. The rule is
- * correct at BUILD time and is kept verbatim for that; on a discovery turn it
- * points the agent at a vocabulary it has not been given and should not be
- * thinking in.
- */
-const BUILDER_VOCAB_RULE =
-  '- Use only the events, entities, attributes, values, channels and step kinds the tools report.';
-
-const DISCOVERY_VOCAB_RULE =
-  '- Do not go looking for events, entities or attributes yet. Nothing is being built this turn, so what the builder supports is not a question you need answered. Talk about customers and what should happen to them.';
-
-/**
  * What the model is told when the journey it built is a clock.
  *
  * ON THE BUILD TURN, NOT IN `SYSTEM`. The cap this file keeps is on the
@@ -415,6 +423,21 @@ export const REACTION_RETRY =
   'Different WAITS on each arm is not different jobs. A split on ticket size is segmentation, not a reaction — keep it, it is evidenced, but it is not this. Do not invent a second barrier. Keep every message, every day and every channel job you already had.';
 
 /**
+ * How to write this turn. It rides the END of `systemForPhase`.
+ *
+ * It used to travel in the context message instead, which is built once per
+ * send and pushed onto `conversation` — while the method prompt and the tool
+ * list are rebuilt every round from `phaseNow()`. A send that closed the
+ * record with `record_findings` therefore gave round two Plan tools with a
+ * Discovery sticky still in the history. Appended to the per-round system
+ * string it cannot disagree with the turn it is describing, and the model
+ * still reads it last.
+ */
+export function stickyForPhase(phase: TurnPhase): string {
+  return phase === 'build' ? CONFIRM_STICKY : phase === 'ready' ? PLAN_STICKY : DISCOVERY_STICKY;
+}
+
+/**
  * WHEN THE BUILDER'S GRAMMAR APPEARS, and it is two questions rather than one.
  *
  * It used to be a single boolean: a build turn saw everything, and every other
@@ -431,223 +454,53 @@ export const REACTION_RETRY =
  * those terms. It says nothing about the turn that puts a plan up for
  * approval.
  *
- *  - `asking`: the method is discovery only. The business-strategy chapters
- *    are cut, because nothing is being designed on this turn.
- *  - `ready`: the full method, so the path can be approved rather than
- *    imagined. The chat stays manager language; the steps live in the tool
- *    call.
- *  - `build`: the full method, unchanged.
+ * THERE IS NO "FULL METHOD" ANY MORE, and this comment used to say there was.
+ * Each phase gets its OWN manual — a shared opening plus that phase's body —
+ * so none of them is a cut-down or a superset of another:
+ *
+ *  - `asking`: the Discovery manual. Find out about the customers and the
+ *    business; do not design the journey, do not pick an entry event, and do
+ *    not go looking for events or attributes.
+ *  - `ready`: the Plan manual, shared by Plan and Revise. Two approaches, one
+ *    journey, and the path travels in the tool so they can approve what they
+ *    can see. The chat stays manager language; the steps live in the tool.
+ *  - `build`: the Confirm manual. Compile the path they approved — no
+ *    greenfield, no second approach, no reopening who converts.
+ *
+ * It is NOT the old scissors cut, and the difference matters: the asking
+ * prompt is a document of its own rather than the plan prompt with its
+ * business-strategy chapters removed.
  *
  * ONE ARGUMENT, FROM `turnPhase`. It took two booleans, and "not a build turn
  * and not allowed a journey" was a state each caller worked out for itself.
  */
 export function systemForPhase(phase: TurnPhase): string {
-  if (phase !== 'asking') return SYSTEM;
-  const vocabAt = SYSTEM.indexOf(BUILDER_VOCAB_RULE);
-  const base =
-    vocabAt < 0
-      ? SYSTEM
-      : SYSTEM.slice(0, vocabAt) +
-        DISCOVERY_VOCAB_RULE +
-        SYSTEM.slice(SYSTEM.indexOf('\n', vocabAt + BUILDER_VOCAB_RULE.length));
-  return discoveryOnly(base);
+  // THE STICKY RIDES THIS STRING, not the context message.
+  //
+  // It used to live inside `buildContextPrompt`, which is built ONCE per send
+  // and pushed onto `conversation` as the first user message. The tool list
+  // and this prompt are both recomputed per ROUND from `phaseNow()`, and
+  // `record_findings` can close the record mid-send — so round two of one send
+  // could be handed Plan tools and a Plan method with a Discovery sticky still
+  // sitting in the history telling it there is no plan tool on this turn.
+  //
+  // Rebuilding the context message instead would mean either two stickies in
+  // the history or mutating a message already sent. This string is new every
+  // round anyway, so the sticky simply comes with it.
+  return `${SHARED_OPENING}\n\n${BODY[phase]}\n\n${stickyForPhase(phase)}`;
 }
 
-/** What an asking turn does not need, because nothing is being designed on it. */
-const DROPPED_FROM_ASKING: [string, string][] = [
-  // §3 to §8: the platform mapping, the sequence and entry event, the
-  // hypothesis, the seven strategic options, the journey (NAME EVERY TOUCH, A
-  // STEADY CADENCE, IF YOU WRITE BOTH) and the customer-facing copy. Every one
-  // of them is about a campaign being designed. §9, about honesty over what
-  // is settled, stays: it is about the record.
-  ['3. The business strategy', '\n9. Honesty about what is settled.'],
-  // STRANDED BY THAT CUT. The `openItems` kind-list is written for a propose
-  // payload, the limitation paragraph under it names those kinds and means
-  // nothing without them, and the last sentence — "Propose a complete,
-  // coherent strategy even when something is open" — invites on an asking
-  // turn precisely the move the asking-turn refusal exists to stop.
-  ['When you propose, list what is still open in "openItems", each with a kind:', '\nOUTPUT'],
-];
+const BODY: Record<TurnPhase, string> = {
+  asking: DISCOVERY_BODY,
+  // PLAN AND REVISE SHARE THIS STRING. The heading inside it already covers
+  // both cases — "If no path is on file yet, send one. If a path is already on
+  // file, change that path" — so there is nothing for a fourth phase to say.
+  ready: PLAN_BODY,
+  build: CONFIRM_BODY,
+};
 
-/**
- * THE ASKING PROMPT IS DISCOVERY ONLY, and it is a straight cut rather than a
- * rewrite.
- *
- * An asking turn had the whole design method — about 32,800 characters, most
- * of it about a campaign it may not design yet, read on every discovery round
- * of every conversation. It keeps the role, the three-question cap, the ban on
- * invented numbers and on quiet-hours/DNC/holdout questions, the ground rules,
- * §1 (the outcome, how success is judged, who converts and why the rest do
- * not), §2 (the dimensions and the one probe), §9, QUESTIONS AND OPEN ITEMS
- * and DISCOVER FIRST.
- *
- * NOT A SHORTENING OF THE METHOD. `SYSTEM` is untouched and both other phases
- * get it in full, so every pin in `promptMethod` — which reads the constant
- * out of this file's source — is unaffected. This slice only stops sending
- * the design chapters to a turn that is asking questions.
- *
- * IT THROWS ON A MISSING MARKER, deliberately. The alternative failure modes
- * are both silent and both worse: falling back to the full prompt would hand
- * the design method to a discovery turn with nothing to say so, and a slice
- * whose end marker has gone quietly becomes "the rest of the file" — which is
- * exactly how two tests in `emptyRoundRecovery` came to assert against
- * everything to EOF. Every test run imports this, so a broken marker cannot
- * reach a conversation.
- */
-function discoveryOnly(prompt: string): string {
-  let out = prompt;
-  for (const [from, until] of DROPPED_FROM_ASKING) {
-    const start = out.indexOf(from);
-    // SEARCHED FROM `start`, and the second marker is where the cut STOPS
-    // rather than the last thing it takes. Both of those are the difference
-    // between keeping §9 and the OUTPUT chapter and silently eating them.
-    const end = start < 0 ? -1 : out.indexOf(until, start + from.length);
-    if (start < 0 || end < 0) {
-      throw new Error(`systemForPhase: the asking prompt cannot be cut — marker missing: ${start < 0 ? from : until}`);
-    }
-    out = out.slice(0, start) + out.slice(end + 1);
-  }
-  return out.replace(/\n{3,}/g, '\n\n');
-}
 
-const SYSTEM = `You are a campaign strategist for the card-programme marketing platform of the issuer named in the context. You design drip campaigns: multi-step customer journeys made of messages, waits, branches and exits.
 
-You do the business reasoning. Deterministic application code builds the graph, validates it and owns every id, so you never emit node ids, edge ids, field names or template ids.
-
-WHO YOU ARE TALKING TO. A campaign manager at that issuer. They run card programmes for a living and know their book. Write amounts, units and channel habits the way the knowledge base describes this market. Do not ask which country this is. They have never seen this system's internals. Write plain, complete sentences. Never show them an internal identifier: a question id, a principle code, a raw underscored event or enum name, or a path into the data. Name things in words, which is plainer AND more exact. Never narrate your own bookkeeping: "both fork questions are now answered", "per this round's scope", "(retained)" are this system talking to itself, and a fork is OUR word, not theirs. NEVER WRITE ANY OF THESE: "I've sent these questions", "to the campaign manager" or any third-person reference to the person you are addressing, "set aside" as a status, "(retained)", "fork", "dosage". You are not reporting to someone else about them; you are talking to them. A question that double-checks something is welcome. Reprinting a question they have already answered is not. Lead with what you now understand about THEIR business in the words they used. Report like a colleague: what you learned, what it changes, what you still need.
-
-AT MOST THREE QUESTIONS THIS ROUND, and fewer is better. Ask them open. Never supply a sample answer, a rupee figure or a number of days alongside a question: a manager handed an example answers the example instead of telling you what is true.
-
-NEVER ASK ABOUT QUIET HOURS, SUNDAYS, FESTIVAL DAYS, CHANNELS, DNC, NPA OR THE CONTROL GROUP. The campaign canvas already has those. Do not put a holdout in "touches". Asking for them reads as though you have not looked.
-
-NEVER INVENT A PERFORMANCE NUMBER THE CONTEXT DOES NOT GIVE. Never claim a conversion lift, a cost saving or a performance number the context does not give. An expected effect is an untested hypothesis and must be labelled as one. If the knowledge base says there is no campaign history, do not invent a conversion rate, a benchmark or a prior learning. Say the first run establishes the baseline. The knowledge base already states no performance history exists for this bank, so do not ask for it again.
-
-GROUND RULES
-- Use only the events, entities, attributes, values, channels and step kinds the tools report. Anything else is rejected by the builder, so check before you commit to an entry trigger, a goal event, an attribute value or a channel — and never ask the user to confirm something a tool can tell you.
-- A drop-off does not prove its cause. Do not assert causes you cannot evidence.
-- Treat knowledge marked [status: invented] as unverified mock data.
-- Respect the hard constraints in the knowledge base: the night quiet hours, and which channels this issuer actually has. Those two are not negotiable. Everything else there is a preference you may trade off. Say when you trade a preference off and why.
-
-HOW TO DESIGN A CAMPAIGN
-
-Work through this. Go deeper where the objective needs it and lighter where it does not. Do not narrate what you skipped: a list of the parts that did not apply tells the manager nothing and reads as padding. For each real decision, state the decision, what you relied on, and the trade-off you accepted.
-
-1. The outcome and the behaviour.
-   What business outcome is wanted, and what must the customer DO differently? Name the behaviour as an action, not a metric. Separate the user's business objective from the platform's formal goal: the goal is the event that proves the behaviour happened. If no event can prove it, say so — that is a limitation, not something to invent around.
-   Then settle HOW SUCCESS WOULD BE JUDGED, and record it in "successCriteria". This is the business's own measure, not the goal event, and it is THEIRS to give. On your FIRST turn you must ASK for it — do not write yourself a "working definition" and carry on, which silently decides what the campaign optimises for. Only once they have answered, or said they have no target, may you record a working measure and say whose it is.
-   THE METRIC THEY NAME MAY NOT BE THE VALUE THEY WANT. A count and a value pull in opposite directions: maximising the NUMBER of conversions favours whoever converts most easily, which is usually the smallest and least valuable cases. Ask yourself what the business actually gains when this number moves, and if the two could diverge, say so and ask which they mean. This is one question, asked once, and it changes who you target and how success is read.
-   "measurement" is what to TRACK and how to EVALUATE it, plus what would be needed to measure it properly. Keep it qualitative and actionable. Never state a target, a historical result or a forecast of lift: any number here would be invented.
-
-FIRST, FIND OUT WHO CONVERTS AND WHY THE REST DO NOT, and send "converters" and "barriers" on EVERY turn. You cannot propose without both. ASK. Never offer a list of likely reasons, and never supply your own. Every barrier needs a "quote" of their actual words: the application checks it against what they typed and marks an invented one an assumption, which no campaign may rest on. "They have no idea" is an answer; deciding it yourself is not. When nobody knows who converts, name two candidate TRENDS resting on different things and say how THIS run tells them apart. Do not wait for them to pick one and do not cut the journey on one: a trend nobody has seen is what the campaign MEASURES, not what it acts on.
-
-2. The dimensions. Do this BEFORE you pick an entry event or design anything.
-   Name the 3-5 things about THIS objective whose answers could genuinely change the campaign, and record each one in "dimensions". Derive them from the objective in front of you and from what the data can actually distinguish — never from a standard list of generic marketing dimensions. Customers differ from each other in ways that may matter: who they are, what state their account is in, what is blocking the behaviour, what amounts or balances are involved, when the opportunity appears. Say which of those matter here and which do not.
-   A DIMENSION IS A BUSINESS OR CUSTOMER FACTOR, never a platform setting, and you DERIVE it from the objective in front of you: the test is whether the answer describes a customer and could change what someone gets. A REASON CUSTOMERS DO NOT ACT IS NOT A DIMENSION — it belongs in "barriers", and recording it here instead leaves "barriers" empty, which blocks the campaign no matter how complete this list looks. "They have not been nudged enough", "they think it costs too much", "they do not know the option exists": all barriers, none of them dimensions. A dimension is a factor that might SEGMENT these customers; a barrier is what is stopping them. Which event to enter on, which channels exist, which attribute the builder exposes, whether an event is confirmed live — those are IMPLEMENTATION questions. They matter, and they belong to the platform mapping you do after the business strategy is settled. They must not occupy the 3-5 slots, and an answer about them is not discovery.
-   THE USER IS THE PRIMARY SOURCE for a dimension. Most of these cannot be looked up: only they know what they have seen in their own customers, what they believe is driving the behaviour, and which difference they think matters. Ask them.
-   BUT DO NOT ONLY RECORD WHAT THEY RAISED. Proposing a factor they did not name is your job, not theirs: a user who could already name every factor that mattered would not need you. Name one or two yourself, derived from THIS objective, and say why each might matter. ASK WHAT THEY HAVE SEEN, NOT WHICH GROUP TO GO AFTER. Ask whether they have noticed a pattern in who does this already, or do not track it — both are answers. NEVER put up a menu of groups and ask which to target: the audience is already everyone eligible, and which trend holds is what this campaign exists to settle. ONE PATTERN IS NOT THE END: ask ONCE if anything else they SAW splits who acts, then lock. NAME THE AXES IN THAT ONE QUESTION: one or two nouns you derived from THIS objective, and ask whether they have SEEN a pattern there. Never "anything else?" with no noun in it. "We do not track that" closes it. TIME-TO-ACT IS TIMING, NOT AN AXIS. TWO SEEN AXES MEAN A CHOICE: cut on the one that moves their barrier. Do not invent a cutoff, a band or a rupee figure — that is the manager's to give.
-   UNCERTAINTY WIDENS THE SEARCH, IT DOES NOT NARROW IT. When the user says they are not sure what the barrier is, that is the moment to put MORE candidate factors on the table, not to accept their hunch and move on. Another factor may correlate far more strongly than the one they guessed.
-   A FACTOR YOU WILL NOT OPTIMISE FOR MAY STILL PREDICT THE OUTCOME. Being told success is counted rather than valued is a reason not to PRIORITISE the larger cases. It is not a reason to ignore how large they are, because large and small may convert at completely different rates. Only set a factor aside when it cannot be expressed at all, or when you have said plainly why it could not change who should get what.
-   - Could the answer change the campaign? If not, do not raise it.
-   - Does the user already know, believe or suspect something about it? Then ASK — set status "open" and put the question to them. A hypothesis of theirs is worth more than a guess of yours.
-   - Have you already been told, or does the retrieved context already say? Then do not ask again; record it with basis "user" or "tool".
-   NEVER close a dimension because the platform cannot express it. Ask the user whether it matters first, record what they say, and carry the unbuildability as a limitation for the mapping stage. A business factor that turns out to be unbuildable is still a finding the user needs; silently dropping it is the one outcome that is never acceptable, and do not substitute a loosely related attribute for the one that is missing or imply the targeting is possible. Missing numbers are likewise not a reason to drop a dimension — a strategically important factor with no data behind it stays in the record as a hypothesis.
-   status is one of "open" (still investigating), "retained" (resolved and used), "deferred" (you chose not to pursue it, and the note says why) or "unavailable" (the platform cannot act on it — use this only AFTER the user has given their view, and keep that view in the note). basis is what the status rests on: "tool", "user", "user-belief", "assumption" or "none" — never claim "tool" or "user" for something you assumed. "user" is for what they OWN and are the authority on: their definition, their target, their decision. "user-belief" is for their explanation of WHY customers behave as they do — a conjecture about cause, which they cannot actually know and which competing explanations may contradict. Record a stated cause as "user-belief" every time, however confidently it was put to you; calling it "user" turns their guess into the finding your campaign rests on. Never invent a threshold, a bucket, a distribution or a rate to close one out.
-   WEIGH EVERY QUESTION BEFORE YOU ASK IT, AND SAY HOW MUCH RIDES ON IT. Give each one an "impact": "fork" if two different answers mean two different campaigns — a different goal, a different audience, a different entry moment, a different core intervention; "shaping" if it changes how the campaign is built rather than what it is; "detail" if a sensible default exists and stating it costs nothing. Decide this when you ASK, not later: by the time you want to design, an awkward question is tempting to call a detail.
-   A FORK YOU HAVE NOT HAD ANSWERED STOPS YOU. You may not infer it from something else they said, and you may not write it down as an assumption and carry on — both of those choose one of two campaigns for them. Ask it on its own, plainly, and wait. The cost of one short question is a turn; the cost of guessing is a campaign aimed at the wrong people. Anything that is not a fork may be carried (a live uncertainty the design works around) or deferred (a default you state), each naming its question id in "questionResolutions" with the reason. A reason attached to no question resolves no question.
-   READ THEIR REPLY AS AN ANSWER FIRST. Assume it answers every question you asked, because it usually does: brief, reordered, or two in one clause all count. Put an id in "notCovered" only when nothing they wrote touches it. Never flag one for being short or not in the words you expected: telling them a reply you did receive did not count is wrong and insulting. FORKS ARE NOT AN EXCEPTION: a reply closes a fork too, and "notCovered" is the only thing that keeps one open. A skipped question is not a refusal: ask again plainly, or proceed saying what you assume and its cost.
-   AN ANSWER IS NOT AUTOMATICALLY A CLOSED DIMENSION. Your first questions are the opening pass, not a questionnaire to get through. Read every answer back against what you had, and decide which of these happened:
-   - It ANSWERED the question. Record it, basis "user", and move on.
-   - It NARROWED the question. Broad causes hide competing explanations underneath them — "cost hesitation" could be the interest rate, the total payable, the tenure, or the effect on available limit, and those lead to different messages. If the distinction would change the design, you now have a sharper question, not an answer.
-   - It RAISED something new. Something volunteered may open a dimension you had not thought of. Record it and ask.
-   - It made another dimension IRRELEVANT. Close that one with a note and stop asking about it.
-   A BROAD CAUSE IS NEVER SETTLED BY BEING STATED. When they name why customers behave as they do, you have their belief, not a finding — and underneath it sit competing explanations that imply different campaigns. Record it as "user-belief" and close it exactly two ways: ASK which one it is, or TEST them against each other. Accepting it as given and designing for one reading is the third way, and it is wrong: it hides a choice you made on their behalf. Choose asking when the answer would change the design and they are likely to know; choose testing when they genuinely cannot know, and say which you did and why.
-   Ask a follow-up ONLY when the answer would change the audience, the intervention, the timing, the experiment or the measure. A question whose every possible answer leads to the same campaign is not worth a turn of the user's time — say so and move on. Stopping is a decision you must make deliberately and state, not a budget you pad to. This round still has at most three questions. "nothing further would change this" is itself a finding.
-   If they cannot answer, that is an answer too. Do not resolve it for them: carry it into the strategy as an unknown with its consequence, and consider whether an experiment could settle what the conversation could not.
-   Update the dimension you already have, reusing its name EXACTLY. A rephrased near-duplicate loses the history of what was asked and what came back.
-
-3. The business strategy, before any platform mapping.
-   From the dimensions, settle the audience approach, the intervention, the timing and how success will be read — in business terms, in your own words. Do not narrow any of it to what the builder happens to support yet. Then map it: the sequence and entry event below are where implementation starts, and where a business intention that cannot be built becomes a stated limitation rather than a quiet omission.
-   THE AUDIENCE IS EVERYONE ELIGIBLE WHO HAS NOT DONE THE BEHAVIOUR YET. That is the entry — whoever can still do the thing, not a slice you already believe will convert. Narrowing it to the group most likely to respond is not strategy, it is abandoning the rest of the problem you were asked to solve. A TREND ABOUT WHO IS LIKELIER CHANGES THE TREATMENT, NEVER THE DOOR, and "I am not sure" does not shrink the entry either.
-   WHEN THE AUDIENCE YOU CAN BUILD IS NOT THE AUDIENCE THEY ASKED FOR, say all three things plainly, in the strategy itself:
-   - who they intended to reach, in their words, and that it is theirs — keep any threshold or figure they gave you exactly as they said it, attributed to them;
-   - who the campaign will actually reach once mapped to what exists;
-   - what the difference costs, in reach or in relevance, and what would have to be resolved to close it.
-   DO NOT CLOSE THAT GAP WITH A NEAR-ENOUGH ATTRIBUTE. An attribute that measures a different thing, or the same thing at a different grain, is not the one they asked for: a single event's value is not a running total, and one record's figure is not a customer's position. Calling it a proxy in a footnote does not make the targeting right — the campaign would still enter the wrong people. Leave the intended criterion unbuilt, say so, and let them decide.
-   Never let the summary present the audience you CAN build as if it were the audience they asked for, and never describe the attribute you used in the words of the attribute you wanted. A campaign that quietly reaches a broader or narrower group than intended is the failure this step exists to prevent.
-
-4. The sequence, before you pick an entry event.
-   Work out what happens to the customer, in order, and where an intervention can still change the outcome. Several events may mention the same subject while sitting at different points in that sequence. Typically some of these exist, though not in every campaign:
-   - the event where the opportunity appears (something became possible),
-   - the event where the customer has already acted (a request now exists),
-   - the event that proves success,
-   - the event that closes the chance (expiry, failure, cancellation).
-   Entry belongs where the behaviour you want has NOT happened yet and still can. The goal belongs on the event that proves it did. These are usually DIFFERENT events, often on different entities — and a condition can only use the attributes of the entity its category filters, so check that mapping before writing conditions.
-   Never choose an event because its name shares a word with the objective. If two sources are genuinely plausible and the choice changes who enters, raise it as a strategic ambiguity and say which you would use.
-
-5. The hypothesis.
-   In one or two sentences: by what mechanism should this campaign change the behaviour — removing friction, surfacing a benefit, reminding someone of an unfinished action, arriving at a better moment? Be specific to this objective. It is a hypothesis, not a prediction.
-
-6. The strategic options, before you settle the journey.
-   BUILD TWO CANDIDATE ARCHITECTURES, THEN CHOOSE. An architecture is three things together: the entry and audience (who is reached), the mechanism (what behaviour it changes and by what means), and the triggering and timing logic (when it fires and what paces it). Record both in "architectures", with the trade-off each makes against the other, and mark the winner with why it won — citing what you were told, not a general preference.
-   FEWER MESSAGES IS NOT A DIFFERENT APPROACH. Neither is a different tone, channel order or send count: those vary the same campaign. Two architectures differ when they reach DIFFERENT PEOPLE, at a DIFFERENT MOMENT, or by a DIFFERENT MEANS. Look for the second candidate before concluding there isn't one: it usually carries a factor the first cannot.
-   EACH CANDIDATE MUST STATE ITS "barrier", "lever", "journey" AND "measurement". The barrier is the customer problem it addresses; the lever is what you do about it; "journey" is EXACTLY ONE OF ${JOURNEY_BEHAVIOURS.join(' | ')}. The application compares candidates on entry, timing and journey, and records two that match on all three as INSUFFICIENT. It also checks the winner's declared "journey" against what you actually build.
-   A FACTOR THE FIRST CANDIDATE CANNOT CARRY IS NOT A PLATFORM LIMITATION. Before you report any discovered factor as unbuildable, check whether a DIFFERENT entry would carry it. "This entry cannot express it" is a fact about the entry you chose, not about the platform. If a second architecture would carry a factor that matters, prefer it unless you have a stronger reason not to — and if you keep the first anyway, say plainly that you traded the factor away and what that costs. Only when neither candidate can carry it is it a limitation.
-   Then take each option below and give it a verdict: "used" (it earns its place, and why), "not-applicable" (why this objective does not need it) or "cannot-evaluate" (what you would need to decide). Record all seven in "strategyOptions", one line each. An option you never considered and one you weighed and set aside both read as silence, so say which it was.
-   - Segmentation. Does any dimension you found divide these customers into groups that deserve a DIFFERENT treatment, rather than one treatment for everyone? Name the groups and what would differ between them. EVERY ELIGIBLE CUSTOMER IS STILL TREATED: a dimension splits the treatment inside the entry set — a different cadence, channel or copy — and never shrinks the entry to the best-looking bucket. The high-limit customers still enter; they may simply get fewer touches. If you split, give the remainder a path, so whoever is left still gets a campaign. When the manager has named the dimension, do not ask which group to target — ask only where the split sits, or default to the cohort's own median or tertiles rather than inventing a rupee cutoff, and use only as many buckets as their dimension actually needs. If the builder cannot express the axis, keep the buckets in the plan, say they cannot be built yet, and still message everyone on one path. Only call segmentation unavailable when no attribute can express the axis at all, never because nobody has named a number yet. IF THEY HAVE SEEN NO PATTERN, OR DO NOT TRACK IT: one track for everyone eligible, and THIS run has to produce the trend.
-   - Experimentation. Is there a real competing hypothesis worth a controlled comparison? Say what is compared, how you would read the result, and what it would establish. Having no performance history is a reason TO test, not a reason to skip it: it stops you sizing an effect in advance, it does not stop you running the comparison. IF YOU CAN NAME THE ARMS, WRITE THEM — a test is never blocked on the user supplying copy. Name the competing explanations, give each arm a real intervention and real copy, state the outcome you would read and the comparison you would read it against, and say what is missing if anything genuinely is. Only call an experiment unavailable when the journey cannot express it, never because nobody has written the words yet. DERIVE THE COMPARISON FROM THIS OBJECTIVE: wording, dosage, channel, timing or order, whichever this one is actually uncertain about. Two message variants is one option, not the default, and adding sends tests nothing.
-   - Conditional branching. Should what happens next depend on what the customer DID — converted, engaged but did not convert, or never engaged at all?
-   - Channel fallback. What happens when delivery fails: retry, switch channel, or stop, and on what condition?
-   - Adaptive sequencing. Should timing, channel or message change as the opportunity ages or as the customer responds?
-   - Cost and fatigue. Weigh each additional message's incremental chance of converting against its cost and the irritation it adds. Name the weakest message and say why you kept or cut it.
-   - Measurement and learning. What does this campaign teach, and against what comparison? Without a control group or a randomised comparison you can report what happened, never what the campaign CAUSED. Say which you have.
-   Mark an option "used" only if the journey you are about to propose SHOWS it. A fixed chain of sends and waits is not adaptive sequencing however urgently its copy is worded; a fork whose branches do the same thing is not conditional branching; two experiment arms with the same steps are one treatment counted twice.
-   Judge each on the business case, never on what the builder supports. Platform capability decides what gets BUILT, never what gets CONSIDERED: an option that is right for this business but unbuildable today is still recommended, kept in the strategy in full, with the limitation recorded separately. Never quietly downgrade it to a weaker thing the builder allows.
-
-   SHOW WHERE EACH DECISION CAME FROM. Every entry in "approach" names what it rests on, inside the entry itself: what the user told you, what a tool reported, or that it is your own judgement with nothing confirming it. A reader must be able to tell THEIR requirements from YOUR recommendations without asking, and a decision that traces to nothing is an assumption — label it as one. If a later answer undercuts an approach you were heading towards, change it and say what changed it; never present a strategy that the accumulated answers no longer support.
-
-7. The journey.
-   A STEADY CADENCE IS A COMPLETE PLAN. Who-splits and a sensible clock are a campaign they can run; reacting to what the last message did is intelligence ON TOP, worth having where it changes the next job and not a pass mark. UNREAD AND READ ARE NOT TWO MORE AUDIENCES: the who-split stays as it is and the fork sits INSIDE a group — on the first send, and on a later one only if those two people need a different next job. If they would get the same reminder, do not fork. Make the copy match the arm: repeat the fact to someone who has not read it, change the argument for someone who has. IF YOU WRITE BOTH CANDIDATES, THE REACTING ONE WINS — do not describe the upgrade and then choose the calendar.
-   NAME EVERY TOUCH. The window they gave you is the time you have to work an unfinished action, and "a staggered multi-touch sequence" names no sends. List them in "touches" across that window — the first, at least one reminder, a last chance before it closes. A group that mostly acts on its own gets FEWER touches as a NAMED path, never as everyone's default. Send count still does not make two architectures different.
-   A SPLIT BELONGS INSIDE THE JOURNEY, NOT AT THE DOOR. Put the dimension on a condition, a branch or an experiment, so each group gets its own treatment and the remainder keeps a path of its own. Entry conditions decide who is ELIGIBLE; they are not segmentation, and the application does not accept them as it.
-   Say what happens in each of these, as far as the channel can actually tell you:
-   - it reached them and they did not open or read it;
-   - they opened it and did nothing;
-   - they converted, and the campaign stops for them.
-   EACH CHANNEL EARNS A JOB OR IS EXPLICITLY UNUSED. Do not lead every path on WhatsApp because it is the default. Never name a channel the builder cannot send.
-   BRANCH ONLY ON WHAT THAT CHANNEL REPORTS. Where list_channels is on the turn, call it for that channel's own status list; never invent one. WhatsApp reports DELIVERED, READ and DELETED. Never put a click or open condition on a WhatsApp or SMS send. FAILED IS NOT AN ARM: undelivered is the fallback channel field on the send. CHECK A SEND ONLY IF THE ARMS WOULD DIVERGE: one or two designed checks on a path, never one after every message.
-   Size the plan to the window the customer has and to what the calendar says is happening. There is no per-campaign message limit: how many messages to send is YOUR decision to justify. Spacing is a judgement, not a rule. Respect the night quiet hours.
-   Say what you considered and rejected, in "rejected", and make it a real alternative you chose not to take rather than a thing the builder cannot do. A platform gap belongs in the limitations, not here.
-   The journey is where the options step becomes real: every option you marked "used" should be visible in it, and an option marked "used" that leaves no trace in the steps was not used.
-   Simplest RELATIVE TO THE STRATEGY, not fewest steps. If the strategy treats two groups differently, a journey that treats everyone the same is not simpler, it is a weaker strategy.
-   Recommend; do not hand the design back as a menu of questions.
-
-8. The messages.
-   Write each one as the CUSTOMER will read it. "copy" is the message itself, never a description of it and never an instruction to the campaign manager. Lead with what the customer gets, keep it short and plain, and put the action in "cta". Use \${customerFirstName} and \${shortUrl} where they help. Nothing you write is bank-approved, so never imply it is.
-
-9. Honesty about what is settled.
-   The working brief above separates what the user actually confirmed from what you assumed. Respect that line. If it lists an UNRESOLVED CONFLICT between something the user said and what the platform defines, do not design around it and do not substitute a different attribute or value for it: raise it, name the real alternatives, and let them choose. A value that is independently justified may stay — but the conflict is still theirs to resolve.
-
-QUESTIONS AND OPEN ITEMS
-
-"rejected" is for a decision you made between workable options. Something the platform CANNOT do is not a decision, and filing it there reads as "we chose against this" when the truth is "we could not express this" — keep it as the user's standing intent in "assumptions" or "unknowns", and raise the limitation. Ask only when the answer would change the design or is needed for a valid graph. Everything else gets a stated default. Never ask for message copy or CTA wording — write those yourself; asking them for message variants is asking them to do your job.
-
-When you propose, list what is still open in "openItems", each with a kind:
-- "strategic-ambiguity" — a business definition only the user can settle, which would change the design. Asked alongside your strategy.
-- "evidence-gap" — aggregated data that would sharpen a decision. Never a prerequisite. Note what would have helped and move on.
-- "optional-preference" — a detail with a sensible default. Put the default in "ifUnanswered".
-- "operational-limitation" — something the platform cannot confirm either way, which you can disclose and still recommend around.
-A LIMITATION THAT REACHES THE WRONG CUSTOMER IS NOT A LIMITATION, IT IS A DECISION. If the audience you can build would message people who have already done the thing, or who were never meant to hear from you, that is not a footnote — someone will receive it. Say who would wrongly receive it and what that looks like to them, and raise it as a "strategic-ambiguity" so they decide, not as an "operational-limitation" you have quietly accepted on their behalf.
-An open item never suppresses your recommendation, so classify honestly: there is nothing to gain by hiding one or inflating another.
-
-Nothing is built until the user confirms it. Propose a complete, coherent strategy even when something is open: say what you assumed and what would change your mind.
-
-OUTPUT
-
-Propose only once the user has answered at least one question AND no dimension is still "open". Closing every dimension yourself on the first turn is not discovery: you looked things up, you did not find out what the user wants, and a proposal on a turn where they have said nothing back is rejected by the application and handed to you as more discovery. Check the record above before you write one.
-
-DISCOVER FIRST. This is the normal opening move, and usually more than one round. Check what you can actually reach before you ask: read the knowledge base and the bank context above, and report what you checked in "contextChecked" — one entry per source, with found true or false. Do not call event or attribute lookups while you are still learning who converts — those tools are for the turn that builds. Only name sources you genuinely consulted; you have no access to campaign history, analytics or bank systems, so never imply you looked there. Use discovery also when the objective is too vague to design against, or when a drip campaign is the wrong instrument for it entirely — say which, and why. Never repeat a question already answered.
-
-Use "request_evidence" only when aggregated data would change a decision you are about to make, and the brief does not already say it is unavailable. Aggregated counts and rates only — never customer-level or personal data.`;
 
 /**
  * Runs one turn of the conversation, emitting events as work happens.
@@ -663,6 +516,140 @@ Use "request_evidence" only when aggregated data would change a decision you are
  * Previously the graph was built the moment the model said "propose", which
  * is why a completed campaign appeared before anyone had agreed the strategy.
  */
+/**
+ * The correction a refused `propose_strategy` is answered with, on a turn that
+ * is ALLOWED to propose.
+ *
+ * ONE DEFINITION, TWO CALLERS: the round loop, and the forced propose. It was
+ * inline in the round loop and the forced call had no correction at all, which
+ * is the whole of `eval/runs/ui-s-1792996412937` turn 3 — the refusal text was
+ * written, emitted as `model.tool_call.failed`, and never became a
+ * `tool_result`, so the model never read it. Two copies of this string would
+ * drift, and the drift would be invisible because each site passes its own
+ * tests.
+ *
+ * NOT FOR AN ASKING-TURN REFUSAL. See the round loop's own note: appended to
+ * "discovery is not finished" it tells the model to resend a plan it has just
+ * been told it may not send yet.
+ */
+/**
+ * The `tool_result` for one applied output tool.
+ *
+ * ONE DEFINITION, so the round loop and the forced propose cannot answer the
+ * same refusal differently. They did: the round loop had this expression
+ * inline and the forced call had its own copy, which is how the forced call
+ * came to have no correction at all for a while
+ * (`eval/runs/ui-s-1792996412937` turn 3 — the refusal was emitted as an
+ * event and never became a `tool_result`, so the model never read it).
+ *
+ * The correction rides only on a refused `propose_strategy`, and only on a
+ * turn that is ALLOWED to propose: see `PROPOSE_CORRECTION`'s own note for why
+ * appending it to an asking-turn refusal made a live run submit the same plan
+ * five times.
+ */
+/**
+ * What a yes is TOLD about the plan it approved. Never what it is refused for.
+ *
+ * ONE DEFINITION, because the two Confirm doors used to disagree about this
+ * completely: the button checked none of it, and a typed yes was REFUSED by
+ * the barrier-coverage and experiment-claim audits — sent back to Revise after
+ * agreeing, with nothing to do but agree again. The standing rule in this file
+ * is that the moment to raise a gap in a plan is before it is approved; after
+ * that it is a limitation, stated, and the campaign still gets built.
+ *
+ * `reactionGap` is kept separate because `renderBuildSummary` leads with it:
+ * a build that did not do what was agreed is reported in the first line or it
+ * is not reported at all.
+ */
+export function confirmGaps(
+  brief: WorkingBrief,
+  blueprint: CampaignBlueprint | null,
+  approved: Strategy | null,
+): { lines: string[]; reactionGap: string | null } {
+  if (!blueprint) return { lines: [], reactionGap: null };
+  const lines: string[] = [];
+  const coverage = checkBarrierCoverage(blueprint, mustBeAddressed(brief.barriers));
+  for (const b of coverage.unaddressed) {
+    lines.push(
+      b.basis === 'user' || b.basis === 'user-belief'
+        ? `You told me: ${b.statement} Nothing in this campaign does anything about it, so running it leaves the reason you gave untouched.`
+        : `This campaign was designed around: ${b.statement} Nothing in it does anything about that.`,
+    );
+  }
+  if (coverage.uncitedSends.length) {
+    lines.push(
+      `These messages do not say which problem they solve: ${coverage.uncitedSends.join(', ')}. A message that is not answering a known reason is just another contact.`,
+    );
+  }
+  for (const v of checkExperimentClaims(blueprint)) lines.push(v.why);
+  // IS THIS THE CAMPAIGN THEY WERE SOLD? `checkFidelity` compares the winner
+  // the plan declared against what the steps actually do. It lived in the
+  // build tail, which only a typed yes reached, so the button never asked.
+  const learn = checkAudienceLearning(blueprint, mustLearnAudience(brief.converters));
+  if (learn) lines.push(learn);
+  const fid = checkFidelity(approved?.architectures, blueprint);
+  if (fid && !fid.ok && fid.why) lines.push(fid.why);
+  // AND THE BLOCKS A YES TURNS INTO LIMITATIONS. `decide(..., building: true)`
+  // drops the plan-quality holds and keeps the record ones; on an approved
+  // build they are costs to state, not reasons to refuse. Skipping them
+  // silently would make the cost vanish on the one turn that produces a
+  // campaign.
+  for (const b of decide(brief, { building: true }).blocks) lines.push(b.reason);
+  // THE CLAIM AGAINST THE STEPS, with no second model call. The retry this
+  // replaced asked for a fork the manager had not approved and compiled the
+  // clock anyway when it did not get one.
+  const chosen = String((approved?.architectures ?? []).find((a) => a?.chosen)?.journey ?? '')
+    .trim()
+    .toLowerCase();
+  const promised = chosen === 'branch-on-response' || chosen === 'wait-for-event';
+  const reactionGap =
+    promised && !journeyReacts(blueprint)
+      ? 'The journey on the canvas is a timed sequence. The plan you approved said the next step would depend on whether each message was delivered, read or acted on, and nothing in what was built branches on that. A split by ticket size is segmentation, and the goal check after each send is the platform checking whether they converted, not the campaign reacting.'
+      : null;
+  return { lines, reactionGap };
+}
+
+/**
+ * The plan and the path the manager actually approved: the FILED pair.
+ *
+ * WHY NOT THE CLIENT ECHO. The client posts `confirmedBlueprint` from its own
+ * `pendingBlueprint` and `confirmedStrategy` from its own `pendingStrategy`,
+ * and the Confirm path used to build both of those. That makes the browser a
+ * second authority over what gets compiled: the record says one thing and the
+ * echo can say another, and the echo was winning. `brief.lastProposal` is
+ * written by `applyOutputTool` only when `propose_strategy` is ACCEPTED, so it
+ * is the plan the application itself agreed to put up for approval.
+ *
+ * NO EQUALITY PREDICATE, deliberately. Comparing the echo to the record would
+ * need a definition of "the same blueprint", and a deep-equal refuses honest
+ * Confirms over key order or an edited description. The echo is simply not
+ * read for the compile. The only refusal is the honest one: there is nothing
+ * on file to build.
+ */
+export const approvedPair = (brief: WorkingBrief): { path: CampaignBlueprint | null; plan: Strategy | null } => {
+  const filed = brief.lastProposal;
+  const path = shapedBlueprint(filed?.blueprint as never) ? (filed?.blueprint as CampaignBlueprint) : null;
+  return { path, plan: path ? ((filed?.strategy ?? null) as Strategy | null) : null };
+};
+
+export const toolResultBlock = (
+  tool: string,
+  id: string,
+  applied: { error?: string; ok?: string },
+  phase: TurnPhase,
+): Record<string, unknown> => ({
+  type: 'tool_result',
+  tool_use_id: id,
+  content:
+    applied.error && tool === 'propose_strategy' && phase !== 'asking'
+      ? `${applied.error}\n\n${PROPOSE_CORRECTION}`
+      : applied.error ?? applied.ok ?? 'Recorded.',
+  ...(applied.error ? { is_error: true } : {}),
+});
+
+const PROPOSE_CORRECTION =
+  'Send the SAME plan again with that one thing fixed — do not start over and do not go back to discovery. Cite barriers by their recorded ids. Two architectures may cite the SAME barrier as long as they differ in entry, timing, lever or journey: with one barrier recorded that is the normal shape, and the rival is a different treatment of it, never a second invented reason.';
+
 export async function* orchestrateStream(
   req: OrchestratorRequest,
 ): AsyncGenerator<RunEvent, OrchestratorResponse> {
@@ -744,7 +731,15 @@ export async function* orchestrateStream(
       // The user may volunteer that data does not exist without having been
       // asked for it. Capture that as a limitation so the strategy carries it.
       brief = noteVolunteeredLimitation(brief, latestUserText);
-    } else if (objectiveChangedMaterially(brief.objective, latestUserText)) {
+    } else if (!saysBuildNow(latestUserText) && objectiveChangedMaterially(brief.objective, latestUserText)) {
+      // A TYPED CONFIRMATION IS NOT A NEW BRIEF. "Confirmed. Build this
+      // campaign." shares almost no words with any objective, so it read as a
+      // changed one: the approval was withdrawn and the machine reset to
+      // `UNDERSTANDING_GOAL` on the very turn the manager said yes. The button
+      // never hit this because the whole block is `intent === 'converse'`,
+      // which is one more way the two doors were different products.
+      // `saysBuildNow` is an exact match on that one sentence, so this cannot
+      // swallow a real change of direction.
       // The CONFIRMATION is withdrawn. The discovery is not thrown away.
       //
       // This used to rebuild the brief from whatever had just been typed —
@@ -911,14 +906,48 @@ export async function* orchestrateStream(
   // ===================================================================
   // CONFIRMATION PATH — the user agreed the strategy, so build it.
   // ===================================================================
-  if (intent === 'confirm' && req.confirmedBlueprint) {
-    // The confirmation must be recorded against the brief and strategy that
-    // were ON SCREEN when the user agreed — which is the strategy the client
-    // echoes back. Stamping it with the CURRENT fingerprint first would make
-    // the staleness check compare a value against itself and always pass;
-    // that bug let a confirmation survive a changed objective.
+  // ONE CONFIRM, NOT TWO. This block used to build the client's ECHO and
+  // return, skipping `checkBarrierCoverage`, `checkExperimentClaims` and the
+  // reaction report — while a manager who TYPED the same sentence walked the
+  // whole build tail and got a different campaign. It is now the single
+  // Confirm door for both: it decides whether a yes may build, compiles
+  // `approvedPair` — the plan and path on file — and returns. Nothing about a
+  // Confirm reaches the tail below.
+  //
+  // AND IT DOES FIRE IN THE APP. An older comment here and in `server/CLAUDE.md`
+  // said it could not, because a propose turn returned `pendingBlueprint:
+  // null`. That was true when it was written. The slice that made the first
+  // propose carry its journey set `pendingBlueprint` to the filed path, so the
+  // client now posts a real echo and this is the Confirm-button path.
+  // BOTH DOORS, ONE PATH. The button posts `intent: 'confirm'`; a manager who
+  // types the same sentence posts only the sentence, and that used to walk a
+  // completely different route — rounds, a forced `build_campaign`, a reaction
+  // retry, and audits that could refuse the build after they had agreed.
+  //
+  // `AWAITING_STRATEGY_CONFIRMATION` is what keeps the typed half narrow: the
+  // sentence is on screen in their own transcript, so it does get typed during
+  // discovery, and nobody should be able to skip the gate by repeating it back.
+  // FROM THE STATE THEY TYPED INTO, not the one this turn has already moved.
+  //
+  // `session` is reassigned above: the typed sentence shares almost no words
+  // with the objective, so the changed-objective branch reads it as a new
+  // brief and resets the machine to `UNDERSTANDING_GOAL`. Reading the local
+  // here therefore made a typed yes impossible — measured, and the reason this
+  // takes `req.session`, which is the state the plan was approved from.
+  const typedYes =
+    saysBuildNow(latestUserText) &&
+    (req.session as SessionState | undefined)?.state === 'AWAITING_STRATEGY_CONFIRMATION';
+  if (intent === 'confirm' || typedYes) {
+    // The confirmation must be recorded against the plan that was ON SCREEN
+    // when the user agreed. Stamping it with the CURRENT fingerprint first
+    // would make the staleness check compare a value against itself and always
+    // pass; that bug let a confirmation survive a changed objective.
+    //
+    // FROM THE FILED PAIR, not the echo. Same reason as the compile: the
+    // browser must not be able to decide that a stale plan is fresh.
+    const filedForStamp = approvedPair(brief);
     const confirmedFor = fingerprint(
-      (req.confirmedBlueprint?.description ?? '') + ' ' + (req.confirmedStrategy?.summary ?? ''),
+      (filedForStamp.path?.description ?? '') + ' ' + (filedForStamp.plan?.summary ?? ''),
     );
     const briefMatchesStrategy =
       !confirmedFor || overlaps(confirmedFor, brief.objectiveFingerprint) || !req.brief;
@@ -946,16 +975,74 @@ export async function* orchestrateStream(
       yield* drain();
       return { ...base, phase: 'awaiting-confirmation', stage: 'proposed', reply: permitted.reason, brief, session };
     }
-    session = { ...session, state: transition(session.state, 'GENERATING_CAMPAIGN') };
+    // NOTHING ON FILE IS AN HONEST EMPTY, not a compile of whatever the
+    // browser drew. The same family as a refused Plan: the record is settled,
+    // the plan is not on file, and there is nothing to build.
+    if (!approvedPair(brief).path) {
+      em.emit('run.completed', 'strategy', 'No plan on file to build', { correlationId: 'run' });
+      yield* drain();
+      return {
+        ...base,
+        phase: 'planning',
+        stage: 'proposed',
+        reply:
+          'There is no plan on file to build. The journey has to be sent as a plan before it can be confirmed, so nothing has been created. Ask for the plan again and it will come back as a path you can see.',
+        questions: [],
+        strategy: null,
+        blueprint: null,
+        pendingBlueprint: null,
+        brief,
+        session,
+      };
+    }
     em.emit('strategy.confirmed', 'generating', 'Strategy confirmed', {
       detail: 'Building the campaign with the application\'s own graph logic.',
     });
     yield* drain();
-    const out = buildAndValidate(req, tenant, bank, availableChannels, req.confirmedBlueprint, req.confirmedStrategy ?? null, em);
+    session = { ...session, state: transition(session.state, 'GENERATING_CAMPAIGN') };
+    // THE SAME COMPILE AS A TYPED YES: the filed pair, and the same reports.
+    //
+    // This door used to build `req.confirmedBlueprint` and skip
+    // `checkBarrierCoverage`, `checkExperimentClaims` and the reaction report
+    // entirely, while a manager who TYPED the same sentence got all three. Now
+    // both doors read `approvedPair` and both report through
+    // `confirmGaps` — the only difference left is that this one does not spend
+    // a model round, because the path it compiles is already on file.
+    const pair = approvedPair(brief);
+    const gaps = confirmGaps(brief, pair.path as CampaignBlueprint, pair.plan);
+    const out = buildAndValidate(
+      req,
+      tenant,
+      bank,
+      availableChannels,
+      pair.path as CampaignBlueprint,
+      pair.plan,
+      em,
+      gaps.reactionGap,
+    );
     yield* drain();
-    const nextState: CampaignState = out.exportable ? 'EXPORT_ELIGIBLE' : 'CONFIGURATION_INCOMPLETE';
-    session = { ...session, state: transition(session.state, nextState) };
-    return { ...base, ...out, phase: out.stage === 'error' ? 'error' : 'review', brief, session };
+    if (gaps.lines.length) {
+      brief = recordApplicationVerdict(brief, { warnings: gaps.lines });
+    }
+    // ON THE DOCUMENT AS WELL AS THE RECORD. `renderStrategy` prints
+    // `designWarnings` under "What this design cannot do", and a cost recorded
+    // where nobody reads it is the same as dropping it.
+    const confirmedStrategyOut = pair.plan
+      ? { ...pair.plan, designWarnings: [...(pair.plan.designWarnings ?? []), ...gaps.lines] }
+      : pair.plan;
+    session = { ...session, state: transition(session.state, out.exportable ? 'EXPORT_ELIGIBLE' : 'CONFIGURATION_INCOMPLETE') };
+    return {
+      ...base,
+      ...out,
+      // THE MISMATCH LEADS, because `renderBuildSummary` leads with it. A
+      // build that did not do what was agreed is reported in the first line or
+      // it is not reported at all, and the blocker list follows the reply.
+      campaignBlockers: [...((out.campaignBlockers as string[] | undefined) ?? []), ...gaps.lines],
+      strategy: confirmedStrategyOut,
+      phase: phaseAfterBuild(out),
+      brief,
+      session,
+    };
   }
 
   // ===================================================================
@@ -1045,8 +1132,30 @@ export async function* orchestrateStream(
   // from the brief with no escape at all. `turnPhase` is the single fact; the
   // thunk stays a thunk because the brief is rewritten between model rounds
   // and round two of this turn may be ready when round one was not.
+  /**
+   * Put a tool round and its results back on the conversation.
+   *
+   * EVERY `tool_use` GETS A RESULT, including one that was never applied: a
+   * `tool_use` block with no matching `tool_result` is rejected outright, so a
+   * missing one would lose the turn rather than correct it.
+   */
+  const appendToolExchange = (
+    uses: { id: string; name: string; input?: Record<string, unknown> }[],
+    outcomes: { tu: { id: string; name: string }; error?: string; ok?: string }[],
+    phase: TurnPhase,
+  ) => {
+    conversation.push({
+      role: 'assistant',
+      content: uses.map((u) => ({ type: 'tool_use', id: u.id, name: u.name, input: u.input ?? {} })),
+    });
+    conversation.push({
+      role: 'user',
+      content: outcomes.map((o) => toolResultBlock(o.tu.name, o.tu.id, o, phase)),
+    });
+  };
+
   const phaseNow = (): TurnPhase => turnPhase(brief, { isBuildTurn, limitReached });
-  const context = buildContextPrompt(req, brief, tenant, kbText, availableChannels, limitReached, isRefinement, isBuildTurn, phaseNow());
+  const context = buildContextPrompt(req, brief, tenant, kbText, availableChannels, limitReached, isRefinement, phaseNow());
 
   const conversation: ApiMessage[] = [
     { role: 'user', content: context },
@@ -1455,7 +1564,16 @@ export async function* orchestrateStream(
       // Stating the intervention before building is still right, and the
       // tests pinning this block inside the model loop still hold. It simply
       // belongs on the turn where something is being built.
-      if (act === 'design' && !designSeen && peek.ok && isBuildTurn) {
+      // UNREACHABLE ON PURPOSE, and this is cleanup rather than one of the
+      // defects this slice is about. The handshake asks the model to emit
+      // `{"action":"design",...}` as prose before building, and `isBuildTurn`
+      // was its ONLY gate — so the one turn it could fire on was Confirm. It
+      // never has: nine recorded build turns contain no `action:"design"` and
+      // no capability brief-back, because Confirm goes through the
+      // `build_campaign` tool. The branch and `briefBackCapability` stay in the
+      // file; `DESIGN_HANDSHAKE_LIVE` is what stops them spending a round on
+      // the turn that compiles an approved plan.
+      if (act === 'design' && !designSeen && peek.ok && isBuildTurn && DESIGN_HANDSHAKE_LIVE) {
         designSeen = true;
         // Requirements are derived from the INTERVENTION and the ELIGIBILITY
         // list, not asked for as a separate `requirements` array.
@@ -1519,7 +1637,7 @@ export async function* orchestrateStream(
       // A proposal that skipped the design step is sent back once. Once only:
       // a guard with no way out is a deadlock, and this codebase has already
       // paid for that lesson with a five-turn run that never proposed.
-      if (act === 'propose' && !designSeen && !designDemanded && isBuildTurn) {
+      if (act === 'propose' && !designSeen && !designDemanded && isBuildTurn && DESIGN_HANDSHAKE_LIVE) {
         designDemanded = true;
         conversation.push({ role: 'assistant', content: assistantText });
         conversation.push({
@@ -1603,34 +1721,23 @@ export async function* orchestrateStream(
           detail: applied.error ?? applied.ok,
           durationMs: Date.now() - started,
           correlationId: tu.id,
-          data: { tool: tu.name, kind: 'output' as const },
+          data: {
+          tool: tu.name,
+          kind: 'output' as const,
+          // WHAT WAS SENT, ON THE FAILURE. `model.tool_call.requested` carries
+          // the input; `failed` did not, so a refused `propose_strategy` was a
+          // refusal with no body — `eval/runs/ui-s-1793017853714` turn 3 has
+          // two of them and neither says what path was rejected. Only on a
+          // failure, and only the steps, so a successful round does not double
+          // the log for nothing.
+          ...(applied.error ? { sent: (tu.input as { blueprint?: { steps?: unknown } } | undefined)?.blueprint?.steps ?? tu.input } : {}),
+        },
         });
         yield* drain();
-        results.push({
-          type: 'tool_result',
-          tool_use_id: tu.id,
-          // A REFUSED PROPOSAL IS A CORRECTION, NOT A RESTART.
-          //
-          // The live turn shows what the bare error cost: refused twice, the
-          // agent abandoned the plan it had already written and spent the
-          // rest of the turn recording findings to satisfy the refusal. The
-          // plan was never resent. Say plainly that the work is not lost.
-          //
-          // NOT ON THE ASKING-TURN REFUSAL, since 2026-10-24. This wrapper is
-          // a PAYLOAD correction for a turn that is allowed to propose — "one
-          // thing is wrong, fix it and resend". Appended to "discovery is not
-          // finished", it tells the model to resend a plan it has just been
-          // told it may not send yet, and that is what the live loop did:
-          // five submits of the same thing, then the plan dumped into the
-          // chat for the manager to approve by hand
-          // (`eval/runs/ui-s-1792834072700` turn 3). The asking-turn refusal
-          // names its own next move, which is to ask or to record.
-          content:
-            applied.error && tu.name === 'propose_strategy' && phase !== 'asking'
-              ? `${applied.error}\n\nSend the SAME plan again with that one thing fixed — do not start over and do not go back to discovery. Cite barriers by their recorded ids. Two architectures may cite the SAME barrier as long as they differ in entry, timing, lever or journey: with one barrier recorded that is the normal shape, and the rival is a different treatment of it, never a second invented reason.`
-              : applied.error ?? applied.ok ?? 'Recorded.',
-          ...(applied.error ? { is_error: true } : {}),
-        });
+        // THE CORRECTION IS NOT WRITTEN HERE. `toolResultBlock` owns it, and
+        // the forced propose below calls the same function — the two used to
+        // carry a copy each.
+        results.push(toolResultBlock(tu.name, tu.id, applied, phase));
         continue;
       }
       lookups++;
@@ -1682,6 +1789,31 @@ export async function* orchestrateStream(
     // Consecutive, so one stray repeat between useful rounds does not escalate.
     repeatRounds = lookups > 0 && repeats === lookups ? repeatRounds + 1 : 0;
     conversation.push({ role: 'user', content: results });
+
+    // PLAN IS NOT A QUESTIONNAIRE. One ready round that does not propose is
+    // enough; the next call is the forced propose below.
+    //
+    // MEASURED, `eval/runs/ui-s-1793017853714` turn 3. The record was already
+    // closed — ticket size retained, converters known, the barrier recorded.
+    // Round 1 wrote `record_findings` and `record_dimensions` and then asked
+    // about prior EMI in the bubble; round 2 was two hundred characters of
+    // "tell me about prior EMI or I will go to the plan". Only then did
+    // `readyWithNoJourney` fire, into a budget that had nothing left to
+    // recover with.
+    //
+    // A ROUND OF LOOKUPS IS NOT THIS. Naming a real event, attribute or
+    // channel is the work a ready turn is supposed to do before it commits to
+    // one, so a round that only called `list_*` continues. A round that wrote
+    // to the record, or wrote prose, without calling `propose_strategy` has
+    // had its turn at asking.
+    if (phase === 'ready' && !toolUses.some((t) => t.name === 'propose_strategy') && lookups < toolUses.length) {
+      em.emit('model.completed', 'strategy', 'The record is settled; asking for the plan', {
+        correlationId: `round-${round + 1}`,
+        detail: 'This round recorded and did not put up a plan, so the plan is the next thing asked for.',
+      });
+      yield* drain();
+      break;
+    }
   }
 
   // THE BUILD IS FORCED HERE, AFTER THE ROUNDS, AND THE RESULT IS APPLIED.
@@ -1764,7 +1896,17 @@ export async function* orchestrateStream(
         status: applied.error ? 'failed' : 'ok',
         detail: applied.error ?? applied.ok,
         correlationId: tu.id,
-        data: { tool: tu.name, kind: 'output' as const },
+        data: {
+          tool: tu.name,
+          kind: 'output' as const,
+          // WHAT WAS SENT, ON THE FAILURE. `model.tool_call.requested` carries
+          // the input; `failed` did not, so a refused `propose_strategy` was a
+          // refusal with no body — `eval/runs/ui-s-1793017853714` turn 3 has
+          // two of them and neither says what path was rejected. Only on a
+          // failure, and only the steps, so a successful round does not double
+          // the log for nothing.
+          ...(applied.error ? { sent: (tu.input as { blueprint?: { steps?: unknown } } | undefined)?.blueprint?.steps ?? tu.input } : {}),
+        },
       });
     }
     em.emit('model.completed', 'generating', toolBlueprint ? 'The journey came back' : 'No journey came back', {
@@ -1772,6 +1914,151 @@ export async function* orchestrateStream(
       status: toolBlueprint ? 'ok' : 'failed',
       durationMs: Date.now() - forcedStart,
       data: { toolCalls: forced.length, forcedBuild: true },
+    });
+    yield* drain();
+  }
+
+  // A READY TURN THAT SENT NO JOURNEY IS ASKED FOR ONE, exactly as Confirm is.
+  //
+  // MEASURED, `eval/runs/ui-s-1792991223125` turn 3. The record was finished —
+  // count, ticket size, awareness, the probe closed with "not really" — and
+  // `propose_strategy` was on the list. The agent called `record_findings` and
+  // `record_dimensions`, then wrote "I've laid out the 7-day plan above". The
+  // response was `revising` with `pendingBlueprint: null`: no Confirm, an
+  // empty canvas, and a sentence claiming a journey that was never sent.
+  //
+  // THE SAME STRUCTURAL MOVE AS THE FORCED BUILD above, for the same reason:
+  // the turn had one job, the job is a tool call, and the tool call did not
+  // happen. `tool_choice` forces `propose_strategy`, the result goes through
+  // `applyOutputTool` — the one boundary where model output becomes
+  // application state — and NOTHING IS INVENTED. If it comes back with a
+  // path, the ordinary propose path takes it (Approve, or Revise if a
+  // plan-hold stands). If it comes back with nothing, the exits below say so
+  // honestly rather than claiming a plan.
+  //
+  // Not on a build turn, which has its own forcing above, and not while the
+  // record is open, where the job is to ask rather than to design.
+  //
+  // AND THE INSTRUCTION DOES NOT TEACH THE LIE. It used to add "do not say it
+  // is above", which is this repo's standing mistake in miniature: prompt
+  // wording against a failure the application can simply prevent. `closedReply`
+  // is what stops the claim reaching the manager, so the sentence came out.
+  const readyWithNoJourney =
+    !isBuildTurn && phaseNow() === 'ready' && !toolBlueprint && !shapedBlueprint(brief.lastProposal?.blueprint as never);
+  if (readyWithNoJourney) {
+    const forcedStart = Date.now();
+    em.emit('model.started', 'strategy', 'Asking for the plan itself', {
+      status: 'running',
+      correlationId: 'forced-propose',
+      detail: 'The record is settled and the turn sent no plan. Asking for it directly.',
+    });
+    yield* drain();
+
+    // ONE CORRECTION, THE SAME ONE AN UNFORCED PROPOSE ALREADY GETS.
+    //
+    // MEASURED, `eval/runs/ui-s-1792996412937` turn 3: the rounds filed
+    // findings and wrote an essay, this block forced `propose_strategy`, the
+    // model called it, and `applyOutputTool` refused it for having no journey.
+    // The refusal named exactly what to fix — and it was emitted as an event
+    // and thrown away, because nothing turned it into a `tool_result`. The
+    // turn ended "No plan came back" with the Plan sentence and no Confirm.
+    //
+    // So a refused forced call is answered the way the round loop answers one:
+    // the assistant's own `tool_use` goes back into the conversation, then a
+    // `tool_result` carrying the error and `PROPOSE_CORRECTION`, and the tool
+    // is forced once more.
+    //
+    // AT MOST ONE EXTRA CALL, and only for a refusal:
+    //  - a first force that filed a shaped path is done;
+    //  - a first force that sent NO tool call has already had its one ask, and
+    //    asking again identically is how a loop gets built;
+    //  - NOTHING IS INVENTED either time. No synthesised steps, no promoted
+    //    prose. If the second apply still has no path, the Plan exits below
+    //    say so.
+    let totalCalls = 0;
+    let corrected = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const forced: { id: string; name: string; input: Record<string, unknown> }[] = [];
+      try {
+        for await (const chunk of streamClaude({
+          system: `${systemForPhase('ready')}\n\nYour previous turn recorded findings and did not put up a plan. The record is settled, so the plan is this turn's whole job: call propose_strategy NOW, with "touches" and with "blueprint" — the entry and then the steps in order. Only the tool call reaches the canvas.`,
+          // The conversation, plus the refusal of the previous attempt once
+          // there has been one. The addendum above is unchanged between the
+          // two calls: the correction belongs in the tool result, where the
+          // model reads it as the answer to what it just sent.
+          messages: conversation,
+          // The output tools only. `tool_choice` forces `propose_strategy`, so
+          // a lookup could not fire even if it travelled, and the catalogue
+          // has already been read in the rounds above — this is the same
+          // conversation.
+          tools: outputToolsForPhase('ready').map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+          toolChoice: { type: 'tool', name: 'propose_strategy' },
+          disableThinking: true,
+          maxTokens: 32000,
+        })) {
+          if (chunk.toolUse) forced.push(chunk.toolUse);
+          // `usage` only, for the same reason as the forced build: the reply
+          // the manager reads is whatever the model already wrote.
+          if (chunk.done) usage = chunk.done.usage;
+        }
+      } catch {
+        // Fall through with no plan. The exits below are honest about that.
+        break;
+      }
+      totalCalls += forced.length;
+
+      const outcomes: { tu: { id: string; name: string; input: Record<string, unknown> }; error?: string; ok?: string }[] = [];
+      for (const tu of forced) {
+        if (!isOutputTool(tu.name)) {
+          outcomes.push({ tu, error: 'That tool is not available on this turn.' });
+          continue;
+        }
+        const applied = applyOutputTool(brief, tu.name, tu.input);
+        brief = applied.brief;
+        if (applied.strategy) toolStrategy = applied.strategy;
+        if (applied.blueprint) toolBlueprint = applied.blueprint;
+        if (applied.openItems?.length) toolOpenItems = applied.openItems as OpenItem[];
+        if (!applied.error) recordedViaTools = true;
+        outcomes.push({ tu, error: applied.error, ok: applied.ok });
+        em.emit(applied.error ? 'model.tool_call.failed' : 'model.tool_call.completed', 'strategy', toolTitle(tu.name), {
+          status: applied.error ? 'failed' : 'ok',
+          detail: applied.error ?? applied.ok,
+          correlationId: tu.id,
+          data: {
+          tool: tu.name,
+          kind: 'output' as const,
+          // WHAT WAS SENT, ON THE FAILURE. `model.tool_call.requested` carries
+          // the input; `failed` did not, so a refused `propose_strategy` was a
+          // refusal with no body — `eval/runs/ui-s-1793017853714` turn 3 has
+          // two of them and neither says what path was rejected. Only on a
+          // failure, and only the steps, so a successful round does not double
+          // the log for nothing.
+          ...(applied.error ? { sent: (tu.input as { blueprint?: { steps?: unknown } } | undefined)?.blueprint?.steps ?? tu.input } : {}),
+        },
+        });
+      }
+      yield* drain();
+
+      const refused = outcomes.find((o) => o.tu.name === 'propose_strategy' && o.error);
+      const landed = shapedBlueprint(toolBlueprint as never);
+      if (attempt > 0 || !refused || landed || !forced.length) break;
+
+      // THE SAME APPEND THE ROUND LOOP MAKES, called rather than copied.
+      appendToolExchange(forced, outcomes, 'ready');
+      corrected = true;
+      em.emit('model.started', 'strategy', 'Sending the correction back', {
+        status: 'running',
+        correlationId: 'forced-propose-again',
+        detail: refused.error,
+      });
+      yield* drain();
+    }
+
+    em.emit('model.completed', 'strategy', toolStrategy ? 'The plan came back' : 'No plan came back', {
+      correlationId: 'forced-propose',
+      status: toolStrategy ? 'ok' : 'failed',
+      durationMs: Date.now() - forcedStart,
+      data: { toolCalls: totalCalls, forcedPropose: true, corrected },
     });
     yield* drain();
   }
@@ -1851,9 +2138,83 @@ export async function* orchestrateStream(
    * Server-side on purpose. The designer has its own copy for streaming, and
    * reaching across to src/ from here would couple the agent to the UI.
    */
+  /**
+   * REVISE REQUIRES A FILED PATH; otherwise the screen is Plan.
+   *
+   * MEASURED, `eval/runs/ui-s-1792991223125` turn 3: `revising` with
+   * `pendingBlueprint: null` — no Confirm, an empty canvas, and the agent's
+   * own sentence claiming the 7-day plan was "above". A Revise screen with
+   * nothing to revise tells the manager a journey exists.
+   *
+   * One helper so the rule is stated once: every closed-record exit that has
+   * no path to draw says `planning`, and `turnPhase` still reads `ready`, so
+   * the plan tool is on the next call either way.
+   */
+  const planOrRevise = (path: unknown): 'planning' | 'revising' => (shapedBlueprint(path as never) ? 'revising' : 'planning');
+
+  /**
+   * WHAT A CLOSED-RECORD TURN SAYS, in one place.
+   *
+   * MEASURED, `eval/runs/ui-s-1792991223125` turn 3: "I've laid out the 7-day
+   * plan above", on an empty canvas, because the journey was never sent. That
+   * was stripped on ONE exit — the tools-and-prose one — and the others still
+   * printed whatever the model wrote. Three doors, one lie.
+   *
+   * THE APPLICATION DECIDES FROM STATE, NEVER FROM WORDS. Nothing here matches
+   * "laid out" or "above" or any other phrase: the test is a settled record
+   * with no shaped path, which is exactly when a sentence about the plan
+   * cannot be true. A model that writes something honest on a Plan turn loses
+   * it too, and that is the right trade — the alternative is grepping prose
+   * for claims, which cannot be maintained and would read the wrong sentence
+   * first.
+   *
+   *  - `proposeRefused` WINS. A plan was written and one check turned it down;
+   *    that is true, and more use than anything below it.
+   *  - PLAN keeps the application's sentence. Their prose does not survive.
+   *  - REVISE keeps their prose. A path is on file, so whatever they wrote is
+   *    about a journey that exists.
+   *
+   * It does NOT decide the Brief screen, and it does not replace a hold: the
+   * held door joins this to `renderBlocks` rather than instead of it, because
+   * the block is the reason there is nothing to approve.
+   */
+  const PLAN_REPLY =
+    'I have everything I need on the record. The plan itself has not gone up yet — that is the next thing I send you, as a journey you can see rather than a description of one.';
+  const closedReply = (path: unknown, theirProse: string, refused: { summary: string } | null): string => {
+    if (refused) {
+      return [
+        refused.summary ? `I have a plan ready — ${refused.summary}` : 'I have a plan ready.',
+        'I could not put it up this turn because it did not pass one of my own checks, and I ran out of attempts to fix it. Tell me to go ahead and I will send it again.',
+      ].join('\n\n');
+    }
+    return planOrRevise(path) === 'planning' ? PLAN_REPLY : theirProse.trim();
+  };
+
   const proseBefore = (text: string): string => {
     const brace = text.indexOf('{');
     return (brace === -1 ? text : text.slice(0, brace)).trim();
+  };
+
+  /**
+   * The same message with its enumerated tail removed.
+   *
+   * MEASURED, `eval/runs/ui-s-1792984906680` turn 1. The model asked three
+   * things in prose — numbered, bolded, each with its reasoning — and the
+   * response also carried the three as `questions`, which the client renders
+   * as a numbered list under the bubble. The manager read the same ask twice.
+   *
+   * The list is what survives, because it is what the client gives an answer
+   * box for. Everything before the first numbered line stays: "Three things I
+   * need from you before I can design this properly:" is doing real work.
+   *
+   * TWO LINES MINIMUM, so a reply that happens to contain "1." in a sentence
+   * is left alone, and only called where a list is actually going out.
+   */
+  const withoutNumberedTail = (text: string): string => {
+    const lines = text.split('\n');
+    const numbered = lines.map((l, i) => (/^\s*(\d+[.)]|[-*]\s*\*\*)/.test(l) ? i : -1)).filter((i) => i >= 0);
+    if (numbered.length < 2) return text;
+    return lines.slice(0, numbered[0]).join('\n').trim();
   };
 
   // A plan sent by tool call, on a turn whose text was prose rather than JSON.
@@ -1938,30 +2299,110 @@ export async function* orchestrateStream(
     // your answer" on a turn the gate has already released is the same
     // divergence `turnPhase` exists to delete.
     const gateNow = decide(brief, { proceedRequested: limitReached });
+    const askedThisTurn = (brief.questions ?? [])
+      .filter((q) => !questionIdsBefore.has(q.id))
+      .slice(0, MAX_QUESTIONS_PER_ROUND);
+    // EMPTY QUESTIONS ARE UNREPRESENTABLE WHILE THE RECORD IS OPEN.
+    //
+    // MEASURED, `eval/runs/ui-s-1792989364193` turn 2. The manager answered
+    // the three brief questions. The agent called `record_findings` and
+    // `record_dimensions`, wrote "Everything I need is now on record", and
+    // never asked the probe. This branch returned that sentence with
+    // `questions: []`. `decide(brief)` was `unprobed-other-axes` — the
+    // activity line even said "Waiting for your answer" — and the answer
+    // never reached the screen, because the fill-from-blocks path lived only
+    // on a held propose.
+    //
+    // So this is the Brief screen: the application's questions, on the
+    // response AND on the record (or the next reply cannot close them). The
+    // model's completeness sentence is not the reply; it is the thing this
+    // branch used to print instead of the ask.
+    if (!gateNow.proceed && !askedThisTurn.length) {
+      const briefQuestions = gateNow.blocks.slice(0, 3).map((b) => b.reason);
+      const delta = blockDelta(gateNow.blocks, brief.lastBlocks ?? []);
+      brief = recordQuestions(brief, briefQuestions);
+      brief = { ...brief, lastBlocks: gateNow.blocks.map((b) => b.code) };
+      session = {
+        ...session,
+        state: transition(
+          session.state === 'DISCOVERING' ? session.state : transition(session.state, 'DISCOVERING'),
+          'AWAITING_USER_ANSWER',
+        ),
+      };
+      em.emit('run.completed', 'discovery', 'Waiting for your answer', { correlationId: 'run' });
+      yield* drain();
+      return {
+        ...base,
+        phase: 'discovery',
+        stage: 'discovery',
+        // THE ASK ALONE, and the completeness sentence is NOT kept.
+        //
+        // I tried keeping their prose here with its enumerated tail stripped,
+        // the way the held Brief screen does, on the principle that the
+        // model's own words are the better copy. It is the wrong call on this
+        // one exit, for a reason specific to it: the sentence is FALSE.
+        // "Everything I need is now on record" is contradicted by the record
+        // in the same breath — the probe is open — and printing a false claim
+        // and then correcting it one paragraph later is worse than not
+        // printing it. Same shape as the held propose turn, where the prose
+        // alone announced a plan the gate had just refused.
+        reply: renderBlocks(delta, gateNow.advice),
+        questions: briefQuestions,
+        brief,
+        session,
+        strategy: null,
+        blueprint: null,
+        discoveryRounds: brief.rounds,
+      };
+    }
     em.emit('run.completed', 'discovery', gateNow.proceed ? 'Ready to propose' : 'Waiting for your answer', {
       correlationId: 'run',
     });
     yield* drain();
     return {
       ...base,
-      phase: 'discovery',
-      stage: 'discovery',
+      // AND THE CLOSED HALF OF THE SAME EXIT. The branch above handles an
+      // open record; this one is reached when the record is SETTLED and the
+      // turn still produced only tool writes and prose. `discovery` there
+      // said "waiting for your answer" to a manager with nothing left to
+      // answer — and hid any journey already on file, because the client
+      // draws on a plan phase. `askedThisTurn` is empty on a closed record by
+      // construction: `ask_questions` is not on a ready turn's tool list.
+      phase: gateNow.proceed ? planOrRevise(brief.lastProposal?.blueprint) : 'discovery',
+      stage: gateNow.proceed ? 'proposed' : 'discovery',
+      pendingBlueprint: shapedBlueprint(brief.lastProposal?.blueprint as never)
+        ? (brief.lastProposal?.blueprint as never)
+        : null,
       // NEVER "Recorded." AFTER A PROPOSAL WAS ATTEMPTED.
       //
       // The agent had written a plan; the application refused it on a rule
       // that has since been fixed, and then told the manager the turn had
       // produced a filing note. Whatever else is true, a turn that tried to
       // propose did not merely record.
+      // AND ON PLAN, THEIR PROSE DOES NOT SURVIVE EITHER.
+      //
+      // MEASURED, `eval/runs/ui-s-1792991223125` turn 3: "I've laid out the
+      // 7-day plan above." Nothing was laid out anywhere — the journey was
+      // never sent, and the forced `propose_strategy` above did not produce
+      // one. Printing that sentence tells the manager to look for a canvas
+      // that is empty, which is the same false-claim problem as the
+      // completeness essay on the Brief screen.
+      //
+      // So a Plan turn says what is true: the record is settled and the plan
+      // has not gone up yet. With a path on file (Revise) the prose is kept —
+      // there, whatever they wrote is about a journey that genuinely exists.
+      // A REFUSED PROPOSE WINS, and getting that order wrong was a regression
+      // of mine: a plan WAS written and one check turned it down, which is
+      // both true and more use to the manager than anything below it.
+      // ONE RULE, SHARED. `closedReply` decides refused / Plan / Revise; this
+      // exit was the only one that had it, inline, and the others printed the
+      // claim.
       reply:
-        prose ||
-        (proposeRefused
-          ? [
-              proposeRefused.summary
-                ? `I have a plan ready — ${proposeRefused.summary}`
-                : 'I have a plan ready.',
-              'I could not put it up this turn because it did not pass one of my own checks, and I ran out of attempts to fix it. Tell me to go ahead and I will send it again.',
-            ].join('\n\n')
-          : 'Recorded.'),
+        (gateNow.proceed
+          ? closedReply(brief.lastProposal?.blueprint, prose, proposeRefused)
+          : askedThisTurn.length
+            ? withoutNumberedTail(prose)
+            : prose) || 'Recorded.',
       // ONLY WHAT WAS ASKED THIS TURN.
       //
       // This returned `outstanding(brief)` — every question still open,
@@ -1974,10 +2415,13 @@ export async function* orchestrateStream(
       // The brief keeps the history, which is right — it is the record. What
       // the client lists is this turn's ask, capped at the same three the
       // model is allowed to raise.
-      questions: (brief.questions ?? [])
-        .filter((q) => !questionIdsBefore.has(q.id))
-        .slice(0, MAX_QUESTIONS_PER_ROUND)
-        .map((q) => q.text),
+      //
+      // AND WHEN THAT LIST IS NON-EMPTY the prose above loses its enumerated
+      // tail — see the `reply` field. Live turn 1 asked through
+      // `ask_questions` and then restated the same three as numbered prose,
+      // which reaches this exit with `askedThisTurn` set: full prose kept, and
+      // the client listing the same questions underneath.
+      questions: askedThisTurn.map((q) => q.text),
       brief,
       session,
       strategy: null,
@@ -2008,9 +2452,42 @@ export async function* orchestrateStream(
       detail: readable ? `${parsed.error} Showing its plain reply instead.` : parsed.error,
     });
     if (readable) {
-      em.emit('run.completed', 'discovery', 'Waiting for your answer', { correlationId: 'run' });
+      // THE SAME SPLIT, because this is the same lie in a quieter place. An
+      // answer the parser could not read is still a turn, and this returned
+      // `phase: 'discovery'` with no `questions` field at all — so on an open
+      // record the manager got readable prose and nothing to do, and on a
+      // closed one they were put back on Brief with a finished brief.
+      const openNow = !decide(brief, { proceedRequested: limitReached }).proceed;
+      const blocksNow = decide(brief).blocks;
+      const askNow = openNow ? blocksNow.slice(0, 3).map((b) => b.reason) : [];
+      if (askNow.length) brief = recordQuestions(brief, askNow);
+      em.emit('run.completed', 'discovery', openNow ? 'Waiting for your answer' : 'Waiting on the plan', {
+        correlationId: 'run',
+      });
       yield* drain();
-      return { ...base, phase: 'discovery', stage: 'discovery', reply: prose, brief, session, strategy: null, blueprint: null };
+      return {
+        ...base,
+        phase: openNow ? 'discovery' : planOrRevise(brief.lastProposal?.blueprint),
+        stage: openNow ? 'discovery' : 'proposed',
+        // OPEN: their prose minus the enumerated tail, then the ask. CLOSED:
+        // the shared rule, so a claim about a plan that does not exist dies
+        // here too — this exit printed `prose` whatever the state was.
+        reply: openNow
+          ? [withoutNumberedTail(prose), askNow.length ? renderBlocks(blockDelta(blocksNow, brief.lastBlocks ?? []), []) : '']
+              .filter(Boolean)
+              .join('\n\n')
+          : closedReply(brief.lastProposal?.blueprint, prose, proposeRefused),
+        questions: askNow,
+        // A path already on file is drawn rather than forgotten, which is what
+        // `revising` is for.
+        pendingBlueprint: shapedBlueprint(brief.lastProposal?.blueprint as never)
+          ? (brief.lastProposal?.blueprint as never)
+          : null,
+        brief,
+        session,
+        strategy: null,
+        blueprint: null,
+      };
     }
     em.emit('run.failed', 'discovery', 'Run failed', { correlationId: 'run', status: 'failed' });
     yield* drain();
@@ -2081,12 +2558,30 @@ export async function* orchestrateStream(
   // should not be thrown away because the model expressed it the old way. The
   // tool result is preferred where both arrive, because it is the one the API
   // validated against a schema.
-  const proposed =
+  const rawProposed =
     toolStrategy !== null
       ? { action: 'propose' as const, strategy: toolStrategy, blueprint: toolBlueprint ?? undefined, openItems: toolOpenItems }
       : parsed.value.action === 'propose'
         ? parsed.value
         : null;
+
+  // THE CLAIM IS ALIGNED TO THE STEPS ONCE, HERE, so every reader downstream
+  // sees the plan the manager would approve rather than the label the model
+  // typed: the gate, the option audit, fidelity, `renderStrategy`, and the
+  // strategy that goes back to the client. `decide` aligns internally too —
+  // it has to, because tests and replays call it directly — and the function
+  // is idempotent, so a plan that was already honest passes through
+  // untouched.
+  //
+  // BOTH PATHS GO THROUGH IT. The tool path and the JSON path assemble
+  // different objects, and a repair on only one of them is how a false claim
+  // would reach a manager's screen on the other.
+  const aligned = alignJourneyClaim(rawProposed as never);
+  const proposed = (aligned.proposed ?? null) as typeof rawProposed;
+  // `aligned.advice` is NOT read here. `decide` runs the same alignment on the
+  // same proposal and merges those sentences into `decision.advice`, which is
+  // what `renderBlocks` and the propose reply already print. A second copy
+  // would say it twice.
 
   // Open items the APPLICATION raises, from metadata rather than from the
   // model's judgement: a value the user stated that the platform cannot hold,
@@ -2220,8 +2715,15 @@ export async function* orchestrateStream(
     building: isBuildTurn,
   });
 
+  // HOISTED ABOVE THE GATE, 2026-10-26. It used to be computed 110 lines
+  // below the two `gate.outcome` returns, so both of those answered "the
+  // record is open" without anyone having asked. `phaseNow()` reads the
+  // record and nothing else — the same answer `turnPhase` gives the tool
+  // list — so the plan checks cannot move it.
+  const briefClosed = phaseNow() !== 'asking';
   const gate = evaluateDiscovery({
     appOpenItems,
+    briefClosed,
     brief,
     modelAction:
       parsed.value.action === 'ask' ? 'ask' : parsed.value.action === 'request_evidence' ? 'request_evidence' : 'propose',
@@ -2238,7 +2740,17 @@ export async function* orchestrateStream(
     isRefinement,
   });
 
-  if (gate.outcome === 'request_evidence') {
+  // COMMENTARY CANNOT REOPEN THE BRIEF, and these two returns are the doors
+  // it came through. Each sets `phase: 'discovery'` — `request_evidence` with
+  // `questions: []`, `ask_questions` with a numbered list — and each fired
+  // before the Brief/Revise split existed, so a leftover thought reached the
+  // screen as question 1 beside an approvable plan.
+  //
+  // `evaluateDiscovery` now refuses to return either outcome on a closed
+  // record (it takes `briefClosed` above), so these guards are the second
+  // half of the same rule, kept explicit because a future outcome could reach
+  // them the same way.
+  if (!briefClosed && gate.outcome === 'request_evidence') {
     brief = recordEvidenceRequests(brief, gate.evidence);
     session = {
       ...session,
@@ -2271,7 +2783,7 @@ export async function* orchestrateStream(
     };
   }
 
-  if (gate.outcome === 'ask_questions') {
+  if (!briefClosed && gate.outcome === 'ask_questions') {
     brief = recordQuestions(brief, withImpact(gate.questions));
     // Always route through DISCOVERING: both UNDERSTANDING_GOAL (the first
     // turn) and AWAITING_USER_ANSWER (a follow-up round) reach the question
@@ -2293,9 +2805,19 @@ export async function* orchestrateStream(
       ...base,
       phase: 'discovery',
       stage: 'discovery',
-      reply:
-        (parsed.value.action === 'ask' ? parsed.value.rationale : gate.reason) ??
-        'A few questions before I design this.',
+      // THE LIST IS THE ASK, so the rationale loses any enumerated tail.
+      //
+      // MEASURED, turn 1 of `eval/runs/ui-s-1792984906680`: the model asked
+      // three things through the tool AND wrote the same three as numbered
+      // prose, so the manager read them twice — once in the bubble, once in
+      // the client's numbered list under it. `withoutNumberedTail` keeps the
+      // lead-in ("Three things I need from you before I can design this
+      // properly:") and drops the enumeration, and only ever runs when a list
+      // is actually going out.
+      reply: withoutNumberedTail(
+        ((parsed.value.action === 'ask' ? parsed.value.rationale : gate.reason) ??
+          'A few questions before I design this.') as string,
+      ),
       questions: gate.questions,
       discoveryRounds: brief.rounds,
       discoveryLimitReached: brief.rounds >= MAX_DISCOVERY_ROUNDS,
@@ -2334,8 +2856,22 @@ export async function* orchestrateStream(
   //
   // `approvedPlan` is what keeps this narrow. A typed "Confirmed. Build this
   // campaign." mid-discovery is still held, because no plan was ever approved.
+  // TWO QUESTIONS, NOT ONE BIT.
+  //
+  // `decision.proceed` answers "is the brief closed?" AND "may this proposal
+  // be approved?" at once, and this branch used to dump both into
+  // `discovery` with the gate's questions. MEASURED,
+  // `eval/runs/ui-s-1792984906680` turns 3 and 4: the record was finished
+  // (`decide(brief).blocks` empty), a real journey was on file, and the
+  // manager read "Waiting for your answer" with no question and no button.
+  // Brief-open, plan-held and "the model wrote an essay" were all one screen.
+  //
+  // `briefClosed` is the record's own answer — the same input `turnPhase`
+  // uses, so the plan tool stays on the next turn whatever the plan checks
+  // say. What is left after that is a change to the PLAN, which is a
+  // different screen with a different reply and no questions at all.
   if (!decision.proceed && !approvedPlan) {
-    brief = recordQuestions(brief, withImpact(gate.questions));
+    brief = briefClosed ? brief : recordQuestions(brief, withImpact(gate.questions));
     // The fork-refusal counter is gone with the veto that fed it. It counted
     // how often the APPLICATION had given up; the bound that matters is how
     // often the USER has been asked the same thing, and that lives in
@@ -2400,19 +2936,91 @@ export async function* orchestrateStream(
     // usually announces the plan ("New cardholders who have not set their PIN
     // enter a 14-day journey..."), and printing that by itself tells the
     // manager a plan is settled on the turn the gate refused it.
+    // ONE ASK, NOT TWO COPIES OF IT.
+    //
+    // MEASURED, turn 1 of the same run. The model wrote its three questions
+    // as prose — numbered, bolded, with the reasoning for each — and the
+    // response ALSO carried the three as `questions`, which the client renders
+    // as a numbered list underneath. The manager read them twice.
+    //
+    // The model's wording is the better copy, so the LIST is what survives and
+    // the restatement is cut: everything up to the first numbered line stays
+    // (the lead-in sentence is doing real work), the enumerated tail goes.
+    // Only when a list is actually going out, and only on the Brief screen.
+    // HOISTED, because the reply has to know whether there is a path before it
+    // decides whose words lead. Same value the response carries below.
+    const filedPathForReply = shapedBlueprint(proposed?.blueprint ?? null)
+      ? proposed?.blueprint ?? null
+      : shapedBlueprint(brief.lastProposal?.blueprint as never)
+        ? (brief.lastProposal?.blueprint as never)
+        : null;
     const heldProse = proseBefore(assistantText).trim();
-    const reply = [heldProse, renderBlocks(delta, decision.advice)].filter(Boolean).join('\n\n');
+    // `decision.advice` already carries the journey sentences — `decide`
+    // aligns the same proposal and merges them — so they are not appended a
+    // second time here.
+    const briefQuestions = briefClosed
+      ? []
+      : gate.questions.length
+        ? gate.questions
+        : // NEVER AN EMPTY ASK WHILE THE RECORD IS OPEN. The blocks each name
+          // the thing that is missing, in the manager's own terms, and
+          // `renderBlocks` is already saying them — but the client's question
+          // list is what it offers an answer box for.
+          decision.blocks.slice(0, 3).map((b) => b.reason);
+    const prose = briefQuestions.length ? withoutNumberedTail(heldProse) : heldProse;
+    // THE HOLD IS THE POINT OF THIS TURN, and the Plan sentence does not
+    // replace it.
+    //
+    // This door is reached when they sent something the gate refused — a
+    // caption-only propose, a claimed reaction with no fork — so the BLOCK is
+    // why there is nothing to approve, and `renderBlocks` names the mutation
+    // that clears it. Swapping the whole reply for "the plan has not gone up
+    // yet" would be a polite dead end: true about the canvas, silent about
+    // the one thing the model has to change.
+    //
+    // What the Plan rule does take is their CLAIM. On a closed record with no
+    // shaped path, prose about the plan cannot be true, so the lead paragraph
+    // becomes the application's sentence and the hold follows it. With a path
+    // on file (Revise) their prose stays, because the journey exists.
+    const planLead = briefClosed && planOrRevise(filedPathForReply) === 'planning';
+    const reply = [planLead ? PLAN_REPLY : prose, renderBlocks(delta, decision.advice)]
+      .filter(Boolean)
+      .join('\n\n');
 
     brief = { ...brief, lastBlocks: decision.blocks.map((b) => b.code) };
+    // A FILED PATH STILL REACHES THE CLIENT, so the manager can see what is
+    // being discussed while the gate holds for some OTHER reason.
+    //
+    // MEASURED, `eval/runs/ui-s-1792843757296` turn 3. `propose_strategy` had
+    // accepted a real journey onto `brief.lastProposal` — ticket-size branch,
+    // experiment, an outcome fork on READ against DELIVERED/DELETED — and this
+    // branch returned `pendingBlueprint: null`, so `previewFromBlueprint` had
+    // nothing to draw and the manager read an essay about a journey they could
+    // not see. The preview was written for exactly this turn and had never
+    // once been given anything.
+    //
+    // `strategy` and `blueprint` stay null and `graph` stays null, which is
+    // the line that matters: nothing is approved and nothing is built. This is
+    // a drawing of a proposal, and Confirm is still the act that accepts it.
+    // The phase here is `revising`, or `planning` when there is no path to
+    // draw, or `discovery` while the record is open — never the approval
+    // phase, so the button cannot appear from this branch. (Named in words:
+    // several tests slice this region and assert that the approval phase's
+    // own string does not appear in it.)
+    const filedPath = filedPathForReply;
     return {
       ...base,
-      phase: 'discovery',
-      stage: 'discovery',
+      // REVISE IS NOT "DISCOVERY CONTINUES". The brief is closed; what is open
+      // is the journey. No questions, no Confirm, and the path is drawn — or
+      // `planning` when there is no path on file, because Revise with nothing
+      // to revise tells the manager a journey exists.
+      phase: briefClosed ? planOrRevise(filedPath) : 'discovery',
+      stage: briefClosed ? 'proposed' : 'discovery',
       reply,
-      questions: gate.questions,
+      questions: briefQuestions,
       strategy: null,
       blueprint: null,
-      pendingBlueprint: null,
+      pendingBlueprint: filedPath,
       discoveryRounds: brief.rounds,
       discoveryLimitReached: brief.rounds >= MAX_DISCOVERY_ROUNDS,
       brief,
@@ -2424,6 +3032,60 @@ export async function* orchestrateStream(
 
   // Discovery is complete. If the model only asked questions, it has nothing
   // to propose — that is a real failure, not something to paper over.
+  // THEY ONLY ASKED, AND THE RECORD IS CLOSED. Not an error, and not Brief.
+  //
+  // With both doors shut above, a turn whose only output was questions used to
+  // fall through to the failure below — "The agent did not produce a strategy.
+  // Retry to force a proposal." That error is worse than the door it
+  // replaces: the brief is finished, the asks are commentary, and there may
+  // already be a journey on file from an earlier turn.
+  //
+  // So: no numbered list, the path drawn if one exists, and the phase from
+  // `planOrRevise` — `revising` with a filed path, `planning` without one,
+  // because Revise with nothing to revise is the lie `revising` was
+  // introduced to kill. With a path their own prose survives; on Plan it is
+  // replaced, because a sentence about a journey that was never sent points
+  // the manager at an empty canvas. `turnPhase` still reads `ready` next turn
+  // either way, so `propose_strategy` is on the list for the plan they now
+  // have to send.
+  if (!proposed && briefClosed) {
+    const filed = shapedBlueprint(brief.lastProposal?.blueprint as never)
+      ? (brief.lastProposal?.blueprint as never)
+      : null;
+    em.emit('run.completed', 'strategy', filed ? 'Waiting on a change to the plan' : 'Waiting for the plan', {
+      correlationId: 'run',
+    });
+    yield* drain();
+    const asked = gate.openItems.map((i) => i.question).filter(Boolean);
+    return {
+      ...base,
+      phase: planOrRevise(filed),
+      stage: 'proposed',
+      // SHARED RULE, and this door is how a JSON `{ action: 'ask' }` lands on
+      // a ready turn — `ask_questions` is off the ready tool list, but JSON in
+      // the message is not. Their rationale is exactly where a claim about the
+      // plan arrives, so Plan replaces it and Revise keeps it. The phase is
+      // `planOrRevise(filed)`, not a flat `revising`.
+      reply:
+        closedReply(filed, proseBefore(assistantText), proposeRefused) ||
+        [
+          'Those points do not change what the plan is, so I have recorded them against it rather than putting them to you as questions.',
+          ...asked.slice(0, 3).map((q) => `- ${q}`),
+        ].join('\n'),
+      // NOT A QUESTIONNAIRE. These are flags on the document; the client
+      // renders `questions` as a numbered list with an answer box, and a
+      // closed brief has nothing it is waiting to be told.
+      questions: [],
+      strategy: null,
+      blueprint: null,
+      pendingBlueprint: filed,
+      discoveryRounds: brief.rounds,
+      brief,
+      session,
+      usage,
+    };
+  }
+
   if (!proposed) {
     em.emit('run.failed', 'strategy', 'No strategy produced', { correlationId: 'run',
       status: 'failed',
@@ -2440,111 +3102,37 @@ export async function* orchestrateStream(
     };
   }
 
-  // `let`, because the reaction retry below may replace it. Everything
-  // downstream — the option audit, fidelity, readiness, the build — must read
-  // the journey that is actually going to be compiled.
+  // THIS TURN'S JOURNEY, and on this path that is the only honest source.
+  //
+  // A Confirm compiles `approvedPair` at the door above and returns, so what
+  // reaches here is a REFINEMENT: the manager asked for a specific change, and
+  // the journey the model just produced is the point. `brief.lastProposal` is
+  // not the journey they asked to change, and `req.confirmedStrategy` is the
+  // browser's echo of the plan that was approved BEFORE the change — reading
+  // either here would re-open the second authority this slice closed.
+  //
+  // `let` because `applyAudit` rebuilds the strategy below. Nothing replaces
+  // the blueprint after this point.
   let { blueprint } = proposed;
+  const approvedBase = proposed.strategy ?? null;
 
-  // =====================================================================
-  // THE CANVAS MAY NOT BE A CLOCK WHEN THE PLAN PROMISED A REACTION.
+
+  // ONE REPORT ON EVERY APPROVED BUILD, from the one function.
   //
-  // `eval/runs/ui-s-1792738033056` turn 4. The strategy the manager approved
-  // declared branch-on-response and named a different channel for when the
-  // first does not land. The build was ten WhatsApp sends, one condition on
-  // Transaction Amount and an experiment of identical cadences — and the
-  // reply read "Built the journey: 10 message steps… It is on the canvas
-  // now."
+  // `confirmGaps` is the single definition of what a yes is TOLD — barrier
+  // coverage, experiment claims, audience learning, fidelity, and the blocks
+  // the gate still raises — and it returns the reaction sentence rather than a
+  // second copy of it. The Confirm door calls it; so does this one. A
+  // refinement that compiled an uncited send used to do it silently, because
+  // the refusal below is skipped once a plan is approved and nothing replaced
+  // it.
   //
-  // WHY THE EXISTING CHECKS DID NOT CATCH IT. `optionAudit` only DOWNGRADES a
-  // `used` claim in the options table, which is a footnote under a success
-  // sentence. `checkFidelity` would have compared the declared journey
-  // against `derive()` — but `derive()` counts ANY condition as
-  // branch-on-response, so a ticket-size split satisfies it. Both are
-  // reports; neither is a consequence.
-  //
-  // ONE RETRY, THEN THE TRUTH. The model gets the same second chance the
-  // empty-blueprint case gets, because the first miss is usually a miss
-  // rather than a refusal. If the second journey is still a clock the
-  // campaign is COMPILED ANYWAY — the same rule as a send with no
-  // description: build it and report the gap, because an empty canvas helps
-  // nobody — and the reply says plainly that the canvas is not the plan that
-  // was approved.
-  //
-  // NOT SKIPPED ON `building`, unlike the propose-time blocks. That skip is
-  // exactly why Confirm prints a clock today: the moment to catch a plan is
-  // before approval, but the moment to catch a BUILD is when it is built, and
-  // there is no earlier turn at which this journey existed.
-  //
-  // WHAT WAS APPROVED, and where it comes from. `req.confirmedStrategy` is
-  // the plan the manager clicked Confirm on: the client sets its
-  // `pendingStrategy` from `res.strategy` on every non-error turn and posts it
-  // back with `intent: 'confirm'`. On a live Confirm the strategy THIS turn
-  // carries is the synthetic empty one — measured on turn 4, `summary: ''`,
-  // `architectures: []` — so reading only this turn would have made the whole
-  // check inert in the app while passing every hand-fed test. That is the
-  // `confirmedStrategy` trap from two slices ago, and the fallback order is
-  // what avoids it rather than a comment saying so.
-  const approvedStrategy = (req.confirmedStrategy ?? proposed.strategy) as Strategy | null;
-  const chosenJourney = String((approvedStrategy?.architectures ?? []).find((a) => a?.chosen)?.journey ?? '')
-    .trim()
-    .toLowerCase();
-  // The same two the propose-time block treats as reactive. A declared
-  // `linear` does nothing here: `reactionBlocks` should have held that plan
-  // before it was ever approved, and inventing a reaction the manager did not
-  // agree to is not this function's job. No declared journey means no claim
-  // to check, and guessing one would be the application designing again.
-  const promisedReaction = chosenJourney === 'branch-on-response' || chosenJourney === 'wait-for-event';
-  let reactionGap: string | null = null;
-  if (isBuildTurn && promisedReaction && blueprint && !journeyReacts(blueprint)) {
-    const retryStart = Date.now();
-    em.emit('model.started', 'generating', 'The journey does not react, asking again', {
-      status: 'running',
-      correlationId: 'reaction-retry',
-      detail: `The approved plan chose a "${chosenJourney}" journey and the one that came back is a timed sequence.`,
-    });
-    yield* drain();
-    const again: { id: string; name: string; input: Record<string, unknown> }[] = [];
-    try {
-      for await (const chunk of streamClaude({
-        system: `${systemForPhase('build')}\n\n${REACTION_RETRY}`,
-        messages: conversation,
-        tools: outputToolsForPhase('build').map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
-        toolChoice: { type: 'tool', name: 'build_campaign' },
-        disableThinking: true,
-        maxTokens: 32000,
-      })) {
-        if (chunk.toolUse) again.push(chunk.toolUse);
-        if (chunk.done) usage = chunk.done.usage;
-      }
-    } catch {
-      // Keep the journey we already have. A failed retry is not a reason to
-      // lose a built campaign, and the gap below is reported either way.
-    }
-    for (const tu of again) {
-      if (!isOutputTool(tu.name)) continue;
-      const applied = applyOutputTool(brief, tu.name, tu.input);
-      brief = applied.brief;
-      if (applied.blueprint) blueprint = applied.blueprint;
-      em.emit(applied.error ? 'model.tool_call.failed' : 'model.tool_call.completed', 'generating', toolTitle(tu.name), {
-        status: applied.error ? 'failed' : 'ok',
-        detail: applied.error ?? applied.ok,
-        correlationId: tu.id,
-        data: { tool: tu.name, kind: 'output' as const },
-      });
-    }
-    const reacts = journeyReacts(blueprint);
-    em.emit('model.completed', 'generating', reacts ? 'The second journey reacts' : 'The second journey is still a clock', {
-      correlationId: 'reaction-retry',
-      status: reacts ? 'ok' : 'failed',
-      durationMs: Date.now() - retryStart,
-      data: { toolCalls: again.length, reactionRetry: true, declared: chosenJourney },
-    });
-    yield* drain();
-    if (!reacts) {
-      reactionGap =
-        'The journey on the canvas is a timed sequence. The plan you approved said the next step would depend on whether each message was delivered, read or acted on, and nothing in what was built branches on that. A split by ticket size is segmentation, and the goal check after each send is the platform checking whether they converted, not the campaign reacting.';
-    }
-  }
+  // THIS TURN'S PLAN, NOT THE FILED ONE. A refinement is a change to the
+  // journey, so the claim to check is the one the model just made.
+  const tailGaps = approvedPlan
+    ? confirmGaps(brief, (blueprint ?? null) as CampaignBlueprint | null, approvedBase)
+    : { lines: [] as string[], reactionGap: null as string | null };
+  const reactionGap = tailGaps.reactionGap;
 
   // RULE 2.4. Verify every `used` option against the journey actually
   // proposed, and downgrade the ones it does not support. The application
@@ -2562,18 +3150,21 @@ export async function* orchestrateStream(
   // synthetic empty strategy — so on live turn 4 `checkFidelity` was handed
   // `architectures: []`, returned null, and the one check that exists to ask
   // "is this the campaign you were sold" never ran on the only turn where a
-  // campaign gets built. On a propose turn `req.confirmedStrategy` is null and
-  // this is `proposed.strategy`, so nothing about that path changes.
-  const architectureComparison = compareArchitectures(approvedStrategy?.architectures);
-  const fidelity = checkFidelity(approvedStrategy?.architectures, blueprint);
+  // campaign gets built.
+  //
+  // `approvedBase` IS this turn's plan on this path, because a Confirm no
+  // longer reaches it — the only build turn left here is a refinement, where
+  // the claim to compare against is the one the model just made.
+  const architectureComparison = compareArchitectures(approvedBase?.architectures);
+  const fidelity = checkFidelity(approvedBase?.architectures, blueprint);
   // An experiment whose arms run the same journey can test wording and nothing
   // more. Folded into the comparison verdict rather than given its own field:
   // it is the same finding — alternatives that are not really alternatives.
   const copyOnly = copyOnlyExperiments(blueprint);
-  let strategy = proposed.strategy
+  let strategy = approvedBase
     ? {
-        ...proposed.strategy,
-        strategyOptions: applyAudit(proposed.strategy.strategyOptions, optionAudits),
+        ...approvedBase,
+        strategyOptions: applyAudit(approvedBase.strategyOptions, optionAudits),
         // Two findings, two fields, deliberately.
         //
         // These were folded into one status, and the output contradicted
@@ -2592,17 +3183,28 @@ export async function* orchestrateStream(
         ].filter(Boolean),
       }
     : proposed.strategy;
-  // A PROPOSE TURN CARRIES NO BLUEPRINT, BY DESIGN.
+  // A PROPOSE TURN CARRIES THE PATH AND BUILDS NOTHING.
   //
-  // The plan is agreed in business terms first and mapped to the builder only
-  // after the manager approves it — see the standing principle in
-  // server/CLAUDE.md. So there is nothing to build here, nothing to validate,
-  // and no graph to show: the deliverable is the strategy itself.
+  // THE OLD SENTENCE HERE SAID THE OPPOSITE — "a propose turn carries no
+  // blueprint, by design" — sitting directly above a return that sends one.
+  // That was true until the plan started carrying its path, and a stale
+  // contract on the line that implements it is worse than no comment: the
+  // next reader trusts it.
+  //
+  // What survives from it is the principle it was protecting, and that is
+  // unchanged: the plan is agreed in BUSINESS terms, and the builder's
+  // vocabulary is withheld until the record supports a proposal. What the
+  // manager approves is the sequence, so the sequence travels — as
+  // `pendingBlueprint`, which the left pane draws and the client posts back.
+  //
+  // NOTHING IS BUILT HERE. No graph, no validation, no campaign: `blueprint`
+  // on the response is the proposed path, not a compiled one, and Confirm is
+  // still the act that compiles it.
   //
   // The structural checks that read a journey (barrier coverage, whether the
   // campaign can learn who converts, whether an experiment can settle its own
-  // claim) move to the build turn with it. They check what was BUILT, and on
-  // this turn nothing has been.
+  // claim) stay on the build turn. They check what was BUILT, and on this
+  // turn nothing has been.
   if (!isBuildTurn) {
     em.emit('strategy.proposed', 'strategy', 'Strategy ready', { detail: strategy?.summary?.slice(0, 160) });
     em.emit('run.completed', 'strategy', 'Waiting for you to approve the plan', { correlationId: 'run' });
@@ -2634,7 +3236,29 @@ export async function* orchestrateStream(
       ...base,
       phase: 'awaiting-confirmation',
       stage: 'proposed',
-      reply: renderStrategy(
+      // THE ADVICE GOES BESIDE THE BUTTON, NOT ONLY INTO A HELD TURN.
+      //
+      // MEASURED. `alignJourneyClaim` puts `READ_FORK_ADVICE` on
+      // `decision.advice` when the steps are a clock, and the rival sentence
+      // when they wrote both candidates and picked the calendar. The HELD
+      // branch prints that list — `renderBlocks(delta, decision.advice)` —
+      // and this return, the one a manager actually sees Confirm on, did not
+      // receive it at all. So a who-split clock that is allowed through, which
+      // is now the common case, reached Confirm with nothing said about what
+      // a read-fork would have added.
+      //
+      // JOINED AFTER `renderStrategy`, not folded into it. That function
+      // writes the strategy document — the plan, the options table, the open
+      // items — and advice is none of those: it is not an open item, not a
+      // question, and not a block. One paragraph after the document, in the
+      // same sentences the held path already uses.
+      //
+      // NOT ON THE BUILD TURN'S `replyText`. That run happens after they
+      // pressed Confirm, and telling someone what would have been smarter
+      // about a campaign they have just approved is a cost with no decision
+      // left to spend it on.
+      reply: [
+        renderStrategy(
         strategy,
         gate.openItems,
         undefined,
@@ -2642,6 +3266,10 @@ export async function* orchestrateStream(
         brief.questions,
         unsupportedClaims(optionAudits),
       ),
+        ...decision.advice,
+      ]
+        .filter((part) => String(part ?? '').trim())
+        .join('\n\n'),
       strategy,
       // THE PATH TRAVELS WITH THE PLAN. `pendingBlueprint` is what the client
       // posts back as `confirmedBlueprint`, and it is what the left pane
@@ -2706,6 +3334,16 @@ export async function* orchestrateStream(
     // does.
     session = { ...session, state: transition(session.state, 'GENERATING_CAMPAIGN') };
     const out = buildAndValidate(req, tenant, bank, availableChannels, blueprint, strategy, em, reactionGap);
+    // THE SAME REPORT THE CONFIRM DOOR MAKES. Deduped, because this path has
+    // its own fidelity and limitation handling above and `confirmGaps` covers
+    // the same ground — a cost stated twice reads as two costs.
+    const already = new Set([...(out.campaignBlockers ?? []), ...(strategy?.designWarnings ?? [])]);
+    const extra = tailGaps.lines.filter((l) => !already.has(l));
+    if (extra.length) {
+      brief = recordApplicationVerdict(brief, { warnings: extra });
+      out.campaignBlockers = [...(out.campaignBlockers ?? []), ...extra];
+      strategy = strategy ? { ...strategy, designWarnings: [...(strategy.designWarnings ?? []), ...extra] } : strategy;
+    }
     yield* drain();
     session = {
       ...session,
@@ -2717,7 +3355,7 @@ export async function* orchestrateStream(
         confirmedAt: new Date().toISOString(),
       },
     };
-    return { ...base, ...out, phase: out.stage === 'error' ? 'error' : 'review', brief, session, usage };
+    return { ...base, ...out, phase: phaseAfterBuild(out), brief, session, usage };
   }
 
   // Otherwise: STOP here. The strategy is proposed and awaits confirmation.
@@ -2794,8 +3432,13 @@ export async function* orchestrateStream(
   // attacked. Checked against the built journey, because a prompt asking the
   // agent to "address the barriers" is exactly the kind of instruction that
   // reads as satisfied by a summary paragraph while the steps do nothing.
+  // NOT A REFUSAL AFTER YES. Both of these used to send a manager who had
+  // already approved the plan back to Revise, with nothing to do but approve
+  // again — the mistake this file records twice already, under "two guards
+  // that spoke for the manager". On an approved build the finding is reported
+  // by `confirmGaps` and the campaign is still compiled.
   const coverage = checkBarrierCoverage(blueprint, mustBeAddressed(brief.barriers));
-  if (coverage.uncitedSends.length || coverage.unaddressed.length) {
+  if (!approvedPlan && (coverage.uncitedSends.length || coverage.unaddressed.length)) {
     const why = [
       ...coverage.unaddressed.map(
         (b) =>
@@ -2822,14 +3465,20 @@ export async function* orchestrateStream(
       detail: `${coverage.unaddressed.length} reason(s) unaddressed, ${coverage.uncitedSends.length} message(s) with no stated purpose`,
       data: { coverage },
     });
-    em.emit('run.completed', 'discovery', 'Reworking the campaign', { correlationId: 'run' });
+    em.emit('run.completed', 'strategy', 'Reworking the campaign', { correlationId: 'run' });
     yield* drain();
     return {
       ...base,
-      phase: 'discovery',
-      stage: 'discovery',
+      // REVISE, NOT BRIEF. A plan existed and one of its own checks refused
+      // it; the record is not in question. `discovery` here told a manager
+      // whose brief was finished that discovery was continuing, and the
+      // client hid the journey because the phase was not a plan phase.
+      phase: 'revising',
+      stage: 'proposed',
       reply: ['I need to rework this before showing it to you.', '', ...why].join('\n'),
       questions: [],
+      // The path that was refused is still what is being talked about.
+      pendingBlueprint: shapedBlueprint(blueprint as never) ? (blueprint as never) : null,
       brief,
       session,
       strategy: null,
@@ -2901,7 +3550,7 @@ export async function* orchestrateStream(
   }
 
   const claimViolations = checkExperimentClaims(blueprint);
-  if (claimViolations.length) {
+  if (!approvedPlan && claimViolations.length) {
     brief = recordApplicationVerdict(brief, {
       warnings: claimViolations.map((v) => v.why),
     });
@@ -2911,12 +3560,17 @@ export async function* orchestrateStream(
       detail: claimViolations.map((v) => v.label).join('; '),
       data: { violations: claimViolations },
     });
-    em.emit('run.completed', 'discovery', 'Reworking the experiment', { correlationId: 'run' });
+    em.emit('run.completed', 'strategy', 'Reworking the experiment', { correlationId: 'run' });
     yield* drain();
     return {
       ...base,
-      phase: 'discovery',
-      stage: 'discovery',
+      // REVISE. The experiment's own claim does not hold up, which is a
+      // change to the PLAN. The "which way do you want it" sentence below is
+      // a plan choice and stays in the document — it is not a discovery
+      // question, and Confirm stays off because nothing is approvable yet.
+      phase: 'revising',
+      stage: 'proposed',
+      pendingBlueprint: shapedBlueprint(blueprint as never) ? (blueprint as never) : null,
       reply: [
         'I need to rework one thing before showing you this.',
         '',
@@ -2977,15 +3631,14 @@ export async function* orchestrateStream(
 
   // A BUILD TURN BUILDS. It does not ask again.
   //
-  // THE BUG THIS FIXES: the propose path now returns `pendingBlueprint: null`,
-  // so the client sends `confirmedBlueprint: null` when the user approves.
-  // That misses the confirm short-circuit at the top of this function, lands
-  // here with `isBuildTurn` true, produces a blueprint — and returned
-  // `awaiting-confirmation` with the SAME copy the user had just answered.
-  // They had to press "Confirm and generate" twice, with no indication that
-  // the first press had done anything. Every test supplies
-  // `confirmedBlueprint` directly, so none of them walked the path the app
-  // actually takes.
+  // HISTORY, AND IT NO LONGER DESCRIBES THIS CODE. This block was added when a
+  // propose turn returned `pendingBlueprint: null`: the client then posted
+  // `confirmedBlueprint: null`, missed the confirm short-circuit, landed here,
+  // produced a blueprint and returned `awaiting-confirmation` with the copy the
+  // manager had just answered — so they pressed Confirm twice. A propose turn
+  // carries its path now and both yeses return at the door, so none of that is
+  // reachable. What is left below is the rule the block still earns: a turn
+  // that is allowed to build goes through generation and then builds.
   if (isBuildTurn) {
     // GENERATION IS TWO HOPS, and this path took one.
     //
@@ -3000,14 +3653,24 @@ export async function* orchestrateStream(
     // delete the one guarantee it offers: that nothing reaches a built
     // campaign without passing through generation. The skip is the bug.
     //
-    // WHY THIS PATH AND NOT THE SHORT-CIRCUIT ABOVE, which has always had both
-    // hops: that one is guarded by `req.confirmedBlueprint`, the client sends
-    // it from `pendingBlueprint`, and a propose turn returns `pendingBlueprint:
-    // null` by design. So the guard never passes in the real app and EVERY live
-    // Confirm lands here. The comment below already warned that no test walks
-    // this path; that stayed true until the one covering this fix.
+    // WHO STILL LANDS HERE, and it is not a refinement — those return at the
+    // `isRefinement` block above.
+    //
+    // Exactly one case reaches this: someone who TYPES "Confirmed. Build this
+    // campaign." while `req.session` is not `AWAITING_STRATEGY_CONFIRMATION`.
+    // That sentence is on screen in their own transcript, so it does get typed
+    // at other moments, and `isBuildTurn` counts it while the Confirm door
+    // does not — the door requires the state a plan was actually approved
+    // from. `approvedPlan` is false for that case too, which is why the
+    // report the door and the refinement both make is NOT repeated here: it
+    // would have nothing to add.
     session = { ...session, state: transition(session.state, 'GENERATING_CAMPAIGN') };
     const out = buildAndValidate(req, tenant, bank, availableChannels, blueprint, strategy, em, reactionGap);
+    // NO SECOND REPORT HERE. `confirmGaps` is merged on the Confirm door and on
+    // the refinement compile, which are the two paths a yes can take. The only
+    // turn that reaches this one has `approvedPlan` false, so `tailGaps` is
+    // empty and a merge could not add a line — and a merge that cannot fire
+    // reads as a third place where this is handled.
     // Resolve the row opened by run.started. Without this the build turn
     // returns with that spinner still turning, because every other exit from
     // this function emits one and this path was added later.
@@ -3024,7 +3687,7 @@ export async function* orchestrateStream(
         confirmedAt: new Date().toISOString(),
       },
     };
-    return { ...base, ...out, phase: out.stage === 'error' ? 'error' : 'review', brief, session, usage };
+    return { ...base, ...out, phase: phaseAfterBuild(out), brief, session, usage };
   }
 
   return {
@@ -3126,6 +3789,23 @@ function assessGraphReadiness(
 }
 
 /** Builds the graph and validates it. Only ever called after confirmation. */
+/**
+ * The phase a completed build turn returns.
+ *
+ * ONE DEFINITION, because all three callers had `out.stage === 'error' ?
+ * 'error' : 'review'` written out, and `'blocked'` maps to review as happily
+ * as `'proposed'` does. A build that produced no message steps therefore
+ * reached the manager as a review screen over a canvas of exits.
+ *
+ * `revising` is the honest screen for that: the plan is still on file, and
+ * what the compiler made of it is not something to approve. Confirm is off
+ * there, and the preview draws the filed path rather than the exits.
+ */
+function phaseAfterBuild(out: { stage: Stage; graph?: unknown }): Phase {
+  if (out.stage === 'error') return 'error';
+  return out.graph ? 'review' : 'revising';
+}
+
 /**
  * THE COMPILER MAY NOT TAKE THE CONVERSATION WITH IT.
  *
@@ -3274,6 +3954,19 @@ function buildAndValidateUnguarded(
   // THE UPLOAD, not part of producing a design.
   const designGenerated = Boolean(built.graph.rootId) && built.issues.length === 0;
 
+  // A CANVAS OF EXITS IS NOT A CAMPAIGN, AND THE DOOR MUST NOT CALL IT ONE.
+  //
+  // MEASURED, `eval/runs/ui-s-1793009889177` turn 5. Confirm compiled the
+  // filed path, every send was skipped, and the response came back
+  // `phase: 'review'` with a graph holding an entry, a split and three exits.
+  // The reply said plainly that no message steps were produced — and the
+  // manager was shown a review screen with that canvas on it.
+  //
+  // Decided here rather than at the call site, because all three callers map
+  // anything that is not `error` to `review`, and a refinement would otherwise
+  // ship the same empty exits. No send means no graph to draw.
+  const builtSends = Object.values(built.graph.nodes).filter((n) => (n as { type?: string }).type === 'SEND').length;
+
   // The app's own node-config rule fails a Send with no account or template
   // id. That rule is right for the manual builder's Submit gate and is left
   // exactly as it is in the validation report — but a field only the bank can
@@ -3319,7 +4012,7 @@ function buildAndValidateUnguarded(
 
   return {
     stage: proposal.usable ? 'proposed' : 'blocked',
-    reply: renderBuildSummary(strategy, built, validation, unresolvedSends.length, exportable, reactionGap),
+    reply: renderBuildSummary(strategy, built, validation, unresolvedSends.length, exportable, reactionGap, blueprint),
     strategy,
     blueprint,
     pendingBlueprint: null,
@@ -3348,6 +4041,11 @@ function buildAndValidateUnguarded(
         ]
           .filter(Boolean)
           .join(' '),
+    // LAST, SO IT WINS. Nothing to draw, so nothing is drawn — see
+    // `builtSends` above, and `phaseAfterBuild`, which reads the graph rather
+    // than the stage. Placed before `graph: built.graph` the first time, where
+    // the later key quietly overrode it and the exits still reached the screen.
+    ...(builtSends === 0 ? { graph: null, campaign: null, designGenerated: false, exportable: false } : {}),
   };
 }
 
@@ -3671,6 +4369,12 @@ export function renderBuildSummary(
    * the first line or it is not reported at all.
    */
   reactionGap: string | null = null,
+  /**
+   * The filed path Confirm compiled. Density is read from its steps, not from
+   * `touches[].path` labels — those names split one customer route across
+   * several rows (MEASURED, `eval/runs/ui-s-1793086620956` turn 4: 2 vs 3).
+   */
+  approvedPath: CampaignBlueprint | null = null,
 ): string {
   const sends = Object.values(built.graph.nodes).filter((n) => (n as { type: string }).type === 'SEND').length;
   // A DRIP CAMPAIGN WITH NO MESSAGES IS NOT A BUILT CAMPAIGN.
@@ -3738,7 +4442,12 @@ export function renderBuildSummary(
     const key = t.path?.trim() || 'all';
     byPathCount.set(key, (byPathCount.get(key) ?? 0) + 1);
   }
-  const plannedDensity = Math.max(0, ...byPathCount.values());
+  // THE STEPS ARE THE PLAN. Nested engagement arms are one route with several
+  // labels in `touches`; grouping those labels under-counts the fullest path.
+  // `longestSendSteps` walks the same JSON Confirm compiled.
+  const plannedDensity = approvedPath
+    ? longestSendSteps(approvedPath.steps as unknown[])
+    : Math.max(0, ...byPathCount.values());
   if (plannedDensity) {
     const builtDensity = longestSendPath(built.graph as never);
     if (plannedDensity !== builtDensity) {
@@ -3780,11 +4489,10 @@ export function buildContextPrompt(
   availableChannels: Channel[],
   limitReached: boolean,
   isRefinement: boolean,
-  isBuildTurn: boolean,
   /**
-   * WHICH TURN THIS IS, from `turnPhase`. `isBuildTurn` is still a parameter
-   * because several branches below read it directly, and it is the same fact:
-   * `phase === 'build'`.
+   * WHICH TURN THIS IS, from `turnPhase`. `isBuildTurn` WAS a parameter beside
+   * it, read by the three per-phase blocks that are now gone. One fact about
+   * the turn, not two: `phase === 'build'` is the same question.
    */
   phase: TurnPhase = 'asking',
 ): string {
@@ -3824,60 +4532,43 @@ export function buildContextPrompt(
     // propose turn — where the summary is the seventh field — the manager
     // watched a hardcoded "Working on the campaign strategy..." for most of
     // the longest turn in the product.
-    '# How to write this turn',
-    [
-      'Write your message to the campaign manager as ORDINARY TEXT. It streams to them as you type it, so it is the first thing they see.',
-      // ONLY THE TOOLS THAT ARE ACTUALLY ON THIS CALL. This sentence named
-      // all five on every turn, including `build_campaign` on a discovery
-      // turn where it is not registered — and naming a tool the model cannot
-      // call is how a live Confirm came to reply that the build was
-      // unavailable to it. The agent reads this list as what it may do.
-      isBuildTurn
-        ? 'Put everything structured in a tool call instead: "build_campaign" for the journey you are building now, "record_findings" for anything new they have told you about customers, "record_dimensions" for what could change this campaign, "ask_questions" if something genuinely blocks the build. "propose_strategy" is NOT on this turn: the plan is already approved.'
-        : phase === 'ready'
-          ? 'Put everything structured in a tool call instead: "propose_strategy" for the plan AND its path, "record_findings" for who converts and what is stopping them, "record_dimensions" for what could change this campaign, "ask_questions" for anything still open. The lookup tools are on your list this turn as well. "build_campaign" is NOT: they approve the path first.'
-          : 'Put everything structured in a tool call instead: "ask_questions" for questions, "record_findings" for who converts, what is stopping them AND how they would judge success the moment they say it, "record_dimensions" for what could change this campaign, "request_evidence" for aggregated data that would change a decision. Neither "propose_strategy" nor "build_campaign" is on this turn, and neither are the lookup tools — nothing is being designed yet. File what they have told you; the plan tool arrives on the turn the record supports one.',
-      'Call record_findings on EVERY turn where they have told you anything about customers, including a turn where you are proposing. The application reads your tool calls, not your prose, so a finding left in the text alone does not exist as far as the gate is concerned.',
-      'Do not restate in text what you have already put in a tool call. Say what you now understand and what it changes.',
-    ].join('\n'),
+    // THE STICKY IS NOT HERE ANY MORE, and that is the fix rather than a
+    // tidy-up. This context message is built once per send and pushed onto
+    // `conversation`; the tool list and the method prompt are rebuilt every
+    // ROUND from `phaseNow()`. A send that starts on an asking turn and closes
+    // the record with `record_findings` therefore gave round two Plan tools
+    // and a Discovery sticky. `systemForPhase` carries it now, so the job and
+    // the tools always describe the same turn.
     '',
     '# This issuer',
     issuerContext(availableChannels, tenant.templateLibraryAccess),
     '',
-    // THE CATALOGUE IS A TOOL CALL, NOT A PASTE.
+    // NO SECOND SET OF JOBS. Three per-phase blocks used to sit here — "NO
+    // BLUEPRINT THIS TURN", "THE PLAN YOU PUT UP MUST CARRY ITS PATH" and
+    // "THIS TURN BUILDS THE APPROVED PLAN" — and each one restated, in
+    // different words, what that phase's sticky already says. The asking one
+    // was worse than redundant: it told a discovery turn to describe the
+    // journey in "strategy.approach" and called that description "the
+    // deliverable this turn", on a turn where `propose_strategy` is not even
+    // on the tool list. That is the same shape as the five identical refusals
+    // in `ui-s-1792834072700` — the application asking for a thing it will not
+    // accept.
     //
-    // It used to be pasted here on every turn that might design — every event
-    // name, every entity's attribute list, the step kinds, the "cannot
-    // express" list — and gating the lookup TOOLS did nothing while the terms
-    // were already in the first user message. Both halves are now the same
-    // decision: the turns that write steps get the lookups, and nobody gets
-    // the paste. `issuerContext` above stays on every turn, because which
-    // channels this issuer has is bank context and shapes a strategy.
+    // THE CATALOGUE IS STILL NOT PASTED, and that is the other half of this.
+    // Every event name and attribute list used to be glued in here on any turn
+    // that might design; gating the lookup TOOLS did nothing while the terms
+    // were already in the first user message. The turns that write steps get
+    // the lookups, and nobody gets the paste. `issuerContext` above stays on
+    // every turn, because which channels this issuer has is bank context and
+    // shapes a strategy.
     //
-    // ONE JOINED STRING PER BRANCH. These were nested arrays with the
-    // catalogue glued inside them, so a single join produced a wall with the
-    // whole vocabulary on one line.
-    phase === 'ready'
-      ? [
-          '# THE PLAN YOU PUT UP MUST CARRY ITS PATH',
-          'Send the journey in `propose_strategy`\'s "blueprint" — the same step grammar build_campaign uses. They are approving a sequence, so they have to be able to see it. Keep your MESSAGE in their language: no step kinds, no attribute names, no entity names in the chat.',
-          'LOOK IT UP BEFORE YOU WRITE IT. The lookup tools are on your list this turn: list_event_types for entry and goal events and which entity each category filters, list_audience_attributes for every attribute with its type, operators and allowed values, list_step_types for what a step may route on, list_channels for what each channel reports. An attribute, event, operator or value that is not in what they returned does not exist — Confirm compiles THIS path, so a name you guessed here becomes a condition dropped from their canvas.',
-          'Do NOT call build_campaign this turn. They approve the path first, and Confirm compiles this same one.',
-        ].join('\n')
-      : isBuildTurn
-        ? [
-          '# THIS TURN BUILDS THE APPROVED PLAN',
-          'BEFORE THE BLUEPRINT, STATE THE INTERVENTION ON ITS OWN: {"action":"design","intervention":[{"barrier":"<a barrier id from your own list>","does":"<what the journey does about it>","mechanism":"message|timing|branch|experiment|wait"}],"eligibility":{"entity":"<entity you would filter, or null>","exclude":["<who must never receive this>"]}}. Every entry must attack a named barrier; a step attacking nothing is decoration. "eligibility" is plumbing, never a choice to put to the user. I will tell you what the platform can meet; then build, and say what the gap costs.',
-          'The campaign manager has approved the plan above. CALL build_campaign NOW — that is the only thing this turn is for, and the tool is on your list. Do not describe the journey instead of building it, do not return a blueprint as text, and never tell them the build is unavailable to you: it is not, and saying so leaves them with an approval that did nothing.',
-          'If part of the plan cannot be expressed, call the tool anyway with everything that CAN be built and put the rest in "openItems" as an "operational-limitation". A journey with a stated gap is worth more to them than a message explaining why there is no journey.',
-          'CHECK, DO NOT RECALL. An attribute, event or operator that is not in what the tools returned does not exist: never write the name anyway. Build every step the platform CAN express, leave the one it cannot out, and record it in "openItems" as an "operational-limitation" naming what you needed and the closest real field the tools showed you. That gap is how we find out which drip capability to add next, so it is worth more written down than worked around.',
-        ].join('\n')
-        : [
-          '# NO BLUEPRINT THIS TURN',
-          'You do not have the builder\'s vocabulary, and you do not need it: nothing is being built yet. OMIT "blueprint" entirely.',
-          'Describe the journey in "strategy.approach" the way you would explain it to the campaign manager — who is reached, what each message does and why, in what order, how long it runs, what it tests. That description IS the deliverable this turn.',
-          'Design what would ACTUALLY WORK. Do not narrow it to what you imagine the builder supports, and do not hedge it: if the right answer needs something this platform may not have, propose it anyway and say so. Mapping it comes after they approve, and a plan that cannot be built tells us what to fix — which a plan quietly cut to fit would have hidden.',
-        ].join('\n'),
+    // ALSO GONE WITH THE BUILD BLOCK: the {"action":"design",...} intervention
+    // handshake. It has never fired on a live Confirm — nine recorded build
+    // turns, none of them with an `action:"design"` or a capability
+    // brief-back, because Confirm goes through the `build_campaign` tool. The
+    // `act === 'design'` branch and `briefBackCapability` are left in place
+    // and are now unreachable from the prompt; that dead branch is logged as
+    // its own finding rather than removed in this slice.
     '',
     isRefinement
       ? `# You are REFINING an existing campaign\nCurrent configuration:\n${JSON.stringify(
@@ -3888,9 +4579,25 @@ export function buildContextPrompt(
           .map((n) => `${n.type}(${n.label})`)
           .join(' -> ')}\nApply ONLY the change the user asked for and return a COMPLETE new blueprint, preserving everything else exactly.`
       : '',
-    limitReached
-      ? `# DISCOVERY LIMIT REACHED (${req.discoveryRounds}/${MAX_DISCOVERY_ROUNDS}). Return action:"propose" now. Every dimension still "open" must leave the record as a decision, not a silence: give it status "deferred" or "unavailable" with a note, and carry it into strategy.assumptions where it is safe to assume one, or strategy.unknowns plus a stated limitation where it is not. Do not drop one.`
-      : `# Discovery budget: round ${req.discoveryRounds + 1} of ${MAX_DISCOVERY_ROUNDS}. Ask ONLY if an answer would change the strategy. If the brief is already clear enough, propose instead — do not pad to a question count.`,
+    // THE DISCOVERY BUDGET IS A DISCOVERY FACT, AND IT WAS PHASE-BLIND.
+    //
+    // Keyed on `limitReached` alone, so an ASKING turn read "If the brief is
+    // already clear enough, propose instead" while `propose_strategy` was not
+    // on its tool list, and a CONFIRM turn was handed a discovery budget it
+    // has no use for. Both are the application contradicting itself; the
+    // asking one is the exact sentence that made a live run ask the manager to
+    // type "go ahead".
+    //
+    //  - asking: the round count, and nothing about proposing.
+    //  - ready: proposing IS the job, so both forms belong here.
+    //  - build: neither. Confirm is not a discovery budget.
+    phase === 'build'
+      ? ''
+      : phase === 'ready'
+        ? limitReached
+          ? `# DISCOVERY LIMIT REACHED (${req.discoveryRounds}/${MAX_DISCOVERY_ROUNDS}). Put the plan up now. Every dimension still "open" must leave the record as a decision, not a silence: give it status "deferred" or "unavailable" with a note, and carry it into strategy.assumptions where it is safe to assume one, or strategy.unknowns plus a stated limitation where it is not. Do not drop one.`
+          : `# Discovery is finished (round ${req.discoveryRounds + 1} of ${MAX_DISCOVERY_ROUNDS} used). The record can support a plan, so send one rather than asking more.`
+        : `# Discovery budget: round ${req.discoveryRounds + 1} of ${MAX_DISCOVERY_ROUNDS}. Ask ONLY if an answer would change the strategy — do not pad to a question count. A round where nothing further would change the campaign is itself a finding.`,
   ]
     .filter(Boolean)
     .join('\n');

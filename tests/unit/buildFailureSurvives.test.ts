@@ -102,7 +102,24 @@ async function confirm() {
     tenantId: 'TEN-IBL',
     knowledge: seedKnowledgeBase(),
     discoveryRounds: 3,
-    brief: settled(),
+    // THE FILED PATH IS WHAT CONFIRM COMPILES. The echo is still sent, as the
+    // live client sends it, and is no longer read. The filed description names
+    // the objective because a real one does: the staleness check fingerprints
+    // it against the brief's objective.
+    brief: { ...(settled() as unknown as Record<string, unknown>),
+      lastProposal: { strategy: { summary: 'Get new cardholders activated.' },
+        blueprint: {
+          campaignName: 'Activate new cardholders',
+          description: 'Get new cardholders activated.',
+          goal: null,
+          entry: { kind: 'audience', entity: 'Card', conditions: [] },
+          steps: [
+            { kind: 'send', name: 'Opening', objective: ['activate'], stage: 'first-touch',
+              describe: 'Show them how to set the PIN.', copy: 'Set your PIN in two minutes.',
+              channelPreference: ['WHATSAPP'], barrier: 'cost-perception' },
+            { kind: 'exit', reason: 'Window closed.' },
+          ],
+        }, round: 1 } },
     intent: 'confirm',
     confirmedBlueprint: null,
     session: { state: 'AWAITING_STRATEGY_CONFIRMATION', strategyVersion: 1, confirmation: null },

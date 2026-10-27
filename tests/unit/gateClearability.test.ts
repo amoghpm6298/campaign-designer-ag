@@ -17,8 +17,9 @@
 // test behaviours one at a time — it enumerates blocking states and checks the
 // property holds for all of them.
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { newBrief, type WorkingBrief } from '../../server/discovery';
-import { decide, blocksFor, satisfy, MAX_ROUNDS, MIN_DIMENSIONS, type Block } from '../../server/gate';
+import { decide, blocksFor, satisfy, MAX_ROUNDS, type Block } from '../../server/gate';
 import { recordAsked, recordReply, reopen, receive, REOPEN_LIMIT, outstanding } from '../../server/record';
 
 /**
@@ -84,7 +85,6 @@ describe('the invariant: every block is clearable by the mutation it names', () 
         'no-barrier',
         'no-participation',
         'success-unsettled',
-        'too-few-dimensions',
       ].filter((c) => seen.has(c as Block['code'])),
     );
     // And the ones the fixtures above are specifically built to produce.
@@ -212,28 +212,22 @@ describe('what this replaces is gone from the new path', () => {
     expect(outstanding(recordReply(asked, 'a reply'))).toHaveLength(0);
   });
 
-  it('keeps MIN_DIMENSIONS meaningful rather than unreachable', () => {
-    expect(MIN_DIMENSIONS).toBe(3);
-    // RETARGETED 2026-10-24. The fixture used to carry two `retained` /
-    // `user` rows, which is now a CLOSED search: a seen axis plus a second
-    // axis the manager has spoken about is the pair that retires this block,
-    // because the only way to reach three from there is for the agent to
-    // invent an axis nobody named. Measured on
-    // `eval/runs/ui-s-1792842540156`, where it asked for a third row on a
-    // brief holding both of the manager's answers.
+  it('has no count-based dimension block left to keep reachable', () => {
+    // DELETED 2026-10-26 with the block it covered. `too-few-dimensions`
+    // counted raised lines of enquiry, and this test's job was to prove the
+    // count was reachable AND clearable — which it was, right up until the
+    // live brief where the only way to reach three was for the agent to
+    // invent an axis nobody had named (`eval/runs/ui-s-1792984906680`).
     //
-    // The rule still has to be reachable and clearable WHILE THE SEARCH IS
-    // OPEN, which is what this now uses: two angles the agent raised itself,
-    // nothing seen, no probe answered.
-    const two: WorkingBrief = {
-      ...recordReply(recordAsked(newBrief('o'), [{ text: 'q' }], 'agent'), 'a'),
-      dimensions: [
-        { name: 'A', rationale: 'r', status: 'open', basis: 'assumption' },
-        { name: 'B', rationale: 'r', status: 'open', basis: 'assumption' },
-      ],
-    };
-    const block = blocksFor(two).find((b) => b.code === 'too-few-dimensions');
-    expect(block).toBeDefined();
-    expect(blocksFor(satisfy(two, block!.clears)).some((b) => b.code === 'too-few-dimensions')).toBe(false);
+    // What replaced it reads evidence rather than rows:
+    // `unprobed-other-axes`, which the property test above already walks
+    // along with every other block, and whose clearing mutation is a real
+    // dimension carrying the manager's own basis.
+    const src = readFileSync(new URL('../../server/gate.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/code: 'too-few-dimensions'/);
+    expect(src).not.toMatch(/export const MIN_DIMENSIONS =/);
+    // And the rule that replaced it is still a real block with a real exit,
+    // which the property test above walks like every other one.
+    expect(src).toMatch(/code: 'unprobed-other-axes'/);
   });
 });

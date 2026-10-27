@@ -6,6 +6,7 @@
 // what survives a turn boundary, what gets asked twice, and what can hold the
 // conversation open for ever.
 import { describe, it, expect } from 'vitest';
+import { blocksFor } from '../../server/gate';
 import { alternativesRuledOut } from './support/findings';
 import {
   newBrief,
@@ -18,7 +19,6 @@ import {
   briefDimensions,
   briefForPrompt,
   outstandingDimensions,
-  discoveryIsComplete,
   userHasRespondedOnce,
   successCriteriaSettled,
   recordSuccessCriteria,
@@ -41,7 +41,9 @@ describe('an answer can narrow, raise or invalidate, not only settle', () => {
     // The rationale from turn 1 survives a turn-2 update that omitted it.
     expect(d.rationale).toBe('Decides what the message leads with.');
     expect(outstandingDimensions(b)).toHaveLength(1);
-    expect(discoveryIsComplete(b)).toBe(false);
+    // `discoveryIsComplete` is gone (a count of rows was never the test of a
+    // finished brief — see server/CLAUDE.md), so what is asserted is the thing
+    // this case is actually about, just above.
   });
 
   it('a raised dimension is appended without disturbing the others', () => {
@@ -73,7 +75,6 @@ describe('an answer can narrow, raise or invalidate, not only settle', () => {
     let b = recordDimensions(newBrief('o'), [{ name: 'Audience', status: 'retained', basis: 'user' }]);
     b = recordDimensions(b, [{ name: 'Audience', status: 'open', basis: 'none', note: 'Turn 3 contradicted turn 2.' }]);
     expect(briefDimensions(b)[0].status).toBe('open');
-    expect(discoveryIsComplete(b)).toBe(false);
   });
 });
 
@@ -136,25 +137,29 @@ describe('discovery terminates', () => {
       ]),
     );
     expect(outstandingDimensions(b)).toHaveLength(0);
-    expect(discoveryIsComplete(b)).toBe(true);
   });
 
   it('a belief cannot hold the conversation open', () => {
     const b = settle(
       recordDimensions(newBrief('o'), [{ name: 'Cause', status: 'retained', basis: 'user-belief' }]),
     );
-    expect(discoveryIsComplete(b)).toBe(true);
   });
 
-  it('an empty record is not completeness', () => {
-    // An agent that recorded nothing has not finished discovery, it has
-    // skipped it — and the two were previously indistinguishable.
-    expect(discoveryIsComplete(settle(newBrief('o')))).toBe(false);
+  it('an empty record is not a finished brief, and the blocks are what say so', () => {
+    // RETARGETED 2026-10-26. This read `discoveryIsComplete`, which counted
+    // rows; the claim it was making is still true and now has one owner. An
+    // agent that recorded nothing has skipped discovery, and the record's own
+    // blocks name what is missing — participation, success, who converts, the
+    // barrier — rather than a quantity of lines of enquiry.
+    // `settle` files a reply and a success measure and rules out the
+    // alternatives — a tidy-looking record with no FINDINGS in it.
+    const bare = settle(newBrief('o'));
+    expect(bare.converters ?? null).toBeNull();
+    expect(blocksFor(bare).map((x) => x.code)).toEqual(['converters-unknown', 'no-barrier']);
   });
 
   it('a complete record still needs the user to have taken part', () => {
     const b = alternativesRuledOut(recordDimensions(newBrief('o'), [{ name: 'A', status: 'retained', basis: 'tool' }]));
-    expect(discoveryIsComplete(b)).toBe(true);
     expect(userHasRespondedOnce(b)).toBe(false);
   });
 
@@ -178,13 +183,11 @@ describe('discovery terminates', () => {
     b = recordSuccessCriteria(b, ['More dormant cards transacting again.']);
     // Value tiering was never addressed, so discovery is not finished.
     expect(outstandingDimensions(b).map((d) => d.name)).toEqual(['Value tiering']);
-    expect(discoveryIsComplete(b)).toBe(false);
 
     b = recordAnswer(b, 'Treat everyone the same, we have no tiers.');
     b = recordDimensions(b, [
       { name: 'Value tiering', status: 'deferred', basis: 'user', note: 'Uniform treatment, no tier data.' },
     ]);
-    expect(discoveryIsComplete(b)).toBe(true);
     // Four dimensions throughout — no round created a near-duplicate.
     expect(briefDimensions(b)).toHaveLength(4);
     expect(b.answers).toHaveLength(2);

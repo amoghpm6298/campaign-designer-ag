@@ -119,7 +119,7 @@ Add, in that first block, complete sentences:
 
 `systemForPhase` today only strips a leftover `"blueprint":{` blob (often a no-op if that string is gone). **Use it** to send a shorter discovery `SYSTEM`: no events/attributes/step kinds; no “check before you commit to an entry trigger.”
 
-Keep `buildContextPrompt` as it is for `# NO BLUEPRINT THIS TURN` vs `# THIS TURN BUILDS…` (`discoveryIsBusinessOnly.test.ts` pins this). Do not put `blueprintVocabulary` on discovery.
+`buildContextPrompt` sends the PHASE'S OWN STICKY and nothing else about the turn's job. The three per-phase blocks it used to carry — `# NO BLUEPRINT THIS TURN`, `# THE PLAN YOU PUT UP MUST CARRY ITS PATH`, `# THIS TURN BUILDS THE APPROVED PLAN` — are deleted, because each restated its sticky in different words and the asking one told a discovery turn to describe the journey in `strategy.approach`. Do not add a second block beside a sticky, and do not put `blueprintVocabulary` on discovery: the catalogue is a tool call on the turns that write steps, never a paste.
 
 ### B3. Strategy voice (still in SYSTEM, section 3 / 6 / 7)
 

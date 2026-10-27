@@ -10,10 +10,14 @@
 // unconverted" on every row. A column that had passed was lost between
 // attempts.
 //
-// The held branch still returns `strategy: null` and `pendingBlueprint: null`
-// — nothing is approvable, and Confirm must not appear — so the brief is the
-// only thing that survives a hold. It carries the last ACCEPTED proposal, and
-// a later call fills a regression from it.
+// The held branch returns `strategy: null` and `blueprint: null` — nothing is
+// approvable, the phase stays `discovery` and Confirm must not appear — so the
+// RECORD is what survives a hold. It carries the last ACCEPTED proposal, and a
+// later call fills a regression from it.
+//
+// (Since 2026-10-26 that branch does send `pendingBlueprint`, so the left pane
+// can draw the filed path while the gate holds for some other reason. Drawing
+// is not approving, and it is not what this file is about: the stash is.)
 //
 // NOTHING HERE IS INVENTED. Every value restored came out of a payload this
 // tool accepted earlier in the same conversation.
@@ -320,6 +324,9 @@ describe('a READY turn still gets the payload correction, not the record one', (
     // payload miss still gets "do not start over".
     const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
     expect(orch).toMatch(/Send the SAME plan again with that one thing fixed/);
-    expect(orch).toMatch(/tu\.name === 'propose_strategy' && phase !== 'asking'/);
+      // MOVED INTO `toolResultBlock`, which both the round loop and the
+      // forced propose call. The expression used to be written out at each
+      // site, and the forced one carried no correction at all for a while.
+    expect(orch).toMatch(/tool === 'propose_strategy' && phase !== 'asking'/);
   });
 });

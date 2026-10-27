@@ -215,7 +215,16 @@ function rowFrom(step: ViewStep): PreviewRow {
     case 'branch':
       return {
         kind: 'fork',
-        text: [step.label?.trim(), sentence(step.attribute)].filter(Boolean).join(' — ') || 'Split',
+        // EITHER PLACE THE ATTRIBUTE MAY SIT, the same two the server reads.
+        // `questionFrom` below already looked in `on` for a condition; a branch
+        // did not, so the ticket-size fork in
+        // `eval/runs/ui-s-1793077922155` — `branch` with `on` and nothing at
+        // the top level — drew as the bare word "Split" on the one screen the
+        // manager approves from. It cannot import `server/pathReading`: that
+        // would pull the compiler and the reducer into the browser bundle, so
+        // this is a second reading of the same two fields, kept honest by a
+        // test rather than by a shared function.
+        text: [step.label?.trim(), sentence(step.attribute ?? step.on?.attribute)].filter(Boolean).join(' — ') || 'Split',
         paths: (step.paths ?? []).map((p) =>
           pathOf(
             [p.label?.trim() || 'Path', [p.operator?.toLowerCase(), p.value].filter(Boolean).join(' ')].filter(Boolean).join(' · '),

@@ -518,6 +518,16 @@ export function objectiveChangedMaterially(before: string, after: string): boole
 }
 
 export interface GateInput {
+  /**
+   * Has the RECORD been settled, as `decide(brief)` sees it?
+   *
+   * Passed in rather than computed: `turnPhase` and `blocksFor` already own
+   * this question, they live in `server/gate.ts`, and that module imports this
+   * one. A copy of the rule here would be the third completeness function —
+   * the one deleted on 2026-10-26 for deciding what the manager saw.
+   */
+  briefClosed?: boolean;
+
   brief: WorkingBrief;
   /** What the model asked for this turn. */
   modelAction: 'ask' | 'request_evidence' | 'propose';
@@ -581,6 +591,9 @@ export interface GateDecision {
  */
 export function evaluateDiscovery(input: GateInput): GateDecision {
   const { brief, modelAction, modelQuestions, modelEvidence, forced, maxRounds, isRefinement } = input;
+  // Supplied by the caller, which is the only place that knows: the gate's own
+  // record blocks. Defaults to "open" so an older caller behaves as before.
+  const briefClosed = Boolean(input.briefClosed);
   const none: Omit<EvidenceRequest, 'id' | 'askedInRound' | 'status'>[] = [];
 
   // Everything the model says is open, in one classified list. Unclassified
@@ -614,6 +627,44 @@ export function evaluateDiscovery(input: GateInput): GateDecision {
 
   // The model wants to ask a business question. It is the better judge of
   // what it does not understand.
+  // COMMENTARY CANNOT REOPEN THE BRIEF.
+  //
+  // This early return used to win the moment the model sent questions, before
+  // anything asked whether the record was closed — and the orchestrator's two
+  // `gate.outcome` returns fired 110 lines above `briefClosed`, so the
+  // Brief/Revise split never saw them. A leftover thought became question 1
+  // beside an approvable plan, and `recordQuestions` wrote it as OUTSTANDING,
+  // which would flip the next turn back to `asking` and strip
+  // `propose_strategy`: the brief reopened by bookkeeping.
+  //
+  // WHILE THE RECORD IS OPEN NOTHING CHANGES — the model is the better judge
+  // of what it does not understand, it may ask, capped at three, and the
+  // application fills in if it does not. Once the record is closed, an ask is
+  // commentary: it travels as an OPEN ITEM on the document and never as a
+  // questionnaire.
+  //
+  // `briefClosed` IS THE CALLER'S ANSWER, not a third completeness function
+  // computed here. `turnPhase` already asks it, `blocksFor` already decides
+  // it, and this file cannot import the gate (it is the other side of that
+  // dependency). The one place that knows passes it in.
+  if (briefClosed && (modelAction === 'ask' || modelAction === 'request_evidence')) {
+    return {
+      outcome: 'ready_for_strategy',
+      questions: [],
+      evidence: none,
+      reason: 'Those points do not change what the plan is; they are recorded against it.',
+      overrodeModel: false,
+      openItems: [
+        ...stillOpen,
+        ...modelQuestions.slice(0, 3).map((q) => ({
+          kind: 'strategic-ambiguity' as const,
+          question: typeof q === 'string' ? q : String((q as { text?: string }).text ?? ''),
+          whyItMatters: 'Raised by the agent after the record was settled, so it is a flag on the plan rather than a question holding it.',
+        })),
+      ],
+    };
+  }
+
   if (modelAction === 'ask' && modelQuestions.length) {
     return {
       outcome: 'ask_questions',
@@ -683,11 +734,16 @@ export function evaluateDiscovery(input: GateInput): GateDecision {
   // cannot be satisfied by the agent writing down its own guess.
   const knowsConverters = convertersSettled(brief.converters);
   const usableBarriers = designableBarriers(brief.barriers);
-  if (
-    !isRefinement &&
-    (!answeredARound || !successSettled || !knowsConverters || !usableBarriers.length || !discoveryIsComplete(brief))
-  ) {
-    const open = outstandingDimensions(brief);
+  // THIS FUNCTION NO LONGER DECIDES WHETHER THE BRIEF IS CLOSED.
+  //
+  // `discoveryIsComplete(brief)` used to be the last clause here, and it was
+  // a third opinion on a question `decide`'s record blocks already answer —
+  // see the note where it was deleted. What is left are the four record facts
+  // the blocks ALSO cover (a reply arrived, success, who converts, a usable
+  // barrier), so this branch and `blocksFor` agree by construction: the
+  // orchestrator decides the screen from `decide(brief)`, and the only thing
+  // taken from here is the QUESTION to put.
+  if (!isRefinement && (!answeredARound || !successSettled || !knowsConverters || !usableBarriers.length)) {
     // NEVER A DEAD END.
     //
     // `blocking` comes from the agent's own open items, and on a turn where it
@@ -713,24 +769,16 @@ export function evaluateDiscovery(input: GateInput): GateDecision {
       outcome: 'continue_discovery',
       questions: carried.length ? carried : fallbackQuestion ? [asQuestion(fallbackQuestion)] : [],
       evidence: none,
+      // THE ANGLE COUNT IS GONE from these sentences with the rule behind
+      // it. "I have only looked at 2 angle(s) so far" was what a manager read
+      // on a finished brief, twice, while a real journey sat on the record.
       reason: !answeredARound
         ? 'I jumped to a strategy without asking you anything first. Let me put the questions to you instead.'
         : !successSettled
         ? 'I still do not know how you would judge whether this worked, and that changes who the campaign should go after.'
         : !knowsConverters
         ? 'I do not yet know who does this today, so I cannot say who the campaign should go after.'
-        : !usableBarriers.length
-        ? 'I do not yet know what is stopping them, so there is nothing for the campaign to work on.'
-        : briefDimensions(brief).length === 0
-          ? 'I moved to a strategy without setting out what I had considered along the way.'
-          // Something still OPEN is reported first: it is the most actionable
-          // thing to say, and it stays true whether or not enough lines of
-          // enquiry have been raised yet.
-          : open.length
-            ? `Still working through: ${open.map((d) => d.name).join(', ')}.`
-            : briefDimensions(brief).length < MIN_DIMENSIONS_CONSIDERED
-              ? `I have only looked at ${briefDimensions(brief).length} angle(s) so far. Being confident about one is not the same as having weighed the alternatives, so let me keep going.`
-              : `I raised these and then let them go without saying why: ${droppedWithoutReason(brief).map((d) => d.name).join(', ')}. Ruling something out is a decision, so it needs a reason.`,
+        : 'I do not yet know what is stopping them, so there is nothing for the campaign to work on.',
       overrodeModel: true,
       openItems: stillOpen,
     };
@@ -1132,6 +1180,56 @@ const closesOtherAxes = (text: string): boolean =>
  * Exported as a prefix so `otherAxesProbed` can recognise it without a second
  * copy of the sentence. One definition, two readers.
  */
+/**
+ * WAS THE SECOND-PATTERN PROBE ACTUALLY PUT TO THEM, and answered?
+ *
+ * Two legs, both evidence rather than effort, and they are the two that are
+ * about a QUESTION — the other ways `otherAxesProbed` can be satisfied are
+ * about dimension rows and about their own recorded sentence.
+ *
+ *  - a question plainly asking it ("anything else", "besides", "any other")
+ *    that carries `addressedInRound`;
+ *  - a question that NAMES another segmentation axis on the brief, matched on
+ *    that row's own content words, and was answered. This is the structural
+ *    leg: the live probe said "BEYOND transaction size, have you noticed any
+ *    difference by purchase category…", which no phrase list would have
+ *    caught, and purchase category was a row on the record.
+ *
+ * `addressedInRound` is the ingest write, so "answered" means a reply landed
+ * while that question was on the screen. Shared with `noteClosedOtherAxes`,
+ * which may not write a closure for a probe nobody asked.
+ */
+export const probeWasAsked = (brief: WorkingBrief): boolean => {
+  const answered = (brief.questions ?? []).filter((q) => q.addressedInRound !== undefined);
+  if (!answered.length) return false;
+  if (
+    answered.some((q) =>
+      /\banything else\b|\bother pattern\b|\bany other\b|\bbesides\b|\belse have you seen\b/i.test(q.text ?? ''),
+    )
+  ) {
+    return true;
+  }
+  // THE STRUCTURAL LEG NEEDS A SEEN AXIS, and it did not when first written.
+  // "Besides the one you named, is there another?" presumes a named one: with
+  // `seenAxes` empty every row counts as an "other", so a question naming the
+  // ONLY row on the brief read as a probe for a SECOND. Caught by a test
+  // whose fixture had exactly that shape.
+  const seen = new Set(seenAxes(brief).map((d) => d.name.trim().toLowerCase()));
+  if (!seen.size) return false;
+  const others = segmentationDimensions(brief).filter((d) => !seen.has(d.name.trim().toLowerCase()));
+  const namesTheAxis = (text: string, axis: string): boolean => {
+    const wanted = axis
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length > 3 && !['type', 'kind', 'with', 'from', 'that', 'this', 'their'].includes(w));
+    if (!wanted.length) return false;
+    const hay = text.toLowerCase();
+    const hits = wanted.filter((w) => hay.includes(w)).length;
+    return hits >= Math.min(2, wanted.length);
+  };
+  return others.some((d) => answered.some((q) => namesTheAxis(q.text ?? '', d.name)));
+};
+
 export const CLOSED_OTHER_AXES = 'They have closed the question of a second pattern:';
 
 /**
@@ -1158,6 +1256,21 @@ export function noteClosedOtherAxes(brief: WorkingBrief, text: string): WorkingB
   if (!text?.trim() || !closesOtherAxes(text)) return brief;
   const seen = seenAxes(brief);
   if (seen.length !== 1) return brief;
+  // A REPLY CLOSES A PROBE THAT WAS ON THE SCREEN, and only that.
+  //
+  // MEASURED, `eval/runs/ui-s-1792984906680`. Turn 2 went out with
+  // `questions: []` — the model asked nothing and wrote "I have enough" —
+  // and the manager's next message was a diary entry ending "nothing else".
+  // This wrote CLOSED_OTHER_AXES from it, so the application recorded that a
+  // probe had been answered which nobody had asked. The second pattern was
+  // closed by a coincidence of wording.
+  //
+  // So the probe has to exist: a question on the record that NAMES a
+  // segmentation axis other than the seen one, which the reply then
+  // addressed. The matcher is unchanged — no phrase was added — and this only
+  // ever RELEASES a block, so a probe we asked in words this does not
+  // recognise simply stays open.
+  if (!probeWasAsked(brief)) return brief;
   const seenName = seen[0].name.trim().toLowerCase();
   const closing = segmentationDimensions(brief).filter((d) => d.name.trim().toLowerCase() !== seenName);
   const quoted = text.trim().slice(0, 160);
@@ -1717,50 +1830,29 @@ export const briefDimensions = (brief: WorkingBrief): DiscoveryDimension[] => br
 export const outstandingDimensions = (brief: WorkingBrief): DiscoveryDimension[] =>
   briefDimensions(brief).filter((d) => d.status === 'open');
 
-/**
- * Has discovery actually happened?
- *
- * Two conditions, and the first is the one that matters: SOMETHING must have
- * been considered. An empty record is not a clean bill of health, it is the
- * absence of an investigation — and it is indistinguishable, from the
- * application's side, from an agent that went straight to a design.
- */
-/**
- * How many lines of enquiry must have been RAISED before a strategy lands.
- *
- * Three, because one is not an investigation. The agent may well be certain
- * about a single factor — but being certain about one thing is not the same
- * as having considered the alternatives, and a campaign built on the first
- * plausible idea is the thing this whole gate exists to prevent. The prompt
- * has always asked for three to five; the gate accepted one, so nothing made
- * it true.
- */
-export const MIN_DIMENSIONS_CONSIDERED = 3;
-
-/**
- * Has the investigation actually happened?
- *
- * Three conditions, and the third is the one that was missing:
- *
- *  1. Enough lines of enquiry were RAISED. See above.
- *  2. None is still open — anything named has been resolved.
- *  3. Anything NOT carried into the design says why it was ruled out.
- *
- * (3) is what makes this "ask and rule out" rather than "ask and drop".
- * `deferred` and `unavailable` are legitimate endings — plenty of factors
- * turn out not to matter, or cannot be established — but each has to leave a
- * reason behind. A dimension that was raised and then silently dropped is
- * indistinguishable from one that was never thought about, and it is exactly
- * how a campaign ends up resting on the first idea anybody had.
- *
- * `retained` needs no note: it is in the design, where its reasoning shows.
- */
-export const discoveryIsComplete = (brief: WorkingBrief): boolean => {
-  const dims = briefDimensions(brief).filter((d) => !isPlatformDimension(d.name));
-  if (dims.length < MIN_DIMENSIONS_CONSIDERED) return false;
-  if (outstandingDimensions(brief).length > 0) return false;
-  return dims.every((d) => d.status === 'retained' || (d.note ?? '').trim().length > 0);
-};
+// `MIN_DIMENSIONS_CONSIDERED` AND `discoveryIsComplete` ARE GONE, 2026-10-26,
+// and this note is what stands in their place.
+//
+// They were a THIRD answer to "is the brief closed?" — a count of raised
+// lines of enquiry (three), plus "nothing still open", plus "everything
+// dropped says why" — sitting beside `decide`'s record blocks and beside
+// `turnPhase`. Three angles on one question, and the one with the weakest
+// claim to it decided what the manager saw.
+//
+// MEASURED, `eval/runs/ui-s-1792984906680`. By turn 4 the record held the
+// success measure, who converts, a barrier traced to their words, a seen axis
+// and an answered probe: `decide(brief).blocks` was EMPTY. The proposal was a
+// real journey. This function counted two dimension rows, said discovery was
+// not complete, and `evaluateDiscovery` returned `continue_discovery` with
+// `questions: []` — "I have only looked at 2 angle(s) so far" — on turn 3 and
+// again on turn 4. The manager got an essay and no button, twice, for a brief
+// that was finished.
+//
+// A count is not a search. The search is: they named a pattern, and they have
+// answered a probe we actually asked, or they named two —
+// `unprobed-other-axes` in `server/gate.ts`, which reads evidence rather than
+// a tally and which the agent's own `assumption` rows cannot satisfy. Raising
+// a third row to reach a number is the agent talking to itself.
 
 /** Raised, not carried into the design, and never said why. */
 export const droppedWithoutReason = (brief: WorkingBrief): DiscoveryDimension[] =>
@@ -2440,12 +2532,16 @@ export function briefForPrompt(brief: WorkingBrief): string {
   // Only shown while the count is actually short. Once three real dimensions
   // exist the sentence stops on its own, so a drop from an early turn does not
   // nag for the rest of the conversation.
+  // SAID WHILE NOTHING HAS BEEN SEEN, not while a count is short. The rule
+  // this used to key on — three raised lines of enquiry — is gone, so the
+  // trigger is the state it was really for: the agent offered platform
+  // settings as lines of enquiry and has no customer pattern to show.
   const dropped = brief.droppedDimensions ?? [];
-  if (dropped.length && briefDimensions(brief).length < MIN_DIMENSIONS_CONSIDERED) {
+  if (dropped.length && seenAxes(brief).length === 0) {
     lines.push(
       '',
       `These were not stored as lines of enquiry because they describe the platform, not the customer: ${dropped.join(', ')}.`,
-      'Raise three things about the customers — who they are, what state they are in, whether they have already started.',
+      'Raise things about the CUSTOMERS instead — who they are, what state they are in, whether they have already started.',
       'Do not raise entry events, channel lists, templates, quiet hours, or DND.',
     );
   }

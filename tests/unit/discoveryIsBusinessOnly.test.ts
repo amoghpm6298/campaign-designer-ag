@@ -12,6 +12,8 @@
 // already in the prompt. This is the gate that matters.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { asking, ready, build, sticky } from './support/prompts.ts';
+import { buildContextPrompt, systemForPhase } from '../../server/orchestrator';
 import { issuerContext, blueprintVocabulary } from '../../server/blueprint';
 import { OUTPUT_TOOLS, outputToolsForPhase } from '../../server/outputTools';
 import { toolsForPhase } from '../../server/agentTools';
@@ -104,23 +106,234 @@ describe('an asking turn has no propose_strategy at all', () => {
     // The wrapper is a PAYLOAD correction for a turn that may propose. There
     // is no asking-turn propose left to wrap, and the gate keys on the phase
     // rather than on the wording of our own refusal.
-    expect(orch).toMatch(/tu\.name === 'propose_strategy' && phase !== 'asking'/);
+      // MOVED INTO `toolResultBlock`, which both the round loop and the
+      // forced propose call. The expression used to be written out at each
+      // site, and the forced one carried no correction at all for a while.
+    expect(orch).toMatch(/tool === 'propose_strategy' && phase !== 'asking'/);
   });
 });
 
-describe('a propose-ready turn gets instructions, not a catalogue', () => {
-  it('says the plan must carry its path, and points at the lookups', () => {
-    expect(orch).toMatch(/# THE PLAN YOU PUT UP MUST CARRY ITS PATH/);
-    expect(orch).toMatch(/LOOK IT UP BEFORE YOU WRITE IT/);
-    expect(orch).toMatch(/Do NOT call build_campaign this turn/);
+// THE COPY IS A CLEAN REMAINDER OF THE PAPER, not a paste with overlaps.
+//
+// The first assembly shared too much and then let each body repeat it: "Lead
+// with what you now understand" appeared TWICE on asking and on ready, the
+// invent-numbers rule twice on every phase, and "The steps live in the tool"
+// was in the shared opening although it is not in the Discovery paper at all.
+// A sentence a model reads twice is a sentence it weighs twice.
+describe('each phase reads every rule once, and only the rules that are its own', () => {
+  const phase = { asking, ready, build };
+
+  it('says each shared rule exactly once per phase', () => {
+    for (const probe of [
+      'Lead with what you now understand',
+      'Never claim a conversion lift',
+      'Do not ask about quiet hours',
+      'A drop-off does not prove its cause',
+      'Do not narrate your own bookkeeping',
+    ]) {
+      for (const [name, get] of Object.entries(phase)) {
+        const n = get().split(probe).length - 1;
+        expect(n, `${probe} on ${name}`).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('Discovery says the sent-questions sentence, and has no steps to speak of', () => {
+    // RESTORED. `colleagueVoice` pins this sentence because a live turn 1
+    // opened "I've sent these two questions to the campaign manager" —
+    // written to them, about them, in the third person.
+    expect(asking().split('sent questions to the campaign manager').length - 1).toBe(1);
+    // AND NOT THIS: "The steps live in the tool. The bubble stays in their
+    // language." is a Plan and Confirm line. It is not in the Discovery paper,
+    // and a discovery turn has no steps.
+    expect(asking()).not.toContain('The steps live in the tool');
+    expect(ready()).toContain('The steps live in the tool');
+    expect(build()).toContain('The steps live in the tool');
+  });
+
+  it('keeps the path rules off Discovery and the quiet-hours reason on all three', () => {
+    for (const pathRule of ['Do not put a holdout in the path', 'Respect the night quiet hours in the sends you time']) {
+      expect(asking(), pathRule).not.toContain(pathRule);
+      expect(ready(), pathRule).toContain(pathRule);
+      expect(build(), pathRule).toContain(pathRule);
+    }
+    // The reason travels with the rule rather than being orphaned on one phase.
+    for (const [name, get] of Object.entries(phase)) {
+      expect(get(), name).toContain('Asking for them reads as though you have not looked');
+    }
+  });
+
+  it('gives each phase its own ground rule and nobody else\'s', () => {
+    expect(asking()).toContain('Do not go looking for events, entities or attributes yet');
+    expect(ready()).not.toContain('Do not go looking for events, entities or attributes yet');
+    expect(ready()).toContain('Settle who the campaign is for and what it should do in business terms first');
+    expect(asking()).not.toContain('Settle who the campaign is for');
+    expect(build()).toContain('Build the path they approved');
+    expect(asking()).not.toContain('Build the path they approved');
+  });
+
+  it('the Confirm sticky does not say ask_questions might be on the list', () => {
+    // IT USED TO. "ask_questions may still be on the list. Do not use it." was
+    // true when the tool travelled on a build turn and became a lie the moment
+    // it came off. Confirm now says it the way Plan does.
+    expect(sticky('build')).not.toMatch(/may still be on the list/);
+    expect(sticky('build')).toMatch(/ask_questions is not here/);
+    expect(sticky('build')).toMatch(/request_evidence is not here/);
+    // And the tools it DOES have are still on the list.
+    for (const kept of ['record_findings', 'record_dimensions', 'The lookup tools']) {
+      expect(sticky('build'), kept).toContain(kept);
+    }
+  });
+
+  it('the paper file was corrected too, so the next copy cannot bring it back', () => {
+    const paper = readFileSync(new URL('../../prompt-review-confirm-current.md', import.meta.url), 'utf8');
+    expect(paper).not.toMatch(/may still be on the list/);
+    expect(paper).toMatch(/ask_questions is not here/);
+    // SAME LIE, DIFFERENT WORDS. The explainer grepped clean for "on the list"
+    // and still said Confirm "may still be listed".
+    const html = readFileSync(new URL('../../prompt-review-e2e.html', import.meta.url), 'utf8');
+    expect(html).not.toMatch(/may still be listed/);
+    expect(html).not.toMatch(/even if that tool is still on the list/);
+    expect(html).not.toMatch(/may still be on the list/);
+  });
+
+  it('every sentence of the prompt is in a paper file', () => {
+    // THE CLAIM THIS PASS EXISTS TO MAKE TRUE. The strings are sliced from the
+    // three manuals, so a sentence that is in the prompt and in no paper is
+    // either a transcription slip or an invention.
+    const papers = (['discovery', 'plan', 'confirm'] as const)
+      .map((n) => readFileSync(new URL(`../../prompt-review-${n}-current.md`, import.meta.url), 'utf8'))
+      .join('\n');
+    for (const [name, get] of Object.entries(phase)) {
+      for (const line of get().split('\n')) {
+        const t = line.trim().replace(/^- /, '');
+        if (t.length < 30 || t.startsWith('#')) continue;
+        for (const s of t.split(/(?<=\.) (?=[A-Z\u201C])/)) {
+          if (s.length > 30) expect(papers, `${name}: ${s.slice(0, 60)}`).toContain(s);
+        }
+      }
+    }
+  });
+});
+
+describe('the context prompt carries the phase sticky and a phase-correct budget', () => {
+  // R3 AND R4 OF THIS SLICE WERE UNPINNED until these existed: both changes
+  // could be reverted with the suite still green, which is the thing this
+  // file keeps learning. Both are asserted on the string `buildContextPrompt`
+  // actually returns, per phase.
+  const ctx = (phase: 'asking' | 'ready' | 'build', limitReached = false) =>
+    buildContextPrompt(
+      { sessionId: 's', tenantId: 'TEN-IBL', messages: [{ role: 'user', content: 'More EMI conversions.' }], discoveryRounds: 2, knowledge: { version: 'test' } } as never,
+      newBrief('More EMI conversions.'),
+      { id: 'TEN-IBL', name: 'IndusInd Bank (IBL)', channels: CHANNELS, templateLibraryAccess: 'unavailable' } as never,
+      '# Knowledge',
+      CHANNELS,
+      limitReached,
+      false,
+      phase,
+    );
+
+  it('the docs describe what the code does: no live reaction retry, real lengths', () => {
+    // EVERY LEFTOVER THIS CONFIRM WORK FLAGGED, pinned so it cannot come back
+    // as a parked comment.
+    const dump = readFileSync(new URL('../../eval/dump-llm-prompt.ts', import.meta.url), 'utf8');
+    // The constant survives and is sent by nothing, so the dump must not
+    // advertise it as a Confirm extra with a forced tool call.
+    expect(dump).not.toMatch(/Extra system paragraph\. Forced build_campaign/);
+    expect(dump).toMatch(/Reaction retry \(retired\)/);
+
+    // The length bullets have to match the strings `systemForPhase` returns,
+    // which grew when the sticky joined them. Measured here rather than
+    // transcribed, so the bullet cannot drift again.
+    const log = readFileSync(new URL('../../server/CLAUDE.md', import.meta.url), 'utf8');
+    const fmt = (n: number) => n.toLocaleString('en-US');
+    for (const phase of ['asking', 'ready', 'build'] as const) {
+      const len = phase === 'asking' ? asking().length : phase === 'ready' ? ready().length : build().length;
+      expect(log, `${phase} length bullet`).toContain(fmt(len));
+    }
+    // AND THE SUPERSEDED TRIPLE IS GONE. Asserting the current numbers are
+    // present is satisfied by any one mention, so it cannot catch a stale
+    // bullet sitting next to a correct one — which is exactly how these came
+    // to be wrong. The pre-sticky figures must not appear at all.
+    for (const stale of ['11,205', '8,838', '4,364']) {
+      expect(log, `${stale} is a pre-sticky length and must not be quoted`).not.toContain(stale);
+    }
+  });
+
+  it('R4: the sticky rides the PER-ROUND system string, not the frozen context', () => {
+    // MOVED, and the move is the fix. The context message is built once per
+    // send and pushed onto `conversation`, while the method prompt and the
+    // tool list are rebuilt every round from `phaseNow()`. A send that starts
+    // on an asking turn and closes the record with `record_findings` therefore
+    // handed round two Plan tools with a Discovery sticky still in the history
+    // saying there is no plan tool on this turn.
+    for (const phase of ['asking', 'ready', 'build'] as const) {
+      expect(systemForPhase(phase), phase).toContain(sticky(phase));
+      expect(ctx(phase), `${phase} context must not carry a second copy`).not.toContain(sticky(phase));
+    }
+    // And no phase gets another phase's sticky.
+    expect(systemForPhase('asking')).not.toContain(sticky('ready'));
+    expect(systemForPhase('build')).not.toContain(sticky('asking'));
+  });
+
+  it('R3: an asking turn gets a round count and is never told to propose', () => {
+    const asked = ctx('asking');
+    expect(asked).toMatch(/# Discovery budget: round 3 of \d+/);
+    // THE DEFECT: this line was keyed on `limitReached` alone, so a discovery
+    // turn read "If the brief is already clear enough, propose instead" while
+    // `propose_strategy` was not on its tool list — the same contradiction
+    // that made a live run ask the manager to type "go ahead".
+    expect(asked).not.toMatch(/propose instead/);
+    expect(asked).not.toMatch(/action:"propose"/);
+    expect(asked).not.toMatch(/Put the plan up now/);
+  });
+
+  it('R3: a ready turn is where proposing belongs, limit reached or not', () => {
+    expect(ctx('ready')).toMatch(/send one rather than asking more/);
+    expect(ctx('ready', true)).toMatch(/DISCOVERY LIMIT REACHED/);
+    expect(ctx('ready', true)).toMatch(/Put the plan up now/);
+  });
+
+  it('R3: a build turn gets no discovery budget at all', () => {
+    expect(ctx('build')).not.toMatch(/Discovery budget/);
+    expect(ctx('build', true)).not.toMatch(/DISCOVERY LIMIT REACHED/);
+    // Confirm is not a discovery budget: the plan is approved and the only
+    // job left is to compile it.
+    // Its sticky is on the per-round system string now, not in this message.
+    expect(systemForPhase('build')).toContain(sticky('build'));
+  });
+});
+
+describe('each phase is told its own job, once', () => {
+  // WAS "a propose-ready turn gets instructions, not a catalogue", pinned on
+  // three per-phase blocks in `buildContextPrompt`. Those blocks are gone:
+  // each said, in different words, what that phase's sticky already says, and
+  // the asking one told a discovery turn to describe the journey in
+  // "strategy.approach" on a turn where `propose_strategy` is not on the tool
+  // list. The sticky is now the single statement of the turn's job.
+  it('tells a ready turn the path is the job, and the lookups come first', () => {
+    expect(sticky('ready')).toMatch(/propose_strategy — the plan and its path/);
+    expect(sticky('ready')).toMatch(/Use them after you have settled the business plan/);
+    expect(sticky('ready')).toMatch(/build_campaign is not here/);
   });
 
   it('never tells a ready turn it has no blueprint', () => {
-    // The three branches are exclusive, and the asking one would contradict
-    // the instruction above if both arrived.
-    const ready = orch.slice(orch.indexOf('# THE PLAN YOU PUT UP MUST CARRY ITS PATH'), orch.indexOf("].join('\\n')\n      : isBuildTurn"));
-    expect(ready.length).toBeGreaterThan(0);
-    expect(ready).not.toMatch(/NO BLUEPRINT THIS TURN/);
+    expect(sticky('ready')).not.toMatch(/strategy\.approach/);
+    expect(sticky('ready')).not.toMatch(/OMIT "blueprint"/);
+  });
+
+  it('tells an asking turn there is no plan tool, and does not ask for a journey', () => {
+    expect(sticky('asking')).toMatch(/propose_strategy is not here/);
+    expect(sticky('asking')).toMatch(/build_campaign is not here/);
+    // THE DEFECT THAT DELETED THOSE BLOCKS: a discovery turn was asked for the
+    // journey in prose and called it "the deliverable this turn".
+    expect(sticky('asking')).not.toMatch(/strategy\.approach/);
+    expect(sticky('asking')).not.toMatch(/Describe the journey/);
+  });
+
+  it('tells a build turn to call the tool', () => {
+    expect(sticky('build')).toMatch(/build_campaign — the approved path, as a journey/);
+    expect(sticky('build')).toMatch(/propose_strategy is not here/);
   });
 });
 
@@ -202,11 +415,13 @@ describe('the vocabulary is a tool call, not a paste', () => {
     expect(block).not.toMatch(/limitReached/);
   });
 
-  it('tells the agent WHY it is missing rather than leaving a silent hole', () => {
-    expect(orch).toMatch(/# NO BLUEPRINT THIS TURN/);
-    expect(orch).toMatch(/nothing is being built yet/);
-    // And the build turn says the opposite just as plainly.
-    expect(orch).toMatch(/# THIS TURN BUILDS THE APPROVED PLAN/);
+  it('tells the agent WHY the catalogue is absent, in the sticky', () => {
+    // WAS pinned on the "# NO BLUEPRINT THIS TURN" block, which is deleted.
+    // The asking sticky carries the reason, and it is the honest one: nothing
+    // is being designed, so the builder's vocabulary is not a question that
+    // needs answering yet.
+    expect(asking()).toMatch(/Nothing is being built this turn, so what the builder supports is not a question you need answered/);
+    expect(sticky('asking')).toMatch(/The lookup tools for events, attributes, and channels are not here/);
   });
 
   it('keeps issuer context unconditional', () => {
@@ -246,151 +461,110 @@ describe('the system prompt itself withholds the blueprint grammar', () => {
     }
   });
 
-  it('releases the grammar on the turn that puts a plan up for approval', async () => {
-    // MEASURED, `ui-s-1792748248345` turn 4: `propose_strategy` returned
-    // prose, the response carried `blueprint: false`, and Confirm appeared
-    // under an essay — so the canvas was invented on the turn AFTER the
-    // manager signed. A turn that asks for approval of a sequence must carry
-    // the sequence.
-    //
-    // AND WHAT `systemForPhase` ACTUALLY WITHHOLDS IS ONE GROUND RULE, which
-    // I had to measure to write this honestly. The step grammar is no longer
-    // prose in SYSTEM at all — it moved into the tool schemas — so the only
-    // live difference between the two strings is the vocabulary rule. The
-    // assertions above about `"kind":"branch"` pass because SYSTEM contains
-    // none of it on any turn; the real withholding is
-    // `outputToolsForPhase` (no build_campaign) and the catalogue block in
-    // the context prompt, both of which still apply.
-    const { systemForPhase } = await import('../../server/orchestrator');
-    const asking = systemForPhase('asking');
-    const ready = systemForPhase('ready');
-    expect(asking).toMatch(/Do not go looking for events, entities or attributes yet/);
-    expect(asking).not.toMatch(/Use only the events, entities, attributes, values, channels and step kinds the tools report/);
-    expect(ready).toMatch(/Use only the events, entities, attributes, values, channels and step kinds the tools report/);
-    // THE STRING ITSELF IS UNCHANGED. The release is a gate, not new prose: a
-    // ready turn gets exactly what a build turn has always had.
-    expect(ready).toBe(systemForPhase('build'));
+  it('ready and build are no longer the same string', () => {
+    // WAS "releases the grammar on the turn that puts a plan up for approval",
+    // which asserted `systemForPhase('ready') === systemForPhase('build')` —
+    // true, and the defect: a Confirm turn was read the entire Plan method,
+    // including "think of two approaches" on a turn where the approach is
+    // already approved. Three manuals, three strings.
+    expect(ready()).not.toBe(build());
+    expect(ready()).toContain('### This turn is Plan or Revise');
+    expect(build()).toContain('### This turn is Confirm');
+    expect(build()).not.toContain('Think of two approaches that are actually different');
   });
 
   // ------------------------------------------------------------------
-  // SLICE B: the asking prompt is discovery only.
+  // THE ASKING PROMPT IS THE DISCOVERY MANUAL, not the plan prompt minus six
+  // chapters.
   //
-  // An asking turn was reading the entire design method on every round of
-  // every conversation — the platform mapping, the entry event, the
-  // hypothesis, the seven options, the journey and the message copy, all
-  // about a campaign it may not design yet. The cut is straight: §3 to §8
-  // out, nothing rewritten, `SYSTEM` itself untouched so every `promptMethod`
-  // pin on the constant still holds.
+  // WAS "SLICE B: the asking prompt is discovery only", whose tests pinned the
+  // CUT: that 'NAME EVERY TOUCH', '3. The business strategy', '6. The
+  // strategic options' and the rest were ABSENT, and that a list of
+  // discovery-shaped headings was still present. Both halves were about
+  // chapter titles in one big string, and neither survives the rewrite — the
+  // asking prompt is now a separate document that never contained them.
+  //
+  // What replaces them is the thing the cut was FOR: a discovery turn must
+  // not be given the plan's jobs.
   describe('the asking prompt is discovery only', () => {
-    it('drops the design chapters', async () => {
-      const { systemForPhase } = await import('../../server/orchestrator');
-      const asking = systemForPhase('asking');
-      for (const designOnly of [
-        'NAME EVERY TOUCH',
-        'A STEADY CADENCE IS A COMPLETE PLAN',
-        'IF YOU WRITE BOTH CANDIDATES, THE REACTING ONE WINS',
-        '3. The business strategy',
-        '4. The sequence',
-        '5. The hypothesis',
-        '6. The strategic options',
-        '7. The journey',
-        '8. The messages',
-        'Experimentation',
-        'Write each one as the CUSTOMER will read it',
+    it('does not carry the Plan jobs', () => {
+      for (const planJob of [
+        // the path and its grammar
+        'Send that one journey',
+        'propose_strategy — the plan and its path',
+        // two approaches, then one journey
+        'Think of two approaches that are actually different',
+        'The canvas gets one journey',
+        // writing the customer-facing messages
+        'Write each one as the customer will read it',
+        'Put the action in the call to action',
+        // the reaction/cadence rules
+        'A clock with no reaction is still a complete plan',
+        'Failed delivery is the fallback on the send, not an arm',
       ]) {
-        expect(asking, designOnly).not.toContain(designOnly);
+        expect(asking(), planJob).not.toContain(planJob);
       }
     });
 
-    it('keeps everything discovery actually runs on', async () => {
-      const { systemForPhase } = await import('../../server/orchestrator');
-      const asking = systemForPhase('asking');
+    it('carries the discovery jobs, named as its own', () => {
+      expect(asking()).toMatch(/### This turn is Discovery/);
       for (const kept of [
-        'AT MOST THREE QUESTIONS THIS ROUND',
-        'NEVER ASK ABOUT QUIET HOURS',
-        'NEVER INVENT A PERFORMANCE NUMBER',
-        'GROUND RULES',
-        'FIRST, FIND OUT WHO CONVERTS AND WHY THE REST DO NOT',
-        '"We do not track that" closes it',
-        'Do not invent a cutoff',
-        '2. The dimensions',
-        '9. Honesty about what is settled',
-        'QUESTIONS AND OPEN ITEMS',
-        'DISCOVER FIRST',
-        'Propose only once the user has answered at least one question',
+        'Do not design the journey on this turn',
+        'Ask who already does this, in their words',
+        'Ask why the rest do not, in their words',
+        'Derive three to five of them from this objective',
+        'Time-to-act is timing, not an axis',
+        'Do not invent a cutoff, a band, or a rupee figure',
+        'Read their reply as an answer first',
       ]) {
-        expect(asking, kept).toContain(kept);
+        expect(asking(), kept).toContain(kept);
       }
     });
 
-    it('drops the propose-payload paragraphs the cut strands', async () => {
-      // The `openItems` kind-list is written for a payload this turn does not
-      // send; the limitation paragraph under it names those kinds and means
-      // nothing without them; and the last sentence invites exactly the move
-      // the asking-turn refusal exists to stop.
-      const { systemForPhase } = await import('../../server/orchestrator');
-      const asking = systemForPhase('asking');
-      expect(asking).not.toContain('When you propose, list what is still open in "openItems"');
-      expect(asking).not.toContain('Propose a complete, coherent strategy even when something is open');
-      expect(asking).not.toContain('strategic-ambiguity');
-    });
-
-    it('is bounded, so the cut cannot grow back a sentence at a time', async () => {
-      const { systemForPhase } = await import('../../server/orchestrator');
-      // Measured at 17,837 on the slice that made the cut. The bound exists
-      // because there is no other check on this string: the 33,500 cap is on
-      // the SYSTEM constant, which an asking turn no longer receives in full.
-      expect(systemForPhase('asking').length).toBeLessThanOrEqual(22_000);
-      // And it is genuinely a subset of the full method, not a variant of it.
-      expect(systemForPhase('asking').length).toBeLessThan(systemForPhase('ready').length);
-    });
-
-    it('throws rather than guess when a marker has moved', async () => {
-      // THE FAILURE MODES THIS RULES OUT ARE BOTH SILENT. Falling back to the
-      // full prompt hands the design method to a discovery turn with nothing
-      // to say so; a slice whose end marker has gone quietly becomes "the
-      // rest of the file", which is how two tests in `emptyRoundRecovery`
-      // came to assert against everything to EOF.
-      const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-      expect(src).toMatch(/throw new Error\(`systemForPhase: the asking prompt cannot be cut/);
-      // The markers are read from one list, so the cut is stated once.
-      expect(src).toMatch(/const DROPPED_FROM_ASKING: \[string, string\]\[\]/);
+    it('does not carry the Confirm job either', () => {
+      expect(asking()).not.toContain('### This turn is Confirm');
+      expect(asking()).not.toContain('### This turn is Plan or Revise');
+      expect(ready()).toContain('### This turn is Plan or Revise');
+      expect(build()).toContain('### This turn is Confirm');
     });
   });
 
-  it('gives the ready turn the catalogue, so its steps can name real things', () => {
-    // Confirm compiles the proposed path, so an attribute the agent invented
-    // at propose time would reach the canvas as a dropped condition. The
-    // names travel with the grammar; the build-turn INSTRUCTIONS do not.
-    expect(orch).toMatch(/phase === 'ready'/);
-    expect(orch).toMatch(/THE PLAN YOU PUT UP MUST CARRY ITS PATH/);
-    expect(orch).toMatch(/Do NOT call build_campaign this turn/);
+  it('each phase prompt is bounded, and the three are no longer one string', () => {
+    // WAS "the cut cannot grow back a sentence at a time", with asking < ready
+    // because asking was ready minus six chapters. They are separate manuals
+    // now: discovery is the LONGEST, because discovery is the longest job.
+    expect(asking().length).toBeLessThanOrEqual(22000);
+    expect(ready().length).toBeLessThanOrEqual(22000);
+    expect(build().length).toBeLessThanOrEqual(14000);
+    // READY AND BUILD ARE NOT THE SAME STRING. They were identical at 32,779
+    // characters, so a Confirm turn was read the whole Plan method.
+    expect(ready()).not.toBe(build());
+    expect(build().length).toBeLessThan(ready().length);
   });
 
-  it('does not tell a ready turn to omit the blueprint', async () => {
-    // MEASURED in llm-prompt.html: the catalogue was a nested list joined with
-    // commas, sitting above the asking-turn "OMIT blueprint" block, so a ready
-    // turn was told to carry the path and then to omit it.
-    const { buildContextPrompt } = await import('../../server/orchestrator');
-    const { newBrief } = await import('../../server/discovery');
-    const { resolveTenant } = await import('../../server/tenants');
-    const tenant = resolveTenant('TEN-IBL')!;
-    const req = {
-      sessionId: 't',
-      messages: [],
-      knowledge: { version: 'test', entries: [] },
-      discoveryRounds: 0,
-      tenantId: tenant.tenantId,
-    };
-    const brief = newBrief('Get more of them to convert before the request expires.');
-    const channels = tenant.availableChannels.filter((c) => c.available).map((c) => c.channel);
-    const asking = buildContextPrompt(req, brief, tenant, '', channels, false, false, false, 'asking');
-    const ready = buildContextPrompt(req, brief, tenant, '', channels, false, false, false, 'ready');
-    expect(asking).toMatch(/# NO BLUEPRINT THIS TURN/);
-    expect(asking).not.toMatch(/THE PLAN YOU PUT UP MUST CARRY ITS PATH/);
-    expect(ready).toMatch(/THE PLAN YOU PUT UP MUST CARRY ITS PATH/);
-    expect(ready).not.toMatch(/# NO BLUEPRINT THIS TURN/);
-    expect(ready).not.toMatch(/Vocabulary you must stay inside,/);
+  it('THE SCISSORS CUT IS GONE: three manuals, not one novel minus six chapters', () => {
+    const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+    // `discoveryOnly`, `DROPPED_FROM_ASKING` and the marker-throw were how the
+    // asking prompt used to be made: the plan prompt with chapters sliced out.
+    // It failed twice, once eating its own end marker and deleting three
+    // chapters — and it meant discovery's prompt was defined by what had been
+    // removed from someone else's.
+    expect(orch).not.toMatch(/discoveryOnly/);
+    expect(orch).not.toMatch(/DROPPED_FROM_ASKING/);
+    expect(orch).not.toMatch(/const SYSTEM = `/);
+    expect(orch).toMatch(/BODY: Record<TurnPhase, string>/);
+  });
+
+  it('gives the ready turn the lookups, and says to use them before committing', () => {
+    // The catalogue is a TOOL CALL on this turn, never a paste — that half is
+    // unchanged and asserted below. What moved is where the instruction lives.
+    expect(sticky('ready')).toMatch(/The lookup tools — events, attributes, channels/);
+    expect(ready()).toMatch(/Before you commit to an entry, a goal event, a field, or a channel, check it with a tool/);
+  });
+
+  it('does not tell a ready turn to omit the blueprint', () => {
+    expect(sticky('ready')).not.toMatch(/OMIT "blueprint"/);
+    expect(ready()).not.toMatch(/OMIT "blueprint"/);
   });
 
   it('releases it on EVERY turn that may propose, escapes included', async () => {
@@ -457,15 +631,13 @@ describe('the system prompt itself withholds the blueprint grammar', () => {
 
   it('does not name a tool the asking turn does not have', () => {
     // Naming a tool the model cannot call is how a live Confirm came to reply
-    // that the build was unavailable to it. The asking turn's "how to write
-    // this turn" line used to list `propose_strategy` as the plan tool; it
-    // now says plainly that neither plan tool is on the call, and names the
-    // four that are.
-    const howTo = orch.slice(orch.indexOf("'# How to write this turn'"), orch.indexOf("'# This issuer'"));
-    const askingLine = howTo.slice(howTo.lastIndexOf(": 'Put everything structured"));
-    expect(askingLine).toMatch(/Neither "propose_strategy" nor "build_campaign" is on this turn/);
-    expect(askingLine).toMatch(/"request_evidence"/);
-    expect(askingLine).not.toMatch(/"propose_strategy" for the plan/);
+    // that the build was unavailable to it. Each sticky lists only its own
+    // phase's tools, and says plainly which are not here.
+    const names = outputToolsForPhase('asking').map((t) => t.name);
+    expect(names).not.toContain('propose_strategy');
+    expect(names).not.toContain('build_campaign');
+    expect(sticky('asking')).toMatch(/propose_strategy is not here/);
+    expect(sticky('asking')).toMatch(/build_campaign is not here/);
   });
 
   it('does not offer the build tool at all before there is a plan', () => {

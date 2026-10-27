@@ -19,6 +19,7 @@
 // rather than silent.
 import type { CampaignBlueprint, BpStep } from './blueprint';
 import { isEngagement } from './deliveryStatuses';
+import { forkKind } from './pathReading';
 
 export type OptionVerdict = 'used' | 'not-applicable' | 'cannot-evaluate';
 
@@ -382,7 +383,23 @@ export function reactsToDelivery(bp: CampaignBlueprint | null | undefined): bool
   // N-way on the preceding send's outcome: at least two arms whose statuses
   // are engagement, and not every arm the same journey.
   const outcomeBranches = walk(bp.steps).filter(
-    (s): s is Extract<BpStep, { kind: 'branch' }> => s.kind === 'branch' && !s.entity && !s.attribute,
+    // THE ONE CLASSIFICATION, not the absence of two fields.
+    //
+    // UNCHANGED ON EVERY RECORDED PAYLOAD, and CHANGED in one case — which is
+    // the honest version of a claim this comment used to overstate. A
+    // ticket-size fork written as `branch` + `on` carries `operator`/`value`
+    // on its arms, so the engagement-statuses filter below rejected it either
+    // way: the three payloads in `eval/runs/ui-s-1793077922155` turn 3 measure
+    // the same verdict before and after.
+    //
+    // A fork carrying `on` AND engagement statuses on its arms does NOT. The
+    // old reading saw no top-level attribute, called it an N-way delivery
+    // branch and reported a reaction; `forkKind` calls it an attribute fork,
+    // because an attribute beats a status — a step carrying both is a cohort
+    // split that has also named statuses, and reading it as a delivery fork is
+    // the defect that dropped seven sends. So the verdict moved, in the
+    // direction the compiler already goes.
+    (s): s is Extract<BpStep, { kind: 'branch' }> => s.kind === 'branch' && forkKind(s) === 'outcome',
   );
   return outcomeBranches.some((b) => {
     const arms = (b.paths ?? []).filter((p) => engaged(p.statuses ?? []).length > 0);

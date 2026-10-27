@@ -25,7 +25,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildFromBlueprint, type CampaignBlueprint } from '../../server/blueprint';
 import { auditOptions, copyOnlyExperiments, journeyReacts, reactsToDelivery } from '../../server/optionAudit';
-import { decide } from '../../server/gate';
+import { decide, alignJourneyClaim } from '../../server/gate';
 import { newBrief, recordAnswer, recordBarriers, recordConverters, recordDimensions, recordSuccessCriteria } from '../../server/discovery';
 import { readFileSync } from 'node:fs';
 import { derive } from '../../server/architectureAudit';
@@ -728,10 +728,19 @@ describe('the gate reads the steps, not only the essay', () => {
     },
   ];
 
-  it('holds the plan whose essay claims a reaction and whose steps are the live clock', () => {
-    const d = decide(settled(), { proposed: { strategy: REACTIVE_PLAN, blueprint: bp(CLOCK_STEPS) } as never });
-    expect(d.blocks.map((b) => b.code)).toContain('no-reaction');
-    expect(d.proceed).toBe(false);
+  it('repairs the claim on the live clock rather than holding the plan', () => {
+    // REWRITTEN 2026-10-26. This held the turn, on the reasoning that the
+    // essay claimed a reaction the steps did not deliver. The claim is still
+    // wrong and is still corrected — but the correction is to the LABEL, not
+    // a refusal of a runnable who-split clock. The manager gets the path, the
+    // button, and one sentence about what a read-fork would add.
+    const proposed = { strategy: REACTIVE_PLAN, blueprint: bp(CLOCK_STEPS) };
+    const aligned = alignJourneyClaim(proposed as never);
+    expect(aligned.stripped).toBe(true);
+    expect(aligned.proposed!.strategy!.architectures!.find((a: { chosen?: boolean }) => a.chosen)!.journey).toBe('linear');
+    const d = decide(settled(), { proposed: proposed as never });
+    expect(d.blocks.map((b) => b.code)).not.toContain('no-reaction');
+    expect(d.advice.join(' ')).toMatch(/read-fork on the first WhatsApp/);
   });
 
   it('lets the same essay through once the steps carry one engagement fork', () => {

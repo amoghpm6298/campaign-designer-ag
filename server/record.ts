@@ -112,10 +112,31 @@ const asksForClosedHistory = (text: string): boolean =>
  */
 const alreadyAsksCustomerGap = (instead: string, text: string): boolean => {
   if (instead.startsWith('Who tends')) {
-    return /\bwho\b/i.test(text) && /\b(convert|pattern|already|activates?|tends)\b/i.test(text);
+    // THE GAP, NOT THE WORD "WHO". MEASURED, turn 1 of
+    // `eval/runs/ui-s-1792984906680`: the model asked "Have you noticed any
+    // pattern in WHICH CUSTOMERS already convert an eligible purchase to EMI
+    // on their own" — the converters question, in its own words — and the
+    // `\bwho\b` test missed it, so the canonical sentence went out as a
+    // fourth question about the same thing.
+    //
+    // What makes a question the converters ask is that it asks about the
+    // PEOPLE or PURCHASES that already do it: a subject (who / which
+    // customers / what kind of purchases / segment / cohort) plus the
+    // behaviour (convert, activate, do this already, a pattern in it).
+    //
+    // COUNT-VERSUS-VALUE IS STILL NOT COVERED, which is the case this must not
+    // over-match: "do you mean more transactions converted, or more value
+    // converted" says "converted" and names no subject at all.
+    const subject = /\bwho\b|\bwhich (customers?|cardholders?|purchases?|transactions?|accounts?|merchants?)\b|\bwhat (kind|sort|type)s? of (customers?|purchases?|transactions?)\b|\bsegment\b|\bcohort\b|\bprofile\b/i;
+    const behaviour = /\b(convert|converts|converting|converted|activates?|activating|do this|does this|take it up|already)\b/i;
+    const pattern = /\bpattern\b|\btrend\b|\bcorrelat/i;
+    return subject.test(text) && (behaviour.test(text) || pattern.test(text));
   }
   if (instead.startsWith('In your own words')) {
-    return /\b(stopping the rest|why .{0,80}(not |don.?t ))/i.test(text);
+    // The barrier ask, by the same test: something about why the rest do not
+    // act, however it is worded.
+    return /\b(stopping|stops|blocking|blocks|holding .{0,20}back|in the way)\b/i.test(text) ||
+      /\bwhy\b[^.?]{0,90}\b(not|don.?t|aren.?t|fail|do not)\b/i.test(text);
   }
   return text === instead;
 };
@@ -127,7 +148,7 @@ export function recordAsked(
 ): WorkingBrief {
   const existing = qs(brief);
   const closed = historyIsClosed(brief);
-  const fresh: RecordedQuestion[] = questions
+  let fresh: RecordedQuestion[] = questions
     .filter((q) => q.text.trim().length > 0)
     // A QUESTION THAT ONLY RESTATES A CLOSED FACT DOES NOT GO OUT. The same
     // family as the de-duplication below — the application declining to print
@@ -160,10 +181,8 @@ export function recordAsked(
     ...existing.filter((e) => e.answeredInRound === undefined),
     ...fresh,
   ];
-  if (
-    instead &&
-    !outgoing.some((q) => q.text === instead || alreadyAsksCustomerGap(instead, q.text))
-  ) {
+  const covered = outgoing.some((q) => q.text === instead || (!!instead && alreadyAsksCustomerGap(instead, q.text)));
+  if (instead && !covered) {
     fresh.push({
       id: `q${brief.rounds}-${existing.length + fresh.length}`,
       text: instead,
@@ -171,6 +190,32 @@ export function recordAsked(
       author: 'app' satisfies AskAuthor,
       impact: 'shaping',
     } as RecordedQuestion);
+  }
+
+  // AT MOST THREE ON THE RECORD, NOT ONLY ON THE SCREEN.
+  //
+  // MEASURED, turn 1 of `eval/runs/ui-s-1792984906680`. The model asked three,
+  // the application injected a fourth, the response sliced to three — and the
+  // FOURTH stayed outstanding on the brief, so the next turn was still waiting
+  // for an answer nobody had been shown. Capping the list without capping the
+  // record is how a question becomes unanswerable.
+  //
+  // WHICH ONE GOES, when the inject pushes it over: a question that is NOT
+  // about a customer finding. Converters and barriers are what the gate blocks
+  // on, so they have to survive the cap; a scoreboard question can wait a
+  // turn. Nothing is dropped from `existing` — the cap applies to what this
+  // turn adds.
+  const CAP = 3;
+  if (fresh.length > CAP) {
+    const findingQuestion = (q: RecordedQuestion) =>
+      q.author === 'app' ||
+      (!!instead && alreadyAsksCustomerGap(instead, q.text)) ||
+      alreadyAsksCustomerGap('Who tends', q.text) ||
+      alreadyAsksCustomerGap('In your own words', q.text);
+    const keep = [...fresh.filter(findingQuestion), ...fresh.filter((q) => !findingQuestion(q))].slice(0, CAP);
+    // Re-ordered back into the order they were asked, so the ids and the
+    // reading order still match the conversation.
+    fresh = fresh.filter((q) => keep.includes(q));
   }
   return { ...brief, questions: [...existing, ...fresh] };
 }

@@ -265,10 +265,15 @@ describe('a model that proposes past an unanswered fork is stopped', () => {
     const res = await runTurn(stateAfterOneAnsweredRound());
 
     // The model asked for awaiting-confirmation. It does not get it.
+    //
+    // `pendingBlueprint` IS NOT IN THIS LIST, since 2026-10-26: a held turn
+    // draws the path it has on file, because a manager who cannot see the
+    // journey cannot tell what the fork question is even about. What the
+    // guard withholds is agreement and construction — no strategy, no
+    // blueprint to compile, no campaign, and the phase stays in discovery.
     expect(res.phase).toBe('discovery');
     expect(res.strategy).toBeNull();
     expect(res.blueprint).toBeNull();
-    expect(res.pendingBlueprint).toBeNull();
     expect(res.campaign).toBeNull();
     expect(res.designGenerated).toBe(false);
   });

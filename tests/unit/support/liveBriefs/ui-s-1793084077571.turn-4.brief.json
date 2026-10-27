@@ -1,0 +1,653 @@
+{
+ "objective": "We want more EMI-eligible card purchases to become EMI. We have no campaign history. I need a 7 day plan.",
+ "objectiveFingerprint": "become campaign card day eligible emi history no plan purchases",
+ "rounds": 0,
+ "questions": [
+  {
+   "id": "q0-0",
+   "text": "When you say you want more EMI-eligible purchases to become EMI, how will you judge whether this campaign worked — by the number of customers who convert, by the rupee value of spend that gets converted, or something else like fees or interest earned on the converted balance?",
+   "askedInRound": 0,
+   "author": "agent",
+   "impact": "fork",
+   "contingency": {
+    "ifA": "If it's the count of customers converting, the plan can treat all eligible transactions as equally worth pursuing and optimise for response rate.",
+    "ifB": "If it's the value of spend converted (or something tied to ticket size), the plan needs to pay attention to transaction size and possibly weight treatment toward larger eligible purchases, not just chase the easiest wins.",
+    "ifUnknown": "I will carry both as open measures and design the plan so we can report both, flagging that you'll need to decide which one matters before judging the first run."
+   },
+   "answeredInRound": 0,
+   "addressedInRound": 0
+  },
+  {
+   "id": "q0-1",
+   "text": "Is there a particular kind of EMI conversion you care about most — for example, converting a single large purchase right after it happens, versus converting an outstanding statement balance — or does any EMI-eligible transaction count the same to you?",
+   "askedInRound": 0,
+   "author": "agent",
+   "impact": "shaping",
+   "contingency": {
+    "ifA": "If it's specifically post-purchase, transaction-triggered conversion, the campaign anchors on the purchase event itself and the 7-day window P-003 describes.",
+    "ifB": "If outstanding balance conversion matters too, that is a different trigger and a different message, and I'd need to treat it as a separate track rather than folding it into one journey.",
+    "ifUnknown": "I will assume this is about converting eligible purchases/transactions as they happen, since that's what you named, and set balance conversion aside unless you say otherwise."
+   },
+   "answeredInRound": 0,
+   "addressedInRound": 0
+  },
+  {
+   "id": "q0-2",
+   "text": "Thinking about customers who already convert an eligible purchase to EMI today without any nudge from you - what do you know about them? For example, do you see any kind of customer or transaction that just does this on its own?",
+   "askedInRound": 0,
+   "author": "agent",
+   "impact": "fork",
+   "contingency": {
+    "ifA": "If there's a recognisable group already converting on their own (e.g. repeat EMI users), we exclude or de-prioritise them and focus the campaign on everyone else who hasn't converted.",
+    "ifB": "If you genuinely can't tell who converts today, we treat the full eligible, not-yet-converted population as one audience and let the first run tell us where the response is coming from.",
+    "ifUnknown": "I will treat this as unknown and design the campaign to observe rather than assume a converter profile."
+   },
+   "answeredInRound": 0,
+   "addressedInRound": 0
+  },
+  {
+   "id": "q0-3",
+   "text": "Why do you think most eligible customers don't convert to EMI - is it that they don't know the option exists, they're unsure if it's worth it, or genuinely something you haven't been able to tell?",
+   "askedInRound": 0,
+   "author": "agent",
+   "impact": "fork",
+   "contingency": {
+    "ifA": "If it's lack of awareness, the campaign leads with a plain explainer message on what EMI conversion means and how to do it.",
+    "ifB": "If it's hesitation about cost or value, the campaign leads with concrete terms (interest, tenure, no-cost EMI where applicable) rather than just announcing the option.",
+    "ifUnknown": "I will carry this as unknown and the first week's messaging will need to test awareness and value framing separately rather than assume one."
+   },
+   "answeredInRound": 0,
+   "addressedInRound": 0
+  },
+  {
+   "id": "q0-4",
+   "text": "Have you noticed any difference in who converts based on how big the purchase is, or based on whether the customer has converted to EMI before?",
+   "askedInRound": 0,
+   "author": "agent",
+   "impact": "shaping",
+   "contingency": {
+    "ifA": "If bigger-ticket purchases convert more easily, we weight messaging toward urgency/value on large eligible transactions.",
+    "ifB": "If past EMI users behave differently from first-timers, first-timers get an explainer step that repeat users skip.",
+    "ifUnknown": "I will carry both as open hypotheses the first run can help answer, without building a split neither of us has evidence for yet."
+   },
+   "answeredInRound": 0,
+   "addressedInRound": 0
+  },
+  {
+   "id": "q0-5",
+   "text": "Have you noticed any difference between customers who have converted to EMI before and customers doing it for the very first time — for example, do repeat converters act faster or convert more often than first-timers?",
+   "askedInRound": 0,
+   "author": "agent",
+   "impact": "fork",
+   "contingency": {
+    "ifA": "They have seen repeat converters behave differently.",
+    "ifB": "They have not seen this, or don't track it.",
+    "thenA": "The plan tests a lighter, quicker nudge for repeat converters against a more explanatory message for first-timers, as a second variable alongside ticket size.",
+    "thenB": "The plan treats EMI history as a single untested hypothesis and does not split messaging on it in week one, keeping the test focused on ticket size.",
+    "ifUnknown": "Assume it is not tracked and leave it untested this round."
+   },
+   "answeredInRound": 0,
+   "addressedInRound": 0
+  },
+  {
+   "id": "q0-6",
+   "text": "Have you noticed any difference by the type of purchase — for instance electronics, travel or jewellery converting more easily than other categories, separate from the transaction amount?",
+   "askedInRound": 0,
+   "author": "agent",
+   "impact": "fork",
+   "contingency": {
+    "ifA": "They have seen certain categories convert more readily.",
+    "ifB": "They have not seen this or don't track it by category.",
+    "thenA": "The plan tailors message framing to category (e.g. durable-goods framing vs travel framing) as a second axis to test.",
+    "thenB": "The plan uses one generic message framing across categories and does not split on this in week one.",
+    "ifUnknown": "Assume it is not tracked and leave it untested this round."
+   },
+   "answeredInRound": 0,
+   "addressedInRound": 0
+  }
+ ],
+ "answers": [
+  {
+   "round": 0,
+   "text": "1. number of customers who convert\n2. it is just emi-eligible transaction"
+  },
+  {
+   "round": 0,
+   "text": "1. trasnactions above 10k convert more \n2. they dont know if emi is eligible or not\n3. yes, trasnactions above 10k convert more"
+  },
+  {
+   "round": 0,
+   "text": "1. not really\n2. not really"
+  }
+ ],
+ "openUncertainties": [],
+ "evidenceRequests": [],
+ "facts": [
+  {
+   "statement": "They have no campaign history, and said so themselves. There is no conversion rate, benchmark, baseline or past result to ask for — this run IS the first one.",
+   "source": "user-answer",
+   "confidence": "confirmed",
+   "round": 0
+  },
+  {
+   "statement": "They asked for a plan over 7 days. That is the window the campaign has to work inside — do not ask how long they want.",
+   "source": "user-answer",
+   "confidence": "confirmed",
+   "round": 0
+  },
+  {
+   "statement": "1. number of customers who convert\n2. it is just emi-eligible transaction",
+   "source": "user-answer",
+   "round": 0,
+   "confidence": "confirmed",
+   "answers": [
+    "q0-0",
+    "q0-1"
+   ]
+  },
+  {
+   "statement": "1. trasnactions above 10k convert more \n2. they dont know if emi is eligible or not\n3. yes, trasnactions above 10k convert more",
+   "source": "user-answer",
+   "round": 0,
+   "confidence": "confirmed",
+   "answers": [
+    "q0-2",
+    "q0-3",
+    "q0-4"
+   ]
+  },
+  {
+   "statement": "1. not really\n2. not really",
+   "source": "user-answer",
+   "round": 0,
+   "confidence": "confirmed",
+   "answers": [
+    "q0-5",
+    "q0-6"
+   ]
+  }
+ ],
+ "limitations": [
+  "Stated as unavailable by the user: We want more EMI-eligible card purchases to become EMI. We have no campaign history. I need a 7 day plan."
+ ],
+ "statedValues": [],
+ "dimensions": [
+  {
+   "name": "Transaction ticket size",
+   "rationale": "Manager confirmed twice, unprompted, that transactions above ₹10,000 convert to EMI more often on their own. This is the one real observed trend and will be used to shape treatment: customers below the threshold likely need a stronger push on eligibility and value than those above it.",
+   "status": "retained",
+   "basis": "user",
+   "note": "Confirmed by manager as an observed pattern, stated in their own words: 'trasnactions above 10k convert more'. Carried into design as the primary split."
+  },
+  {
+   "name": "Card/customer tenure or EMI history",
+   "rationale": "Whether a customer has converted to EMI before could plausibly change messaging (repeat converters may need less convincing) but only if a pattern exists.",
+   "status": "deferred",
+   "basis": "user",
+   "note": "Manager said 'not really' when asked if repeat converters behave differently from first-timers. No pattern observed, so this is closed and not carried into the design."
+  },
+  {
+   "name": "Time elapsed since the eligible transaction",
+   "rationale": "How soon after the purchase a customer is reached could matter for whether the nudge lands while the purchase is still top of mind, and an auth-triggered EMI request has a fixed 7-day window before it expires.",
+   "status": "deferred",
+   "basis": "assumption",
+   "note": "This is a scheduling factor for the 7-day journey cadence, not a difference between customers that changes who gets what treatment. No pattern was asked of the manager because it governs timing, not audience segmentation. Carried forward as a cadence consideration for Plan, not as a dimension of the design."
+  },
+  {
+   "name": "Merchant category or purchase type",
+   "rationale": "Category (electronics, travel, jewellery) could affect willingness to convert independent of amount, which would argue for category-specific messaging.",
+   "status": "deferred",
+   "basis": "user",
+   "note": "Manager said 'not really' when asked if any category converts more easily than others, separate from amount. No pattern observed, so this is closed and not carried into the design."
+  }
+ ],
+ "successCriteria": [
+  "Number of customers with an EMI-eligible transaction who convert to EMI within the 7-day window, counted against the number who entered - this is the baseline run, so there is no target number yet, only the count itself.",
+  "Within that, compare the conversion count for the below-₹10,000 group against the above-₹10,000 group, since the design treats them differently and this is the first chance to see if the eligibility message actually moves the group that was not converting on its own."
+ ],
+ "verdicts": [],
+ "contextChecked": [],
+ "converters": {
+  "shape": "A ticket-size threshold around ₹10,000 appears to separate customers who convert on their own from those who need a nudge.",
+  "basis": "user",
+  "knowledge": "known",
+  "candidates": [
+   {
+    "segment": "Customers whose EMI-eligible transaction is above ₹10,000",
+    "restsOn": "transaction ticket size",
+    "why": "A bigger one-time payment is felt more heavily, so breaking it into installments carries a bigger perceived benefit, making these customers more likely to opt in without prompting."
+   }
+  ],
+  "raisedInRound": 0
+ },
+ "barriers": [
+  {
+   "id": "eligibility-awareness",
+   "statement": "Customers do not know whether their purchase actually qualifies for EMI conversion.",
+   "basis": "user-belief",
+   "lever": "message",
+   "quote": "they dont know if emi is eligible or not"
+  }
+ ],
+ "lastProposal": {
+  "strategy": {
+   "approach": [
+    "Manager confirmed: judge success by number of customers who convert an EMI-eligible transaction, any eligible transaction counts the same.",
+    "Manager confirmed twice: transactions above ₹10,000 convert to EMI on their own more often than smaller ones - this is the retained customer-difference used to split treatment.",
+    "Manager confirmed: the main reason the rest don't convert is they don't know the purchase is EMI-eligible - this is the barrier the message attacks.",
+    "Manager ruled out EMI-history/tenure and merchant category as patterns they've seen - these are not used to split the design.",
+    "Tool/knowledge base: an auth-triggered EMI request stays open up to 7 days before expiring, which matches the 7-day window and sets the outer edge for the last reminder.",
+    "Tool/knowledge base: WhatsApp and in-app are where Indian cardholders actually read and act; the builder cannot send in-app yet, so WhatsApp/SMS carry that role, mapped explicitly.",
+    "Assumption: 'EMI-eligible transaction' as an entry signal means a transaction event flagged eligible for EMI conversion that has not yet been converted - this is checked against the goal (an EMI conversion event) so anyone who already converted exits before the next send, per the goal-check principle."
+   ],
+   "assumptions": [
+    "No campaign history exists, so this run sets the baseline rather than targeting a lift number.",
+    "The ~₹10,000 split is the manager's own observed threshold, used as the segmentation cutoff rather than an invented number.",
+    "Below-threshold transactions need a stronger push (clear eligibility statement plus a reason to act) since that is the group that is not converting on its own and whose stated barrier is pure unawareness.",
+    "Above-threshold transactions still get a path, lighter, since they already convert more without help but should not be dropped from a 7-day eligible window with no touch at all.",
+    "The 7-day window is anchored to the transaction date since that is when the EMI conversion option is live and the auth-triggered request expires at day 7."
+   ],
+   "unknowns": [
+    "Whether the per-transaction EMI eligibility flag and conversion-status are both readable at the individual transaction level for entry/goal matching, versus only at account level - to be confirmed with engineering/compliance before build.",
+    "Whether customers can self-serve EMI conversion via WhatsApp reply/link or must go into the app - affects how directive the CTA can be.",
+    "Interest/processing-fee terms on EMI conversion, needed so the message can state the real cost (or no-cost) without inventing a number."
+   ],
+   "architectures": [
+    {
+     "name": "Uniform reminder to all eligible transactions",
+     "barrier": "eligibility-awareness",
+     "audience": "Everyone with an EMI-eligible, unconverted transaction in the last 7 days",
+     "journey": "Single message flow, same copy and cadence for every ticket size",
+     "lever": "message",
+     "timing": "Fixed schedule from transaction date, same for all",
+     "tradeOff": "Simple to run but ignores the one real pattern the manager has seen - treats a ₹2,000 purchase the same as a ₹50,000 one, wasting sends on a group that already converts on its own and under-arguing for the group that needs convincing.",
+     "chosen": false,
+     "why": "Does not use the confirmed ticket-size pattern at all, so it cannot test or act on the one trend we actually have evidence for.",
+     "entry": "Everyone with an EMI-eligible, unconverted transaction in the last 7 days",
+     "tradeoff": "Simple to run but ignores the one real pattern the manager has seen - treats a ₹2,000 purchase the same as a ₹50,000 one, wasting sends on a group that already converts on its own and under-arguing for the group that needs convincing.",
+     "whyChosen": "Does not use the confirmed ticket-size pattern at all, so it cannot test or act on the one trend we actually have evidence for."
+    },
+    {
+     "name": "Ticket-size split: light touch above ₹10,000, fuller eligibility push below ₹10,000",
+     "barrier": "eligibility-awareness",
+     "audience": "Everyone with an EMI-eligible, unconverted transaction in the last 7 days, split at the manager's own ₹10,000 threshold",
+     "journey": "Two treatments inside the same entry door: a short one-touch nudge for the group that mostly converts on its own, and a two-touch eligibility-plus-reminder sequence for the group that needs the push",
+     "lever": "message",
+     "timing": "First touch within a day of the transaction while it is still top of mind; reminder before the 7-day window closes",
+     "tradeOff": "Requires confirming the transaction amount is readable at entry, and sends slightly more messages to the below-threshold group, but it matches effort to where the barrier actually is.",
+     "chosen": true,
+     "why": "Directly uses the confirmed pattern (ticket size) to decide how much convincing each group gets, and directly attacks the confirmed barrier (they don't know it's eligible) with an explicit eligibility statement rather than a generic reminder.",
+     "entry": "Everyone with an EMI-eligible, unconverted transaction in the last 7 days, split at the manager's own ₹10,000 threshold",
+     "tradeoff": "Requires confirming the transaction amount is readable at entry, and sends slightly more messages to the below-threshold group, but it matches effort to where the barrier actually is.",
+     "whyChosen": "Directly uses the confirmed pattern (ticket size) to decide how much convincing each group gets, and directly attacks the confirmed barrier (they don't know it's eligible) with an explicit eligibility statement rather than a generic reminder."
+    }
+   ],
+   "rejected": [
+    {
+     "option": "Splitting on EMI history (repeat vs first-time converter)",
+     "why": "Manager said they have not seen a difference here. Designing a split on an unconfirmed trend would test a pattern nobody has evidence for."
+    },
+    {
+     "option": "Splitting on merchant category",
+     "why": "Manager said they have not seen a difference here either. Same reasoning - no evidence to design against."
+    },
+    {
+     "option": "A single uniform message to everyone",
+     "why": "Ignores the one real, twice-confirmed pattern (ticket size) and would not let us learn anything new since no past campaign exists to compare against."
+    }
+   ],
+   "successCriteria": [
+    "Number of customers with an EMI-eligible transaction who convert to EMI within the 7-day window, counted against the number who entered - this is the baseline run, so there is no target number yet, only the count itself.",
+    "Within that, compare the conversion count for the below-₹10,000 group against the above-₹10,000 group, since the design treats them differently and this is the first chance to see if the eligibility message actually moves the group that was not converting on its own."
+   ],
+   "measurement": [
+    "Total converters and conversion rate by the two ticket-size paths separately, not blended - the point of the split is to see whether the below-threshold group responds to the eligibility message.",
+    "Delivery and read status by channel for the first touch, to see whether WhatsApp is actually landing for this audience before drawing conclusions about message content.",
+    "Time-to-convert relative to the transaction date, to check whether most conversions happen after the first touch or only after the reminder - useful for shaping the next run's cadence."
+   ],
+   "hypotheses": [
+    "Telling a customer explicitly that their purchase qualifies for EMI, with the amount and a no-cost-if-applicable framing, converts more of the below-₹10,000 group than they would convert unprompted - untested, this run is the first evidence either way.",
+    "The above-₹10,000 group needs only a light reminder, not a full explanation, since they already convert at a higher rate on their own - untested assumption carried from the manager's observation."
+   ],
+   "openItems": [
+    {
+     "kind": "platform-gap",
+     "question": "In-app messaging is the natural channel for a cardholder mid-purchase-decision, but the builder can only send WhatsApp, SMS or email today.",
+     "whyItMatters": "An in-app nudge would reach the customer at the exact moment they're looking at the transaction; WhatsApp is the next-best substitute but is a different moment.",
+     "ifUnanswered": "Proceeding with WhatsApp as first touch, SMS as fallback on delivery failure, mapped as instructed."
+    },
+    {
+     "kind": "missing-evidence",
+     "question": "Can the EMI-eligibility flag and the transaction amount both be read at the individual transaction level for entry and for the ticket-size split?",
+     "whyItMatters": "If only account-level eligibility is visible, the ticket-size split cannot be built as designed and would need to fall back to a single path.",
+     "ifUnanswered": "Assuming transaction-level read is available; flagging for confirmation before build."
+    }
+   ],
+   "summary": "You told me this is about turning more EMI-eligible purchases into EMI, judged purely by how many customers convert, and that the main thing holding people back is not knowing the purchase qualifies - except for the bigger-ticket purchases above \\u20b910,000, which already convert well on their own. The plan uses exactly that: a lighter touch for the group that mostly acts on its own, and a clearer, two-touch eligibility push for the group that needs to be told the purchase qualifies, all inside the 7-day window the EMI request stays open.",
+   "blueprint": {
+    "campaignName": "EMI Eligible Purchase Conversion - 7 Day",
+    "description": "Targets customers with an EMI-eligible card transaction that has not yet been converted. Splits treatment by transaction amount at the manager's own ₹10,000 threshold: a light single-touch reminder for the group that already converts well on its own, and a fuller two-touch sequence stating eligibility clearly for the group that needs the nudge. Exits anyone who converts at any point.",
+    "entry": {
+     "kind": "event",
+     "eventCategory": "Transaction",
+     "eventType": "EMI Eligible Transaction",
+     "conditions": [],
+     "groups": [
+      {
+       "entity": "Transaction",
+       "existence": "none",
+       "lookbackDays": 7,
+       "conditions": [
+        {
+         "attribute": "EMI Conversion Status",
+         "operator": "Equals",
+         "value": "Converted"
+        }
+       ]
+      }
+     ]
+    },
+    "goal": {
+     "eventCategory": "EMI",
+     "eventType": "EMI Conversion Completed",
+     "conditions": []
+    },
+    "steps": [
+     {
+      "kind": "branch",
+      "label": "Split by transaction amount",
+      "on": {
+       "entity": "Transaction",
+       "attribute": "Transaction Amount",
+       "operator": "Greater than",
+       "value": "10000"
+      },
+      "paths": [
+       {
+        "label": "Above ₹10,000 - light touch",
+        "operator": "Greater than",
+        "value": "10000",
+        "steps": [
+         {
+          "kind": "send",
+          "label": "Reminder nudge",
+          "barrier": "eligibility-awareness",
+          "channelPreference": [
+           "WHATSAPP",
+           "SMS"
+          ],
+          "fallbackChannel": "SMS",
+          "delayDays": 1,
+          "atTime": "11:00",
+          "copy": "Your recent card purchase can be converted to easy EMIs. Check eligible EMI plans in the IndusInd app before the offer window closes.",
+          "cta": "View EMI options",
+          "describe": "Single light-touch reminder, no second message, since this group already converts at a higher rate without help."
+         }
+        ]
+       },
+       {
+        "label": "₹10,000 and below - fuller push",
+        "operator": "Less than",
+        "value": "10000",
+        "steps": [
+         {
+          "kind": "send",
+          "label": "Eligibility reveal",
+          "barrier": "eligibility-awareness",
+          "channelPreference": [
+           "WHATSAPP",
+           "SMS"
+          ],
+          "fallbackChannel": "SMS",
+          "delayDays": 1,
+          "atTime": "11:00",
+          "copy": "Good news: your recent card purchase qualifies for EMI conversion. Split the payment into easy monthly instalments, right from the IndusInd app.",
+          "cta": "Convert to EMI now",
+          "describe": "First touch, states eligibility explicitly since that is the confirmed barrier for this group."
+         },
+         {
+          "kind": "branch",
+          "label": "Check first-touch outcome",
+          "paths": [
+           {
+            "label": "Delivered, not converted",
+            "statuses": [
+             "DELIVERED"
+            ],
+            "steps": [
+             {
+              "kind": "wait",
+              "delayDays": 3
+             },
+             {
+              "kind": "send",
+              "label": "Reminder before window closes",
+              "barrier": "eligibility-awareness",
+              "channelPreference": [
+               "WHATSAPP",
+               "SMS"
+              ],
+              "fallbackChannel": "SMS",
+              "atTime": "11:00",
+              "copy": "Reminder: your card purchase is still eligible for EMI conversion. This window closes soon. Convert now in the IndusInd app to spread the cost.",
+              "cta": "Convert to EMI now",
+              "describe": "Second touch for those who received the first message but have not converted, timed to land before the 7-day eligibility window closes."
+             }
+            ]
+           },
+           {
+            "label": "Read, not converted",
+            "statuses": [
+             "READ"
+            ],
+            "steps": [
+             {
+              "kind": "wait",
+              "delayDays": 3
+             },
+             {
+              "kind": "send",
+              "label": "Value-reason reminder",
+              "barrier": "eligibility-awareness",
+              "channelPreference": [
+               "WHATSAPP",
+               "SMS"
+              ],
+              "fallbackChannel": "SMS",
+              "atTime": "11:00",
+              "copy": "Still thinking it over? Converting to EMI means smaller monthly payments on your recent purchase, no change to your card limit impact. Offer ends soon.",
+              "cta": "See my EMI plan",
+              "describe": "Second touch for those who read the first message but did not act - changes the argument from awareness to value, since they already know it exists but have not converted."
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "touches": [
+    {
+     "day": 1,
+     "channel": "WhatsApp (SMS fallback on delivery failure)",
+     "path": "Above ₹10,000 (light touch)",
+     "purpose": "Single reminder that the purchase can be converted to EMI - this group already converts well on its own, so one touch is enough.",
+     "ifStillUnconverted": "No further message on this path; window closes at day 7."
+    },
+    {
+     "day": 1,
+     "channel": "WhatsApp (SMS fallback on delivery failure)",
+     "path": "₹10,000 and below (fuller push)",
+     "purpose": "State plainly that the purchase qualifies for EMI - this is the confirmed barrier for this group.",
+     "ifStillUnconverted": "Branches by whether the message was delivered-but-unread or read-but-not-acted-on."
+    },
+    {
+     "day": 4,
+     "channel": "WhatsApp (SMS fallback on delivery failure)",
+     "path": "₹10,000 and below - delivered but unread",
+     "purpose": "Repeat the eligibility fact before the window closes, since they have not seen it yet.",
+     "ifStillUnconverted": "No further message; window closes at day 7."
+    },
+    {
+     "day": 4,
+     "channel": "WhatsApp (SMS fallback on delivery failure)",
+     "path": "₹10,000 and below - read but not converted",
+     "purpose": "Shift the argument to value (smaller monthly payments) since awareness is no longer the gap for this group.",
+     "ifStillUnconverted": "No further message; window closes at day 7."
+    }
+   ]
+  },
+  "blueprint": {
+   "campaignName": "EMI Eligible Purchase Conversion - 7 Day",
+   "description": "Targets customers with an EMI-eligible card transaction that has not yet been converted. Splits treatment by transaction amount at the manager's own ₹10,000 threshold: a light single-touch reminder for the group that already converts well on its own, and a fuller two-touch sequence stating eligibility clearly for the group that needs the nudge. Exits anyone who converts at any point.",
+   "entry": {
+    "kind": "event",
+    "eventCategory": "Transaction",
+    "eventType": "EMI Eligible Transaction",
+    "conditions": [],
+    "groups": [
+     {
+      "entity": "Transaction",
+      "existence": "none",
+      "lookbackDays": 7,
+      "conditions": [
+       {
+        "attribute": "EMI Conversion Status",
+        "operator": "Equals",
+        "value": "Converted"
+       }
+      ]
+     }
+    ]
+   },
+   "goal": {
+    "eventCategory": "EMI",
+    "eventType": "EMI Conversion Completed",
+    "conditions": []
+   },
+   "steps": [
+    {
+     "kind": "branch",
+     "label": "Split by transaction amount",
+     "on": {
+      "entity": "Transaction",
+      "attribute": "Transaction Amount",
+      "operator": "Greater than",
+      "value": "10000"
+     },
+     "paths": [
+      {
+       "label": "Above ₹10,000 - light touch",
+       "operator": "Greater than",
+       "value": "10000",
+       "steps": [
+        {
+         "kind": "send",
+         "label": "Reminder nudge",
+         "barrier": "eligibility-awareness",
+         "channelPreference": [
+          "WHATSAPP",
+          "SMS"
+         ],
+         "fallbackChannel": "SMS",
+         "delayDays": 1,
+         "atTime": "11:00",
+         "copy": "Your recent card purchase can be converted to easy EMIs. Check eligible EMI plans in the IndusInd app before the offer window closes.",
+         "cta": "View EMI options",
+         "describe": "Single light-touch reminder, no second message, since this group already converts at a higher rate without help."
+        }
+       ]
+      },
+      {
+       "label": "₹10,000 and below - fuller push",
+       "operator": "Less than",
+       "value": "10000",
+       "steps": [
+        {
+         "kind": "send",
+         "label": "Eligibility reveal",
+         "barrier": "eligibility-awareness",
+         "channelPreference": [
+          "WHATSAPP",
+          "SMS"
+         ],
+         "fallbackChannel": "SMS",
+         "delayDays": 1,
+         "atTime": "11:00",
+         "copy": "Good news: your recent card purchase qualifies for EMI conversion. Split the payment into easy monthly instalments, right from the IndusInd app.",
+         "cta": "Convert to EMI now",
+         "describe": "First touch, states eligibility explicitly since that is the confirmed barrier for this group."
+        },
+        {
+         "kind": "branch",
+         "label": "Check first-touch outcome",
+         "paths": [
+          {
+           "label": "Delivered, not converted",
+           "statuses": [
+            "DELIVERED"
+           ],
+           "steps": [
+            {
+             "kind": "wait",
+             "delayDays": 3
+            },
+            {
+             "kind": "send",
+             "label": "Reminder before window closes",
+             "barrier": "eligibility-awareness",
+             "channelPreference": [
+              "WHATSAPP",
+              "SMS"
+             ],
+             "fallbackChannel": "SMS",
+             "atTime": "11:00",
+             "copy": "Reminder: your card purchase is still eligible for EMI conversion. This window closes soon. Convert now in the IndusInd app to spread the cost.",
+             "cta": "Convert to EMI now",
+             "describe": "Second touch for those who received the first message but have not converted, timed to land before the 7-day eligibility window closes."
+            }
+           ]
+          },
+          {
+           "label": "Read, not converted",
+           "statuses": [
+            "READ"
+           ],
+           "steps": [
+            {
+             "kind": "wait",
+             "delayDays": 3
+            },
+            {
+             "kind": "send",
+             "label": "Value-reason reminder",
+             "barrier": "eligibility-awareness",
+             "channelPreference": [
+              "WHATSAPP",
+              "SMS"
+             ],
+             "fallbackChannel": "SMS",
+             "atTime": "11:00",
+             "copy": "Still thinking it over? Converting to EMI means smaller monthly payments on your recent purchase, no change to your card limit impact. Offer ends soon.",
+             "cta": "See my EMI plan",
+             "describe": "Second touch for those who read the first message but did not act - changes the argument from awareness to value, since they already know it exists but have not converted."
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "round": 0
+ },
+ "lastBlocks": [
+  "single-channel-habit"
+ ]
+}

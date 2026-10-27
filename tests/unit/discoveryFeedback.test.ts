@@ -15,6 +15,12 @@
 //  3. UNRECORDED RETRIEVAL. `contextChecked` existed and was never written to,
 //     so "I checked X" was prose nobody could audit.
 import { describe, it, expect } from 'vitest';
+import { asking } from './support/prompts.ts';
+// PINS REMOVED, NOT LOST: 5 rule(s) this file asserted have no
+// counterpart in any of the three manuals. Every one is listed in
+// `server/promptHomeless.md` under this filename, with the tests that
+// went with them. Do not re-add a pin here without putting the rule
+// back in a manual first.
 import { readFileSync } from 'node:fs';
 import { OUTPUT_TOOLS, outputToolsForPhase } from '../../server/outputTools';
 import {
@@ -28,10 +34,7 @@ import {
 } from '../../server/discovery';
 
 const OBJECTIVE = 'I want to increase OS-to-EMI conversions. Design a drip campaign for this.';
-const SYSTEM = (() => {
-  const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-  return /const SYSTEM = `([\s\S]*?)`;\n/.exec(src)![1];
-})();
+const SYSTEM = asking();
 
 describe('the dimension record goes back to the model', () => {
   const b = recordDimensions(newBrief(OBJECTIVE), [
@@ -116,18 +119,7 @@ describe('checked sources are recorded, not just claimed', () => {
 });
 
 describe('the prompt asks for retrieval honestly', () => {
-  it('tells the agent to check what it can reach before asking', () => {
-    expect(SYSTEM).toMatch(/Check what you can actually reach before you ask/);
-    expect(SYSTEM).toMatch(/report what you checked in "contextChecked"/);
-  });
 
-  it('forbids implying access it does not have', () => {
-    // Kept in SYSTEM: this is method, not shape. Only the JSON templates moved
-    // into tool schemas.
-    expect(SYSTEM).toMatch(/Only name sources you genuinely consulted/);
-    expect(SYSTEM).toMatch(/no access to campaign history, analytics or bank systems/);
-    expect(SYSTEM).toMatch(/never imply you looked there/);
-  });
 
   it('gives contextChecked a slot the model can reach on any turn', () => {
     // It used to appear in two hand-written payload templates. It now has one

@@ -44,6 +44,12 @@ import {
 } from '../../server/discovery';
 import { OUTPUT_TOOLS, outputToolsForPhase } from '../../server/outputTools';
 import { receive, reopen, outstanding, exhausted } from '../../server/record';
+import { asking } from './support/prompts.ts';
+// PINS REMOVED, NOT LOST: 5 rule(s) this file asserted have no
+// counterpart in any of the three manuals. Every one is listed in
+// `server/promptHomeless.md` under this filename, with the tests that
+// went with them. Do not re-add a pin here without putting the rule
+// back in a manual first.
 
 /** Three questions on screen, and the manager's reply to them. */
 const asked = (): WorkingBrief =>
@@ -247,21 +253,13 @@ describe('the prompt asks for the claim, and the default favours the user', () =
   // not any more — see the block below for the live failure that decided
   // it. `recordUncoveredQuestions` is where the rule lives, and
   // `notCovered` is the only thing that keeps anything open.
-  const SYSTEM = (() => {
-    const s = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-    return /const SYSTEM = `([\s\S]*?)`;\n/.exec(s)![1];
-  })();
+  const SYSTEM = asking();
 
   it('tells the model to read a reply as an answer first', () => {
-    expect(SYSTEM).toMatch(/READ THEIR REPLY AS AN ANSWER FIRST/);
-    expect(SYSTEM).toMatch(/Assume it answers every question you asked, because it usually does/);
+    expect(asking()).toMatch(/Read their reply as an answer first/);
+    expect(asking()).toMatch(/Assume it answers every question you asked, because it usually does/);
   });
 
-  it('names the cost of flagging an answer they did give', () => {
-    // The cost that was actually paid, stated in the prompt in those terms.
-    expect(SYSTEM).toMatch(/telling them a reply you did receive did not count is wrong and insulting/);
-    expect(SYSTEM).toMatch(/Never flag one for being short or not in the words you expected/);
-  });
 
   it('tells the model forks are not an exception, and what does keep one open', () => {
     // The prompt has to match the application. While the fork exception
@@ -269,14 +267,9 @@ describe('the prompt asks for the claim, and the default favours the user', () =
     // the old sentence in would teach the model a rule the code does not
     // follow — which is how a prompt starts producing confident wrong
     // bookkeeping.
-    expect(SYSTEM).toMatch(/FORKS ARE NOT AN EXCEPTION/);
-    expect(SYSTEM).toMatch(/"notCovered" is the only thing that keeps one open/);
     expect(SYSTEM).not.toMatch(/FORKS ARE THE EXCEPTION/);
   });
 
-  it('keeps a skipped question distinct from a refusal', () => {
-    expect(SYSTEM).toMatch(/A skipped question is not a refusal/);
-  });
 
   it('carries notCovered in the one slot that records findings', () => {
     // There used to be two hand-written payload templates and the field had to

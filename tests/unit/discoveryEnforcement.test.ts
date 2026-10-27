@@ -19,13 +19,13 @@
 import { describe, it, expect } from 'vitest';
 import { settleFindings, alternativesRuledOut } from './support/findings';
 import { readFileSync } from 'node:fs';
+import { blocksFor } from '../../server/gate';
 import {
   evaluateDiscovery,
   newBrief,
   recordDimensions,
   recordAnswer,
   recordSuccessCriteria,
-  discoveryIsComplete,
   droppedWithoutReason,
   userHasRespondedOnce,
   outstandingDimensions,
@@ -35,6 +35,12 @@ import {
   type WorkingBrief,
 } from '../../server/discovery';
 import { OUTPUT_TOOLS, outputToolsForPhase } from '../../server/outputTools';
+import { asking } from './support/prompts.ts';
+// PINS REMOVED, NOT LOST: 3 rule(s) this file asserted have no
+// counterpart in any of the three manuals. Every one is listed in
+// `server/promptHomeless.md` under this filename, with the tests that
+// went with them. Do not re-add a pin here without putting the rule
+// back in a manual first.
 
 const OBJECTIVE = 'I want to increase OS-to-EMI conversions. Design a drip campaign for this.';
 
@@ -71,24 +77,37 @@ const gate = (over: Record<string, unknown> = {}) =>
   });
 
 describe('a premature proposal is refused', () => {
-  it('rejects a proposal when nothing has been considered', () => {
-    const d = gate({ brief: answered(newBrief(OBJECTIVE)) });
-    expect(d.outcome).toBe('continue_discovery');
-    expect(d.overrodeModel).toBe(true);
-    expect(d.reason).toMatch(/without setting out what I had considered/i);
+  it('the dimension ledger is no longer a gate of its own', () => {
+    // RETARGETED 2026-10-26. This asserted `continue_discovery` on a brief
+    // with the three findings and an EMPTY dimension list, because
+    // `discoveryIsComplete` wanted three rows. That count is gone: the
+    // findings are what a campaign needs, and the second-pattern search only
+    // exists once they have named a pattern.
+    const b = answered(newBrief(OBJECTIVE));
+    expect(briefDimensions(b)).toEqual([]);
+    expect(gate({ brief: b }).outcome).toBe('ready_for_strategy');
+    expect(blocksFor(b).map((x) => x.code)).toEqual([]);
   });
 
-  it('rejects a proposal while any dimension is still open', () => {
+  it('still refuses a row raised on nothing and left unexplained', () => {
+    // The surviving half of the old rule, and the honest one: a line of
+    // enquiry with no basis and no note is a decision nobody made. The COUNT
+    // is gone; this is not.
+    const unreasoned = answered(dims(
+      { name: 'Statement timing', status: 'retained', basis: 'user' },
+      { name: 'Outstanding statement amount', status: 'open', basis: 'none' },
+    ));
+    expect(blocksFor(unreasoned).map((x) => x.code)).toContain('dimension-unreasoned');
     const d = gate({
       brief: answered(dims(
         { name: 'Statement timing', status: 'retained', basis: 'user' },
         { name: 'Outstanding statement amount', status: 'open', basis: 'none' },
       )),
     });
-    expect(d.outcome).toBe('continue_discovery');
-    // The reason names what is still being looked at, so the refusal is legible.
-    expect(d.reason).toMatch(/Outstanding statement amount/);
-    expect(d.reason).not.toMatch(/Statement timing/);
+    // `evaluateDiscovery` no longer rules on this — the record does, through
+    // `blocksFor` above — so the outcome here is the proposal's, and the hold
+    // comes from the block.
+    expect(d.outcome).toBe('ready_for_strategy');
   });
 
   it('refuses discovery BEFORE offering a strategy with questions', () => {
@@ -162,7 +181,7 @@ describe('completed discovery lets the strategy through', () => {
     expect(d.outcome).toBe('strategy_with_questions');
   });
 
-  it('one open dimension among four resolved is still enough to block', () => {
+  it('one open dimension among four resolved is the record\'s business, not this gate\'s', () => {
     const d = gate({
       brief: answered(dims(
         { name: 'A', status: 'retained' },
@@ -172,7 +191,18 @@ describe('completed discovery lets the strategy through', () => {
         { name: 'E', status: 'open' },
       )),
     });
-    expect(d.outcome).toBe('continue_discovery');
+    // `evaluateDiscovery` is no longer the authority on this. An 'open' row
+    // with no basis and no note is `dimension-unreasoned` on the record, and
+    // that is what holds the turn.
+    expect(d.outcome).toBe('ready_for_strategy');
+    expect(
+      blocksFor(
+        answered(dims(
+          { name: 'A', status: 'retained' },
+          { name: 'E', status: 'open' },
+        )),
+      ).map((x) => x.code),
+    ).toContain('dimension-unreasoned');
   });
 });
 
@@ -187,49 +217,66 @@ describe('the completeness predicate', () => {
     expect(outstandingDimensions(b).map((d) => d.name)).toEqual(['A']);
   });
 
-  it('an empty record is NOT complete', () => {
-    expect(discoveryIsComplete(newBrief(OBJECTIVE))).toBe(false);
-    expect(briefDimensions(newBrief(OBJECTIVE))).toEqual([]);
-  });
-
-  it('is not complete on ONE resolved dimension, however certain the agent is', () => {
-    // The rule that changed, and why: being sure about one factor is not the
-    // same as having considered the alternatives. A campaign built on the
-    // first plausible idea is what this gate exists to prevent, and the
-    // prompt has always asked for three to five lines of enquiry while the
-    // gate accepted one.
-    expect(discoveryIsComplete(dims({ name: 'A', status: 'open' }))).toBe(false);
-    expect(discoveryIsComplete(dims({ name: 'A', status: 'retained' }))).toBe(false);
-  });
-
-  it('is complete once alternatives were raised and each was resolved', () => {
-    const b = recordDimensions(newBrief(OBJECTIVE), [
+  // `discoveryIsComplete` IS GONE, 2026-10-26, and the five cases that were
+  // here went with it. They pinned a count — three raised lines of enquiry,
+  // none still open, each drop explained — as the test of whether the brief
+  // was finished.
+  //
+  // MEASURED, `eval/runs/ui-s-1792984906680`. By turn 4 the record held the
+  // success measure, who converts, a barrier in the manager's own words, a
+  // seen axis and an answered probe. `decide(brief).blocks` was EMPTY and a
+  // real journey was on file. This predicate counted two dimension rows and
+  // said discovery was not complete, so `evaluateDiscovery` returned
+  // `continue_discovery` with `questions: []` — "I have only looked at 2
+  // angle(s) so far" — on turn 3 and again on turn 4. The manager read an
+  // essay and got no button, twice.
+  //
+  // A COUNT IS NOT A SEARCH, and the third row had nowhere to come from
+  // except invention. What replaced it is evidence: `unprobed-other-axes`
+  // asks whether they named a pattern and answered a probe we actually put to
+  // them, and an `assumption` row cannot satisfy it. The two cases below are
+  // what survives of this group — the drop-without-a-reason rule, which is
+  // about a decision nobody explained rather than about a quantity.
+  it('still refuses a line of enquiry dropped with no reason', () => {
+    // `answered` first: `blocksFor` returns `no-participation` alone before
+    // the first reply and stops there, deliberately — nothing below it is
+    // meaningful until someone has taken part.
+    const b = answered(recordDimensions(newBrief(OBJECTIVE), [
       { name: 'A', rationale: 'r', status: 'retained', basis: 'user' },
-      { name: 'B', rationale: 'r', status: 'deferred', basis: 'assumption', note: 'Ruled out: no attribute carries it.' },
-      { name: 'C', rationale: 'r', status: 'unavailable', basis: 'none', note: 'Ruled out: no data exists for this tenant.' },
-    ]);
-    expect(discoveryIsComplete(b)).toBe(true);
+      { name: 'B', rationale: 'r', status: 'deferred', basis: 'none' },
+      { name: 'C', rationale: 'r', status: 'deferred', basis: 'none', note: 'Ruled out: cost.' },
+    ]));
+    expect(droppedWithoutReason(b).map((d) => d.name)).toContain('B');
+    expect(blocksFor(b).map((x) => x.code)).toContain('dimension-unreasoned');
   });
 
-  it('is NOT complete when something was raised and then dropped with no reason', () => {
-    // Ruling a factor out is a decision and leaves a reason behind. A
-    // dimension dropped silently is indistinguishable from one never
-    // thought about.
-    const b = recordDimensions(newBrief(OBJECTIVE), [
-      { name: 'A', rationale: 'r', status: 'retained', basis: 'user' },
-      { name: 'B', rationale: 'r', status: 'deferred', basis: 'assumption' },
-      { name: 'C', rationale: 'r', status: 'deferred', basis: 'assumption', note: 'Ruled out: cost.' },
-    ]);
-    expect(discoveryIsComplete(b)).toBe(false);
-    expect(droppedWithoutReason(b).map((d) => d.name)).toEqual(['B']);
+  it('and does not count rows: three is no longer a number anything reads', () => {
+    const gateSrc = readFileSync(new URL('../../server/gate.ts', import.meta.url), 'utf8');
+    const discSrc = readFileSync(new URL('../../server/discovery.ts', import.meta.url), 'utf8');
+    expect(gateSrc).not.toMatch(/code: 'too-few-dimensions'/);
+    expect(gateSrc).not.toMatch(/export const MIN_DIMENSIONS =/);
+    expect(discSrc).not.toMatch(/export const MIN_DIMENSIONS_CONSIDERED/);
+    expect(discSrc).not.toMatch(/export const discoveryIsComplete/);
+    // And the sentence a manager read on a finished brief is gone from the
+    // CODE — it survives in the comments that record why, which is why this
+    // strips them first.
+    const code = discSrc
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+      .join('\n');
+    expect(code).not.toMatch(/I have only looked at/);
   });
 
-  it('a brief saved before dimensions existed reads as incomplete, not as a crash', () => {
+  it('a brief saved before dimensions existed is read, not crashed on', () => {
+    // The guarantee survives its old subject: an older brief has no
+    // `dimensions` key at all, and every reader defaults rather than throwing.
     const legacy = newBrief(OBJECTIVE) as Record<string, unknown>;
     delete legacy.dimensions;
     const b = legacy as unknown as WorkingBrief;
-    expect(() => discoveryIsComplete(b)).not.toThrow();
-    expect(discoveryIsComplete(b)).toBe(false);
+    expect(() => briefDimensions(b)).not.toThrow();
+    expect(briefDimensions(b)).toEqual([]);
+    expect(() => blocksFor(b)).not.toThrow();
+    expect(() => gate({ brief: b })).not.toThrow();
     expect(gate({ brief: b }).outcome).toBe('continue_discovery');
   });
 });
@@ -294,10 +341,29 @@ describe('the orchestrator honours the outcome instead of falling through', () =
       src.indexOf('if (!decision.proceed && !approvedPlan) {'),
       src.indexOf('// Discovery is complete. If the model only asked questions'),
     );
-    expect(branch).toMatch(/strategy: null/);
-    expect(branch).toMatch(/blueprint: null/);
-    expect(branch).toMatch(/pendingBlueprint: null/);
-    expect(branch).toMatch(/phase: 'discovery'/);
+    expect(branch).toMatch(/strategy: null,/);
+    expect(branch).toMatch(/blueprint: null,/);
+    // TWO SCREENS OUT OF ONE BRANCH, since 2026-10-26. `discovery` when the
+    // RECORD is open; `revising` when the brief is closed and the plan needs a
+    // change. The old single phase told a manager with a finished brief that
+    // their answer was awaited.
+    // REVISE REQUIRES A PATH, 2026-10-26: with the brief closed and nothing on
+    // file the screen is Plan, not a Revise with an empty canvas.
+    expect(branch).toMatch(/phase: briefClosed \? planOrRevise\(filedPath\) : 'discovery',/);
+    expect(branch).toMatch(/questions: briefQuestions,/);
+    // THE CONTRACT THAT LANDED 2026-10-26, and the old assertion passed by
+    // accident. `pendingBlueprint: null` still appears in this branch — in a
+    // COMMENT recounting the bug it used to be — so a regex for it matched
+    // the history rather than the code. The assignment now sends the filed
+    // path so the left pane can draw it.
+    //
+    // What the branch withholds is agreement and construction: no strategy,
+    // no blueprint to compile, and a phase that is not
+    // `awaiting-confirmation`, so Confirm cannot appear. A drawing is not an
+    // approval.
+    expect(branch).toMatch(/pendingBlueprint: filedPath,/);
+    expect(branch).not.toMatch(/pendingBlueprint: null,/);
+    expect(branch).not.toMatch(/awaiting-confirmation/);
   });
 
   it('records the model\'s dimensions into the brief before the gate reads it', () => {
@@ -307,31 +373,37 @@ describe('the orchestrator honours the outcome instead of falling through', () =
   });
 
   it('passes the refinement flag through, so a change request is not re-gated', () => {
-    const call = src.slice(src.indexOf('const gate = evaluateDiscovery({'), src.indexOf('const gate = evaluateDiscovery({') + 700);
+    const call = src.slice(src.indexOf('const gate = evaluateDiscovery({'), src.indexOf('const gate = evaluateDiscovery({') + 900);
     expect(call).toMatch(/isRefinement/);
+    // AND THE RECORD'S OWN ANSWER, since 2026-10-26. The gate takes
+    // `briefClosed` rather than computing a completeness rule of its own, so
+    // an ask on a settled record cannot come back as `ask_questions`.
+    expect(call).toMatch(/briefClosed,/);
   });
 });
 
 describe('the prompt and the gate agree', () => {
   const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-  const SYSTEM = /const SYSTEM = `([\s\S]*?)`;\n/.exec(src)![1];
+  const SYSTEM = asking();
 
-  it('the prompt asks for exactly the status vocabulary the gate enforces', () => {
+  it('the gate still enforces a status vocabulary the prompt no longer names', () => {
+    // THE PROMPT HALF OF THIS CONTRACT IS HOMELESS, and it is the most
+    // consequential loss in the manuals pass — see `server/promptHomeless.md`
+    // and the note in `server/CLAUDE.md`. The application still reads these
+    // values; no manual tells the model what they mean. The pin therefore
+    // moves to the half that is still true: the code's own vocabulary.
+    const disc = readFileSync(new URL('../../server/discovery.ts', import.meta.url), 'utf8');
     for (const status of ['open', 'retained', 'deferred', 'unavailable']) {
-      expect(SYSTEM, status).toContain(`"${status}"`);
+      expect(disc, status).toContain(`'${status}'`);
     }
-    for (const basis of ['tool', 'user', 'assumption', 'none']) {
-      expect(SYSTEM, basis).toContain(`"${basis}"`);
-    }
+    // These four are load-bearing, not labels: `statedTrend` licenses a
+    // customer split only on `retained`, and `otherAxesProbed` reads
+    // `deferred`/`unavailable` as the manager having answered the probe. A
+    // model that is never told the vocabulary fills it arbitrarily.
+    const gate = readFileSync(new URL('../../server/gate.ts', import.meta.url), 'utf8');
+    expect(gate + disc).toMatch(/status === 'retained'/);
   });
 
-  it('the prompt warns that a premature proposal will be refused', () => {
-    expect(SYSTEM).toMatch(/Propose only once the user has answered at least one question AND no dimension is still "open"/);
-    expect(SYSTEM).toMatch(/rejected by the application and handed to you as more discovery/);
-    // The prompt now states the real precondition rather than leaving the
-    // gate to correct it: closing every dimension yourself is not discovery.
-    expect(SYSTEM).toMatch(/Closing every dimension yourself on the first turn is not discovery/);
-  });
 
   it('the prompt carries dimensions on every action the gate reads', () => {
     // If `dimensions` only rode on one action, a conversation could never
@@ -365,8 +437,13 @@ describe('the user must have taken part before a strategy is accepted', () => {
       { name: 'How they were sourced', status: 'retained', basis: 'user' },
       { name: 'Outstanding statement amount', status: 'retained', basis: 'user' },
     );
-    expect(discoveryIsComplete(selfCertified)).toBe(true); // the record says done...
-    expect(userHasRespondedOnce(selfCertified)).toBe(false); // ...but nobody was asked
+    // The record the AGENT wrote says done — five dimensions, every one
+    // resolved — and nobody was asked anything. Completeness it certifies for
+    // itself is not evidence that discovery happened, which is why
+    // participation is a block of its own and why a row count never was one.
+    expect(briefDimensions(selfCertified)).toHaveLength(5);
+    expect(userHasRespondedOnce(selfCertified)).toBe(false);
+    expect(blocksFor(selfCertified).map((x) => x.code)).toContain('no-participation');
     const d = gate({ brief: selfCertified });
     expect(d.outcome).toBe('continue_discovery');
     expect(d.reason).toMatch(/without asking you anything first/i);
@@ -447,18 +524,18 @@ describe('an assumption is not recorded as an investigated finding', () => {
     expect(briefDimensions(b)).toEqual([]);
   });
 
-  it('three platform topics do not satisfy the dimension gate', () => {
-    const b = answered(
-      dims(
-        { name: 'Entry event', status: 'retained', basis: 'tool' },
-        { name: 'Channel sequencing', status: 'retained', basis: 'tool' },
-        { name: 'Quiet hours', status: 'retained', basis: 'tool' },
-      ),
-    );
-    expect(briefDimensions(b)).toHaveLength(0);
-    expect(gate({ brief: b }).outcome).toBe('continue_discovery');
-    // Zero customer dimensions is "nothing considered", not "three weighed".
-    expect(gate({ brief: b }).reason).toMatch(/without setting out what I had considered/i);
+  it('three platform topics are refused as lines of enquiry at the door', () => {
+    // RETARGETED. This asserted `continue_discovery` because three platform
+    // topics could not reach the old three-row count. The count is gone; the
+    // rule that matters is upstream and unchanged — `recordDimensions` does
+    // not store a platform setting as a line of enquiry at all.
+    const b = answered(dims(
+      { name: 'Entry event', status: 'retained', basis: 'tool' },
+      { name: 'Channel order', status: 'retained', basis: 'tool' },
+      { name: 'Quiet hours', status: 'retained', basis: 'tool' },
+    ));
+    expect(briefDimensions(b)).toEqual([]);
+    expect((b.droppedDimensions ?? []).length).toBeGreaterThan(0);
   });
 
   it('keeps the model\'s own reason when it gave one', () => {
@@ -608,7 +685,7 @@ describe('an unverified limitation is not recorded as a confirmed one', () => {
   it('does not reopen or loop: the strategy still gets through', () => {
     const b = alternativesRuledOut(answered(dims({ name: 'Credit utilisation', status: 'unavailable', basis: 'assumption', note: 'Ruled out: nothing carries it.' })));
     expect(outstandingDimensions(b)).toEqual([]);
-    expect(discoveryIsComplete(b)).toBe(true);
+    expect(blocksFor(b).map((x) => x.code)).toEqual([]);
     expect(gate({ brief: b }).outcome).toBe('ready_for_strategy');
   });
 

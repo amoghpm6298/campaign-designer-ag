@@ -1,0 +1,630 @@
+{
+  "objective": "We want more EMI-eligible card purchases to become EMI. We have no campaign history. I need a 7 day plan.",
+  "objectiveFingerprint": "become campaign card day eligible emi history no plan purchases",
+  "rounds": 2,
+  "questions": [
+    {
+      "id": "q0-0",
+      "text": "When you say you want more EMI-eligible purchases to convert, do you mean you want more transactions converted, or more value/amount converted into EMI — even if that means fewer but larger conversions?",
+      "askedInRound": 0,
+      "author": "agent",
+      "impact": "fork",
+      "contingency": {
+        "ifA": "Design targets volume: broad reach, easy low-friction conversions, message tuned to make converting feel simple regardless of ticket size.",
+        "ifB": "Design targets value: prioritise larger eligible transactions and customers with bigger EMI-eligible balances, even if the total count of conversions is smaller.",
+        "ifUnknown": "Default to counting conversions but flag that this favours small-ticket conversions, and ask again once the first run's data is in."
+      },
+      "answeredInRound": 0,
+      "addressedInRound": 0
+    },
+    {
+      "id": "q0-1",
+      "text": "Have you noticed any pattern in who already converts an eligible purchase to EMI on their own, or is that something you don't track?",
+      "askedInRound": 0,
+      "author": "agent",
+      "impact": "fork",
+      "contingency": {
+        "ifA": "Use the named pattern to decide who the campaign should focus on first.",
+        "ifB": "Treat it as unknown and design the first run to also surface which segment converts, rather than assuming one."
+      },
+      "answeredInRound": 0,
+      "addressedInRound": 0
+    },
+    {
+      "id": "q0-2",
+      "text": "What do you believe is stopping the rest of the eligible purchases from being converted?",
+      "askedInRound": 0,
+      "author": "agent",
+      "impact": "fork",
+      "contingency": {
+        "ifA": "Build messaging and timing around the specific reason given (e.g. unaware of the option, cost concern, timing of the offer window).",
+        "ifB": "If they say they don't know, widen the first run to test more than one plausible barrier rather than designing around a guess."
+      },
+      "answeredInRound": 0,
+      "addressedInRound": 0
+    },
+    {
+      "id": "q1-0",
+      "text": "Should purchases at merchants whose checkout already offers an EMI option at point of sale be messaged the same way as those that do not?",
+      "askedInRound": 1,
+      "answeredInRound": 1,
+      "addressedInRound": 1
+    }
+  ],
+  "answers": [
+    {
+      "round": 0,
+      "text": "1. more transactions converted\n2. 10k+ txns convert more often \n3. i think they dont know if txn is eligibile for emi or not"
+    },
+    {
+      "round": 1,
+      "text": "1. we can ignore this"
+    }
+  ],
+  "openUncertainties": [],
+  "evidenceRequests": [],
+  "facts": [
+    {
+      "statement": "They have no campaign history, and said so themselves. There is no conversion rate, benchmark, baseline or past result to ask for — this run IS the first one.",
+      "source": "user-answer",
+      "confidence": "confirmed",
+      "round": 0
+    },
+    {
+      "statement": "They asked for a plan over 7 days. That is the window the campaign has to work inside — do not ask how long they want.",
+      "source": "user-answer",
+      "confidence": "confirmed",
+      "round": 0
+    },
+    {
+      "statement": "1. more transactions converted\n2. 10k+ txns convert more often \n3. i think they dont know if txn is eligibile for emi or not",
+      "source": "user-answer",
+      "round": 0,
+      "confidence": "confirmed",
+      "answers": [
+        "q0-0",
+        "q0-1",
+        "q0-2"
+      ]
+    },
+    {
+      "statement": "They have closed the question of a second pattern: they track nothing else that splits who acts, so transaction amount is the axis. In their words: \"nothing else\"",
+      "source": "user-answer",
+      "confidence": "confirmed",
+      "round": 0
+    },
+    {
+      "statement": "1. we can ignore this",
+      "source": "user-answer",
+      "round": 1,
+      "confidence": "confirmed",
+      "answers": [
+        "q1-0"
+      ]
+    }
+  ],
+  "limitations": [
+    "Stated as unavailable by the user: We want more EMI-eligible card purchases to become EMI. We have no campaign history. I need a 7 day plan."
+  ],
+  "statedValues": [],
+  "dimensions": [
+    {
+      "name": "transaction amount",
+      "rationale": "Splits the eligible population into a group that already self-converts (₹10,000+) and the larger untapped group (below ₹10,000) where the campaign's count-based goal is actually won or lost.",
+      "status": "retained",
+      "basis": "user",
+      "note": "₹10,000+ transactions convert on their own more often per the manager; campaign messages both groups but paces them differently — the below-₹10,000 group gets the fuller sequence since that is where the untapped count sits."
+    },
+    {
+      "name": "purchase channel (online checkout vs in-store/POS swipe)",
+      "rationale": "Could theoretically explain part of the awareness gap if checkout already surfaces an EMI option.",
+      "status": "deferred",
+      "basis": "user",
+      "note": "Manager tracks nothing else that splits who acts: \"nothing else\", and confirmed merchants with their own checkout EMI option can be messaged the same way (\"we can ignore this\"). Closed as a segmentation axis for this run."
+    }
+  ],
+  "successCriteria": [
+    "More eligible transactions converted into EMI, counted as a number of conversions, not valued by rupee amount — the manager's explicit choice.",
+    "Since no campaign history exists, this run establishes the baseline conversion count rather than being judged against a prior number."
+  ],
+  "verdicts": [],
+  "contextChecked": [
+    {
+      "source": "knowledge base — EMI request expiry window (auth-triggered EMI stays open up to 7 days, P-003)",
+      "found": true
+    },
+    {
+      "source": "knowledge base — campaign performance history",
+      "found": false
+    },
+    {
+      "source": "knowledge base — EMI request expiry window (P-003)",
+      "found": true
+    },
+    {
+      "source": "list_event_types for Transaction and EMI event categories",
+      "found": true
+    },
+    {
+      "source": "list_audience_attributes for Transaction Amount, EMI Eligible, EMI Request status",
+      "found": true
+    }
+  ],
+  "converters": {
+    "shape": "Transactions of ₹10,000 or more already convert to EMI on their own more often than smaller eligible transactions; the untapped volume sits in the sub-₹10,000 eligible purchases.",
+    "basis": "user",
+    "knowledge": "known",
+    "candidates": [
+      {
+        "segment": "Eligible transactions of ₹10,000 or more",
+        "restsOn": "transaction amount",
+        "why": "Manager has directly observed these convert to EMI on their own more often, per their own words."
+      }
+    ],
+    "raisedInRound": 0
+  },
+  "barriers": [
+    {
+      "id": "eligibility-awareness",
+      "statement": "Customers don't realise a given purchase actually qualifies for EMI conversion, so they never act on it.",
+      "basis": "user-belief",
+      "lever": "message",
+      "quote": "i think they dont know if txn is eligibile for emi or not"
+    }
+  ],
+  "lastProposal": {
+    "strategy": {
+      "summary": "You want more eligible card purchases converted to EMI — counted as a number, not by rupee value. You've seen that ₹10,000+ eligible purchases already convert on their own more often; the untapped count sits in the smaller eligible purchases. Your read is that customers simply don't know a given purchase qualifies for EMI — that's an awareness gap, so the campaign's job is to say \"this purchase can become EMI\" clearly, repeatedly, and before the 7-day window closes. Every eligible purchase enters; the two amount bands get different pacing, not different access.",
+      "approach": [
+        "Entry is every settled, customer-initiated, EMI-eligible transaction — this is the audience the manager asked for (everyone who still can convert), confirmed against the Transaction entity's own eligibility and status fields.",
+        "The ₹10,000 split comes directly from the manager's own observation, used only to pace messaging, not to exclude anyone.",
+        "The barrier (customers don't know a purchase qualifies) comes directly from the manager's belief, so the lever chosen is message content, not incentive or targeting.",
+        "Goal is the EMI Request reaching a Successful status — this is the only event in the platform that proves the behaviour actually happened, on a different entity than the entry trigger.",
+        "Since there's no campaign history, the day-0 message for the untapped (below ₹10,000) group is run as a genuine 50/50 wording test rather than a guess, because this is the only way to learn anything about what closes the awareness gap before scaling spend on it.",
+        "The 7-day campaign window and the use of SMS as a fallback/last-chance channel reflect the manager's stated window and the knowledge base's guidance on WhatsApp/SMS reach for Indian retail cardholders.",
+        "Transaction events and EMI status-change events are flagged by the platform itself as proposed, not confirmed live in production — carried as a limitation, not assumed working."
+      ],
+      "assumptions": [
+        "A transaction counts as the moment of opportunity once it is SETTLED and marked EMI Eligible — EXPIRED/CANCELED transactions are excluded since the chance has already closed.",
+        "Initiated By is restricted to CUSTOMER_INITIATED so system-generated postings (fees, interest, reversals) never enter this journey.",
+        "The ₹10,000 boundary is read from the manager's own words, not a chosen threshold — transactions at or above ₹10,000 get the lighter path, below it get the fuller path.",
+        "No incentive (cashback, fee waiver) is assumed or offered in the copy — this is a pure awareness/clarity play per the stated barrier, not a pricing lever."
+      ],
+      "unknowns": [
+        "Whether the Transaction and EMI_STATUS_CHANGED events are actually live and firing in production today — the platform marks both as proposed, not confirmed built.",
+        "Whether the wording test (functional vs benefit framing) actually produces a measurable difference in this population — this run is what tells us, not a prior belief.",
+        "Whether customers who don't convert even after all three touches are blocked by something other than awareness (e.g. not wanting the instalment structure) — this campaign cannot distinguish that from simple non-engagement."
+      ],
+      "architectures": [
+        {
+          "name": "Amount-paced awareness nudge with a wording experiment",
+          "barrier": "eligibility-awareness",
+          "lever": "message",
+          "journey": "experiment",
+          "audience": "Every settled, customer-initiated, EMI-eligible transaction — paced differently by amount band.",
+          "timing": "Below ₹10,000: day 0, day 2 (reactive to read status), day 5 last chance. ₹10,000+: day 0, day 4 reminder.",
+          "measurement": "Conversion count by arm (functional vs benefit wording) and by amount band, read against this run's own baseline since none exists yet.",
+          "chosen": true,
+          "why": "Puts the fuller sequence and the only wording test where the untapped count actually sits (below ₹10,000), while still messaging the self-converting ₹10,000+ group without over-spending effort there. Directly serves the manager's stated goal of maximising the count of conversions.",
+          "entry": "Every settled, customer-initiated, EMI-eligible transaction — paced differently by amount band.",
+          "whyChosen": "Puts the fuller sequence and the only wording test where the untapped count actually sits (below ₹10,000), while still messaging the self-converting ₹10,000+ group without over-spending effort there. Directly serves the manager's stated goal of maximising the count of conversions."
+        },
+        {
+          "name": "Uniform fixed-cadence reminder",
+          "barrier": "eligibility-awareness",
+          "lever": "message",
+          "journey": "linear",
+          "audience": "Every settled, customer-initiated, EMI-eligible transaction — one treatment for all.",
+          "timing": "Fixed day 0 / day 3 / day 6 reminders for everyone, regardless of amount or engagement.",
+          "measurement": "Only a single overall conversion count — no way to tell whether wording or pacing mattered.",
+          "chosen": false,
+          "why": "Simpler to build, but ignores the one converter pattern the manager has actually seen, spends equal effort on a group that already converts well, and teaches nothing about which message works — a real cost on a first run meant to establish a baseline.",
+          "tradeOff": "Lower build complexity, but no learning and likely fewer incremental conversions from the sub-₹10,000 group where the opportunity is concentrated.",
+          "entry": "Every settled, customer-initiated, EMI-eligible transaction — one treatment for all.",
+          "tradeoff": "Lower build complexity, but no learning and likely fewer incremental conversions from the sub-₹10,000 group where the opportunity is concentrated.",
+          "whyChosen": "Simpler to build, but ignores the one converter pattern the manager has actually seen, spends equal effort on a group that already converts well, and teaches nothing about which message works — a real cost on a first run meant to establish a baseline."
+        }
+      ],
+      "rejected": [
+        {
+          "option": "Uniform fixed-cadence reminder for everyone",
+          "why": "Would spend equal messaging effort on the ₹10,000+ group that already converts on its own, and would not test any wording against another — a missed chance on a first run with zero prior data."
+        },
+        {
+          "option": "Excluding or down-weighting the ₹10,000+ group entirely",
+          "why": "The manager's goal is counted conversions, not value — every eligible transaction, including large ones that haven't yet converted, still adds to that count, so they keep a path, just a lighter one."
+        },
+        {
+          "option": "Branching on merchant checkout type (online vs POS)",
+          "why": "Manager confirmed this split doesn't need different treatment — closed per their own instruction to ignore it."
+        }
+      ],
+      "hypotheses": [
+        "If customers are told plainly and promptly that a specific purchase qualifies for EMI, some who would otherwise never check will convert it — the barrier is awareness, not cost or trust.",
+        "A benefit-led framing (no-cost EMI, lighter on the wallet) may outperform a plain functional framing (you are eligible, convert here) for the sub-₹10,000 group, but this is untested and is exactly what the day-0 split is meant to find out."
+      ],
+      "measurement": [
+        "Track conversion count (EMI Request reaching Successful) split by amount band and, within the below-₹10,000 band, by which day-0 wording arm the customer received.",
+        "Read the wording test as a simple comparison of conversion counts between the two day-0 arms — first time this bank will have this data, so treat it as the baseline, not a lift.",
+        "Watch how many conversions come from the day-2/day-5 reminders versus the day-0 message alone, to judge whether the reminders are earning their place or just adding cost without added conversions.",
+        "Without a held-out no-message control, this run can report what happened, not what the campaign caused — the builder's standard holdout is the only control in place here."
+      ],
+      "successCriteria": [
+        "More eligible transactions converted into EMI, counted as a number of conversions, not valued by rupee amount — the manager's explicit choice.",
+        "Since no campaign history exists, this run establishes the baseline conversion count rather than being judged against a prior number."
+      ],
+      "openItems": [
+        {
+          "kind": "platform-gap",
+          "question": "Are the Transaction event and the EMI status-change event actually live in production, or still in proposed/unbuilt state?",
+          "whyItMatters": "Both the entry trigger and the goal for this entire campaign depend on these two events. If neither fires yet, nothing in this plan can run.",
+          "ifUnanswered": "Flagging to the platform team before launch is assumed as a precondition; the plan is designed assuming they will be made live."
+        },
+        {
+          "kind": "optional-preference",
+          "question": "Is a 50/50 split acceptable for the day-0 wording test on the below-₹10,000 group?",
+          "whyItMatters": "A different split would change how fast the test reaches a readable result, but not the design itself.",
+          "ifUnanswered": "Default to 50/50, the platform's standard experiment split."
+        }
+      ],
+      "blueprint": "{\"campaignName\": \"EMI Eligibility Awareness Nudge — 7 Day\", \"description\": \"Messages every settled, customer-initiated, EMI-eligible card transaction to raise awareness that it qualifies for EMI conversion. Paces the below-\\u20b910,000 group (where the untapped conversion count sits) with a day-0 wording test plus reactive reminders, and the \\u20b910,000+ group (which already self-converts more often) with a lighter two-touch sequence. Window matches the 7-day EMI request validity.\", \"entry\": {\"kind\": \"event\", \"entity\": \"Transaction\", \"eventCategory\": \"Transaction Events\", \"eventType\": \"Transaction\", \"conditions\": [{\"attribute\": \"EMI Eligible\", \"operator\": \"Equals\", \"value\": \"true\"}, {\"attribute\": \"Transaction Status\", \"operator\": \"Any of\", \"value\": \"SETTLED\"}, {\"attribute\": \"Initiated By\", \"operator\": \"Equals\", \"value\": \"CUSTOMER_INITIATED\"}]}, \"goal\": {\"eventCategory\": \"EMI Events\", \"eventType\": \"EMI_STATUS_CHANGED\", \"conditions\": [{\"attribute\": \"New Status\", \"operator\": \"Equals\", \"value\": \"Successful\"}]}, \"steps\": [{\"kind\": \"branch\", \"label\": \"Split by transaction amount\", \"entity\": \"Transaction\", \"attribute\": \"Transaction Amount\", \"paths\": [{\"label\": \"Below ₹10,000\", \"operator\": \"Less than\", \"value\": \"10000\", \"steps\": [{\"kind\": \"experiment\", \"label\": \"Day-0 wording test\", \"tests\": \"wording\", \"arms\": [{\"label\": \"Functional framing\", \"pct\": 50, \"steps\": [{\"kind\": \"send\", \"label\": \"Day 0 — eligibility notice (functional)\", \"channel\": undefined, \"channelPreference\": [\"WHATSAPP\"], \"delayDays\": 0, \"copy\": \"Hi ${customerFirstName}, your recent card purchase is eligible for EMI. Convert it now and pay in easy monthly instalments instead of one lump sum.\", \"cta\": \"Convert to EMI\", \"barrier\": \"eligibility-awareness\", \"fallbackChannel\": \"SMS\"}, {\"kind\": \"branch\", \"label\": \"Reaction to day-0 message\", \"paths\": [{\"label\": \"Read, no action\", \"statuses\": [\"READ\"], \"steps\": [{\"kind\": \"send\", \"label\": \"Day 2 — reminder (read, no action)\", \"channelPreference\": [\"WHATSAPP\"], \"delayDays\": 2, \"copy\": \"Hi ${customerFirstName}, your purchase is still eligible for EMI conversion. It won't stay open for long — convert it in a few taps.\", \"cta\": \"Convert now\", \"barrier\": \"eligibility-awareness\"}, {\"kind\": \"send\", \"label\": \"Day 5 — last chance\", \"channelPreference\": [\"SMS\"], \"delayDays\": 3, \"copy\": \"IndusInd Bank: Last chance — your eligible purchase can still be converted to EMI today. ${shortUrl}\", \"cta\": \"Convert before it closes\", \"barrier\": \"eligibility-awareness\"}]}, {\"label\": \"Not read\", \"statuses\": [\"DELIVERED\"], \"steps\": [{\"kind\": \"send\", \"label\": \"Day 2 — repeat on SMS (not read)\", \"channelPreference\": [\"SMS\"], \"delayDays\": 2, \"copy\": \"IndusInd Bank: Your recent card purchase qualifies for EMI. Convert it to easy instalments: ${shortUrl}\", \"cta\": \"Convert to EMI\", \"barrier\": \"eligibility-awareness\"}, {\"kind\": \"send\", \"label\": \"Day 5 — last chance\", \"channelPreference\": [\"SMS\"], \"delayDays\": 3, \"copy\": \"IndusInd Bank: Last chance — your eligible purchase can still be converted to EMI today. ${shortUrl}\", \"cta\": \"Convert before it closes\", \"barrier\": \"eligibility-awareness\"}]}]}]}, {\"label\": \"Benefit framing\", \"pct\": 50, \"steps\": [{\"kind\": \"send\", \"label\": \"Day 0 — eligibility notice (benefit)\", \"channelPreference\": [\"WHATSAPP\"], \"delayDays\": 0, \"copy\": \"Hi ${customerFirstName}, good news — you can split your recent card purchase into No-Cost EMI instalments. Lighter on your wallet, same purchase.\", \"cta\": \"Convert to EMI\", \"barrier\": \"eligibility-awareness\", \"fallbackChannel\": \"SMS\"}, {\"kind\": \"branch\", \"label\": \"Reaction to day-0 message\", \"paths\": [{\"label\": \"Read, no action\", \"statuses\": [\"READ\"], \"steps\": [{\"kind\": \"send\", \"label\": \"Day 2 — reminder (read, no action)\", \"channelPreference\": [\"WHATSAPP\"], \"delayDays\": 2, \"copy\": \"Hi ${customerFirstName}, your purchase is still eligible for EMI conversion. It won't stay open for long — convert it in a few taps.\", \"cta\": \"Convert now\", \"barrier\": \"eligibility-awareness\"}, {\"kind\": \"send\", \"label\": \"Day 5 — last chance\", \"channelPreference\": [\"SMS\"], \"delayDays\": 3, \"copy\": \"IndusInd Bank: Last chance — your eligible purchase can still be converted to EMI today. ${shortUrl}\", \"cta\": \"Convert before it closes\", \"barrier\": \"eligibility-awareness\"}]}, {\"label\": \"Not read\", \"statuses\": [\"DELIVERED\"], \"steps\": [{\"kind\": \"send\", \"label\": \"Day 2 — repeat on SMS (not read)\", \"channelPreference\": [\"SMS\"], \"delayDays\": 2, \"copy\": \"IndusInd Bank: Your recent card purchase qualifies for EMI. Convert it to easy instalments: ${shortUrl}\", \"cta\": \"Convert to EMI\", \"barrier\": \"eligibility-awareness\"}, {\"kind\": \"send\", \"label\": \"Day 5 — last chance\", \"channelPreference\": [\"SMS\"], \"delayDays\": 3, \"copy\": \"IndusInd Bank: Last chance — your eligible purchase can still be converted to EMI today. ${shortUrl}\", \"cta\": \"Convert before it closes\", \"barrier\": \"eligibility-awareness\"}]}]}]}]}]}, {\"label\": \"₹10,000 and above\", \"operator\": \"Greater than\", \"value\": \"9999\", \"steps\": [{\"kind\": \"send\", \"label\": \"Day 0 — eligibility notice\", \"channelPreference\": [\"WHATSAPP\"], \"delayDays\": 0, \"copy\": \"Hi ${customerFirstName}, your recent card purchase is eligible for EMI. Convert it now and spread the cost in easy instalments.\", \"cta\": \"Convert to EMI\", \"barrier\": \"eligibility-awareness\", \"fallbackChannel\": \"SMS\"}, {\"kind\": \"send\", \"label\": \"Day 4 — reminder\", \"channelPreference\": [\"SMS\"], \"delayDays\": 4, \"copy\": \"IndusInd Bank: Reminder — your eligible purchase can still be converted to EMI. Convert before the window closes: ${shortUrl}\", \"cta\": \"Convert now\", \"barrier\": \"eligibility-awareness\"}]}]}]}",
+      "touches": [
+        {
+          "day": 0,
+          "channel": "WhatsApp",
+          "path": "Below ₹10,000 — functional framing (half of this group)",
+          "purpose": "First touch: tell the customer plainly that this purchase qualifies for EMI.",
+          "ifStillUnconverted": "If read but no action: gets a reinforcing WhatsApp reminder on day 2. If not read: gets the same fact resent on SMS on day 2."
+        },
+        {
+          "day": 0,
+          "channel": "WhatsApp",
+          "path": "Below ₹10,000 — benefit framing (other half of this group)",
+          "purpose": "First touch testing a no-cost-EMI benefit framing against the functional one.",
+          "ifStillUnconverted": "If read but no action: gets a reinforcing WhatsApp reminder on day 2. If not read: gets the same fact resent on SMS on day 2."
+        },
+        {
+          "day": 2,
+          "channel": "WhatsApp",
+          "path": "Below ₹10,000 — read but no action (either framing)",
+          "purpose": "Reinforce urgency now that we know the message was seen.",
+          "ifStillUnconverted": "Gets the final SMS last-chance message on day 5."
+        },
+        {
+          "day": 2,
+          "channel": "SMS",
+          "path": "Below ₹10,000 — did not read day-0 WhatsApp message",
+          "purpose": "Repeat the same eligibility fact on a different channel in case WhatsApp wasn't seen.",
+          "ifStillUnconverted": "Gets the final SMS last-chance message on day 5."
+        },
+        {
+          "day": 5,
+          "channel": "SMS",
+          "path": "Below ₹10,000 — all still unconverted",
+          "purpose": "Last chance before the 7-day window closes.",
+          "ifStillUnconverted": "No further message; campaign ends for them without conversion."
+        },
+        {
+          "day": 0,
+          "channel": "WhatsApp",
+          "path": "₹10,000 and above",
+          "purpose": "First touch: tell the customer plainly that this purchase qualifies for EMI.",
+          "ifStillUnconverted": "Gets one SMS reminder on day 4."
+        },
+        {
+          "day": 4,
+          "channel": "SMS",
+          "path": "₹10,000 and above",
+          "purpose": "Single reminder before the window closes, since this group already converts well on its own.",
+          "ifStillUnconverted": "No further message; campaign ends for them without conversion."
+        }
+      ]
+    },
+    "blueprint": {
+      "campaignName": "Post-Purchase EMI Eligibility Nudge",
+      "description": "Fires the moment a customer-initiated, settled transaction is flagged EMI-eligible. Splits by ticket size: below ₹10,000 gets a fuller reactive sequence with a wording test on the first message; ₹10,000 and above gets a lighter two-touch path since that group already converts more often on its own. Goal is the EMI request reaching Successful status, inside the 7-day request window.",
+      "entry": {
+        "kind": "event",
+        "eventCategory": "Transaction Events",
+        "eventType": "Transaction",
+        "entity": "Transaction",
+        "conditions": [
+          {
+            "attribute": "EMI Eligible",
+            "operator": "Equals",
+            "value": "true"
+          },
+          {
+            "attribute": "Transaction Status",
+            "operator": "Equals",
+            "value": "SETTLED"
+          },
+          {
+            "attribute": "Initiated By",
+            "operator": "Equals",
+            "value": "CUSTOMER_INITIATED"
+          }
+        ]
+      },
+      "goal": {
+        "eventCategory": "EMI Events",
+        "eventType": "EMI_STATUS_CHANGED",
+        "conditions": [
+          {
+            "attribute": "New Status",
+            "operator": "Equals",
+            "value": "Successful"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "kind": "branch",
+          "label": "Ticket size split",
+          "entity": "Transaction",
+          "attribute": "Transaction Amount",
+          "paths": [
+            {
+              "label": "Below ₹10,000",
+              "operator": "Less than",
+              "value": "10000",
+              "steps": [
+                {
+                  "kind": "experiment",
+                  "label": "Day-0 framing test",
+                  "tests": "wording",
+                  "arms": [
+                    {
+                      "label": "Functional framing",
+                      "pct": 50,
+                      "steps": [
+                        {
+                          "kind": "send",
+                          "label": "Eligibility notice (functional)",
+                          "channelPreference": [
+                            "WHATSAPP"
+                          ],
+                          "delayDays": 0,
+                          "atTime": "11:00",
+                          "copy": "Hi ${customerFirstName}, your recent card purchase is eligible for EMI. Convert it to easy monthly instalments here: ${shortUrl}",
+                          "cta": "Convert to EMI",
+                          "fallbackChannel": "SMS",
+                          "barrier": "eligibility-awareness"
+                        },
+                        {
+                          "kind": "wait",
+                          "durationHours": 48
+                        },
+                        {
+                          "kind": "branch",
+                          "label": "Response check",
+                          "paths": [
+                            {
+                              "label": "Read, no action",
+                              "statuses": [
+                                "READ"
+                              ],
+                              "steps": [
+                                {
+                                  "kind": "send",
+                                  "label": "Reinforce benefit",
+                                  "channelPreference": [
+                                    "WHATSAPP"
+                                  ],
+                                  "delayDays": 0,
+                                  "atTime": "11:00",
+                                  "copy": "Hi ${customerFirstName}, your purchase is still eligible for EMI. It takes under a minute to switch to instalments: ${shortUrl}",
+                                  "cta": "Convert now",
+                                  "barrier": "eligibility-awareness"
+                                },
+                                {
+                                  "kind": "wait",
+                                  "durationHours": 72
+                                },
+                                {
+                                  "kind": "send",
+                                  "label": "Last chance",
+                                  "channelPreference": [
+                                    "SMS"
+                                  ],
+                                  "delayDays": 0,
+                                  "atTime": "11:00",
+                                  "copy": "IndusInd Bank: Last chance — your EMI conversion window closes soon. Convert your eligible purchase now: ${shortUrl}",
+                                  "cta": "Convert before it closes",
+                                  "barrier": "eligibility-awareness"
+                                }
+                              ]
+                            },
+                            {
+                              "label": "Not read",
+                              "statuses": [
+                                "DELIVERED",
+                                "DELETED"
+                              ],
+                              "steps": [
+                                {
+                                  "kind": "send",
+                                  "label": "Repeat on SMS",
+                                  "channelPreference": [
+                                    "SMS"
+                                  ],
+                                  "delayDays": 0,
+                                  "atTime": "11:00",
+                                  "copy": "IndusInd Bank: Your recent card purchase is eligible for EMI. Convert to instalments: ${shortUrl}",
+                                  "cta": "Convert to EMI",
+                                  "barrier": "eligibility-awareness"
+                                },
+                                {
+                                  "kind": "wait",
+                                  "durationHours": 72
+                                },
+                                {
+                                  "kind": "send",
+                                  "label": "Last chance",
+                                  "channelPreference": [
+                                    "SMS"
+                                  ],
+                                  "delayDays": 0,
+                                  "atTime": "11:00",
+                                  "copy": "IndusInd Bank: Last chance — your EMI conversion window closes soon. Convert your eligible purchase now: ${shortUrl}",
+                                  "cta": "Convert before it closes",
+                                  "barrier": "eligibility-awareness"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "label": "Benefit framing",
+                      "pct": 50,
+                      "steps": [
+                        {
+                          "kind": "send",
+                          "label": "Eligibility notice (benefit-led)",
+                          "channelPreference": [
+                            "WHATSAPP"
+                          ],
+                          "delayDays": 0,
+                          "atTime": "11:00",
+                          "copy": "Hi ${customerFirstName}, good news — your recent purchase qualifies for No-Cost EMI. Split the payment into easy instalments at zero extra charge: ${shortUrl}",
+                          "cta": "Convert to EMI",
+                          "fallbackChannel": "SMS",
+                          "barrier": "eligibility-awareness"
+                        },
+                        {
+                          "kind": "wait",
+                          "durationHours": 48
+                        },
+                        {
+                          "kind": "branch",
+                          "label": "Response check",
+                          "paths": [
+                            {
+                              "label": "Read, no action",
+                              "statuses": [
+                                "READ"
+                              ],
+                              "steps": [
+                                {
+                                  "kind": "send",
+                                  "label": "Reinforce benefit",
+                                  "channelPreference": [
+                                    "WHATSAPP"
+                                  ],
+                                  "delayDays": 0,
+                                  "atTime": "11:00",
+                                  "copy": "Hi ${customerFirstName}, your purchase is still eligible for No-Cost EMI. It takes under a minute to switch: ${shortUrl}",
+                                  "cta": "Convert now",
+                                  "barrier": "eligibility-awareness"
+                                },
+                                {
+                                  "kind": "wait",
+                                  "durationHours": 72
+                                },
+                                {
+                                  "kind": "send",
+                                  "label": "Last chance",
+                                  "channelPreference": [
+                                    "SMS"
+                                  ],
+                                  "delayDays": 0,
+                                  "atTime": "11:00",
+                                  "copy": "IndusInd Bank: Last chance — your EMI conversion window closes soon. Convert your eligible purchase now: ${shortUrl}",
+                                  "cta": "Convert before it closes",
+                                  "barrier": "eligibility-awareness"
+                                }
+                              ]
+                            },
+                            {
+                              "label": "Not read",
+                              "statuses": [
+                                "DELIVERED",
+                                "DELETED"
+                              ],
+                              "steps": [
+                                {
+                                  "kind": "send",
+                                  "label": "Repeat on SMS",
+                                  "channelPreference": [
+                                    "SMS"
+                                  ],
+                                  "delayDays": 0,
+                                  "atTime": "11:00",
+                                  "copy": "IndusInd Bank: Your recent purchase qualifies for No-Cost EMI. Convert to instalments: ${shortUrl}",
+                                  "cta": "Convert to EMI",
+                                  "barrier": "eligibility-awareness"
+                                },
+                                {
+                                  "kind": "wait",
+                                  "durationHours": 72
+                                },
+                                {
+                                  "kind": "send",
+                                  "label": "Last chance",
+                                  "channelPreference": [
+                                    "SMS"
+                                  ],
+                                  "delayDays": 0,
+                                  "atTime": "11:00",
+                                  "copy": "IndusInd Bank: Last chance — your EMI conversion window closes soon. Convert your eligible purchase now: ${shortUrl}",
+                                  "cta": "Convert before it closes",
+                                  "barrier": "eligibility-awareness"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "₹10,000 and above",
+              "operator": "Greater than",
+              "value": "9999",
+              "steps": [
+                {
+                  "kind": "send",
+                  "label": "Eligibility notice",
+                  "channelPreference": [
+                    "WHATSAPP"
+                  ],
+                  "delayDays": 0,
+                  "atTime": "11:00",
+                  "copy": "Hi ${customerFirstName}, your recent purchase qualifies for No-Cost EMI. Convert it to easy instalments: ${shortUrl}",
+                  "cta": "Convert to EMI",
+                  "fallbackChannel": "SMS",
+                  "barrier": "eligibility-awareness"
+                },
+                {
+                  "kind": "wait",
+                  "durationHours": 96
+                },
+                {
+                  "kind": "send",
+                  "label": "Last chance",
+                  "channelPreference": [
+                    "SMS"
+                  ],
+                  "delayDays": 0,
+                  "atTime": "11:00",
+                  "copy": "IndusInd Bank: Your EMI conversion window is closing soon. Convert your eligible purchase now: ${shortUrl}",
+                  "cta": "Convert before it closes",
+                  "barrier": "eligibility-awareness"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "round": 1
+  },
+  "lastBlocks": [
+    "cadence-unnamed"
+  ]
+}

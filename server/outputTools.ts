@@ -48,7 +48,8 @@ import {
   type QuestionResolution,
 } from './discovery';
 import type { Converters, Barrier } from './findings';
-import type { CampaignBlueprint } from './blueprint';
+import { buildFromBlueprint, type CampaignBlueprint } from './blueprint';
+import { sendSteps } from './pathReading';
 import type { Strategy } from './orchestrator';
 import { registerToolTitles, type ToolDef } from './agentTools';
 import { decide, namedOutcomes, type TurnPhase } from './gate';
@@ -710,9 +711,10 @@ export const OUTPUT_TOOL_NAMES = OUTPUT_TOOLS.map((t) => t.name);
  * `record_findings` — which takes `successCriteria` as well as the two
  * customer findings — so nothing has to be smuggled through a plan.
  *
- * ASKING: ask, record, record, request evidence. READY: the same plus
- * `propose_strategy` carrying its path. BUILD: `build_campaign`, and no
- * proposing, because the plan is already approved.
+ * ASKING: ask, record, record, request evidence. READY: the two record tools
+ * plus `propose_strategy` carrying its path. BUILD: `build_campaign` and the
+ * two record tools — no proposing, because the plan is already approved, and
+ * nothing that waits for an answer.
  */
 export const outputToolsForPhase = (phase: TurnPhase) =>
   OUTPUT_TOOLS.filter((t) =>
@@ -720,7 +722,46 @@ export const outputToolsForPhase = (phase: TurnPhase) =>
       ? phase === 'build'
       : t.name === 'propose_strategy'
         ? phase === 'ready'
-        : true,
+        : // `ask_questions` IS OFF A READY TURN, 2026-10-26.
+          //
+          // A question recorded through this tool is an OUTSTANDING question:
+          // `recordAsked` leaves `addressedInRound` empty, `outstanding` reads
+          // it, and `blocksFor` turns it into `awaiting-reply`. On a closed
+          // record that flips the very next turn back to `asking` and strips
+          // `propose_strategy` — the brief reopened by bookkeeping, from a
+          // leftover thought the manager never needed to answer.
+          //
+          // The turn is not silenced. A point worth making about a plan goes
+          // in `openItems` on `propose_strategy`, which `renderStrategy`
+          // already prints under "Worth settling before this is built" — a
+          // flag on the document rather than question 1 beside Confirm.
+          //
+          // ASKING KEEPS IT, because that is the whole of an asking turn.
+          //
+          // BUILD DOES NOT, SINCE 2026-10-26, AND THE REASON THIS COMMENT
+          // USED TO GIVE WAS WRONG. It said "the record cannot be reopened by
+          // it" on a build turn. It can. Measured on the closed live brief:
+          // `decide` is `[]` and `turnPhase` is `ready`; after one
+          // `recordAsked` the blocks are `['awaiting-reply']` and the phase is
+          // `asking`. The bookkeeping does not care which turn wrote the
+          // question — so a stray thought on the turn that BUILDS puts the
+          // manager back in discovery on the turn after their campaign
+          // appeared, which is the worst moment of the three to do it.
+          //
+          // A question the build genuinely raised still has somewhere to go:
+          // `openItems` on the build payload, as an operational limitation,
+          // which is printed rather than waited on. `record_findings` and
+          // `record_dimensions` stay on Confirm — those write facts, not
+          // obligations — and so do the lookups, to compile what was approved
+          // rather than to design something new.
+          // `request_evidence` GOES WITH IT, for the identical reason. It
+          // writes a `pending` evidence request, and a pending request routes
+          // the next turn through `resolveEvidence` as though the manager owed
+          // us data — a form, on a record that is settled. Aggregated data
+          // that would sharpen a decision is worth saying; it belongs in
+          // `openItems` on the plan, which `renderStrategy` prints, not in a
+          // slot that waits for an answer.
+          !['ask_questions', 'request_evidence'].includes(t.name) || phase === 'asking',
   );
 
 // So the activity timeline shows "Recording what you told me about customers"
@@ -1222,9 +1263,144 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
             'This proposal has no journey in it. Send the SAME plan again with "blueprint" filled in — the path you are asking them to approve, in the same grammar build_campaign uses: entry, then the steps in order. They are agreeing to a sequence, so it has to exist before they agree. Confirm compiles exactly this one; you will not be asked to design it again.',
         );
       }
+      // WHAT THE PATH ACTUALLY COMPILES TO, BEFORE IT IS STASHED.
+      //
+      // MEASURED, `eval/runs/ui-s-1793009889177`. Turn 4 filed a shaped path —
+      // one Transaction Amount branch with six sends on its arms — and turn 5
+      // compiled it into an entry, the split and three exits. Zero message
+      // steps. The manager approved a journey that could not become one, and
+      // the plan was already on the record by then.
+      //
+      // `assessGraphReadiness` dry-runs the same compiler later and did not
+      // stop it, because it runs AFTER this stash. So the check belongs here:
+      // a path whose steps are legal grammar but produce no send is refused,
+      // and `lastProposal` is not written. Nothing else can repair it — Confirm
+      // compiles exactly what is filed.
+      //
+      // THE ISSUER IS NOT VISIBLE HERE, so this uses the channel-array form of
+      // `buildFromBlueprint`, the same one the unit tests use. It asks one
+      // question — does this produce a message — and a channel this bank does
+      // not have is reported elsewhere.
+      const dry = (() => {
+        try {
+          return buildFromBlueprint(path, ['WHATSAPP', 'SMS', 'EMAIL', 'RCS']);
+        } catch {
+          // A compiler crash is not this check's business: the build path has
+          // its own guard, and refusing here on a throw would hide it.
+          return null;
+        }
+      })();
+      // EVERY SEND THEY WROTE IS ON THE CANVAS, OR NOTHING IS FILED.
+      //
+      // TWO MISTAKES, AND THE CORRECTION HAS TO NAME THE RIGHT ONE. MEASURED,
+      // `eval/runs/ui-s-1793017853714` turn 3: both forced attempts came back
+      // with the waits-only refusal and neither fixed anything, because it
+      // told a model that HAD written sends to write the sends into the path.
+      // It had. They were not attached: a send placed after a fork has several
+      // arms it could continue from, so the compiler reports the ambiguity and
+      // drops the step rather than guessing one.
+      //
+      // AND COUNTED, NOT MERELY DETECTED. This used to fire only when the
+      // graph had ZERO sends, so the mixed case walked straight through:
+      // `eval/runs/ui-s-1793009889177` filed a path with six sends, five of
+      // them on the arms and one sibling after a nested fork. That compiles to
+      // five, which is more than none, so it was stashed and Confirm built a
+      // campaign missing a message the manager had approved. Naming the skip
+      // in the build report is not the same as refusing the plan: by then it
+      // is already on the record.
+      const sendKinds = sendSteps(path.steps as unknown[]);
+      const builtSends = dry
+        ? Object.values(dry.graph.nodes).filter((n) => (n as { type?: string }).type === 'SEND').length
+        : sendKinds;
+      if (dry && builtSends < sendKinds) {
+        // QUOTE WHAT THE COMPILER SAID, rather than guessing the cause.
+        //
+        // The sentence named one reason — a send placed after a fork — and
+        // `eval/runs/ui-s-1793077922155` turn 3 was refused with it twice over
+        // sends that were already on the arms. The real reason was in
+        // `dry.issues` all along: the fork had been read as a delivery branch
+        // and needed a preceding send.
+        //
+        // CAPPED AT THREE AND DEDUPED. A dozen pasted issues is how twelve
+        // empty-field reports once blocked an export, and the first ones are
+        // the ones that caused the rest.
+        const why = [...new Set((dry.issues ?? []).map((x) => x.problem.trim()).filter(Boolean))].slice(0, 3);
+        return refuse(
+          `This path has ${sendKinds} message${sendKinds === 1 ? '' : 's'} in it and ${builtSends === 0 ? 'none of them' : `only ${builtSends}`} reached the journey. ` +
+            (why.length
+              ? // THE COMPILER'S OWN WORDS, AND NOTHING APPENDED.
+                //
+                // This used to end "with every send nested inside the arm it
+                // belongs to". MEASURED on
+                // `eval/runs/ui-s-1793080526410` turn 3: the sends WERE nested
+                // on the arms, and the compiler had dropped the fork because
+                // the attribute was called `Amount`. The appended sentence
+                // told the model to fix the one thing that was already right,
+                // twice, and it is a guess in every case where the issues say
+                // something else.
+                //
+                // The compiler still names the nesting itself when a send
+                // really did come after a fork, so that instruction arrives
+                // through `why` on the turns where it is true.
+                `The compiler said: ${why.join(' ')} Fix what it names and send the SAME plan again.`
+              : 'A send placed AFTER a fork has more than one arm it could continue from, so it is reported and dropped rather than attached to whichever arm came first. Send the SAME plan again with every send nested inside the arm it belongs to — in that arm\'s own "steps", not after the branch — and give each arm its own last message rather than one shared afterwards.'),
+        );
+      }
+      if (dry && sendKinds === 0) {
+        return refuse(
+          'This path compiles to no messages. The steps are in the right grammar, but nothing in them produces a send — a journey of waits and exits reaches nobody, and Confirm compiles exactly this path, so there would be nothing on the canvas to approve. Send the SAME plan again with the sends written into the path, each one on the arm it belongs to.',
+        );
+      }
+      // WHAT THE CANVAS WILL SAY, NOT WHAT THE JSON SAYS.
+      //
+      // THE LEFTOVER FROM THE RESOLUTION SLICE, and it is a reporting defect
+      // rather than a compile one. The Plan preview draws the filed JSON —
+      // `Purchase Posted`, `Amount` — because `src/designer/preview.ts` cannot
+      // import the compiler. The RESOLVED graph only appears once Confirm
+      // compiles. So the compiler's direction ("not a real event", "starts
+      // from every eligible customer", the known-events list) sat on
+      // `dry.issues`, which nobody reads at propose time, while the tool
+      // result said "Plan recorded." and the manager approved a picture that
+      // was not yet the canvas.
+      //
+      // Both substitutions travel as open items, which `renderStrategy`
+      // already prints in the bubble, so they are in front of the manager on
+      // the turn with the decision in it.
+      //
+      //  - a stand-in entry is `optional-preference` → "Defaults applied",
+      //    because that is literally what it is: the application chose, and
+      //    naming the real trigger overrides it. THIS IS THE WAY TO PROVIDE
+      //    THE EVENT — the item asks for it.
+      //  - a resolved name is the same kind for the same reason. The canvas
+      //    will read `Transaction Amount`; they wrote `Amount`; they get to
+      //    see that before they agree to it.
+      //
+      // Taken from the `substituted` tag rather than from the wording, so this
+      // cannot drift from compiler copy the way four nest pins did.
+      const substitutions = (dry?.issues ?? []).filter((i) => i.substituted);
+      const standIn = substitutions.some((i) => i.substituted === 'entry-stand-in');
+      const openItemsWithSubs = [
+        ...openItems,
+        // `question` and `ifUnanswered` ARE THE FIELDS `renderStrategy` READS.
+        // My first version called the second one `default`, which that
+        // function never looks at — so the line would have been dropped on the
+        // floor and the test would have passed on the `question` alone.
+        // `optional-preference` is the one kind it prints with "Until then:".
+        ...substitutions.map((i) => ({
+          kind: 'optional-preference',
+          question: i.problem,
+          ifUnanswered:
+            i.substituted === 'entry-stand-in'
+              ? 'the journey starts from every eligible customer. Name the real trigger to change it.'
+              : 'the canvas uses the real field name. Say so if that is the wrong one.',
+        })),
+      ];
       // STASHED ON THE RECORD, so the next attempt starts from this rather
       // than from the model's memory of it. Only a plan that passed every
       // check above is stashed, and only ever read to fill a regression.
+      //
+      // The path is stashed AS WRITTEN. Confirm compiles this same object and
+      // resolves again, which is what keeps one reading of it.
       const stashed: WorkingBrief = {
         ...brief,
         lastProposal: { strategy: plan, blueprint: path, round: brief.rounds },
@@ -1232,10 +1408,17 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       return {
         brief: stashed,
         strategy: plan,
-        openItems,
+        openItems: openItemsWithSubs,
         blueprint: path,
         ok: [
           `Plan recorded, with a ${path.steps.length}-step path. The manager approves it before anything is built.`,
+          // SAID TO THE MODEL TOO, because the bubble is the model's to write
+          // and "Plan recorded." taught it there was nothing to mention.
+          substitutions.length
+            ? `Tell them what the canvas will actually say, in your message: ${substitutions
+                .map((i) => i.problem)
+                .join(' ')}${standIn ? ' Ask them for the real trigger, or to confirm the default audience.' : ''}`
+            : '',
           mend.repaired.length
             ? `I restored ${mend.repaired.join('; ')} from the last plan you sent that I accepted — it was better there, and a refusal on one point is not a reason to start the rest again.`
             : '',

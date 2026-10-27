@@ -103,7 +103,26 @@ export interface ValidationReport {
   unverifiedHardConstraints: string[];
 }
 
-export type Phase = 'understanding' | 'discovery' | 'awaiting-confirmation' | 'generating' | 'review' | 'error';
+/**
+ * `revising` is the brief being closed while the PLAN still needs a change:
+ * the journey draws, no numbered questions, and Confirm stays off. It is not
+ * `discovery` — that word was doing three jobs and a manager with a finished
+ * brief was told their answer was awaited.
+ */
+/**
+ * `planning` is the brief closed with no path on file yet: nothing to draw,
+ * nothing to approve, and the next turn's job is the plan. `revising` is the
+ * same record state WITH a path — so it draws, and still cannot be approved.
+ */
+export type Phase =
+  | 'understanding'
+  | 'discovery'
+  | 'planning'
+  | 'revising'
+  | 'awaiting-confirmation'
+  | 'generating'
+  | 'review'
+  | 'error';
 
 export interface DesignerResponse {
   sessionId: string;

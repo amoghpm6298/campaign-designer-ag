@@ -167,10 +167,30 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
   // turn with the least to look at, and the picture arrived only after they
   // had already said yes. `graph` stays null and `DripCanvas` stays unmounted:
   // this is a proposal, not a campaign.
-  const preview = useMemo(
-    () => (phase === 'awaiting-confirmation' ? previewFromBlueprint(pendingBlueprint) : null),
-    [phase, pendingBlueprint],
-  );
+  // A PLAN IS ON SCREEN. Two phases mean that now: `awaiting-confirmation`,
+  // where it can be approved, and `revising`, where the brief is closed and
+  // the journey needs a change. Both hide the numbered question list and the
+  // bank-template panel, because neither is a discovery turn.
+  //
+  // CONFIRM IS STILL ONLY `awaiting-confirmation`. Revise draws the path and
+  // offers no button: a drawing is not a decision, and a plan that needs a
+  // change is not approvable.
+  const planOnScreen = phase === 'awaiting-confirmation' || phase === 'revising';
+  // TIED TO THE PATH, NOT TO THE PHASE, since 2026-10-26.
+  //
+  // MEASURED, `eval/runs/ui-s-1792843757296` turn 3. A real journey had been
+  // filed — ticket-size branch, experiment, an outcome fork on READ against
+  // DELIVERED/DELETED — and the turn was held for an unrelated reason, so the
+  // response came back `phase: 'discovery'` and this drew nothing. The
+  // manager read a page about a journey they could not see. The server now
+  // returns the filed path on a held turn too, and the only honest reading of
+  // "there is a path" is: draw it.
+  //
+  // CONFIRM IS STILL THE APPROVAL, and it is still gated on the phase
+  // (`phase === 'awaiting-confirmation'`, below) — a drawing is not a
+  // decision. `graph` stays null and `DripCanvas` stays unmounted while this
+  // is a proposal.
+  const preview = useMemo(() => previewFromBlueprint(pendingBlueprint), [pendingBlueprint]);
   const [session, setSession] = useState<unknown>(initial.session);
   const abortRef = useRef<AbortController | null>(null);
   const [editCfg, setEditCfg] = useState<Record<string, unknown>>({});
@@ -828,7 +848,7 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
               // The points are not lost: they are in the agent's own message,
               // under "Worth settling before this is built".
               const latest = i === messages.length - 1;
-              const qs = latest && phase === 'awaiting-confirmation' ? [] : stored;
+              const qs = latest && planOnScreen ? [] : stored;
               // The shortcut belongs only on the questions still waiting for
               // an answer, which is the last message if nothing follows it.
               const awaiting = qs.length > 0 && latest && !busy;
@@ -925,7 +945,7 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
                   Agent <span className="cd-streaming">writing…</span>
                 </div>
                 <div className="cd-msg-bubble">
-                  <RichText text={streamingText(liveText, phase === 'generating' || phase === 'awaiting-confirmation' ? 'Drafting the plan…' : 'Writing a reply…')} />
+                  <RichText text={streamingText(liveText, phase === 'generating' || planOnScreen ? 'Drafting the plan…' : 'Writing a reply…')} />
                   <span className="cd-caret" aria-hidden="true" />
                 </div>
               </div>
@@ -981,7 +1001,7 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
               the restore path reads whatever is in localStorage. Same lesson
               as the two server crashes today — a declared type is not a
               guarantee about data that crosses a boundary. */}
-          {last?.sendProposals?.length && phase !== 'awaiting-confirmation' ? (
+          {last?.sendProposals?.length && !planOnScreen ? (
             <div className="cd-sends">
               <div className="cd-sends-h">
                 Needs your input — {last.sendProposals.length} message step
@@ -1060,13 +1080,17 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
               <button className="cd-btn pri" disabled={busy || !draft.trim()} onClick={() => send(draft.trim())}>
                 {graph ? 'Apply change' : 'Design campaign'}
               </button>
-              {/* NOT WHILE A PLAN IS WAITING TO BE APPROVED. "Skip & propose"
-                  offers to produce the recommendation that is already on
-                  screen, which reads as though the plan were provisional and
-                  gives the approval turn a second, competing primary action.
-                  Confirm is the only one there. "Request a change" stays, and
-                  so does the ordinary message box. */}
-              {last?.questions?.length && phase !== 'awaiting-confirmation' ? (
+              {/* NOT WHILE A PLAN IS ON SCREEN, either waiting to be approved
+                  or waiting for a change. "Skip & propose" offers to produce
+                  the recommendation that is already there, which reads as
+                  though the plan were provisional and gives the turn a second,
+                  competing primary action.
+                  SKIP IS A BRIEF ESCAPE. It exists so a manager can cut
+                  discovery short and see something; on `revising` the plan
+                  already exists and the next move is a change to it, so the
+                  message box is the primary action and this would be noise.
+                  Gated on `questions` as well, which `revising` never has. */}
+              {last?.questions?.length && !planOnScreen ? (
                 <button
                   className="cd-btn"
                   disabled={busy}

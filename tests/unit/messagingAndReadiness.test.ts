@@ -25,6 +25,7 @@ import { validateCampaignGraph } from '../../agent-proto/validate';
 import { resolveTenant } from '../../server/tenants';
 import type { DripAgentMessaging, DripGraph } from '../../src/data/graphTypes';
 import type { Channel } from '../../src/data/sharedConstants';
+import { newBrief } from '../../server/discovery';
 
 const CHANNELS: Channel[] = ['EMAIL', 'SMS', 'WHATSAPP'];
 
@@ -182,7 +183,19 @@ describe('design, export and import are three different states', () => {
       discoveryRounds: 0,
       messages: [{ role: 'user', content: 'Convert authorised EMI-eligible purchases.' }],
       intent: 'confirm',
+      // THE FILED PATH IS WHAT CONFIRM COMPILES, so the blueprint under test is
+      // filed rather than echoed. `confirmedBlueprint` is still sent, because
+      // the live client still sends it — and the server no longer reads it.
+      // Whatever a case overrides as `confirmedBlueprint` is filed too, so
+      // these cases keep testing exactly the blueprint they name.
       confirmedBlueprint: blueprint,
+      brief: { ...(newBrief('Convert authorised EMI-eligible purchases.') as unknown as Record<string, unknown>),
+        // The filed description names the objective, as a real one does: the
+        // staleness check fingerprints it against the brief's objective, and a
+        // description sharing nothing with it reads as a changed objective.
+        lastProposal: { strategy: { summary: 'Convert authorised EMI-eligible purchases.' },
+          blueprint: { ...((over.confirmedBlueprint ?? blueprint) as Record<string, unknown>),
+            description: 'Convert authorised EMI-eligible purchases.' }, round: 1 } },
       session: { state: 'AWAITING_STRATEGY_CONFIRMATION', strategyVersion: 1, confirmation: null },
       ...over,
     } as never);

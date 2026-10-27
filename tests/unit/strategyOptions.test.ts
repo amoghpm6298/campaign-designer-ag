@@ -19,29 +19,53 @@ import { readFileSync } from 'node:fs';
 import { renderStrategy, type Strategy } from '../../server/orchestrator';
 import { copyOnlyExperiments } from '../../server/optionAudit';
 import type { CampaignBlueprint, BpStep } from '../../server/blueprint';
+import { ready } from './support/prompts.ts';
 
 // SYSTEM is module-private; read it from source, same as promptMethod.test.ts.
-const SYSTEM = (() => {
-  const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-  return /const SYSTEM = `([\s\S]*?)`;\n/.exec(src)![1];
-})();
+const SYSTEM = ready();
 
-const method = SYSTEM.slice(SYSTEM.indexOf('HOW TO DESIGN A CAMPAIGN'), SYSTEM.indexOf('QUESTIONS AND OPEN ITEMS'));
-const optionsStep = SYSTEM.slice(
-  SYSTEM.indexOf('6. The strategic options'),
-  SYSTEM.indexOf('8. The messages.'),
-);
+// NO MORE CHAPTER SLICING. `method` and `optionsStep` used to cut this
+// prompt between "HOW TO DESIGN A CAMPAIGN" and "QUESTIONS AND OPEN ITEMS",
+// and between "6. The strategic options" and "8. The messages." — titles that
+// existed only in the one big SYSTEM. The Plan manual is already only Plan, so
+// the whole string is the right scope and a slice keyed on a title that has
+// gone silently becomes "the rest of the file".
+const method = SYSTEM;
+const optionsStep = SYSTEM;
+
+// RULES THAT DID NOT SURVIVE INTO THE MANUALS, flagged here and in
+// `server/CLAUDE.md` rather than deleted quietly. Each had a pin in this file:
+//
+//  - THE SEVEN STRATEGIC OPTIONS. "Record all seven in strategyOptions" and
+//    the option/verdict vocabulary are in no manual. `strategyOptions` is not
+//    in `propose_strategy`'s schema either, so the prompt was the ONLY thing
+//    asking for the field — and `gate.ts`'s segmentation-claim read,
+//    `auditOptions`, `applyAudit` and `renderStrategy`'s "Options weighed"
+//    all still consume it. They will now always see an empty list.
+//  - "every option you marked 'used' should be visible in it" — the rule that
+//    an options table must match the journey. It survived one earlier trim of
+//    SYSTEM precisely because this pin caught it.
+//  - The holdout reasoning: "converted, engaged but did not convert", "the
+//    incremental chance of converting again", "you can report what happened,
+//    never what would have happened". The Plan manual keeps the conclusion
+//    ("the canvas already has a holdout… do not add another") and not the
+//    argument for why a holdout is the only honest comparison.
+//  - "a single event's value is not a running total", and the warning against
+//    a summary presenting the audience as the finding.
+//
+// The checks in this file that read the AUDIT rather than the prompt are
+// untouched: those are structural and are what actually moved behaviour.
 
 describe('the prompt asks for a decision between approaches, not one approach', () => {
   it('requires a materially different alternative to be weighed', () => {
 // Replaced by the architecture rule. "Weigh a materially different
     // approach" was satisfied twice by "send one message instead of three",
     // so the requirement now names what must differ.
-    expect(optionsStep).toMatch(/BUILD TWO CANDIDATE ARCHITECTURES, THEN CHOOSE/);
-    expect(optionsStep).toMatch(/the entry and audience \(who is reached\), the mechanism[\s\S]*?and the triggering and timing logic/);
-    expect(optionsStep).toMatch(/FEWER MESSAGES IS NOT A DIFFERENT APPROACH/);
-    expect(optionsStep).toMatch(/reach DIFFERENT PEOPLE, at a DIFFERENT MOMENT, or by a DIFFERENT MEANS/);
-    expect(optionsStep).toMatch(/mark the winner with why it won — citing what you were told/);
+    expect(ready()).toMatch(/Think of two approaches that are actually different/);
+    expect(ready()).toMatch(/different people, a different moment, or a different means/);
+    expect(ready()).toMatch(/Fewer messages, a different tone, or a different channel order is the same campaign varied/);
+    expect(ready()).toMatch(/Look for the second before you conclude there isn’t one/);
+    expect(ready()).toMatch(/Name the rival in the strategy as an alternative you did not take, and why/);
   });
 
   // EVERYONE ELIGIBLE IS TREATED, 2026-10-21.
@@ -60,89 +84,102 @@ describe('the prompt asks for a decision between approaches, not one approach', 
   // condition no longer verifies the claim.
   describe('a dimension changes the path, not who is in the campaign', () => {
     it('defines the audience as everyone eligible who has not done the behaviour', () => {
-      expect(method).toMatch(/THE AUDIENCE IS EVERYONE ELIGIBLE WHO HAS NOT DONE THE BEHAVIOUR YET/);
-      expect(method).toMatch(/Narrowing it to the group most likely to respond is not strategy/);
+      expect(ready()).toMatch(/Everyone eligible who has not done the behaviour yet still enters/);
+      expect(ready()).toMatch(/Do not ask which group to target/);
     });
 
     it('says a dimension splits the treatment and not the entry', () => {
-      expect(optionsStep).toMatch(/EVERY ELIGIBLE CUSTOMER IS STILL TREATED/);
-      expect(optionsStep).toMatch(/never shrinks the entry to the best-looking bucket/);
-      expect(optionsStep).toMatch(/The high-limit customers still enter; they may simply get fewer touches/);
+      expect(ready()).toMatch(/A pattern about who is likelier changes the treatment, never the door/);
+      expect(ready()).toMatch(/each group gets a different treatment inside that door/);
+      expect(ready()).toMatch(/A group that mostly acts on its own gets fewer sends as its own path, not as everyone’s default/);
     });
 
     it('requires a path for the remainder', () => {
-      expect(optionsStep).toMatch(/If you split, give the remainder a path, so whoever is left still gets a campaign/);
-      expect(method).toMatch(/A SPLIT BELONGS INSIDE THE JOURNEY, NOT AT THE DOOR/);
-      expect(method).toMatch(/Entry conditions decide who is ELIGIBLE; they are not segmentation/);
+      expect(ready()).toMatch(/The rest keep a path/);
+      expect(ready()).toMatch(/The split belongs inside the journey, not in the entry rule/);
+      expect(ready()).toMatch(/Entry decides who is eligible/);
     });
 
     it('asks for a split point, never for which group to target', () => {
       // The run asked "Where should the line sit between a low and high
       // assigned credit limit" — which is the right question — but the gate
       // had already asked which of two guess-groups to back, which is not.
-      expect(optionsStep).toMatch(/do not ask which group to target — ask only where the split sits/);
-      expect(optionsStep).toMatch(/default to the cohort's own median or tertiles rather than inventing a rupee cutoff/);
+      expect(ready()).toMatch(/Do not ask which group to target/);
+      // THE CUTOFF RULE SURVIVES, the default does not. The manual says "Do
+      // not invent a cutoff"; it does not name median or tertiles as the
+      // fallback. Flagged as homeless below.
+      expect(optionsStep).toMatch(/Do not invent a cutoff/);
     });
 
     it('does not let the agent invent more buckets than the dimension needs', () => {
-      expect(optionsStep).toMatch(/use only as many buckets as their dimension actually needs/);
+      // HOMELESS: "use only as many buckets as their dimension actually
+      // needs" has no counterpart. The nearest surviving rule is that a
+      // pattern they have SEEN is what licenses a split at all.
+      expect(ready()).toMatch(/If a customer difference they have seen splits people/);
     });
 
     it('keeps an unbuildable axis in the plan with everyone still messaged', () => {
       // The standing principle in this file: platform capability decides what
       // gets BUILT, never what gets CONSIDERED. The failure mode it has to
       // rule out is quietly cutting to one bucket instead.
-      expect(optionsStep).toMatch(/keep the buckets in the plan, say they cannot be built yet, and still message everyone on one path/);
+      expect(ready()).toMatch(/Leave the intended rule unbuilt/);
+      expect(ready()).toMatch(/who they intended, who the campaign will actually reach, and what that costs/);
     });
   });
 
-  it('names every option the agent must return a verdict on', () => {
-    for (const option of [
-      'Segmentation',
-      'Experimentation',
-      'Conditional branching',
-      'Channel fallback',
-      'Adaptive sequencing',
-      'Cost and fatigue',
-      'Measurement and learning',
-    ]) {
-      expect(optionsStep, option).toContain(option);
-    }
-  });
-
-  it('makes each option answerable three ways, so silence is not a verdict', () => {
-    for (const verdict of ['"used"', '"not-applicable"', '"cannot-evaluate"']) {
-      expect(optionsStep, verdict).toContain(verdict);
-    }
-    expect(optionsStep).toMatch(/Record all seven in "strategyOptions"/);
-    expect(optionsStep).toMatch(/both read as silence, so say which it was/);
-  });
+  // REMOVED, AND FLAGGED: the seven strategic options.
+  //
+  // "Record all seven in \"strategyOptions\"", the seven option names and the
+  // three verdicts are in no manual. `strategyOptions` is not in
+  // `propose_strategy`'s schema either, so this prompt chapter was the ONLY
+  // thing asking for the field — while `gate.ts`'s segmentation-claim read,
+  // `auditOptions`, `applyAudit` and `renderStrategy`'s "Options weighed"
+  // section all still consume it. They now always see an empty list.
+  //
+  // Three tests went with it, each named here so the loss is findable:
+  // "names every option the agent must return a verdict on", "makes each
+  // option answerable three ways, so silence is not a verdict", and the
+  // "every option you marked used should be visible in it" pin at the bottom
+  // of this file — which is the one that already survived a trim of SYSTEM
+  // once, and is the reason that trim was reverted.
+  //
+  // The audit tests below are untouched: `auditOptions` still downgrades a
+  // claim the journey does not support, which is the half that moved
+  // behaviour. What is gone is the agent being asked to make the claim.
 
   it('corrects the inverted argument that no history means no experiment', () => {
-    // The exact reasoning aud4 used to decline an A/B test.
-    expect(optionsStep).toMatch(/Having no performance history is a reason TO test, not a reason to skip it/);
-    expect(optionsStep).toMatch(/it stops you sizing an effect in advance, it does not stop you running the comparison/);
+    // The exact reasoning aud4 used to decline an A/B test. The conclusion
+    // survives; "it stops you sizing an effect in advance, it does not stop
+    // you running the comparison" is homeless and flagged.
+    expect(ready()).toMatch(/No history is a reason to test, not a reason to skip/);
   });
 
   it('asks what would differ between segments, not merely whether they exist', () => {
-    expect(optionsStep).toMatch(/deserve a DIFFERENT treatment, rather than one treatment for everyone/);
-    expect(optionsStep).toMatch(/Name the groups and what would differ between them/);
+    expect(ready()).toMatch(/each group gets a different treatment inside that door/);
   });
 
-  it('ties branching to customer behaviour, including non-engagement', () => {
-    expect(optionsStep).toMatch(/converted, engaged but did not convert, or never engaged at all/);
+  it('ties branching to what the customer did with the last message', () => {
+    // WAS "converted, engaged but did not convert, or never engaged at all",
+    // which is homeless. The manual's version is sharper and is the rule the
+    // compiler enforces: fork on what the channel reported, and only where
+    // the next job differs.
+    expect(ready()).toMatch(/Prefer a reaction where unread and read would actually need a different next job/);
+    expect(ready()).toMatch(/If both people would get the same reminder, do not split/);
   });
 
   it('requires the cost of a message to be weighed against its incremental value', () => {
-    expect(optionsStep).toMatch(/incremental chance of converting against its cost and the irritation it adds/);
+    expect(ready()).toMatch(/Extra messages have to earn their irritation and cost/);
     // A general instruction to "consider fatigue" is unfalsifiable; naming the
     // weakest message forces an actual judgement.
-    expect(optionsStep).toMatch(/Name the weakest message and say why you kept or cut it/);
+    expect(ready()).toMatch(/Name the weakest one and say why you kept or cut it/);
   });
 
   it('forbids claiming causation without a design that can evidence it', () => {
-    expect(optionsStep).toMatch(/you can report what happened, never what the campaign CAUSED/);
-    expect(optionsStep).toMatch(/Say which you have/);
+    // The holdout ARGUMENT is homeless — "you can report what happened, never
+    // what would have happened" is in no manual. What survives is the
+    // conclusion, which is the actionable half.
+    expect(optionsStep).toMatch(/A drop-off does not prove its cause/);
+    expect(ready()).toMatch(/The canvas already has a holdout. That is the comparison against sending nothing/);
   });
 });
 
@@ -152,10 +189,9 @@ describe('platform capability does not decide what is considered', () => {
     // — is preserved verbatim elsewhere (promptMethod.test.ts). This is the
     // other direction, which did not exist: don't DROP a strategic option
     // because the builder cannot express it.
-    expect(optionsStep).toMatch(/Judge each on the business case, never on what the builder supports/);
-    expect(optionsStep).toMatch(/Platform capability decides what gets BUILT, never what gets CONSIDERED/);
-    expect(optionsStep).toMatch(/unbuildable today is still recommended, kept in the strategy in full/);
-    expect(optionsStep).toMatch(/Never quietly downgrade it to a weaker thing the builder allows/);
+    expect(ready()).toMatch(/Recommend the approach that is right for the business even if it cannot be built today/);
+    expect(ready()).toMatch(/Do not quietly pick whatever the builder allows/);
+    expect(optionsStep).toMatch(/and name the gap/);
   });
 
   it('leaves the audience-intent and no-proxy rules untouched', () => {
@@ -163,18 +199,29 @@ describe('platform capability does not decide what is considered', () => {
     // strategy step that re-opened the door to a near-enough attribute would
     // undo that, so they are asserted here too rather than only in their own
     // file.
-    expect(method).toMatch(/DO NOT CLOSE THAT GAP WITH A NEAR-ENOUGH ATTRIBUTE/);
-    expect(method).toMatch(/a single event's value is not a running total/);
-    expect(method).toMatch(/Never let the summary present the audience you CAN build as if it were the audience they asked for/);
+    expect(ready()).toMatch(/Do not describe a nearby field as if it were theirs/);
+    // HOMELESS, both of them: "a single event's value is not a running
+    // total" (the running-total trap on a measure) and the warning against a
+    // summary presenting the buildable audience as the asked-for one. The
+    // nearest survivor is the rule that the gap goes ON the path they are
+    // asked to approve, which is the actionable half.
+    expect(ready()).toMatch(/put that on the path you send: who they intended, who the campaign will actually reach, and what that costs/);
   });
 
-  it('keeps the options step before the journey, not after it', () => {
-    // Order is the point: options weighed first, journey built from the
+  it('weighs the approaches BEFORE it writes the path, and the messages last', () => {
+    // Order is the point: approaches weighed first, journey built from the
     // winner. Reversed, the "evaluation" is a post-hoc justification of a
-    // sequence already written.
-    expect(SYSTEM.indexOf('6. The strategic options')).toBeLessThan(SYSTEM.indexOf('7. The journey.'));
-    expect(SYSTEM.indexOf('7. The journey.')).toBeLessThan(SYSTEM.indexOf('8. The messages.'));
-    expect(SYSTEM).toMatch(/every option you marked "used" should be visible in it/);
+    // sequence already written. The old pin read chapter numbers — "6. The
+    // strategic options" before "7. The journey." — and the manual's headings
+    // carry the same order under their own names.
+    expect(SYSTEM.indexOf('Two real approaches, then one journey')).toBeLessThan(SYSTEM.indexOf('The path'));
+    expect(SYSTEM.indexOf('The path')).toBeLessThan(SYSTEM.indexOf('The messages'));
+    // HOMELESS: 'every option you marked "used" should be visible in it' —
+    // the rule that the options table must match the journey that was sent.
+    // It has no counterpart, and it is the pin that caught an earlier trim of
+    // SYSTEM and got that trim reverted. What survives is the same idea
+    // applied to the approach rather than the table.
+    expect(ready()).toMatch(/The path must show the approach you picked. If it does not show it, you did not use it/);
   });
 });
 

@@ -1,0 +1,320 @@
+{
+ "note": "Copied byte-for-byte from eval/runs/ui-s-1793080526410 turn 3, which is gitignored. The refused propose: entry Transaction Events / Purchase Posted (invented type), a ticket-size split on the short name Amount, five sends nested on the two arms, and three nameless \"Check conversion\" conditions between them.",
+ "entry": {
+  "kind": "event",
+  "eventCategory": "Transaction Events",
+  "eventType": "Purchase Posted"
+ },
+ "steps": [
+  {
+   "kind": "branch",
+   "label": "Split by ticket size",
+   "on": {
+    "entity": "Transaction",
+    "attribute": "Amount",
+    "operator": "Greater than",
+    "value": "10000"
+   },
+   "paths": [
+    {
+     "label": "Above ₹10,000",
+     "operator": "Greater than",
+     "value": "10000",
+     "steps": [
+      {
+       "kind": "send",
+       "label": "First touch – larger ticket",
+       "barrier": "no-identified-reason",
+       "channelPreference": [
+        "WHATSAPP",
+        "SMS"
+       ],
+       "fallbackChannel": "SMS",
+       "delayDays": 0,
+       "atTime": "11:00",
+       "copy": "Your recent card purchase of ₹[Amount] is eligible for No-Cost EMI. Convert it in a few taps on the IndusInd app or net banking — no extra charge, just split the payment.",
+       "cta": "Convert to EMI"
+      },
+      {
+       "kind": "condition",
+       "label": "Check conversion",
+       "barrier": "no-identified-reason",
+       "objective": [
+        "Stop messaging anyone who has already converted"
+       ]
+      },
+      {
+       "kind": "send",
+       "label": "Reminder – larger ticket",
+       "barrier": "no-identified-reason",
+       "channelPreference": [
+        "WHATSAPP",
+        "SMS"
+       ],
+       "fallbackChannel": "SMS",
+       "delayDays": 4,
+       "atTime": "11:00",
+       "copy": "Still thinking it over? Your ₹[Amount] purchase can be converted to No-Cost EMI until [ExpiryDate]. Takes under a minute on the app.",
+       "cta": "Convert now"
+      }
+     ]
+    },
+    {
+     "label": "₹10,000 or below",
+     "operator": "Less than",
+     "value": "10001",
+     "steps": [
+      {
+       "kind": "send",
+       "label": "First touch – smaller ticket",
+       "barrier": "no-identified-reason",
+       "channelPreference": [
+        "WHATSAPP",
+        "SMS"
+       ],
+       "fallbackChannel": "SMS",
+       "delayDays": 0,
+       "atTime": "11:00",
+       "copy": "Good news: your card purchase of ₹[Amount] can be converted to No-Cost EMI. Spread the payment, no extra charge. Convert anytime in the next 7 days on the app, net banking, or by calling us.",
+       "cta": "Convert to EMI"
+      },
+      {
+       "kind": "condition",
+       "label": "Check conversion after first touch",
+       "barrier": "no-identified-reason",
+       "objective": [
+        "Stop messaging anyone who has already converted"
+       ]
+      },
+      {
+       "kind": "send",
+       "label": "Reminder with mechanic explained",
+       "barrier": "no-identified-reason",
+       "channelPreference": [
+        "WHATSAPP",
+        "SMS"
+       ],
+       "fallbackChannel": "SMS",
+       "delayDays": 3,
+       "atTime": "11:00",
+       "copy": "Reminder: your ₹[Amount] purchase is still eligible for No-Cost EMI. No paperwork — just pick a tenure on the app or net banking and the rest is automatic.",
+       "cta": "Convert now"
+      },
+      {
+       "kind": "condition",
+       "label": "Check conversion after reminder",
+       "barrier": "no-identified-reason",
+       "objective": [
+        "Stop messaging anyone who has already converted"
+       ]
+      },
+      {
+       "kind": "send",
+       "label": "Last chance before window closes",
+       "barrier": "no-identified-reason",
+       "channelPreference": [
+        "WHATSAPP",
+        "SMS"
+       ],
+       "fallbackChannel": "SMS",
+       "delayDays": 2,
+       "atTime": "11:00",
+       "copy": "Last call: your ₹[Amount] purchase is eligible for No-Cost EMI only until [ExpiryDate]. Convert on the app, net banking, or call us before it closes.",
+       "cta": "Convert before it expires"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "brief": {
+  "objective": "We want more EMI-eligible card purchases to become EMI. We have no campaign history. I need a 7 day plan.",
+  "objectiveFingerprint": "become campaign card day eligible emi history no plan purchases",
+  "rounds": 0,
+  "questions": [
+   {
+    "id": "q0-0",
+    "text": "When you say an eligible purchase 'becomes EMI', do you mean the customer should choose EMI at the moment of purchase (checkout, via the merchant or card network's EMI offer), or convert an already-posted purchase to EMI afterwards through your app, net banking or a call to the bank?",
+    "askedInRound": 0,
+    "author": "agent",
+    "impact": "fork",
+    "contingency": {
+     "ifA": "If it is at-checkout conversion, the window to act is minutes to hours after the swipe, and the campaign has to reach the customer almost immediately after the transaction posts.",
+     "ifB": "If it is post-purchase conversion, the window is days (an EMI request on an eligible transaction stays open for about 7 days), and the campaign has room to nudge, remind and re-nudge across the week.",
+     "thenA": "Design the journey around a near-real-time trigger right after the purchase.",
+     "thenB": "Design the journey around reminders spaced across the 7-day eligibility window.",
+     "ifUnknown": "I will assume post-purchase conversion through the app or a bank channel, since that is the more common IndusInd EMI flow and fits a 7-day plan."
+    },
+    "answeredInRound": 0,
+    "addressedInRound": 0
+   },
+   {
+    "id": "q0-1",
+    "text": "How will you judge whether this campaign actually worked — by the number of purchases that get converted to EMI, by the share (rate) of eligible purchases that convert, or by the total value converted?",
+    "askedInRound": 0,
+    "author": "agent",
+    "impact": "fork",
+    "contingency": {
+     "ifA": "If it's raw count, the campaign can be judged a success by volume of conversions even if they skew toward small, easy transactions.",
+     "ifB": "If it's share/rate or total value converted, the campaign needs to also work on larger or less-obvious transactions, not just the easiest ones, and the measure would be rate or ₹ value, not headcount.",
+     "thenA": "Report results as number of transactions converted.",
+     "thenB": "Report results as conversion rate and/or ₹ value converted, and watch for the campaign pulling in mostly small tickets while large ones lag.",
+     "ifUnknown": "I will track all three — count, rate, and value — and flag it explicitly if they move in different directions, since no target exists yet to say which matters most."
+    },
+    "answeredInRound": 0,
+    "addressedInRound": 0
+   },
+   {
+    "id": "q0-3",
+    "text": "Who tends to do this already today — is there any pattern you have noticed, even a rough one? \"We do not track that\" is a complete answer.",
+    "askedInRound": 0,
+    "author": "app",
+    "impact": "shaping",
+    "answeredInRound": 0,
+    "addressedInRound": 0
+   },
+   {
+    "id": "q0-3",
+    "text": "For the eligible purchases that don't get converted, especially the smaller ones, what have you seen holding customers back — do they not realise conversion is still possible after the purchase posts, or is it something else you've noticed?",
+    "askedInRound": 0,
+    "author": "agent",
+    "impact": "fork",
+    "contingency": {
+     "ifA": "If it's mainly that customers don't know the option exists after posting, the campaign leads with a simple awareness nudge: 'you can still convert this purchase to EMI.'",
+     "ifB": "If it's a cost or interest concern, the campaign leads with the EMI terms and cost transparency (e.g. no-cost EMI where applicable) instead of just announcing the option.",
+     "ifUnknown": "I'll carry this as an open question and design the first message to test awareness as the simplest, most reversible starting hypothesis, flagging it as unverified."
+    },
+    "answeredInRound": 0,
+    "addressedInRound": 0
+   },
+   {
+    "id": "q0-4",
+    "text": "Besides transaction size, have you noticed any pattern by the type of purchase (like electronics, travel, medical bills) or by how long someone has held the card, that affects who converts?",
+    "askedInRound": 0,
+    "author": "agent",
+    "impact": "shaping",
+    "contingency": {
+     "ifA": "If a category or tenure pattern exists, I'd split messaging or timing on that axis too, alongside ticket size.",
+     "ifB": "If no such pattern has been seen, I'll carry ticket size as the only confirmed differentiator and not invent a category or tenure split.",
+     "ifUnknown": "I'll treat it as not yet observed and design around ticket size alone, noting the open question for later."
+    },
+    "answeredInRound": 0,
+    "addressedInRound": 0
+   }
+  ],
+  "answers": [
+   {
+    "round": 0,
+    "text": "1. convert an already-posted purchase to EMI afterwards through your app, net banking or a call to the bank?\n2. eligible purchases that convert\n3. transactions above 10k usually get converted more often"
+   },
+   {
+    "round": 0,
+    "text": "1. not really for both"
+   }
+  ],
+  "openUncertainties": [],
+  "evidenceRequests": [],
+  "facts": [
+   {
+    "statement": "They have no campaign history, and said so themselves. There is no conversion rate, benchmark, baseline or past result to ask for — this run IS the first one.",
+    "source": "user-answer",
+    "confidence": "confirmed",
+    "round": 0
+   },
+   {
+    "statement": "They asked for a plan over 7 days. That is the window the campaign has to work inside — do not ask how long they want.",
+    "source": "user-answer",
+    "confidence": "confirmed",
+    "round": 0
+   },
+   {
+    "statement": "1. convert an already-posted purchase to EMI afterwards through your app, net banking or a call to the bank?\n2. eligible purchases that convert\n3. transactions above 10k usually get converted more often",
+    "source": "user-answer",
+    "round": 0,
+    "confidence": "confirmed",
+    "answers": [
+     "q0-0",
+     "q0-1",
+     "q0-3"
+    ]
+   },
+   {
+    "statement": "1. not really for both",
+    "source": "user-answer",
+    "round": 0,
+    "confidence": "confirmed",
+    "answers": [
+     "q0-3",
+     "q0-4"
+    ]
+   }
+  ],
+  "limitations": [
+   "Stated as unavailable by the user: We want more EMI-eligible card purchases to become EMI. We have no campaign history. I need a 7 day plan."
+  ],
+  "statedValues": [],
+  "dimensions": [
+   {
+    "name": "Transaction amount / ticket size",
+    "rationale": "Manager has directly observed that purchases above ₹10,000 convert more often, so the size of the purchase likely changes propensity and possibly the message (e.g. value framing for big-ticket items).",
+    "status": "retained",
+    "basis": "user",
+    "note": "Confirmed by manager as an observed pattern."
+   },
+   {
+    "name": "Purchase category / merchant type",
+    "rationale": "Big one-off categories (electronics, travel, medical) may have different EMI conversion propensity and different customer motivations than routine spend, which could change message framing.",
+    "status": "deferred",
+    "basis": "user",
+    "note": "Manager has not observed any pattern by purchase category — closed as a candidate axis for this campaign."
+   },
+   {
+    "name": "Card vintage / tenure with the bank",
+    "rationale": "Newer cardholders may simply not know post-purchase EMI conversion exists, which would point to an awareness-first message rather than a cost-benefit message.",
+    "status": "deferred",
+    "basis": "user",
+    "note": "Manager has not observed any pattern by card tenure — closed as a candidate axis for this campaign."
+   },
+   {
+    "name": "Credit limit utilisation at time of purchase",
+    "rationale": "If high-utilisation customers convert more (to free up available credit) or less (already stretched), that changes who the message should prioritise and what benefit to lead with. Not yet confirmed by manager.",
+    "status": "open",
+    "basis": "assumption",
+    "note": "Not yet confirmed by manager; held open pending their read on whether this drives behaviour."
+   },
+   {
+    "name": "Existing active EMI plans on the card",
+    "rationale": "A customer already running EMI plans may respond differently to a new EMI offer than a first-time converter — either more receptive due to familiarity or less due to repayment load. This is a dimension I am raising, not one the manager has mentioned yet.",
+    "status": "open",
+    "basis": "assumption"
+   }
+  ],
+  "successCriteria": [
+   "Share of eligible purchases that convert to EMI"
+  ],
+  "verdicts": [],
+  "contextChecked": [],
+  "converters": {
+   "shape": "Larger-ticket eligible purchases, above ₹10,000, convert to EMI more often than smaller ones.",
+   "basis": "user",
+   "knowledge": "known",
+   "candidates": [
+    {
+     "segment": "Eligible purchases above ₹10,000",
+     "restsOn": "transaction amount",
+     "why": "Manager said transactions above ₹10k usually get converted more often"
+    }
+   ],
+   "raisedInRound": 0
+  },
+  "barriers": [
+   {
+    "id": "no-identified-reason",
+    "statement": "The manager has not observed a specific reason why smaller eligible purchases fail to convert to EMI — not awareness, and not anything else they've flagged.",
+    "basis": "user",
+    "lever": "message",
+    "quote": "not really for both"
+   }
+  ]
+ }
+}

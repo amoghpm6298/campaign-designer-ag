@@ -154,15 +154,24 @@ describe('exclusive arms of one fork are not two messages to one person', () => 
 });
 
 describe('before Confirm, never after', () => {
-  it('is raised at propose time and skipped on the build turn', () => {
+  it('is ADVICE at propose time, and still silent on the build turn', () => {
+    // RETARGETED 2026-10-27. It asserted that habit BLOCKS, which gave a
+    // channel-mix opinion the same power as "there is no journey" — measured
+    // on `eval/runs/ui-s-1793084077571` turn 4, where it kept Confirm off a
+    // campaign that was ready to run.
+    //
+    // The sentence is still said, and it is still not said after they have
+    // approved, which is what this test was really about.
     const proposed = {
       strategy: plan([
         touch({ day: 0, ifStillUnconverted: 'Remind on WhatsApp.' }),
         touch({ day: 2, ifStillUnconverted: 'Remind on WhatsApp again.' }),
       ]),
     } as never;
-    expect(decide(settled(), { proposed }).blocks.map((b) => b.code)).toContain('single-channel-habit');
-    expect(decide(settled(), { proposed, building: true }).blocks.map((b) => b.code)).not.toContain('single-channel-habit');
+    const atPropose = decide(settled(), { proposed });
+    expect(atPropose.blocks.map((b) => b.code)).not.toContain('single-channel-habit');
+    expect(atPropose.advice.join(' ')).toMatch(/same channel/i);
+    expect(decide(settled(), { proposed, building: true }).advice.join(' ')).not.toMatch(/same channel/i);
   });
 
   it('says nothing when there is no proposal, so discovery is untouched', () => {

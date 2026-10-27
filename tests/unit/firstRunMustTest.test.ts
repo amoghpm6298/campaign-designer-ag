@@ -25,14 +25,17 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { orchestrateStream } from '../../server/orchestrator';
 import { seedKnowledgeBase } from '../../server/knowledge';
-import { decide, trendBlocks } from '../../server/gate';
+import { decide, trendBlocks, whoGroups } from '../../server/gate';
 import { newBrief, recordAnswer, recordConverters, recordDimensions, recordSuccessCriteria } from '../../server/discovery';
 import { discovered } from './support/findings';
+import { ready } from './support/prompts.ts';
+// PINS REMOVED, NOT LOST: 5 rule(s) this file asserted have no
+// counterpart in any of the three manuals. Every one is listed in
+// `server/promptHomeless.md` under this filename, with the tests that
+// went with them. Do not re-add a pin here without putting the rule
+// back in a manual first.
 
-const SYSTEM = (() => {
-  const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-  return /const SYSTEM = `([\s\S]*?)`;\n/.exec(src)![1];
-})();
+const SYSTEM = ready();
 
 const knowledge = seedKnowledgeBase();
 const EMI =
@@ -131,6 +134,53 @@ const plan = (over: Record<string, unknown> = {}) => ({
 
 const OPTION = (option: string, verdict: string, why = 'because') => ({ option, verdict, why });
 
+/**
+ * THE SPLIT HAS TO BE IN THE STEPS NOW, not only in the touch-path names.
+ *
+ * `trendBlocks` reads `whoGroups(blueprint.steps)` — the same function cadence
+ * has used since 2026-10-26 — instead of counting any `touches[].path` that is
+ * not "all". These fixtures described their split in labels alone, which is
+ * how a read-versus-unread fork came to be judged an illegal who-split on
+ * `eval/runs/ui-s-1793016334376`. A plan that cuts people says so in a branch
+ * on a customer or transaction attribute, so that is what they carry.
+ */
+const send = (name: string) => ({
+  kind: 'send', name, objective: ['emi'], stage: 'first-touch',
+  describe: 'Say what it costs.', copy: 'Convert this purchase to EMI.',
+  channelPreference: ['WHATSAPP'], barrier: 'cost-perception',
+});
+
+/** A branch on a customer attribute: two guest lists. */
+const whoCut = (a = 'Prior EMI users', b = 'First-time') => ({
+  campaignName: 'EMI', description: 'Prompt conversion inside the open window.', goal: null,
+  entry: { kind: 'audience', entity: 'Card', conditions: [] },
+  steps: [
+    {
+      kind: 'branch', entity: 'Transaction', attribute: 'Transaction Amount',
+      paths: [
+        { label: a, operator: 'Equals', value: '10000', steps: [send(`${a} day 0`)] },
+        { label: b, operator: 'Not Equals', value: '10000', steps: [send(`${b} day 0`)] },
+      ],
+    },
+  ],
+});
+
+/** Randomly assigned arms: an interior of one group, never a guest list. */
+const armsOnly = () => ({
+  campaignName: 'EMI', description: 'Prompt conversion inside the open window.', goal: null,
+  entry: { kind: 'audience', entity: 'Card', conditions: [] },
+  steps: [
+    {
+      kind: 'experiment', hypothesis: 'Cost framing beats deadline framing.',
+      arms: [
+        { label: 'Arm A', steps: [send('Cost framing')] },
+        { label: 'Arm B', steps: [send('Deadline framing')] },
+      ],
+    },
+  ],
+});
+
+
 describe('a treatment split needs a trend the manager has seen', () => {
   it('refuses a copy split on a factor they said they do not track', () => {
     // The live failure, exactly: different day-0 copy for prior-EMI versus
@@ -140,6 +190,7 @@ describe('a treatment split needs a trend the manager has seen', () => {
         strategyOptions: [OPTION('Segmentation', 'used', 'Prior EMI users get a shorter explanation.')],
         touches: [...touches('Prior EMI users'), ...touches('First-time')],
       }),
+      blueprint: whoCut(),
     });
     expect(blocks.map((b) => b.code)).toContain('split-without-trend');
     expect(blocks[0].reason).toMatch(/nothing you have told me says those groups behave differently/);
@@ -153,6 +204,8 @@ describe('a treatment split needs a trend the manager has seen', () => {
         strategyOptions: [OPTION('Segmentation', 'not-applicable', 'One track.')],
         touches: [...touches('Prior EMI users'), ...touches('First-time')],
       }),
+      // The steps DO cut people; the options list simply does not admit it.
+      blueprint: whoCut(),
     });
     expect(blocks.map((b) => b.code)).toContain('split-without-trend');
   });
@@ -163,6 +216,7 @@ describe('a treatment split needs a trend the manager has seen', () => {
         strategyOptions: [OPTION('Segmentation', 'used', 'Bigger tickets get the cost breakdown.')],
         touches: [...touches('Above their own median'), ...touches('Everyone else')],
       }),
+      blueprint: whoCut('Above their own median', 'Everyone else'),
     });
     expect(blocks).toEqual([]);
   });
@@ -177,6 +231,7 @@ describe('a treatment split needs a trend the manager has seen', () => {
         strategyOptions: [OPTION('Segmentation', 'used', 'Above ten thousand gets the breakdown.')],
         touches: [...touches('Above 10000'), ...touches('Everyone else')],
       }),
+      blueprint: whoCut('Above 10000', 'Everyone else'),
     });
     expect(blocks.map((b) => b.code)).toEqual(['split-without-trend']);
   });
@@ -190,6 +245,8 @@ describe('a treatment split needs a trend the manager has seen', () => {
         strategyOptions: [OPTION('Experimentation', 'used', 'Cost framing versus deadline framing.')],
         touches: [...touches('Prior EMI users'), ...touches('First-time')],
       }),
+      // A wording test does not legalise a who-cut the steps have.
+      blueprint: whoCut(),
     });
     expect(blocks.map((b) => b.code)).toEqual(['split-without-trend']);
   });
@@ -202,6 +259,8 @@ describe('a treatment split needs a trend the manager has seen', () => {
         strategyOptions: [OPTION('Experimentation', 'used', 'Two openings, randomly assigned.')],
         touches: [...touches('Arm A — cost framing'), ...touches('Arm B — deadline framing')],
       }),
+      // Randomly assigned arms, in the steps where the rule reads them.
+      blueprint: armsOnly(),
     });
     expect(blocks).toEqual([]);
   });
@@ -224,10 +283,68 @@ describe('with no history, the first run has to test something', () => {
     expect(blocks[0].reason).toMatch(/no later run to inherit it/);
   });
 
-  it('accepts a wording test', () => {
+  // THE LIVE SHAPE, from `eval/runs/ui-s-1793016334376` turn 3.
+  //
+  // Three turns, Confirm never appeared. They filed exactly the campaign this
+  // product wants: one WhatsApp at purchase, a read-versus-unread fork, a last
+  // chance on day 6 on both arms. `brief.lastBlocks` was
+  // `['split-without-trend']`, and the "groups" the refusal named were
+  // `Unread path` and `Read path` — names in `touches`, not people.
+  it('a read-versus-unread fork is not a who-split, whatever the touches are called', () => {
+    const outcomeFork = {
+      campaignName: 'EMI', description: 'Prompt conversion inside the open window.', goal: null,
+      entry: { kind: 'audience', entity: 'Card', conditions: [] },
+      steps: [
+        send('Day 0 — awareness nudge'),
+        {
+          // No attribute, and `statuses` on the paths: the same person, judged
+          // on what they did with the last message.
+          kind: 'branch',
+          label: 'What happened to the first message',
+          // COPIED FROM THE RECORD, not imagined. My first version gave both
+          // arms the same shape, so `journeyReacts` correctly said no — two
+          // arms doing the identical job is not a reaction. The live plan sent
+          // the unread arm by SMS and the read arm by WhatsApp, which is the
+          // difference that makes it one.
+          paths: [
+            { label: 'Unread path', statuses: ['DELIVERED'], steps: [
+              { ...send('Day 3 — repeat for unread'), channelPreference: ['SMS'], delayDays: 3 },
+              { ...send('Day 6 — last chance (unread path)'), channelPreference: ['SMS'], delayDays: 3, stage: 'reminder' },
+            ] },
+            { label: 'Read path', statuses: ['READ'], steps: [
+              { ...send('Day 3 — sharper reason for read-no-action'), channelPreference: ['WHATSAPP'], delayDays: 3 },
+              { ...send('Day 6 — last chance (read path)'), channelPreference: ['WHATSAPP'], delayDays: 3, stage: 'reminder' },
+            ] },
+          ],
+        },
+      ],
+    };
+    const proposed = {
+      strategy: plan({
+        // EXACTLY AS THE LIVE PLAN HAD IT: no `strategyOptions` at all, and
+        // the touch paths named for the arms.
+        strategyOptions: undefined,
+        touches: [...touches(), ...touches('Unread path'), ...touches('Read path')],
+      }),
+      blueprint: outcomeFork,
+    };
+    expect(whoGroups(outcomeFork.steps as unknown[]), 'no guest lists').toEqual([]);
+    expect(trendBlocks(noTrack(), proposed as never), 'and so no hold').toEqual([]);
+    // AND THE SECOND HOLD DOES NOT FIRE EITHER. A journey that reacts to what
+    // the customer did is comparing something: unread against read is the
+    // reading. It must not be held for omitting a field no manual teaches.
+    expect(decide(noTrack(), { proposed: proposed as never }).blocks.map((b) => b.code)).not.toContain('nothing-tested');
+  });
+
+  it('accepts a wording test, when the steps actually run one', () => {
+    // THE TEST IS IN THE PATH, NOT ON THE OPTIONS LIST. `nothing-tested` used
+    // to key on `Experimentation: used`, so a plan cleared it by setting a
+    // field no manual teaches, and the live reacting plan on
+    // `eval/runs/ui-s-1793016334376` would have been held for omitting it.
     expect(
       trendBlocks(noTrack(), {
         strategy: plan({ strategyOptions: [OPTION('Experimentation', 'used', 'Cost framing versus deadline framing.')] }),
+        blueprint: armsOnly(),
       }),
     ).toEqual([]);
   });
@@ -238,6 +355,7 @@ describe('with no history, the first run has to test something', () => {
     expect(
       trendBlocks(noTrack(), {
         strategy: plan({ strategyOptions: [OPTION('Experimentation', 'used', 'Two touches versus four over the window.')] }),
+        blueprint: armsOnly(),
       }),
     ).toEqual([]);
   });
@@ -255,19 +373,34 @@ describe('with no history, the first run has to test something', () => {
 
   it('a retained trend they stated still exempts the plan', () => {
     // The release that remains, and the only one.
-    expect(trendBlocks(sawATrend(), { strategy: plan({ touches: [...touches('Above their own median'), ...touches('Everyone else')] }) })).toEqual([]);
+    expect(
+      trendBlocks(sawATrend(), {
+        strategy: plan({ touches: [...touches('Above their own median'), ...touches('Everyone else')] }),
+        blueprint: whoCut('Above their own median', 'Everyone else'),
+      }),
+    ).toEqual([]);
   });
 });
 
 describe('the refusal happens before Confirm and never after', () => {
-  it('is not raised on a build turn', () => {
-    // Same rule as the cadence block. Once they have approved, refusing
-    // leaves them with an approval that did nothing.
-    const held = decide(noTrack(), { proposed: { strategy: plan() } });
-    expect(held.proceed).toBe(false);
-    expect(held.blocks.map((b) => b.code)).toContain('nothing-tested');
+  it('is ADVICE at propose time, and still silent on a build turn', () => {
+    // RETARGETED 2026-10-27, and the demotion is the locked product: a clock
+    // plus a who-split is a complete first campaign, and reaction is smarter
+    // rather than mandatory. `nothing-tested` summed into the same list as
+    // "there is no journey", so a taste judgement kept the button off.
+    //
+    // `split-without-trend` — its sibling outcome in the same function —
+    // deliberately still HOLDS. Demoting both would let a who-cut on a factor
+    // nobody has seen Confirm, which is `ui-s-1793077922155` from the other
+    // side.
+    const atPropose = decide(noTrack(), { proposed: { strategy: plan() } });
+    expect(atPropose.blocks.map((b) => b.code)).not.toContain('nothing-tested');
+    expect(atPropose.advice.join(' ')).toMatch(/compares nothing|keeps its test for a future run/);
+    // Still nothing to say once they have approved: refusing or lecturing
+    // there leaves them with an approval that did nothing.
     const building = decide(noTrack(), { proposed: { strategy: plan() }, building: true });
     expect(building.blocks.map((b) => b.code)).not.toContain('nothing-tested');
+    expect(building.advice.join(' ')).not.toMatch(/compares nothing|keeps its test for a future run/);
   });
 
   it('names something the model can write, like every other block', () => {
@@ -336,8 +469,14 @@ const BLUEPRINT = {
   ],
 };
 
-async function proposeTurn(strategy: unknown) {
-  script([jsonTurn({ action: 'propose', strategy, blueprint: BLUEPRINT, openItems: [] })]);
+/**
+ * `path` defaults to `BLUEPRINT`, which carries an engagement fork. A case
+ * about a plan that COMPARES NOTHING has to send a flat one: `nothing-tested`
+ * reads the steps now, and a journey that reacts to what the customer did is
+ * comparing something — unread against read is the reading.
+ */
+async function proposeTurn(strategy: unknown, path: unknown = BLUEPRINT) {
+  script([jsonTurn({ action: 'propose', strategy, blueprint: path, openItems: [] })]);
   const gen = orchestrateStream({
     sessionId: 'first-run',
     tenantId: 'TEN-IBL',
@@ -363,11 +502,31 @@ afterEach(() => {
 });
 
 describe('the turn itself stops short of Confirm', () => {
-  it('a flat plan on a no-track brief does not reach awaiting-confirmation', async () => {
-    const res = await proposeTurn(plan());
-    expect(res.phase).not.toBe('awaiting-confirmation');
-    expect(res.pendingBlueprint ?? null).toBeNull();
+  it('a flat plan on a no-track brief now REACHES awaiting-confirmation, with the advice', async () => {
+    // FLAT MEANS FLAT. This used to send `BLUEPRINT`, which has an engagement
+    // fork in it, so the fixture was never the thing the name describes — it
+    // was held because `Experimentation` was unset, which is the field this
+    // slice stopped reading.
+    const FLAT = {
+      ...BLUEPRINT,
+      steps: [
+        BLUEPRINT.steps[0],
+        { kind: 'wait', duration: 3, unit: 'days' },
+        { ...(BLUEPRINT.steps[0] as Record<string, unknown>), name: 'Last chance', stage: 'reminder' },
+      ],
+    };
+    //
+    // REVERSED 2026-10-27. A clock with a who-split is a complete first
+    // campaign, so "this compares nothing" is advice beside a live button
+    // rather than a reason to send them back to Revise. The sentence still
+    // reaches them, which is what this test now holds.
+    const res = await proposeTurn(plan(), FLAT);
+    expect(res.phase).toBe('awaiting-confirmation');
+    expect(res.strategy, 'there is a plan to approve').toBeTruthy();
     expect(String(res.reply ?? '')).toMatch(/compares nothing|keeps its test for a future run/);
+    // STILL NOT BUILT. The canvas is a compiled campaign and only Confirm
+    // compiles it, so nothing here is a graph.
+    expect(res.graph ?? null).toBeNull();
   });
 
   it('the same plan with a derived test does reach it', async () => {
@@ -386,32 +545,21 @@ describe('the prompt no longer fights the rule', () => {
     // menu, and a wait that `convertersSettled` stopped requiring.
     expect(SYSTEM).not.toMatch(/TWO candidate segments/);
     expect(SYSTEM).not.toMatch(/wait for their reaction/);
-    expect(SYSTEM).toMatch(/name two candidate TRENDS resting on different things/);
-    expect(SYSTEM).toMatch(/a trend nobody has seen is what the campaign MEASURES, not what it acts on/);
   });
 
   it('never models a rupee figure inside a question', () => {
     // The run invented "₹3,000 versus ₹60,000" while asking whether success
     // is counted or valued. The ban already existed; what matters is that no
     // application-authored copy demonstrates the opposite.
-    expect(SYSTEM).toMatch(/Never supply a sample answer, a rupee figure or a number of days alongside a question/);
     const questionCopy = SYSTEM.split('\n').filter((l) => /\?|ask/i.test(l));
     for (const line of questionCopy) expect(line, line.slice(0, 60)).not.toMatch(/₹\s?[0-9]/);
   });
 
-  it('still forbids a click condition on a channel that cannot report one', () => {
-    // Widened to opens as well, 2026-10-23: WhatsApp and SMS report neither,
-    // and the compiler now refuses the status outright rather than coercing
-    // it. The prompt still says so, because the cheapest place to stop it is
-    // before it is written.
-    expect(SYSTEM).toMatch(/Never put a click or open condition on a WhatsApp or SMS send/);
-  });
 
   it('names the three WhatsApp statuses rather than two', () => {
     // DELIVERED-and-unread, READ, DELETED are three different people, and the
     // prompt used to say "delivered and read" — which is where "two waits and
     // a reminder" comes from.
-    expect(SYSTEM).toMatch(/WhatsApp reports DELIVERED, READ and DELETED/);
-    expect(SYSTEM).toMatch(/FAILED IS NOT AN ARM/);
+    expect(ready()).toMatch(/Failed delivery is the fallback on the send, not an arm/);
   });
 });

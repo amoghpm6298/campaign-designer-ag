@@ -14,7 +14,7 @@
 // approves, not on the turn their approval is spent.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { decide, reactionBlocks } from '../../server/gate';
+import { decide, reactionBlocks, alignJourneyClaim } from '../../server/gate';
 import { newBrief, recordAnswer, recordBarriers, recordConverters, recordDimensions, recordSuccessCriteria } from '../../server/discovery';
 import { reactingPath } from './support/journeys';
 
@@ -92,32 +92,31 @@ describe('a clock may win, and the claim is what is checked', () => {
     expect(d.proceed).toBe(true);
   });
 
-  it('holds when they wrote the upgrade and then chose the calendar', () => {
-    const blocks = reactionBlocks(
-      proposal(
-        plan({
-          architectures: [
-            { name: 'Statement-date drip', journey: 'linear', chosen: true },
-            { name: 'Catch the moment', journey: 'branch-on-response' },
-          ],
-        }),
-      ) as never,
-    );
-    expect(blocks.map((b) => b.code)).toEqual(['chose-clock-over-reaction']);
-    expect(blocks[0].reason).toMatch(/treats someone who opened the message and someone who never did as two different people/);
-    expect(blocks[0].reason).toMatch(/chose the one that goes by the calendar/);
-    expect(blocks[0].clears.field).toBe('architecture');
-    // Keep the who-split; the fork sits inside a group.
-    expect(blocks[0].clears.how).toMatch(/Keep the who-split exactly as it is/);
-    // And dropping the rival is a legal move, so this is not a trap.
-    expect(blocks[0].clears.how).toMatch(/drop the reactive candidate/);
+  it('ADVISES, and does not hold, when they wrote the upgrade and chose the calendar', () => {
+    // DEMOTED 2026-10-26. `chose-clock-over-reaction` was a Block, and a
+    // Block refuses a build. Describing a reactive rival and then picking the
+    // cadence is a judgement a campaign manager is allowed to make — the
+    // application saying "no, take the other one" is the application choosing
+    // the campaign. The sentence still goes out, once, as advice.
+    const clockOverReaction = plan({
+      architectures: [
+        { name: 'Statement-date drip', journey: 'linear', chosen: true },
+        { name: 'Catch the moment', journey: 'branch-on-response' },
+      ],
+    });
+    expect(reactionBlocks(proposal(clockOverReaction) as never)).toEqual([]);
+
+    const d = decide(settled(), { proposed: proposal(clockOverReaction) as never });
+    expect(d.blocks.map((b) => b.code)).toEqual([]);
+    expect(d.proceed).toBe(true);
+    expect(d.advice.join(' ')).toMatch(/treats someone who opened the message and someone who never did as two different people/);
+    expect(d.advice.join(' ')).toMatch(/chose the one that goes by the calendar/);
   });
 
-  it('holds the same way when nobody was marked the winner but a reactive candidate exists', () => {
-    // "They wrote the upgrade and picked nothing" lands in the same place,
-    // which is why the old no-chosen-candidate hold did not need keeping.
-    const blocks = reactionBlocks(
-      proposal(
+  it('advises the same way when nobody was marked the winner', () => {
+    // "They wrote the upgrade and picked nothing" lands in the same place.
+    const d = decide(settled(), {
+      proposed: proposal(
         plan({
           architectures: [
             { name: 'Statement-date drip', journey: 'linear' },
@@ -125,8 +124,9 @@ describe('a clock may win, and the claim is what is checked', () => {
           ],
         }),
       ) as never,
-    );
-    expect(blocks.map((b) => b.code)).toEqual(['chose-clock-over-reaction']);
+    });
+    expect(d.blocks.map((b) => b.code)).toEqual([]);
+    expect(d.advice.join(' ')).toMatch(/The reacting one is usually the better campaign/);
   });
 
   it('says nothing when every candidate is a clock', () => {
@@ -160,100 +160,111 @@ describe('a clock may win, and the claim is what is checked', () => {
         },
       ],
     };
-    const blocks = reactionBlocks({ strategy: plan(), blueprint: ticketOnly } as never);
-    expect(blocks.map((b) => b.code)).toEqual(['no-reaction']);
-    expect(blocks[0].reason).toMatch(/A split by ticket size is who they are, not what they did/);
+    // STRIPPED, NOT HELD, since 2026-10-26. The claim was wrong and the path
+    // is a perfectly runnable who-split clock, so the application repairs the
+    // LABEL — which is the only half it can repair — and the manager gets the
+    // plan plus one sentence about what a read-fork would add. A who-split is
+    // still not the fork: `journeyReacts` is false here.
+    const proposed = { strategy: plan(), blueprint: ticketOnly };
+    expect(reactionBlocks(proposed as never)).toEqual([]);
+
+    const aligned = alignJourneyClaim(proposed as never);
+    expect(aligned.stripped).toBe(true);
+    expect(aligned.proposed!.strategy!.architectures!.find((a: { chosen?: boolean }) => a.chosen)!.journey).toBe('linear');
+    // The who-split survives untouched, and no fork was invented.
+    expect(JSON.stringify(aligned.proposed!.blueprint)).toBe(JSON.stringify(ticketOnly));
+
+    const d = decide(settled(), { proposed: proposed as never });
+    expect(d.blocks.map((b) => b.code)).toEqual([]);
+    expect(d.proceed).toBe(true);
+    expect(d.advice.join(' ')).toMatch(/read-fork on the first WhatsApp/);
   });
 });
 
-describe('claiming a reaction is not having one', () => {
-  it('refuses when every touch falls back to the same reminder', () => {
-    const blocks = reactionBlocks(proposal(plan({
-        touches: [
-          { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'Remind on day 2.' },
-          { day: 2, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'Remind on day 4.' },
-        ],
-      })) as never);
+// THE STEPS ARE THE READER. THE TOUCH PROSE IS NOT.
+//
+// REWRITTEN 2026-10-26, and this group used to be the opposite rule: every
+// case below asserted that `namedOutcomes` over `ifStillUnconverted` HELD the
+// turn when it named fewer than two landed cases. It ran before the blueprint
+// was consulted at all.
+//
+// MEASURED, `eval/runs/ui-s-1792843757296` turn 3. Discovery was finished,
+// `decide(brief)` was empty, `propose_strategy` had accepted a path whose
+// steps fork on READ against DELIVERED/DELETED — `journeyReacts` TRUE — and
+// Confirm never appeared, because the touch sentences named one landed case.
+// The manager read an essay plus a hold telling them their reacting journey
+// does not react.
+//
+// `namedOutcomes` is still exported and `channelJobBlocks` still uses it to
+// tell two exclusive arms from two sends to one person. It is not the Confirm
+// gate.
+describe('the touch prose is not the Confirm gate', () => {
+  const thinProse = (over: Record<string, unknown> = {}) =>
+    plan({
+      touches: [
+        { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'Remind on day 2.' },
+        { day: 2, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'Remind on day 4.' },
+      ],
+      ...over,
+    });
+
+  it('a reacting path proceeds however thin the sentences are', () => {
+    expect(reactionBlocks(proposal(thinProse()) as never)).toEqual([]);
+    const d = decide(settled(), { proposed: proposal(thinProse()) as never });
+    expect(d.blocks.map((b) => b.code)).toEqual([]);
+    expect(d.proceed).toBe(true);
+  });
+
+  it('and a blank fallback is not a hold either, once a path exists', () => {
+    const blank = plan({
+      touches: [
+        { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: '' },
+        { day: 2, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: '' },
+      ],
+    });
+    expect(reactionBlocks(proposal(blank) as never)).toEqual([]);
+  });
+
+  it('nor does naming only the undelivered case, which the steps settle', () => {
+    // Undelivered is `fallbackChannel` on the send and says nothing about
+    // anyone who received the message. That reasoning is unchanged; what
+    // changed is that a SENTENCE about it can no longer hold a path.
+    const undeliveredOnly = plan({
+      touches: [
+        { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is not delivered, SMS the same day.' },
+        { day: 2, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'If it does not deliver either, stop.' },
+      ],
+    });
+    expect(reactionBlocks(proposal(undeliveredOnly) as never)).toEqual([]);
+  });
+
+  it('THE ONE HOLD LEFT: a reaction claimed with no journey attached', () => {
+    // Nothing to approve but a paragraph. The exit exists — the tool carries
+    // `blueprint` on a ready turn — so the hold is fair.
+    const blocks = reactionBlocks({ strategy: plan(), blueprint: null } as never);
     expect(blocks.map((b) => b.code)).toEqual(['no-reaction']);
-    expect(blocks[0].reason).toMatch(/Those are three different people/);
+    expect(blocks[0].reason).toMatch(/there is no journey attached to it/);
     expect(blocks[0].clears.field).toBe('touches');
+    expect(blocks[0].clears.how).toMatch(/Send the same plan again with "blueprint" filled in/);
   });
 
-  it('refuses when the fallback is blank', () => {
-    const blocks = reactionBlocks(proposal(plan({
-        touches: [
-          { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: '' },
-          { day: 2, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: '' },
-        ],
-      })) as never);
-    expect(blocks.map((b) => b.code)).toEqual(['no-reaction']);
+  it('and captions are not a journey, so they hold too', () => {
+    const captions = { campaignName: 'A', description: 'd', goal: null, entry: { kind: 'audience', entity: 'Card', conditions: [] }, steps: ['Day 0 WhatsApp'] };
+    expect(reactionBlocks({ strategy: plan(), blueprint: captions } as never).map((b) => b.code)).toEqual(['no-reaction']);
   });
 
-  it('accepts SMS-on-failure against wait-if-unread, which are two different people', () => {
-    expect(reactionBlocks(proposal(plan()) as never)).toEqual([]);
-  });
-
-  it('does NOT count converting as one of the two landed cases', () => {
-    // FLIPPED 2026-10-23, and it was a hole in the same lock: "still unread"
-    // plus "if they converted, we stop" cleared the gate while the plan said
-    // nothing about the person who read the message and did not act. Whoever
-    // books is taken off the path by the Goal Check the compiler inserts —
-    // the platform's own terminal, not a person who needs a next job.
-    const blocks = reactionBlocks(proposal(plan({
-        touches: [
-          { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is still sitting unread, repeat the same fact sooner.' },
-          { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance.', ifStillUnconverted: 'If they have converted, the campaign stops for them.' },
-        ],
-      })) as never);
-    expect(blocks.map((b) => b.code)).toEqual(['no-reaction']);
-    expect(blocks[0].clears.how).toMatch(/Nor is converting: the goal check already takes anyone who booked off the path/);
-  });
-
-  it('clears on unread against read-and-no-action, which are two real people', () => {
-    expect(
-      reactionBlocks(proposal(plan({
-          touches: [
-            { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is still sitting unread, repeat the same fact sooner.' },
-            { day: 2, channel: 'SMS', path: 'all', purpose: 'Last chance.', ifStillUnconverted: 'If they read it and did nothing, argue the instalment instead.' },
-          ],
-        })) as never),
-    ).toEqual([]);
-  });
-
-  it('no longer counts "not delivered, try SMS" as one of the two', () => {
-    // MEASURED, and it is why this changed. Undelivered was the easiest of
-    // the cases to write, so "if it is not delivered, SMS the same day"
-    // satisfied half the requirement while saying nothing about anybody who
-    // actually received the message. It is a real decision and it belongs in
-    // the plan — as `fallbackChannel` on that send, not as a person who did
-    // something.
-    const blocks = reactionBlocks(proposal(plan({
-        touches: [
-          { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'If it is not delivered, SMS the same day.' },
-          { day: 2, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'If it does not deliver either, stop.' },
-        ],
-      })) as never);
-    expect(blocks.map((b) => b.code)).toEqual(['no-reaction']);
-    expect(blocks[0].clears.how).toMatch(/name at least two cases where the message LANDED/);
-    expect(blocks[0].clears.how).toMatch(/Undelivered is worth mentioning as the fallback channel/);
+  it('a clock that never claimed a reaction is not this block\'s business', () => {
+    // Even with no path at all: the hold is for a BROKEN PROMISE, and a plan
+    // that promised a cadence has not broken one.
+    const linearOnly = plan({ architectures: [{ name: 'Statement-date drip', journey: 'linear', chosen: true }] });
+    expect(reactionBlocks({ strategy: linearOnly, blueprint: null } as never)).toEqual([]);
   });
 });
 
 describe('before Confirm, never after', () => {
   it('is raised at propose time', () => {
-    // The CLAIMED-and-not-built case, which is the one that still holds: a
-    // reactive winner whose plan names fewer than two landed cases. A linear
-    // winner is no longer this block's business — see the group above.
-    const d = decide(settled(), {
-      proposed: proposal(
-        plan({
-          touches: [
-            { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Opening.', ifStillUnconverted: 'Remind on day 2.' },
-            { day: 2, channel: 'SMS', path: 'all', purpose: 'Reminder.', ifStillUnconverted: 'Remind on day 4.' },
-          ],
-        }),
-      ) as never,
-    });
+    // The one case left: a reactive claim with no path to approve.
+    const d = decide(settled(), { proposed: { strategy: plan(), blueprint: null } as never });
     expect(d.blocks.map((b) => b.code)).toContain('no-reaction');
   });
 
@@ -298,7 +309,21 @@ describe('the steps are checked too, not just the essay', () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     const fn = src.slice(start, end);
-    expect(fn).toMatch(/journeyReacts\(p\.blueprint\)/);
+    // THE READER MOVED, 2026-10-26, and the rule did not. `reactionBlocks`
+    // now asks only whether a path EXISTS to approve; whether that path
+    // reacts is `alignJourneyClaim`'s question, because the answer repairs
+    // the claim instead of refusing the plan. Both read the blueprint, and
+    // neither reads the touch prose.
+    expect(fn).toMatch(/shapedBlueprint\(p\?\.blueprint\)/);
+    // Asserted on the CODE rather than the comments: the function explains
+    // what it stopped doing, and the explanation mentions the name.
+    const code = fn
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n');
+    expect(code).not.toMatch(/namedOutcomes/);
+    const align = src.slice(src.indexOf('export function alignJourneyClaim'), src.indexOf('export function reactionBlocks'));
+    expect(align).toMatch(/journeyReacts\(path as CampaignBlueprint\)/);
     // The SAME function the build turn uses, imported rather than restated.
     expect(src).toMatch(/import \{ journeyReacts \} from '\.\/optionAudit'/);
     // And still never the compiled graph: a Goal Check the compiler inserts
@@ -311,18 +336,37 @@ describe('the steps are checked too, not just the essay', () => {
     const clock = {
       campaignName: 'A', description: 'd', goal: null,
       entry: { kind: 'audience', entity: 'Card', conditions: [] },
+      // A WHO-SPLIT AND A SENSIBLE CLOCK, which is the shape 2026-10-24 decided
+      // may win. `trendBlocks` reads the steps for the cut now, and this
+      // brief's retained ticket-size trend is what licenses it — without the
+      // split in the path there is no cut to license and a plain clock
+      // compares nothing, which is a different rule and a different test.
       steps: [
-        { kind: 'send', name: 'Opening', objective: ['emi'], stage: 'first-touch', describe: 'd', channelPreference: ['WHATSAPP'], barrier: 'no-awareness' },
-        { kind: 'wait', durationHours: 48 },
-        { kind: 'send', name: 'Reminder', objective: ['emi'], stage: 'reminder', describe: 'd', channelPreference: ['WHATSAPP'], barrier: 'no-awareness' },
+        {
+          kind: 'branch', entity: 'Transaction', attribute: 'Transaction Amount',
+          paths: [
+            { label: 'Above 10000', operator: 'Equals', value: '10000', steps: [
+              { kind: 'send', name: 'Opening', objective: ['emi'], stage: 'first-touch', describe: 'd', channelPreference: ['WHATSAPP'], barrier: 'no-awareness' },
+              { kind: 'wait', durationHours: 48 },
+              { kind: 'send', name: 'Reminder', objective: ['emi'], stage: 'reminder', describe: 'd', channelPreference: ['WHATSAPP'], barrier: 'no-awareness' },
+            ] },
+            { label: 'Everyone else', operator: 'Not Equals', value: '10000', steps: [
+              { kind: 'send', name: 'Opening — everyone else', objective: ['emi'], stage: 'first-touch', describe: 'd', channelPreference: ['WHATSAPP'], barrier: 'no-awareness' },
+            ] },
+          ],
+        },
       ],
     };
-    const blocks = reactionBlocks({ strategy: plan(), blueprint: clock } as never);
-    expect(blocks.map((b) => b.code)).toEqual(['no-reaction']);
-    expect(blocks[0].reason).toMatch(/the steps are a timed sequence/);
-    expect(blocks[0].clears.how).toMatch(/Put ONE outcome fork/);
-    expect(blocks[0].clears.how).toMatch(/Do not split after every send/);
-    expect(blocks[0].clears.how).toMatch(/Keep the who-split you have/);
+    // REPAIRS THE CLAIM AND PROCEEDS, since 2026-10-26. The steps are a
+    // runnable plan; only the label was wrong, and the label is the half the
+    // application can fix. The manager gets the path, the button, and one
+    // sentence about what a read-fork would add.
+    const proposed = { strategy: plan(), blueprint: clock };
+    expect(reactionBlocks(proposed as never)).toEqual([]);
+    const aligned = alignJourneyClaim(proposed as never);
+    expect(aligned.stripped).toBe(true);
+    expect(aligned.advice.join(' ')).toMatch(/read-fork on the first WhatsApp/);
+    expect(decide(settled(), { proposed: proposed as never }).proceed).toBe(true);
   });
 
   it('lets through a plan whose steps carry one engagement fork', () => {

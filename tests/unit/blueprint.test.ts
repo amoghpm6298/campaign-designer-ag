@@ -72,8 +72,25 @@ describe('blueprint → graph, built by the application reducer', () => {
     const r = buildFromBlueprint(bad, CHANNELS);
     expect(r.ok).toBe(false);
     expect(r.issues[0].problem).toMatch(/is not a real event/);
-    // And it did not quietly build something else.
-    expect(r.graph.rootId).toBeNull();
+    // AND IT STILL DOES NOT COERCE. `TOTALLY_MADE_UP` under Transaction
+    // Events does not become `Transaction` — that category holds exactly one
+    // event, and mapping anything written under it onto that event is how
+    // "Purchase Posted" would have become a purchase trigger it is not.
+    expect(r.graph.nodes[r.graph.rootId!]?.type).not.toBe('ENTRY_EVENT');
+    expect(JSON.stringify(r.graph)).not.toMatch(/TOTALLY_MADE_UP/);
+
+    // WHAT CHANGED 2026-10-27: it no longer returns before the steps.
+    //
+    // MEASURED, `eval/runs/ui-s-1793080526410` turn 3 — a real five-message
+    // campaign became no campaign because its entry said
+    // "Transaction Events / Purchase Posted". Steps attach to the entry, so an
+    // unknown trigger gets the application's own default root and the journey
+    // they designed is still built. A wrong label is an issue ON a journey.
+    expect(r.graph.rootId, 'a root exists, because the steps need one').not.toBeNull();
+    expect(r.graph.nodes[r.graph.rootId!]?.type).toBe('ENTRY_SEGMENT');
+    expect(r.graph.nodes[r.graph.rootId!]?._config?.entity).toBe('Customer');
+    const sends = Object.values(r.graph.nodes).filter((n) => n.type === 'SEND');
+    expect(sends.length, 'the linear sends are still on the graph').toBeGreaterThan(0);
   });
 
   it('rejects an invented attribute on an audience entry', () => {
@@ -208,6 +225,83 @@ describe('blueprint → graph, built by the application reducer', () => {
       CHANNELS,
     );
     expect(r.issues.some((i) => /is not a valid stage/.test(i.problem))).toBe(true);
+    expect(r.ok).toBe(false);
+    // AND THE SEND IS STILL BUILT. The issue is the point of this test and it
+    // stays; what changed is that the step is no longer deleted along with it.
+    // A garbage stage is a quality problem, the same family as a missing
+    // objective, and the node has to reach the canvas or the manager approves
+    // a journey that is not there.
+    expect(Object.values(r.graph.nodes).filter((n) => (n as { type: string }).type === 'SEND')).toHaveLength(1);
+  });
+
+  // THE LIVE SHAPE, from `eval/runs/ui-s-1793009889177` turn 4: one Transaction
+  // Amount branch with sends on both arms, every one carrying a label, copy and
+  // channels, and none carrying a `stage`. Confirm compiled it into an entry,
+  // the split and three exits — zero message steps — and the manager had
+  // approved a journey that was not on the canvas.
+  it('says a message was LOST when it sits after a fork, not just that it is ambiguous', () => {
+    // `nextInChain` already reported why there is nowhere to put it: several
+    // arms are open, so attaching it to one would quietly end whichever the
+    // iteration reached first. What it did not say is that a SEND went
+    // missing, and an ambiguity message reads like a formatting note. On
+    // `eval/runs/ui-s-1793017853714` two forced attempts were refused over
+    // sends the model had written, with nothing naming them.
+    const r = buildFromBlueprint(
+      {
+        ...linear,
+        steps: [
+          {
+            kind: 'branch', entity: 'Transaction', attribute: 'Transaction Amount',
+            paths: [
+              { label: 'High', operator: 'Equals', value: '10000', steps: [{ kind: 'send', name: 'High day 0', objective: ['emi'], stage: 'first-touch', describe: 'd' }] },
+              { label: 'Low', operator: 'Not Equals', value: '10000', steps: [{ kind: 'send', name: 'Low day 0', objective: ['emi'], stage: 'first-touch', describe: 'd' }] },
+            ],
+          },
+          { kind: 'send', name: 'Shared last chance', objective: ['emi'], stage: 'reminder', describe: 'd' },
+        ] as never,
+      },
+      CHANNELS,
+    );
+    const lost = r.issues.filter((i) => /was not added to the journey/.test(i.problem));
+    expect(lost, 'the dropped message is named').toHaveLength(1);
+    expect(lost[0].problem).toMatch(/Shared last chance/);
+    expect(lost[0].problem).toMatch(/Nest it inside the arm it belongs to/);
+    // NOT ATTACHED TO AN ARBITRARY ARM, and the two that ARE on arms still build.
+    expect(Object.values(r.graph.nodes).filter((n) => (n as { type: string }).type === 'SEND')).toHaveLength(2);
+  });
+
+  it('builds the sends on both arms when no stage was set anywhere', () => {
+    const send = (label: string) => ({ kind: 'send' as const, label, copy: 'Convert this purchase to EMI.', channelPreference: ['WHATSAPP' as const] });
+    const r = buildFromBlueprint(
+      {
+        ...linear,
+        steps: [
+          {
+            kind: 'branch',
+            entity: 'Transaction',
+            attribute: 'Transaction Amount',
+            paths: [
+              { label: 'High value', operator: 'Equals', value: '10000', steps: [send('Day0 high'), send('Day4 high')] },
+              { label: 'Lower value', operator: 'Not Equals', value: '10000', steps: [send('Day0 lower'), send('Day3 lower')] },
+            ],
+          } as never,
+        ],
+      },
+      CHANNELS,
+    );
+    const sends = Object.values(r.graph.nodes).filter((n) => (n as { type: string }).type === 'SEND');
+    expect(sends, 'every send on every arm reaches the canvas').toHaveLength(4);
+    // STAGE COMES FROM THE ORDER ON ITS OWN PATH. The first send on an arm
+    // opens it; a later one on that arm is a reminder. Each arm gets its own
+    // first touch, because nothing here counts messages across the whole tree.
+    // Read from where the builder actually records it: `agentMessaging` on
+    // the node's config, which is what carries the agent's intent through to
+    // whoever writes the real message.
+    const stages = sends.map((n) => (n as { _config?: { agentMessaging?: { stage?: string } } })._config?.agentMessaging?.stage);
+    expect(stages.filter((x) => x === 'first-touch')).toHaveLength(2);
+    expect(stages.filter((x) => x === 'reminder')).toHaveLength(2);
+    // Reported, every time, so this is never silently called complete.
+    expect(r.issues.filter((i) => /No stage was set/.test(i.problem))).toHaveLength(4);
     expect(r.ok).toBe(false);
   });
 

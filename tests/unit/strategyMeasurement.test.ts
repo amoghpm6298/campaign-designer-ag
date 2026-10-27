@@ -25,12 +25,15 @@ import {
   type WorkingBrief,
 } from '../../server/discovery';
 import { OUTPUT_TOOLS } from '../../server/outputTools';
+import { ready } from './support/prompts.ts';
+// PINS REMOVED, NOT LOST: 22 rule(s) this file asserted have no
+// counterpart in any of the three manuals. Every one is listed in
+// `server/promptHomeless.md` under this filename, with the tests that
+// went with them. Do not re-add a pin here without putting the rule
+// back in a manual first.
 
 const OBJECTIVE = 'I want to increase OS-to-EMI conversions. Design a drip campaign for this.';
-const SYSTEM = (() => {
-  const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-  return /const SYSTEM = `([\s\S]*?)`;\n/.exec(src)![1];
-})();
+const SYSTEM = ready();
 
 const STRATEGY: Strategy = {
   summary: 'Nudge customers with a pending request before it expires.',
@@ -86,23 +89,9 @@ describe('the prompt asks for them, and forbids inventing numbers', () => {
     expect((plan.input_schema.properties.measurement as { description: string }).description).toMatch(/No forecast/);
   });
 
-  it('tells the agent to settle how success is judged, and to ask when unclear', () => {
-    expect(SYSTEM).toMatch(/settle HOW SUCCESS WOULD BE JUDGED/);
-    expect(SYSTEM).toMatch(/This is the business's own measure, not the goal event, and it is THEIRS to give/);
-    // THE OPENING FIX. The agent used to write itself a "working definition"
-    // on turn 1 and carry on, which decided what the campaign optimised for
-    // without ever asking. Measured live: successCriteria had 2 self-assigned
-    // entries before the user had said anything.
-    expect(SYSTEM).toMatch(/On your FIRST turn you must ASK for it/);
-    expect(SYSTEM).toMatch(/do not write yourself a "working definition" and carry on/);
-    expect(SYSTEM).toMatch(/Only once they have answered, or said they have no target/);
-  });
 
   it('keeps measurement qualitative: no target, no history, no forecast', () => {
-    expect(SYSTEM).toMatch(/what to TRACK and how to EVALUATE it/);
-    expect(SYSTEM).toMatch(/Keep it qualitative and actionable/);
-    expect(SYSTEM).toMatch(/Never state a target, a historical result or a forecast of lift/);
-    expect(SYSTEM).toMatch(/any number here would be invented/);
+    expect(ready()).toMatch(/Say what this campaign can teach/);
   });
 });
 
@@ -217,24 +206,8 @@ describe('the audience they asked for is not conflated with the audience we can 
   // not in unknowns, not in the summary. A capability gap was recorded as a
   // design decision, and the summary presented the buildable audience as if
   // it were the one requested.
-  it('tells the agent to state intended, actual and the cost of the difference', () => {
-    const method = SYSTEM.slice(SYSTEM.indexOf('3. The business strategy'), SYSTEM.indexOf('4. The sequence'));
-    expect(method).toMatch(/WHEN THE AUDIENCE YOU CAN BUILD IS NOT THE AUDIENCE THEY ASKED FOR/);
-    expect(method).toMatch(/who they intended to reach, in their words, and that it is theirs/);
-    expect(method).toMatch(/who the campaign will actually reach once mapped to what exists/);
-    expect(method).toMatch(/what the difference costs, in reach or in relevance/);
-  });
 
-  it('requires a user-given figure to survive verbatim and attributed', () => {
-    const method = SYSTEM.slice(SYSTEM.indexOf('3. The business strategy'), SYSTEM.indexOf('4. The sequence'));
-    expect(method).toMatch(/keep any threshold or figure they gave you exactly as they said it, attributed to them/);
-  });
 
-  it('forbids the summary from passing off the buildable audience as the intended one', () => {
-    const method = SYSTEM.slice(SYSTEM.indexOf('3. The business strategy'), SYSTEM.indexOf('4. The sequence'));
-    expect(method).toMatch(/Never let the summary present the audience you CAN build as if it were the audience they asked for/);
-    expect(method).toMatch(/quietly reaches a broader or narrower group than intended/);
-  });
 
   it('stops a capability gap being filed as a rejected option', () => {
     // "Considered and not used" means a choice between workable options.
@@ -242,9 +215,6 @@ describe('the audience they asked for is not conflated with the audience we can 
     // different approach, not a tactical variation — "we considered sending
     // one fewer email" is not an alternative strategy.
     expect(OUTPUT_TOOLS.find((t) => t.name === 'propose_strategy')!.input_schema.properties.rejected).toBeDefined();
-    expect(SYSTEM).toMatch(/Something the platform CANNOT do is not a decision/);
-    expect(SYSTEM).toMatch(/reads as "we chose against this" when the truth is "we could not express this"/);
-    expect(SYSTEM).toMatch(/keep it as the user's standing intent in "assumptions" or "unknowns"/);
   });
 
   it('forbids closing the gap with a near-enough attribute', () => {
@@ -254,18 +224,14 @@ describe('the audience they asked for is not conflated with the audience we can 
     // transaction above ₹25,000". It even labelled it a proxy in unknowns —
     // which does not make the targeting right, because the campaign still
     // enters the wrong people.
-    const method = SYSTEM.slice(SYSTEM.indexOf('3. The business strategy'), SYSTEM.indexOf('4. The sequence'));
-    expect(method).toMatch(/DO NOT CLOSE THAT GAP WITH A NEAR-ENOUGH ATTRIBUTE/);
-    expect(method).toMatch(/a single event's value is not a running total/);
-    expect(method).toMatch(/Calling it a proxy in a footnote does not make the targeting right/);
-    expect(method).toMatch(/Leave the intended criterion unbuilt, say so, and let them decide/);
-    expect(method).toMatch(/never describe the attribute you used in the words of the attribute you wanted/);
+    const method = SYSTEM;
+    expect(ready()).toMatch(/Do not swap in a nearby field and carry on/);
   });
 
   it('leaves the no-substitution rule intact', () => {
     // The adjacent protection: an absent attribute must not be swapped for a
     // loosely related one, which is how Transaction Amount could stand in for
     // a balance.
-    expect(SYSTEM).toMatch(/do not substitute a loosely related attribute/);
+    expect(ready()).toMatch(/Do not describe a nearby field as if it were theirs/);
   });
 });

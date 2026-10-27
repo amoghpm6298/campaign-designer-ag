@@ -21,11 +21,24 @@
 // path that has always had both hops — the short-circuit guarded by
 // `intent === 'confirm' && req.confirmedBlueprint`. Every existing test
 // supplies `confirmedBlueprint` directly and therefore walks that one. The
-// real client cannot: it sends `confirmedBlueprint: pendingBlueprint`, and a
-// propose turn returns `pendingBlueprint: null` BY DESIGN, so the guard never
-// passes in the app and every live Confirm fell through to the broken tail.
-// A test that passes `confirmedBlueprint` here would prove the path that was
-// never in question. This one sends null.
+// real client cannot: it sends `confirmedBlueprint: pendingBlueprint`, and at
+// the time a propose turn returned `pendingBlueprint: null`, so the guard never
+// passed in the app and every live Confirm fell through to the broken tail.
+// A test that passes `confirmedBlueprint` would prove the path that was never
+// in question. This one sends null.
+//
+// ALL OF THE ABOVE IS HISTORY, LABELLED AS SUCH. Two things have changed
+// since: a propose turn carries its path, so the client does post an echo and
+// the short-circuit is reachable; and that short-circuit is now the ONE Confirm
+// door. The button and a typed "Confirmed. Build this campaign." both compile
+// `brief.lastProposal` there and return, and the echo is not read. The tail no
+// longer runs for either of them.
+//
+// NOR FOR A REFINEMENT, which returns at its own `isRefinement` block. The one
+// case left for the `isBuildTurn` hop below is the button's sentence TYPED
+// while the session is not `AWAITING_STRATEGY_CONFIRMATION` — the door asks for
+// the state a plan was actually approved from, and `isBuildTurn` does not.
+// `approvedPlan` is false for it, which is why no report is merged there.
 //
 // THE CLIENT. `stream.ts` set `sawResult` only on a result frame, so an error
 // frame called `onError` and left it false — and when the socket closed the
@@ -33,7 +46,7 @@
 // one invented, and the invented one read last.
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { orchestrateStream, renderBuildSummary, renderStrategy } from '../../server/orchestrator';
+import { orchestrateStream, renderBuildSummary, renderStrategy, stickyForPhase } from '../../server/orchestrator';
 import { seedKnowledgeBase } from '../../server/knowledge';
 import { canTransition } from '../../server/campaignState';
 import { cadenceBlocks } from '../../server/gate';
@@ -180,6 +193,7 @@ const proseTurn = (text: string) =>
     { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 60 } },
   ]);
 
+/** Returns how many model calls were actually made. A Confirm makes none. */
 function script(bodies: string[]) {
   let i = 0;
   vi.stubGlobal('fetch', async () => {
@@ -190,6 +204,7 @@ function script(bodies: string[]) {
       headers: { 'content-type': 'text/event-stream' },
     });
   });
+  return () => i;
 }
 
 const knowledge = seedKnowledgeBase();
@@ -209,6 +224,54 @@ const settled = () => {
   return recordSuccessCriteria(b, ['More new cardholders setting a PIN within two weeks.']);
 };
 
+/**
+ * The path as it would be ON FILE, from the propose turn that put it up.
+ *
+ * WHY THIS FIXTURE CHANGED. These tests used to deliver the journey through a
+ * `build_campaign` tool call on the Confirm turn itself, with
+ * `confirmedBlueprint: null`, because when they were written a propose turn
+ * carried no blueprint and the client had nothing to echo. Confirm now
+ * compiles `brief.lastProposal` — the plan the application itself accepted and
+ * put up for approval — so a Confirm with nothing on file is refused rather
+ * than built from whatever arrives on the turn. The tool call stays in the
+ * script: the model may still make it, and the point is that its output is not
+ * what gets compiled.
+ */
+const PLAN_ON_FILE = {
+  summary: 'Catch new cardholders while the card is still new.',
+  approach: ['Everyone issued and not yet activated enters.'],
+  architectures: [
+    {
+      name: 'Open early',
+      barrier: 'cost-perception',
+      audience: 'All new cardholders',
+      timing: 'From issuance',
+      lever: 'message',
+      journey: 'linear',
+      chosen: true,
+    },
+  ],
+};
+
+const filePath = (b: unknown, steps: unknown[]) => ({
+  ...(b as Record<string, unknown>),
+  lastProposal: {
+    strategy: PLAN_ON_FILE,
+    blueprint: {
+      campaignName: 'Activate new cardholders',
+      description: 'Fourteen days from issuance.',
+      goal: null,
+      entry: {
+        kind: 'audience',
+        entity: 'Card',
+        conditions: [{ attribute: 'Status', operator: 'Equals', value: 'Active' }],
+      },
+      steps,
+    },
+    round: 1,
+  },
+});
+
 /** A Confirm exactly as the client sends one: no `confirmedBlueprint`. */
 async function confirm(steps: unknown[] = COMPLETE, withBrief?: unknown) {
   script([buildTurn(steps), proseTurn('Built.')]);
@@ -217,11 +280,11 @@ async function confirm(steps: unknown[] = COMPLETE, withBrief?: unknown) {
     tenantId: 'TEN-IBL',
     knowledge,
     discoveryRounds: 3,
-    brief: withBrief ?? settled(),
+    brief: filePath(withBrief ?? settled(), steps),
     intent: 'confirm',
-    // THE WHOLE POINT. The client has nothing to send here, because a propose
-    // turn carries no blueprint. Supplying one takes the short-circuit and
-    // tests a path the app never walks.
+    // STILL NULL, and still the point — just a different one. The client does
+    // send an echo now, and the server does not read it: the journey comes off
+    // the record. Leaving this null proves the compile does not depend on it.
     confirmedBlueprint: null,
     session: { state: 'AWAITING_STRATEGY_CONFIRMATION', strategyVersion: 1, confirmation: null },
     messages: [
@@ -304,7 +367,12 @@ describe('a live Confirm reaches a built campaign without throwing', () => {
     // The refinement path assigned the state as a bare string, which skipped
     // the throw AND the state. Both go through `transition` now.
     const hops = orch.match(/transition\(session\.state, 'GENERATING_CAMPAIGN'\)/g) ?? [];
-    expect(hops.length, 'confirm short-circuit, build tail, refinement').toBe(3);
+    // TWO, NOT THREE, SINCE THE CONFIRM DOORS WERE MERGED. The Confirm
+    // short-circuit used to take this hop and then build and return on its
+    // own, which is exactly how the button and a typed yes came to produce
+    // different campaigns. It now decides only whether a yes may build and
+    // falls through, so the hop it used to take is the build tail's.
+    expect(hops.length, 'the one Confirm door, the build tail and a refinement').toBe(3);
     expect(orch).not.toMatch(/state: out\.exportable \? 'EXPORT_ELIGIBLE' : 'CONFIGURATION_INCOMPLETE'/);
     expect(orch).toMatch(/state: transition\(session\.state, out\.exportable \? 'EXPORT_ELIGIBLE' : 'CONFIGURATION_INCOMPLETE'\)/);
   });
@@ -398,91 +466,165 @@ describe('the build summary does not claim a canvas it has not got', () => {
 // (`record.ts`: a judgement about someone's words may only ever release a
 // block, never create one). The requirement is unconditional instead, and the
 // tool schema carries most of it with `minItems: 2`.
-describe('a proposal has to name its sends', () => {
-  const plan = (touches?: unknown[]) => ({
-    strategy: {
-      summary: 'Fourteen days from issuance.',
-      approach: [],
-      assumptions: [],
-      unknowns: [],
-      ...(touches ? { touches } : {}),
-    },
+describe('cadence reads the who-groups on the steps', () => {
+  // REWRITTEN 2026-10-26, and the rule it replaces is the one being retired.
+  //
+  // Every case below used to count rows in `touches` and demand two sends per
+  // named path. MEASURED, `eval/runs/ui-s-1792984906680` turns 3 and 4: the
+  // journey was a ticket-size branch with a wording experiment on the smaller
+  // band, a READ against DELIVERED/DELETED fork inside each arm, and a last
+  // chance on every tail — day 0 / 2 / 5 on the band the campaign is for —
+  // and `touches` described it as SIX paths, two of them engagement arms and
+  // two of them experiment arms. Counting captions as groups demanded two
+  // sends per caption, so a journey that over-DESCRIBES itself was refused
+  // for under-dosing, and the manager got no Confirm on a finished plan.
+  //
+  // THE PRODUCT LOCK, which this encodes rather than argues with: a who-split
+  // plus a clock is a complete first campaign. One send per ticket band is
+  // approvable. Forcing a mid-window and a last chance onto every band is the
+  // application writing the sequence.
+  //
+  // So the only hold left is "nothing to approve": no shaped steps, or a
+  // who-group the journey cuts out and never messages.
+  const strategy = (touches?: unknown[]) => ({
+    summary: 'Fourteen days from issuance.',
+    approach: [],
+    assumptions: [],
+    unknowns: [],
+    ...(touches ? { touches } : {}),
   });
-  const touch = (day: number, path = 'all') => ({
-    day,
-    channel: 'WhatsApp',
-    path,
-    purpose: 'Prompt the PIN.',
-    ifStillUnconverted: 'Try SMS next.',
+  const send = (name: string) => ({
+    kind: 'send',
+    name,
+    objective: ['activate'],
+    stage: 'first-touch',
+    describe: 'Prompt the PIN.',
+    channelPreference: ['WHATSAPP'],
+    barrier: 'cost-perception',
   });
+  const path = (steps: unknown[]) => ({
+    campaignName: 'A',
+    description: 'd',
+    goal: null,
+    entry: { kind: 'audience', entity: 'Card', conditions: [] },
+    steps,
+  });
+  /** A ticket-size branch: the arms are GROUPS of people. */
+  const bands = (high: unknown[], low: unknown[]) =>
+    path([
+      {
+        kind: 'branch',
+        label: 'Ticket band',
+        entity: 'Transaction',
+        attribute: 'Transaction Amount',
+        paths: [
+          { label: 'High ticket', operator: 'Greater than', value: '10000', steps: high },
+          { label: 'Everyone else', operator: 'Less than', value: '10000', steps: low },
+        ],
+      },
+    ]);
 
-  it('refuses a plan that describes a cadence and names none of it', () => {
-    const blocks = cadenceBlocks(plan() as never);
+  it('refuses a plan with no journey at all, because there is nothing to approve', () => {
+    const blocks = cadenceBlocks({ strategy: strategy(), blueprint: null } as never);
     expect(blocks.map((b) => b.code)).toEqual(['cadence-unnamed']);
-    expect(blocks[0].reason).toMatch(/does not say when the messages go out/);
+    expect(blocks[0].reason).toMatch(/does not say what actually goes out/);
+    expect(blocks[0].clears.how).toMatch(/Put the journey in "blueprint"/);
   });
 
-  it('refuses a single touch on the main path', () => {
-    expect(cadenceBlocks(plan([touch(0)]) as never).map((b) => b.code)).toEqual(['cadence-unnamed']);
+  it('refuses captions dressed as steps for the same reason', () => {
+    expect(
+      cadenceBlocks({ strategy: strategy(), blueprint: path(['Day 0 WhatsApp']) } as never).map((b) => b.code),
+    ).toEqual(['cadence-unnamed']);
   });
 
-  it('accepts a real sequence, with a lighter named path beside it', () => {
-    // Four on the primary path at days 0, 3, 7 and 13, and two for the group
-    // that mostly acts unprompted. The lighter path is NAMED rather than
-    // assumed, which is the rule segmentation already runs on.
-    const touches = [
-      touch(0), touch(3), touch(7), touch(13),
-      touch(2, 'High limit'), touch(10, 'High limit'),
+  it('ACCEPTS one send per ticket band — the lock, stated as a test', () => {
+    expect(cadenceBlocks({ strategy: strategy(), blueprint: bands([send('High')], [send('Low')]) } as never)).toEqual([]);
+  });
+
+  it('accepts a lighter band beside a fuller one', () => {
+    const full = [send('Opening'), { kind: 'wait', durationHours: 48 }, send('Reminder'), { kind: 'wait', durationHours: 72 }, send('Last chance')];
+    expect(cadenceBlocks({ strategy: strategy(), blueprint: bands([send('One touch')], full) } as never)).toEqual([]);
+  });
+
+  it('ignores touch rows entirely, however the plan over-splits them', () => {
+    // The live shape: six "paths" in the prose, two of them experiment arms
+    // and two of them read captions, against a journey that is a sequence.
+    const overSplit = [
+      { day: 0, channel: 'WhatsApp', path: 'Below ₹10,000 — functional framing', purpose: 'p', ifStillUnconverted: 'x' },
+      { day: 0, channel: 'WhatsApp', path: 'Below ₹10,000 — benefit framing', purpose: 'p', ifStillUnconverted: 'x' },
+      { day: 2, channel: 'WhatsApp', path: 'Below ₹10,000 — read but no action', purpose: 'p', ifStillUnconverted: 'x' },
+      { day: 2, channel: 'SMS', path: 'Below ₹10,000 — not read', purpose: 'p', ifStillUnconverted: 'x' },
+      { day: 5, channel: 'SMS', path: 'Below ₹10,000 — all still unconverted', purpose: 'p', ifStillUnconverted: 'x' },
+      { day: 0, channel: 'WhatsApp', path: '₹10,000 and above', purpose: 'p', ifStillUnconverted: 'x' },
     ];
-    expect(cadenceBlocks(plan(touches) as never)).toEqual([]);
+    expect(
+      cadenceBlocks({ strategy: strategy(overSplit), blueprint: bands([send('High')], [send('Low')]) } as never),
+    ).toEqual([]);
   });
 
-  it('refuses a thin path hiding behind a busier one', () => {
-    // REVERSED, 2026-10-22, and the assertion it replaces was the live
-    // failure written down as a rule. It read "measures the BUSIEST path, so
-    // a light path cannot stand in for the cadence" and expected this exact
-    // mix to PASS.
-    //
-    // Read against the run: "High limit" is the cohort that mostly activates
-    // unprompted, and it got two nudges. "Everyone else" — the people the
-    // campaign exists for — got one send, and because the busier path
-    // satisfied the gate, nothing ever looked at them.
-    const touches = [touch(0, 'High limit'), touch(10, 'High limit'), touch(0, 'Everyone else')];
-    const blocks = cadenceBlocks(plan(touches) as never);
+  it('does not count experiment arms or engagement arms as groups', () => {
+    const inner = [
+      {
+        kind: 'experiment',
+        label: 'Framing test',
+        tests: 'explanation',
+        arms: [
+          { label: 'Functional', pct: 50, steps: [send('A'), { kind: 'branch', label: 'Response', paths: [
+            { label: 'Read', statuses: ['READ'], steps: [send('A-read')] },
+            { label: 'Not read', statuses: ['DELIVERED', 'DELETED'], steps: [send('A-unread')] },
+          ] }] },
+          { label: 'Benefit', pct: 50, steps: [send('B')] },
+        ],
+      },
+    ];
+    expect(cadenceBlocks({ strategy: strategy(), blueprint: bands([send('High')], inner) } as never)).toEqual([]);
+  });
+
+  it('STILL refuses a who-arm with nothing to send it', () => {
+    const blocks = cadenceBlocks({
+      strategy: strategy(),
+      blueprint: bands([send('High')], [{ kind: 'exit', reason: 'Nothing for them.' }]),
+    } as never);
     expect(blocks.map((b) => b.code)).toEqual(['cadence-unnamed']);
-    // Named, so the manager knows WHICH group is being under-served.
     expect(blocks[0].reason).toMatch(/"Everyone else"/);
-    expect(blocks[0].reason).not.toMatch(/High limit/);
+    expect(blocks[0].reason).toMatch(/never messages/);
+    expect(blocks[0].clears.how).toMatch(/at least one send, or drop the split/);
   });
 
-  it('refuses a thin LIGHT path too, when the main one is fine', () => {
-    // The mirror case. Lighter still means a mid-window touch and a last
-    // chance; a single row is not a sequence whichever group it belongs to.
-    const touches = [touch(0), touch(3), touch(7), touch(13), touch(2, 'High limit')];
-    const blocks = cadenceBlocks(plan(touches.map((t, i) => (i < 4 ? { ...t, path: 'Everyone else' } : t))) as never);
-    expect(blocks.map((b) => b.code)).toEqual(['cadence-unnamed']);
-    expect(blocks[0].reason).toMatch(/"High limit"/);
-  });
-
-  it('accepts two real sequences side by side', () => {
-    const touches = [
-      touch(0, 'Everyone else'), touch(3, 'Everyone else'), touch(7, 'Everyone else'), touch(13, 'Everyone else'),
-      touch(2, 'High limit'), touch(10, 'High limit'),
+  it('never calls a holdout a group with no send', () => {
+    // A control arm is an experiment arm: an interior of one group, read at
+    // random, and deliberately unmessaged. It is not a guest list.
+    const withHoldout = [
+      {
+        kind: 'experiment',
+        label: 'Holdout',
+        tests: 'explanation',
+        arms: [
+          { label: 'Messaged', pct: 90, steps: [send('Opening')] },
+          { label: 'Control', pct: 10, steps: [{ kind: 'exit', reason: 'Measured against the rest.' }] },
+        ],
+      },
     ];
-    expect(cadenceBlocks(plan(touches) as never)).toEqual([]);
+    expect(cadenceBlocks({ strategy: strategy(), blueprint: path(withHoldout) } as never)).toEqual([]);
   });
 
-  it('never demands two sends for a holdout, because a holdout is not a path', () => {
-    // `touches` lists customer-facing sends, so an arm that is deliberately
-    // not messaged contributes no rows and cannot be caught by this rule.
-    const touches = [touch(0), touch(3), touch(13)];
-    expect(cadenceBlocks(plan(touches) as never)).toEqual([]);
-  });
-
-  it('names what would clear it, like every other block', () => {
-    const [block] = cadenceBlocks(plan() as never);
-    expect(block.clears).toMatchObject({ field: 'touches' });
-    expect(block.clears.how).toMatch(/day, channel, path/);
+  it('finds a who-split nested under an experiment or a wait', () => {
+    const nested = path([
+      { kind: 'wait', durationHours: 24 },
+      {
+        kind: 'branch',
+        label: 'Ticket band',
+        entity: 'Transaction',
+        attribute: 'Transaction Amount',
+        paths: [
+          { label: 'High ticket', operator: 'Greater than', value: '10000', steps: [send('High')] },
+          { label: 'Everyone else', operator: 'Less than', value: '10000', steps: [] },
+        ],
+      },
+    ]);
+    expect(cadenceBlocks({ strategy: strategy(), blueprint: nested } as never).map((b) => b.code)).toEqual([
+      'cadence-unnamed',
+    ]);
   });
 
   it('is not re-litigated on the turn that builds the approved plan', () => {
@@ -491,10 +633,11 @@ describe('a proposal has to name its sends', () => {
     // missing field from the build turn, and the moment to say so was before
     // they agreed.
     const brief = settled();
-    expect(decide(brief, { proposed: plan() as never, building: true }).blocks.map((b) => b.code))
-      .not.toContain('cadence-unnamed');
-    expect(decide(brief, { proposed: plan() as never }).blocks.map((b) => b.code))
-      .toContain('cadence-unnamed');
+    const noPath = { strategy: strategy(), blueprint: null } as never;
+    expect(decide(brief, { proposed: noPath, building: true }).blocks.map((b) => b.code)).not.toContain(
+      'cadence-unnamed',
+    );
+    expect(decide(brief, { proposed: noPath }).blocks.map((b) => b.code)).toContain('cadence-unnamed');
   });
 
   it('shows the manager the sequence, not just a timing sentence', () => {
@@ -503,7 +646,13 @@ describe('a proposal has to name its sends', () => {
       approach: [],
       assumptions: [],
       unknowns: [],
-      touches: [touch(0), touch(3), touch(7), touch(13), touch(2, 'High limit')],
+      touches: [
+        { day: 0, channel: 'WhatsApp', path: 'all', purpose: 'Prompt the PIN.', ifStillUnconverted: 'Try SMS next.' },
+        { day: 3, channel: 'WhatsApp', path: 'all', purpose: 'Prompt the PIN.', ifStillUnconverted: 'Try SMS next.' },
+        { day: 7, channel: 'WhatsApp', path: 'all', purpose: 'Prompt the PIN.', ifStillUnconverted: 'Try SMS next.' },
+        { day: 13, channel: 'WhatsApp', path: 'all', purpose: 'Prompt the PIN.', ifStillUnconverted: 'Try SMS next.' },
+        { day: 2, channel: 'WhatsApp', path: 'High limit', purpose: 'Prompt the PIN.', ifStillUnconverted: 'Try SMS next.' },
+      ],
     } as never);
     expect(out).toMatch(/\*\*The sequence\*\*/);
     for (const day of [0, 3, 7, 13]) expect(out, `day ${day}`).toContain(`Day ${day}, WhatsApp`);
@@ -596,6 +745,58 @@ describe('Confirm compares path density, not totals', () => {
       { day: 2, path: 'High limit' }, { day: 10, path: 'High limit' },
     ];
     expect(summaryFor(touches, chain(4))).not.toMatch(/on its longest path/);
+  });
+
+  it('does not cry drift when nested touch labels split one route', () => {
+    // MEASURED, `eval/runs/ui-s-1793086620956` turn 4. High-ticket 2, low-ticket
+    // nested as separate path names so the fullest *row-group* was 2; the
+    // compiled longest path was 3. The steps already had three messages on
+    // that arm.
+    const send = { kind: 'send', name: 'm', objective: ['emi'], stage: 'first-touch', describe: 'd' };
+    const path = {
+      campaignName: 'EMI',
+      description: 'd',
+      goal: null,
+      entry: { kind: 'audience', entity: 'Customer' },
+      steps: [
+        {
+          kind: 'branch',
+          on: { entity: 'Transaction', attribute: 'Transaction Amount' },
+          paths: [
+            { label: 'High', steps: [send, send] },
+            {
+              label: 'Low',
+              steps: [
+                send,
+                {
+                  kind: 'branch',
+                  paths: [
+                    { label: 'Read', statuses: ['READ'], steps: [send, send] },
+                    { label: 'Unread', statuses: ['DELIVERED'], steps: [send, send] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const touches = [
+      { day: 0, path: 'Above ₹10,000' }, { day: 4, path: 'Above ₹10,000' },
+      { day: 0, path: '₹10,000 or below' },
+      { day: 3, path: '₹10,000 or below — read' },
+      { day: 6, path: '₹10,000 or below — read arm' },
+    ];
+    const out = renderBuildSummary(
+      { summary: 's', approach: [], assumptions: [], unknowns: [], touches } as never,
+      { graph: chain(3), issues: [], sendProposals: [] } as never,
+      { outcome: 'passed', checks: [], unverifiedHardConstraints: [] } as never,
+      0,
+      false,
+      null,
+      path as never,
+    );
+    expect(out).not.toMatch(/on its longest path/);
   });
 
   it('does not recount a tail two branches share', () => {
@@ -697,8 +898,17 @@ describe('a Confirm turn can actually build', () => {
   });
 
   it('asks for the tool, not for a blueprint pasted into the message', () => {
-    expect(orchSrc).toMatch(/CALL build_campaign NOW/);
-    expect(orchSrc).toMatch(/never tell them the build is unavailable to you/);
+    // WAS pinned on "# THIS TURN BUILDS THE APPROVED PLAN" in the context
+    // prompt, which is deleted: it restated what the Confirm sticky says, and
+    // carried the {"action":"design"} handshake that has never fired live.
+    expect(stickyForPhase('build')).toMatch(/build_campaign — the approved path, as a journey/);
+    expect(stickyForPhase('build')).toMatch(/This is the job of the turn/);
+    // HOMELESS, and listed in `server/promptHomeless.md`: "never tell them the
+    // build is unavailable to you" was written for a measured live failure —
+    // a Confirm that replied its role stopped at proposing. The Confirm
+    // manual says the positive version instead, and the forced build is the
+    // structural guarantee either way.
+    expect(stickyForPhase('build')).toMatch(/A build that exists only in prose does not exist on the canvas/);
     expect(orchSrc).not.toMatch(/Return ONLY \{"action":"propose","strategy"/);
   });
 
@@ -789,7 +999,9 @@ describe('a Confirm turn can actually build', () => {
       tenantId: 'TEN-IBL',
       knowledge,
       discoveryRounds: 3,
-      brief: settled(),
+      // FILED, because a typed yes compiles the filed path exactly as the
+      // button does. That is the whole point of the merge.
+      brief: filePath(settled(), COMPLETE),
       // No `intent` at all — this is the composer, not the button.
       confirmedBlueprint: null,
       session: { state: 'AWAITING_STRATEGY_CONFIRMATION', strategyVersion: 1, confirmation: null },
@@ -894,14 +1106,18 @@ describe('an unknown audience is a limitation, not a refusal', () => {
 // ---------------------------------------------------------------------------
 
 /** A Confirm with a scripted sequence of model turns. */
-async function confirmScripted(bodies: string[], brief?: unknown) {
-  script(bodies);
+let lastCalls: () => number = () => 0;
+async function confirmScripted(bodies: string[], brief?: unknown, opts?: { file?: boolean }) {
+  lastCalls = script(bodies);
   const gen = orchestrateStream({
     sessionId: 'confirm-prose',
     tenantId: 'TEN-IBL',
     knowledge,
     discoveryRounds: 3,
-    brief: brief ?? settled(),
+    // `file: false` is the no-plan-on-file case, which is the only refusal on
+    // the Confirm door. Everything else files the path, because that is what a
+    // propose turn leaves behind in the real app.
+    brief: opts?.file === false ? (brief ?? settled()) : filePath(brief ?? settled(), COMPLETE),
     intent: 'confirm',
     confirmedBlueprint: null,
     session: { state: 'AWAITING_STRATEGY_CONFIRMATION', strategyVersion: 1, confirmation: null },
@@ -921,7 +1137,290 @@ async function confirmScripted(bodies: string[], brief?: unknown) {
  *  pass by finding the model's sentence and calling it the summary. */
 const FALSE_SUCCESS = 'The journey is built and running from today.';
 
-describe('a Confirm that looks things up and forgets to build still builds', () => {
+// ===========================================================================
+// ONE CONFIRM, NOT TWO
+// ===========================================================================
+//
+// MEASURED IN CODE. The button posts `intent: 'confirm'` and took a
+// short-circuit that built `req.confirmedBlueprint` — the client's echo of its
+// own `pendingBlueprint` — and returned, skipping `checkBarrierCoverage`,
+// `checkExperimentClaims` and the reaction report. A manager who TYPED the
+// same sentence walked the whole build tail instead, where those two audits
+// could refuse the build AFTER they had agreed, and where a clock against a
+// reactive claim spent another model call asking for a fork they had never
+// approved. Same words, two campaigns.
+describe('the button and a typed yes are the same product', () => {
+  const PATH = [
+    {
+      kind: 'send',
+      name: 'Opening nudge',
+      objective: ['activate', 'pin'],
+      stage: 'first-touch',
+      describe: 'Show them the two steps to set a PIN.',
+      copy: 'Your card is ready. Set your PIN in two minutes.',
+      channelPreference: ['WHATSAPP'],
+      barrier: 'cost-perception',
+    },
+    { kind: 'exit', reason: 'Fourteen days are up.' },
+  ];
+  /** A blueprint nobody filed, which is what a browser can post. */
+  const ECHO = {
+    campaignName: 'Something else entirely',
+    description: 'Not the plan that was put up.',
+    goal: null,
+    entry: { kind: 'audience', entity: 'Card', conditions: [] },
+    steps: [{ kind: 'send', name: 'Echo send', objective: ['x'], stage: 'first-touch', describe: 'd', copy: 'c', channelPreference: ['SMS'], barrier: 'cost-perception' }],
+  };
+
+  const confirmWith = async (over: Record<string, unknown>) => {
+    script([proseTurn('Anything.')]);
+    const gen = orchestrateStream({
+      sessionId: 'one-confirm',
+      tenantId: 'TEN-IBL',
+      knowledge,
+      discoveryRounds: 3,
+      brief: filePath(settled(), PATH),
+      session: { state: 'AWAITING_STRATEGY_CONFIRMATION', strategyVersion: 1, confirmation: null },
+      messages: [
+        { role: 'user', content: 'Get new cardholders activated.' },
+        { role: 'assistant', content: 'Here is the plan.' },
+        { role: 'user', content: 'Confirmed. Build this campaign.' },
+      ],
+      ...over,
+    } as never);
+    let out = await gen.next();
+    while (!out.done) out = await gen.next();
+    return out.value as unknown as Record<string, unknown>;
+  };
+
+  const names = (res: Record<string, unknown>) =>
+    Object.values((res.graph as { nodes: Record<string, { label?: string }> }).nodes)
+      .map((n) => n.label ?? '')
+      .join(' | ');
+
+  it('the BUTTON compiles the filed path, not the echo it posted', async () => {
+    const res = await confirmWith({ intent: 'confirm', confirmedBlueprint: ECHO });
+    expect(res.graph).toBeTruthy();
+    expect(names(res)).toContain('Opening nudge');
+    expect(names(res)).not.toContain('Echo send');
+    expect(String(res.campaign && (res.campaign as { name?: string }).name)).not.toContain('Something else entirely');
+  });
+
+  it('a TYPED yes compiles the same filed path, from the same place', async () => {
+    const res = await confirmWith({ confirmedBlueprint: ECHO });
+    expect(res.graph).toBeTruthy();
+    expect(names(res)).toContain('Opening nudge');
+    expect(names(res)).not.toContain('Echo send');
+  });
+
+  it('a mutated echo changes nothing, because the echo is not read', async () => {
+    const withEcho = await confirmWith({ intent: 'confirm', confirmedBlueprint: ECHO });
+    const withoutEcho = await confirmWith({ intent: 'confirm', confirmedBlueprint: null });
+    expect(names(withEcho)).toBe(names(withoutEcho));
+  });
+
+  it('no filed path is refused, and nothing is built from the browser', async () => {
+    const res = await confirmWith({ intent: 'confirm', confirmedBlueprint: ECHO, brief: settled() });
+    expect(res.graph ?? null).toBeNull();
+    expect(res.campaign ?? null).toBeNull();
+    expect(res.phase).toBe('planning');
+    expect(String(res.reply ?? '')).toMatch(/no plan on file/i);
+  });
+
+  it('a REFINEMENT reports an uncited send too, rather than refusing it', async () => {
+    // THE OTHER BUILD TURN. A refinement is the manager asking for a specific
+    // change to a campaign that already exists, so it is an approval as much
+    // as a Confirm is — and `checkBarrierCoverage` used to send it back to
+    // Revise instead of building and stating the cost. Both build turns now
+    // report. This is the case that keeps the `!approvedPlan` guard honest,
+    // because a Confirm no longer reaches that code at all.
+    const uncited = [
+      { kind: 'send', name: 'Nameless nudge', objective: ['activate'], stage: 'first-touch',
+        describe: 'Say something.', copy: 'Something.', channelPreference: ['WHATSAPP'] },
+      { kind: 'exit', reason: 'Done.' },
+    ];
+    script([buildTurn(uncited), proseTurn('Changed.')]);
+    const gen = orchestrateStream({
+      sessionId: 'refine',
+      tenantId: 'TEN-IBL',
+      knowledge,
+      discoveryRounds: 3,
+      brief: filePath(settled(), COMPLETE),
+      currentCampaign: { id: 'c1', name: 'Existing', root: { rootId: 'n1', nodes: {}, edges: [] } },
+      session: { state: 'EXPORT_ELIGIBLE', strategyVersion: 1, confirmation: null },
+      messages: [
+        { role: 'user', content: 'Get new cardholders activated.' },
+        { role: 'assistant', content: 'Built.' },
+        // WORDED LIKE THE OBJECTIVE ON PURPOSE. A change request that shares
+        // nothing with the brief is read as a NEW objective and resets the
+        // machine to `UNDERSTANDING_GOAL`, which then cannot legally enter
+        // generation. That hazard is older than this slice and is not what
+        // this test is about.
+        { role: 'user', content: 'Get new cardholders activated a day later than this.' },
+      ],
+    } as never);
+    let out = await gen.next();
+    while (!out.done) out = await gen.next();
+    const res = out.value as unknown as Record<string, unknown>;
+
+    // IT BUILDS. A change request is an approval as much as a Confirm is, so
+    // an uncited send is a cost to state rather than a reason to refuse.
+    expect(res.phase, 'a refinement is not sent back to Revise').not.toBe('revising');
+    expect(res.graph, 'the change still reaches the canvas').toBeTruthy();
+
+    // AND IT SAYS SO. `phase !== 'revising'` on its own was the whole
+    // assertion, which made this test pass whether or not the cost was ever
+    // reported — the refinement path skipped the refusal once a plan was
+    // approved and put nothing in its place, so an uncited send compiled in
+    // silence. The sentence has to reach the manager, by either route
+    // `renderStrategy` and the build summary read.
+    const blockers = ((res.campaignBlockers as string[] | undefined) ?? []).join(' ');
+    const warnings = (((res.strategy as { designWarnings?: string[] } | null)?.designWarnings) ?? []).join(' ');
+    expect(
+      `${blockers} ${warnings}`,
+      'the uncited send must be stated on the blockers or under what this design cannot do',
+    ).toMatch(/do not say which problem they solve/);
+    expect(`${blockers} ${warnings}`).toMatch(/Nameless nudge/);
+  });
+
+  it('nothing claims the tail still runs a yes', () => {
+    // COMMENTS AND TEST NAMES ARE PART OF THE PRODUCT HERE. Three of them
+    // outlived the merge and said a typed "Confirmed. Build this campaign."
+    // falls through to the build tail, or called what reaches it a
+    // refinement. Both yeses return at the door, and refinements compile at
+    // their own block, so each sentence was pointing the next reader at the
+    // wrong place.
+    const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+    // THE HEADER ONLY — everything above the first import. Reading the whole
+    // file would make this assertion match its own text, which is the kind of
+    // self-satisfying pin this repo has been bitten by.
+    const self = readFileSync(new URL('./confirmReachesGeneration.test.ts', import.meta.url), 'utf8');
+    const header = self.slice(0, self.indexOf('import '));
+    expect(header).not.toMatch(/fall-through below must stay correct/);
+    expect(header).toMatch(/The tail no\n\/\/ longer runs for either of them/);
+    // AND IT MUST AGREE WITH THE HOP ABOUT WHO GETS THERE. Pinning the old
+    // phrase was not enough: the replacement header made the same overclaim in
+    // new words — "what reaches it is a refinement" — one paragraph before the
+    // block that correctly says it is not. The claim is what gets checked now,
+    // so any rewording that says a refinement reaches the hop fails here.
+    expect(header).not.toMatch(/reaches (it|the tail|that hop)[^.]*is a refinement/i);
+    expect(header).not.toMatch(/is a refinement, which\n\/\/ compiles/);
+    expect(header).toMatch(/AWAITING_STRATEGY_CONFIRMATION/);
+    expect(header).toMatch(/returns at its own `isRefinement` block/);
+
+    // The block after the refinement return must not call its visitor a
+    // refinement, and must name who actually gets there.
+    const who = orch.slice(orch.indexOf('// WHO STILL LANDS HERE'), orch.indexOf('session = { ...session, state: transition(session.state, \'GENERATING_CAMPAIGN\') };', orch.indexOf('// WHO STILL LANDS HERE')));
+    expect(who.length).toBeGreaterThan(0);
+    expect(who).not.toMatch(/a refinement, where the manager/);
+    expect(who).toMatch(/not a refinement/);
+    expect(who).toMatch(/is not `AWAITING_STRATEGY_CONFIRMATION`/);
+
+    // And the merge that could not add a line is gone: one `tailGaps.lines`
+    // merge, on the refinement compile.
+    expect(orch.match(/tailGaps\.lines\.filter/g) ?? [], 'one merge, on the refinement').toHaveLength(1);
+
+    // THE CASE NAME IN `canvasMustReact` SAID THE OPPOSITE OF ITS BODY: it was
+    // titled for the DOOR's rule — prefer the filed plan — while asserting the
+    // TAIL's, which is this turn's proposal. A test name cannot fail on its
+    // own, so the old title is pinned absent from here, where there is no
+    // self-reference to satisfy it.
+    const cmr = readFileSync(new URL('./canvasMustReact.test.ts', import.meta.url), 'utf8');
+    expect(cmr).not.toContain('prefers the approved plan over the strategy this turn happens to carry');
+    expect(cmr).toContain('the Confirm door reads the filed plan; the tail reads this turn');
+  });
+
+  // A PATH THEY CAN CONFIRM MUST COMPILE INTO THE SENDS THEY APPROVED.
+  //
+  // MEASURED, `eval/runs/ui-s-1793009889177`. Turn 4 filed one Transaction
+  // Amount branch with six sends on its arms — label, copy, channels, no
+  // `stage`. Turn 5 compiled it and returned `phase: 'review'` over a canvas
+  // of an entry, the split and three exits: zero message steps. The reply said
+  // so; the screen said review.
+  const noSendPath = {
+    campaignName: 'Waits only',
+    description: 'Get new cardholders activated.',
+    goal: null,
+    entry: { kind: 'audience', entity: 'Card', conditions: [] },
+    steps: [{ kind: 'wait', duration: 2, unit: 'days' }, { kind: 'exit', reason: 'Done.' }],
+  };
+
+  it('a Confirm that compiles to no sends is not a review screen', async () => {
+    const res = await confirmWith({ intent: 'confirm', confirmedBlueprint: null, brief: filePath(settled(), noSendPath.steps) });
+    // THE SENTENCE WAS ALREADY RIGHT and is not the pin: it matched on the
+    // live turn while three exits sat on screen. The graph is.
+    expect(String(res.reply ?? '')).toMatch(/did not produce any message steps/i);
+    const nodes = Object.keys(((res.graph as { nodes?: Record<string, unknown> } | null)?.nodes) ?? {});
+    expect(nodes, 'nothing to draw, so nothing is drawn').toHaveLength(0);
+    expect(res.phase, 'a canvas of exits is not something to review').not.toBe('review');
+    expect(res.designGenerated ?? false).toBe(false);
+  });
+
+  it('a Confirm of the live EMI-shaped path builds its sends', async () => {
+    // The shape that produced zero sends: a branch with sends on both arms and
+    // no stage anywhere.
+    const send = (label: string) => ({ kind: 'send', label, copy: 'Convert this purchase to EMI.', channelPreference: ['WHATSAPP'], barrier: 'cost-perception' });
+    const emi = [
+      {
+        kind: 'branch',
+        entity: 'Transaction',
+        attribute: 'Transaction Amount',
+        paths: [
+          { label: 'High value', operator: 'Equals', value: '10000', steps: [send('Day0 high'), send('Day4 high')] },
+          { label: 'Lower value', operator: 'Not Equals', value: '10000', steps: [send('Day0 lower')] },
+        ],
+      },
+    ];
+    const res = await confirmWith({ intent: 'confirm', confirmedBlueprint: null, brief: filePath(settled(), emi) });
+    const types = Object.values(((res.graph as { nodes?: Record<string, { type?: string }> } | null)?.nodes) ?? {}).map((n) => n.type);
+    expect(types.filter((t) => t === 'SEND'), 'the sends they approved reach the canvas').toHaveLength(3);
+    expect(String(res.reply ?? '')).not.toMatch(/did not produce any message steps/i);
+    expect(res.phase).toBe('review');
+  });
+
+  it('REACTION_RETRY is never sent after a yes', async () => {
+    const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+    // The constant still exists, and nothing sends it. A clock is reported,
+    // not re-asked: the moment to catch a plan whose steps do not match its
+    // claim is before approval, and afterwards the manager can do nothing
+    // with the refusal except approve again.
+    expect(orch).toMatch(/export const REACTION_RETRY =/);
+    const sends = orch.match(/\$\{REACTION_RETRY\}/g) ?? [];
+    expect(sends, 'no system string carries it any more').toHaveLength(0);
+  });
+
+  it('the design handshake cannot fire on a build turn', async () => {
+    const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+    // Gated rather than deleted: `capability.test.ts` greps these symbols, and
+    // a grepped symbol that disappears fails a test for a reason unrelated to
+    // what that test is about.
+    expect(orch).toMatch(/const DESIGN_HANDSHAKE_LIVE = false;/);
+    expect(orch).toMatch(/act === 'design' &&[^\n]*&& DESIGN_HANDSHAKE_LIVE/);
+    expect(orch).toMatch(/act === 'propose' &&[^\n]*&& DESIGN_HANDSHAKE_LIVE/);
+  });
+
+  it('the handshake JSON gets no second round on a Confirm', async () => {
+    // A model that emits the intervention JSON on a Confirm is not answered
+    // with a request for more of it. The turn compiles the filed path.
+    const res = await confirmWith({
+      intent: 'confirm',
+      confirmedBlueprint: null,
+    });
+    expect(res.graph).toBeTruthy();
+    expect(String(res.reply ?? '')).not.toMatch(/state the INTERVENTION/i);
+  });
+});
+
+// A CONFIRM MAKES NO MODEL CALL AT ALL.
+//
+// These cases were written when a Confirm walked the round loop: the model
+// could look things up, write a false success sentence, and never call
+// `build_campaign`, and the application had to force the build and then refuse
+// to pass the prose off as a campaign. The door compiles `brief.lastProposal`
+// and returns, so none of that can happen — the scripted turns below are never
+// requested. The product claims they pin are still the right ones, so they are
+// kept and each one now also pins that no round was spent.
+describe('a Confirm compiles the filed path and calls nothing', () => {
   it('ends with a graph, not with the brief pane', async () => {
     const res = await confirmScripted([
       lookupAndRecordTurn(),
@@ -933,6 +1432,7 @@ describe('a Confirm that looks things up and forgets to build still builds', () 
     expect(res.phase).not.toBe('discovery');
     expect(res.stage).not.toBe('discovery');
     expect(res.campaign).toBeTruthy();
+    expect(lastCalls(), 'the path is on file, so there is nothing to ask for').toBe(0);
   });
 
   it('does not pass the model prose off as the build', async () => {
@@ -944,24 +1444,36 @@ describe('a Confirm that looks things up and forgets to build still builds', () 
     ]);
     // The reply is the application's own account of what it built. The
     // model's claim is not it.
+    // The reply is the application's own account of what it built, and the
+    // model's claim cannot even be in the running: it is never asked.
     expect(String(res.reply ?? '')).not.toBe(FALSE_SUCCESS);
     expect(String(res.reply ?? '')).toMatch(/canvas/i);
+    expect(lastCalls(), 'no round is spent on a Confirm').toBe(0);
   });
 
-  it('reports a failure, not a success, when no journey comes back at all', async () => {
-    // The forced build is asked for and the model still does not call the
-    // tool. There is nothing to compile, so the honest answer is the one the
-    // compiler's own failure gives — never a graph and never the brief pane.
-    const res = await confirmScripted([
-      lookupAndRecordTurn(),
-      proseTurn(FALSE_SUCCESS),
-      proseTurn('I cannot do that.'),
-      proseTurn('I cannot do that.'),
-    ]);
-    expect(res.phase).toBe('error');
+  it('REPLACED: nothing on file is the honest empty, not a build of the echo', async () => {
+    // WHAT THIS TEST USED TO BE. It scripted a Confirm where the model never
+    // called `build_campaign`, and asserted the compiler's own failure. That
+    // case no longer exists: Confirm compiles `brief.lastProposal`, so whether
+    // the model calls the tool on this turn does not decide whether there is
+    // anything to build. A model that stays silent on a Confirm with a filed
+    // path still gets the filed path built, which is the point of the slice.
+    //
+    // WHAT IT IS NOW. The honest empty that replaced it: a Confirm with NO
+    // filed path refuses rather than compiling whatever the browser last drew.
+    // This is the only refusal on the Confirm door, and it has to be a
+    // refusal, because the alternative is building a journey the application
+    // never accepted.
+    const res = await confirmScripted(
+      [lookupAndRecordTurn(), proseTurn(FALSE_SUCCESS), buildTurn(COMPLETE), proseTurn('Built.')],
+      settled(),
+      { file: false },
+    );
     expect(res.graph ?? null).toBeNull();
-    expect(String(res.reply ?? '')).toMatch(/could not be built from the approved plan/);
-    expect(res.brief, 'the record survives a failure').toBeTruthy();
+    expect(res.campaign ?? null).toBeNull();
+    expect(res.phase).toBe('planning');
+    expect(String(res.reply ?? '')).toMatch(/no plan on file/i);
+    expect(res.brief, 'the record survives a refusal').toBeTruthy();
   });
 
   it('builds through a block the gate would have refused, and says what it cost', async () => {

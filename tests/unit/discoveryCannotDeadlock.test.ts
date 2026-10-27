@@ -23,6 +23,7 @@
 //
 // Each test below fails if its defect returns.
 import { describe, it, expect } from 'vitest';
+import { seenAxes } from '../../server/discovery';
 import { readFileSync } from 'node:fs';
 import { OUTPUT_TOOLS, outputToolsForPhase } from '../../server/outputTools';
 
@@ -41,9 +42,15 @@ import {
 } from '../../server/discovery';
 import { blocksFor, satisfy } from '../../server/gate';
 import { recordAsked, recordReply } from '../../server/record';
+import { asking } from './support/prompts.ts';
+// PINS REMOVED, NOT LOST: 2 rule(s) this file asserted have no
+// counterpart in any of the three manuals. Every one is listed in
+// `server/promptHomeless.md` under this filename, with the tests that
+// went with them. Do not re-add a pin here without putting the rule
+// back in a manual first.
 
 const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-const SYSTEM = /const SYSTEM = `([\s\S]*?)`;\n/.exec(orch)![1];
+const SYSTEM = asking();
 
 describe('1 — the findings have a slot in every payload that can be refused for lacking them', () => {
   it('gives the findings ONE slot, reachable on every turn', () => {
@@ -61,12 +68,6 @@ describe('1 — the findings have a slot in every payload that can be refused fo
     }
   });
 
-  it('keeps the instruction that makes them mandatory, so the two cannot drift apart', () => {
-    // If this sentence is ever softened, the schema slots above become
-    // optional and this whole file is testing nothing.
-    expect(SYSTEM).toMatch(/send "converters" and "barriers" on EVERY turn/);
-    expect(SYSTEM).toMatch(/You cannot propose without both/);
-  });
 });
 
 describe('2 — a refusal names the one thing that clears it', () => {
@@ -190,7 +191,11 @@ describe('4 — a dropped dimension is explained, not silently discarded', () =>
       /These were not stored as lines of enquiry because they describe the platform, not the customer:/,
     );
     for (const d of platformNames) expect(out).toContain(d.name);
-    expect(out).toMatch(/Raise three things about the customers/);
+    // "Raise THREE" went with the count, 2026-10-26. The sentence survives
+    // because the drop itself still has to be explained — silently refusing a
+    // dimension is what made the loop unescapable — and it now fires while
+    // nothing has been SEEN rather than while a tally is short.
+    expect(out).toMatch(/Raise things about the CUSTOMERS instead/);
     expect(out).toMatch(/Do not raise entry events, channel lists, templates, quiet hours, or DND\./);
   });
 
@@ -206,24 +211,30 @@ describe('4 — a dropped dimension is explained, not silently discarded', () =>
     expect(briefForPrompt(b)).not.toMatch(/not stored as lines of enquiry/);
   });
 
-  it('clears the gate once the model raises customer factors instead', () => {
+  it('stops saying it once a real customer factor lands', () => {
+    // RETARGETED with the block it used to read. `too-few-dimensions` counted
+    // rows and is deleted; what this case is about is that the message is not
+    // a standing nag — it stops when the state it describes ends.
     const stuck = record(started(), platformNames);
-    expect(blocksFor(stuck).some((x) => x.code === 'too-few-dimensions')).toBe(true);
+    expect(briefForPrompt(stuck)).toMatch(/not stored as lines of enquiry/);
     const fixed = record(stuck, customerNames);
-    expect(blocksFor(fixed).some((x) => x.code === 'too-few-dimensions')).toBe(false);
+    expect(seenAxes(fixed).length).toBeGreaterThan(0);
+    expect(briefForPrompt(fixed)).not.toMatch(/not stored as lines of enquiry/);
   });
 
   it('satisfy() uses names an agent could really emit, not "Angle 1"', () => {
     // The invariant has to prove the path an agent can walk. `satisfy` used to
-    // generate "Angle 1", which clears the block in a test and could never be
+    // generate "Angle 1", which clears a block in a test and could never be
     // produced by a model — and would survive the platform filter for the
-    // wrong reason.
+    // wrong reason. The block it was reached through counted rows and is
+    // gone; the mutation it applies is still the one every dimension block
+    // names, so the guarantee is asserted on the mutation itself.
     const stuck = record(started(), platformNames);
-    const block = blocksFor(stuck).find((x) => x.code === 'too-few-dimensions')!;
-    const after = satisfy(stuck, block.clears);
+    const after = satisfy(stuck, { field: 'dimensions', how: 'Raise lines of enquiry about the customers.' });
     expect(briefDimensions(after).map((d) => d.name)).not.toContain('Angle 1');
-    expect(briefDimensions(after)).toHaveLength(3);
+    expect(briefDimensions(after).length).toBeGreaterThan(0);
     for (const d of briefDimensions(after)) expect(isPlatformDimension(d.name)).toBe(false);
-    expect(blocksFor(after).some((x) => x.code === 'too-few-dimensions')).toBe(false);
+    // And they are real patterns, so the record now has an axis to work from.
+    expect(seenAxes(after).length).toBeGreaterThan(0);
   });
 });

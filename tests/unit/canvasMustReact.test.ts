@@ -34,11 +34,12 @@ import { seedKnowledgeBase } from '../../server/knowledge';
 import { newBrief, recordDimensions, recordSuccessCriteria } from '../../server/discovery';
 import { discovered } from './support/findings';
 import type { CampaignBlueprint } from '../../server/blueprint';
+import { build } from './support/prompts.ts';
 
 const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
 const designer = readFileSync(new URL('../../src/designer/CampaignDesigner.tsx', import.meta.url), 'utf8');
 
-const SYSTEM = (() => /const SYSTEM = `([\s\S]*?)`;\n/.exec(orch)![1])();
+const SYSTEM = build();
 
 const send = (over: Record<string, unknown> = {}) => ({
   kind: 'send',
@@ -257,20 +258,39 @@ describe('the retry instruction names what does NOT count', () => {
   });
 
   it('is NOT method prose in SYSTEM, which has a cap this does not touch', () => {
-    // The cap is on the prompt that travels every turn. This travels on one:
-    // the turn after a build that did not react.
+    // The cap is on the prompt that travels every turn, and this text travels
+    // on none of them: `REACTION_RETRY` is retired, nothing interpolates it,
+    // and a clock is reported by `confirmGaps` rather than re-asked. The pin
+    // stays because the text must not drift INTO the method prose.
     expect(SYSTEM).not.toMatch(/The journey you sent is a clock/);
     expect(SYSTEM.length).toBeLessThanOrEqual(33_500);
   });
 
-  it('asks for the journey a second time rather than reporting and moving on', () => {
-    // Reverting the retry — deleting the forced second `build_campaign` —
-    // fails here and in the end-to-end case below.
-    const at = orch.indexOf('const reacts = journeyReacts(blueprint)');
-    expect(at).toBeGreaterThan(-1);
-    const before = orch.slice(orch.indexOf('if (isBuildTurn && promisedReaction'), at);
-    expect(before).toMatch(/toolChoice: \{ type: 'tool', name: 'build_campaign' \}/);
-    expect(before).toMatch(/REACTION_RETRY/);
+  it('REPORTS AND MOVES ON — it does not ask for the journey a second time', () => {
+    // THIS PIN IS REVERSED, deliberately, and the rule it used to hold is the
+    // one that changed. It asserted that a clock against a reactive claim
+    // spent a second forced `build_campaign` call with `REACTION_RETRY`
+    // attached, and compiled the clock anyway when that came back the same.
+    //
+    // After a yes, the application does not go looking for a fork the manager
+    // never approved. The moment to catch a plan whose steps do not match its
+    // claim is BEFORE approval, which is `reactionBlocks`; afterwards there is
+    // nothing they can do with the refusal except approve again, and a second
+    // opinion the application has already decided to ignore is a model call
+    // spent on nothing.
+    //
+    // THE REPORTING IS UNCHANGED, and the end-to-end cases below hold that:
+    // the gap still leads the reply, still lands on `campaignBlockers`, and
+    // still suppresses the export invitation.
+    // ONE FUNCTION, TWO CALL SITES. The reaction sentence lives in
+    // `confirmGaps` and nowhere else, so neither Confirm nor a refinement can
+    // carry a second copy — and nothing sends `REACTION_RETRY` at all.
+    expect(orch.match(/\$\{REACTION_RETRY\}/g) ?? [], 'no system string carries it').toHaveLength(0);
+    expect(orch).toMatch(/export const REACTION_RETRY =/);
+    expect(orch.match(/The journey on the canvas is a timed sequence/g) ?? [], 'the sentence is written once').toHaveLength(1);
+    // Both build paths ask the same function for it.
+    expect(orch).toMatch(/const gaps = confirmGaps\(brief, pair\.path as CampaignBlueprint, pair\.plan\)/);
+    expect(orch).toMatch(/const tailGaps = approvedPlan\n\s*\? confirmGaps\(/);
   });
 });
 
@@ -345,16 +365,47 @@ const APPROVED = {
   ],
 };
 
-async function confirm(bodies: string[], strategy: unknown = APPROVED) {
+/**
+ * The pair as the propose turn filed it.
+ *
+ * WHY THESE FIXTURES CHANGED. Confirm compiles `brief.lastProposal`, so the
+ * plan whose CLAIM is checked and the path that claim is checked against both
+ * come off the record. Passing them as `confirmedStrategy` and
+ * `confirmedBlueprint` — the client's echo of what its own screen last held —
+ * is what made the browser the authority over whether the built journey
+ * matched the approved one. The echo is still sent below and still ignored,
+ * which is the point.
+ */
+const fileThePair = (strategy: unknown, path: unknown) => ({
+  ...(settled() as unknown as Record<string, unknown>),
+  lastProposal: {
+    strategy,
+    // THE FILED DESCRIPTION NAMES THE OBJECTIVE, because a real one does.
+    //
+    // The staleness check fingerprints the filed plan's description AND its
+    // summary against the brief's objective, and `objectiveFingerprint.test.ts`
+    // pins that pair at 0.50 against a 0.25 floor on text copied off a real
+    // run. `bp()`'s description is campaign-naming text that shares almost
+    // nothing with this objective, and these fixtures used to pass the check
+    // only because the echo was null: with the description empty, `overlaps`
+    // divided by the summary's own tiny word set and any single shared word
+    // scored 1.0. That is the bug this slice removes, so the fixture has to
+    // stop depending on it.
+    blueprint: { ...(path as Record<string, unknown>), description: 'Convert eligible purchases to EMI for customers who are not converting.' },
+    round: 1,
+  },
+});
+
+async function confirm(bodies: string[], strategy: unknown = APPROVED, path: unknown = bp(CLOCK)) {
   const calls = script(bodies);
   const gen = orchestrateStream({
     sessionId: 'canvas-must-react',
     tenantId: 'TEN-IBL',
     knowledge,
     discoveryRounds: 3,
-    brief: settled(),
+    brief: fileThePair(strategy, path),
     intent: 'confirm',
-    // Null, as the live client sends it: a propose turn carries no blueprint.
+    // STILL NULL, and still the live shape — the server does not read it.
     confirmedBlueprint: null,
     confirmedStrategy: strategy,
     session: { state: 'AWAITING_STRATEGY_CONFIRMATION', strategyVersion: 1, confirmation: null },
@@ -377,10 +428,16 @@ afterEach(() => {
 });
 
 describe('a clock against a plan that promised a reaction', () => {
-  it('asks for the journey again, and takes the success path when it reacts', async () => {
-    const { res, calls } = await confirm([buildTurn(CLOCK), proseTurn('Built.'), buildTurn(REACTING)]);
-    // The retry happened: a third call, beyond the two the rounds make.
-    expect(calls()).toBeGreaterThan(2);
+  it('a reacting journey on file is built with no gap and no extra call', async () => {
+    // WAS "asks for the journey again, and takes the success path when it
+    // reacts", which scripted a clock, a retry, and a reacting second answer.
+    // There is no retry now, and the journey comes off the record rather than
+    // off the turn — so the case that matters is a reacting path ON FILE: no
+    // gap to report, no second call to make.
+    const { res, calls } = await confirm([buildTurn(CLOCK), proseTurn('Built.')], APPROVED, bp(REACTING));
+    // NO MODEL ROUND ON A CONFIRM. The path is on file, so there is nothing to
+    // ask for: the application compiles what was approved.
+    expect(calls()).toBe(0);
     expect(String(res.reply)).toContain('It is on the canvas now.');
     // Joined rather than `toContain(expect.stringContaining(...))`, which
     // compares elements by equality and would have passed whatever the array
@@ -389,8 +446,14 @@ describe('a clock against a plan that promised a reaction', () => {
     expect(res.graph).toBeTruthy();
   });
 
-  it('builds anyway when the second journey is still a clock, and says so first', async () => {
-    const { res } = await confirm([buildTurn(CLOCK), proseTurn('Built.'), buildTurn(CLOCK)]);
+  it('builds the clock anyway, and says so in the first line', async () => {
+    // WAS "builds anyway when the SECOND journey is still a clock" — there is
+    // no second journey to wait for. The filed path is a clock, the approved
+    // plan claimed a reaction, and every assertion below is the reporting this
+    // slice had to keep: the mismatch first, the campaign built, the gap as a
+    // blocker, and no export invitation under it.
+    const { res, calls } = await confirm([buildTurn(CLOCK), proseTurn('Built.')]);
+    expect(calls(), 'no model call is spent on a Confirm at all').toBe(0);
     const reply = String(res.reply);
     // THE SUCCESS SENTENCE IS GONE, and the mismatch is in the first line
     // rather than three paragraphs down in an options table.
@@ -416,13 +479,17 @@ describe('a clock against a plan that promised a reaction', () => {
     // function's job — and the retry must not fire.
     const linear = { ...APPROVED, architectures: [{ ...APPROVED.architectures[1], chosen: true }, APPROVED.architectures[0]] };
     const { res, calls } = await confirm([buildTurn(CLOCK), proseTurn('Built.')], linear);
-    expect(calls()).toBe(2);
+    // NO MODEL ROUND ON A CONFIRM. The path is on file, so there is nothing to
+    // ask for: the application compiles what was approved.
+    expect(calls()).toBe(0);
     expect(String(res.reply)).toContain('It is on the canvas now.');
   });
 
   it('does nothing when no journey behaviour was declared, rather than guessing one', async () => {
     const { res, calls } = await confirm([buildTurn(CLOCK), proseTurn('Built.')], { ...APPROVED, architectures: [] });
-    expect(calls()).toBe(2);
+    // NO MODEL ROUND ON A CONFIRM. The path is on file, so there is nothing to
+    // ask for: the application compiles what was approved.
+    expect(calls()).toBe(0);
     expect(String(res.reply)).toContain('It is on the canvas now.');
   });
 });
@@ -437,8 +504,23 @@ describe('the approved plan is read from where the client puts it', () => {
     expect(designer).toMatch(/confirmedStrategy: opts\?\.intent === 'confirm' \? pendingStrategy : null/);
   });
 
-  it('prefers the approved plan over the strategy this turn happens to carry', () => {
-    expect(orch).toMatch(/const approvedStrategy = \(req\.confirmedStrategy \?\? proposed\.strategy\)/);
+  it('the Confirm door reads the filed plan; the tail reads this turn\'s proposal', () => {
+    // ONE RULE, TWO PLACES, and the old title said the opposite of the body.
+    // It was "prefers the approved plan over the strategy this turn happens to
+    // carry", which describes the DOOR: there `approvedPair` reads
+    // `brief.lastProposal`, because the browser's echo of its own
+    // `pendingStrategy` must not decide what the plan claimed.
+    //
+    // On the tail the filed plan is the wrong one — a refinement is a change to
+    // it — so `approvedBase` is this turn's proposal and nothing falls back to
+    // `req.confirmedStrategy`.
+    expect(orch).toMatch(/const approvedBase = proposed\.strategy \?\? null;/);
+    expect(orch).toMatch(/const pair = approvedPair\(brief\);/);
+    // AND THE DEAD OVERRIDE IS GONE. `honourFiled` could never be true on the
+    // tail: a Confirm returns at the door, and a refinement was excluded by the
+    // condition itself. A line that cannot fire is worse than no line — it
+    // tells the next reader that a yes still lands there.
+    expect(orch).not.toMatch(/honourFiled/);
   });
 });
 
@@ -488,8 +570,8 @@ describe('derive() stopped calling a who-split a reaction', () => {
 
 describe('fidelity runs on the turn that builds', () => {
   it('is handed the approved plan, not the empty strategy of the Confirm turn', () => {
-    expect(orch).toMatch(/const architectureComparison = compareArchitectures\(approvedStrategy\?\.architectures\)/);
-    expect(orch).toMatch(/const fidelity = checkFidelity\(approvedStrategy\?\.architectures, blueprint\)/);
+    expect(orch).toMatch(/const architectureComparison = compareArchitectures\(approvedBase\?\.architectures\)/);
+    expect(orch).toMatch(/const fidelity = checkFidelity\(approvedBase\?\.architectures, blueprint\)/);
   });
 
   it('says the built campaign is not the one that was chosen', async () => {
@@ -502,8 +584,11 @@ describe('fidelity runs on the turn that builds', () => {
     expect(warnings).toMatch(/The strategy and the campaign disagree/);
   });
 
-  it('stays quiet when the second journey does react', async () => {
-    const { res } = await confirm([buildTurn(CLOCK), proseTurn('Built.'), buildTurn(REACTING)]);
+  it('stays quiet when the journey on file does react', async () => {
+    // WAS "when the SECOND journey does react". Same change of premise as
+    // above: the reacting path is the one on file, not the one a retry
+    // produced.
+    const { res } = await confirm([buildTurn(CLOCK), proseTurn('Built.')], APPROVED, bp(REACTING));
     const warnings = ((res.strategy as { designWarnings?: string[] })?.designWarnings ?? []).join(' ');
     expect(warnings).not.toMatch(/The strategy and the campaign disagree/);
   });
@@ -535,7 +620,10 @@ describe('the comment that would undo all of this', () => {
 
 describe('the option-audit footnote survives', () => {
   it('still downgrades the claim, because this slice adds a consequence rather than replacing a report', () => {
-    expect(orch).toMatch(/strategyOptions: applyAudit\(proposed\.strategy\.strategyOptions, optionAudits\)/);
+    // REPOINTED: the rendered strategy is built from `approvedBase`, which is
+    // the filed plan on a Confirm and the model's own on a propose. The audits
+    // still apply on top of it, which is what this pin is about.
+    expect(orch).toMatch(/strategyOptions: applyAudit\(approvedBase\.strategyOptions, optionAudits\)/);
     expect(orch).toMatch(/unsupportedClaims\(optionAudits\)/);
   });
 

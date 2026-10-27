@@ -32,11 +32,14 @@ import { blocksFor, blockDelta, renderBlocks, decide } from '../../server/gate';
 import { applyOutputTool } from '../../server/outputTools';
 import { newBrief, recordAnswer, recordConverters, recordDimensions, recordQuestions, type WorkingBrief } from '../../server/discovery';
 import { detailsText, friendlyEvent } from '../../src/designer/status';
+import { asking } from './support/prompts.ts';
+// PINS REMOVED, NOT LOST: 3 rule(s) this file asserted have no
+// counterpart in any of the three manuals. Every one is listed in
+// `server/promptHomeless.md` under this filename, with the tests that
+// went with them. Do not re-add a pin here without putting the rule
+// back in a manual first.
 
-const SYSTEM = (() => {
-  const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-  return /const SYSTEM = `([\s\S]*?)`;\n/.exec(src)![1];
-})();
+const SYSTEM = asking();
 
 // --------------------------------------------------------- A1. the reply
 
@@ -241,21 +244,24 @@ describe('the prompt bans the phrases the run actually produced', () => {
   // Honesty, not enforcement — this project has found repeatedly that prompt
   // rules produce honest output and not changed behaviour. The structural
   // halves are the tool result above and the dropped ledger.
-  it('bans narrating that the questions were sent', () => {
-    expect(SYSTEM).toMatch(/NEVER WRITE ANY OF THESE/);
-    expect(SYSTEM).toMatch(/"I've sent these questions"/);
-    expect(SYSTEM).toMatch(/any third-person reference to the person you are addressing/);
-  });
 
-  it('bans our own vocabulary by name', () => {
-    for (const phrase of ['"set aside" as a status', '"(retained)"', '"fork"', '"dosage"']) {
-      expect(SYSTEM, phrase).toContain(phrase);
-    }
+  it('bans our own vocabulary, in the terms the manual uses', () => {
+    // WAS a list of four literal tokens the live run produced — '"set aside"
+    // as a status', '"(retained)"', '"fork"', '"dosage"'. No manual names
+    // them. What survives is the general rule they were instances of, which
+    // the Discovery manual states more directly than the old ban did.
+    expect(asking()).toMatch(/Do not narrate your own bookkeeping — statuses, round scope, what you have retained or set aside/);
+    expect(asking()).toMatch(/Those are this system talking to itself/);
+    expect(asking()).toMatch(/Do not say you have “sent questions to the campaign manager\.”/);
+    // And the one place the old tokens are still forbidden by construction:
+    // `renderBlocks` prints a block's manager-facing `reason`, never the
+    // `how` written for the model.
+    expect(asking()).toMatch(/Name things in ordinary words/);
   });
 
   it('allows a double-check and forbids a re-ask', () => {
-    expect(SYSTEM).toMatch(/A question that double-checks something is welcome/);
-    expect(SYSTEM).toMatch(/Reprinting a question they have already answered is not/);
+    expect(asking()).toMatch(/A question that double-checks something is welcome/);
+    expect(asking()).toMatch(/Reprinting a question they have already answered is not/);
   });
 });
 

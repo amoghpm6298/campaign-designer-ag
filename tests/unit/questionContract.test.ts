@@ -21,6 +21,7 @@
 // judgement, and it can be wrong.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { ready, build } from './support/prompts.ts';
 import {
   newBrief,
   recordQuestions,
@@ -244,10 +245,10 @@ describe('the earlier protections are untouched', () => {
     expect(readFileSync(new URL('../../server/findings.ts', import.meta.url), 'utf8')).toMatch(
       /export type FindingBasis = 'user' \| 'user-belief' \| 'assumption' \| 'none';/,
     );
-    const SYSTEM = /const SYSTEM = `([\s\S]*?)`;\n/.exec(
-      readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8'),
-    )![1];
-    expect(SYSTEM).toMatch(/DO NOT CLOSE THAT GAP WITH A NEAR-ENOUGH ATTRIBUTE/);
-    expect(SYSTEM).toMatch(/a single event's value is not a running total/);
+    // The no-proxy rule, on the phase that can actually swap a field: Plan
+    // writes the path and Confirm compiles it. "a single event's value is not
+    // a running total" is homeless — see `server/promptHomeless.md`.
+    expect(ready()).toMatch(/Do not swap in a nearby field and carry on/);
+    expect(build()).toMatch(/Do not swap in a nearby field and call it theirs/);
   });
 });

@@ -1,0 +1,136 @@
+{
+  "objective": "We want more EMI-eligible card purchases to become EMI. We have no campaign history. I need a 7 day plan.",
+  "objectiveFingerprint": "become campaign card day eligible emi history no plan purchases",
+  "rounds": 0,
+  "questions": [
+    {
+      "id": "q0-0",
+      "text": "When you say you want more EMI-eligible purchases to convert, do you mean you want more transactions converted, or more value/amount converted into EMI — even if that means fewer but larger conversions?",
+      "askedInRound": 0,
+      "author": "agent",
+      "impact": "fork",
+      "contingency": {
+        "ifA": "Design targets volume: broad reach, easy low-friction conversions, message tuned to make converting feel simple regardless of ticket size.",
+        "ifB": "Design targets value: prioritise larger eligible transactions and customers with bigger EMI-eligible balances, even if the total count of conversions is smaller.",
+        "ifUnknown": "Default to counting conversions but flag that this favours small-ticket conversions, and ask again once the first run's data is in."
+      },
+      "answeredInRound": 0,
+      "addressedInRound": 0
+    },
+    {
+      "id": "q0-1",
+      "text": "Have you noticed any pattern in who already converts an eligible purchase to EMI on their own, or is that something you don't track?",
+      "askedInRound": 0,
+      "author": "agent",
+      "impact": "fork",
+      "contingency": {
+        "ifA": "Use the named pattern to decide who the campaign should focus on first.",
+        "ifB": "Treat it as unknown and design the first run to also surface which segment converts, rather than assuming one."
+      },
+      "answeredInRound": 0,
+      "addressedInRound": 0
+    },
+    {
+      "id": "q0-2",
+      "text": "What do you believe is stopping the rest of the eligible purchases from being converted?",
+      "askedInRound": 0,
+      "author": "agent",
+      "impact": "fork",
+      "contingency": {
+        "ifA": "Build messaging and timing around the specific reason given (e.g. unaware of the option, cost concern, timing of the offer window).",
+        "ifB": "If they say they don't know, widen the first run to test more than one plausible barrier rather than designing around a guess."
+      },
+      "answeredInRound": 0,
+      "addressedInRound": 0
+    }
+  ],
+  "answers": [
+    {
+      "round": 0,
+      "text": "1. more transactions converted\n2. 10k+ txns convert more often \n3. i think they dont know if txn is eligibile for emi or not"
+    }
+  ],
+  "openUncertainties": [],
+  "evidenceRequests": [],
+  "facts": [
+    {
+      "statement": "They have no campaign history, and said so themselves. There is no conversion rate, benchmark, baseline or past result to ask for — this run IS the first one.",
+      "source": "user-answer",
+      "confidence": "confirmed",
+      "round": 0
+    },
+    {
+      "statement": "They asked for a plan over 7 days. That is the window the campaign has to work inside — do not ask how long they want.",
+      "source": "user-answer",
+      "confidence": "confirmed",
+      "round": 0
+    },
+    {
+      "statement": "1. more transactions converted\n2. 10k+ txns convert more often \n3. i think they dont know if txn is eligibile for emi or not",
+      "source": "user-answer",
+      "round": 0,
+      "confidence": "confirmed",
+      "answers": [
+        "q0-0",
+        "q0-1",
+        "q0-2"
+      ]
+    }
+  ],
+  "limitations": [
+    "Stated as unavailable by the user: We want more EMI-eligible card purchases to become EMI. We have no campaign history. I need a 7 day plan."
+  ],
+  "statedValues": [],
+  "dimensions": [
+    {
+      "name": "transaction amount",
+      "rationale": "It is the one pattern the manager has actually seen in who converts today. Since success is measured by count of conversions and high-ticket transactions already self-convert, the real headroom for additional count sits in sub-₹10,000 eligible transactions — this changes where the campaign's effort should concentrate.",
+      "status": "retained",
+      "basis": "user",
+      "note": "Manager reports ₹10,000+ transactions convert more often already; the campaign will cover the full eligible base but is designed expecting most of the incremental count to come from below that threshold."
+    },
+    {
+      "name": "purchase channel (online checkout vs in-store/POS swipe)",
+      "rationale": "Online checkouts often surface a merchant EMI offer directly, which could explain part of the awareness gap the manager suspects, versus a POS swipe where no such prompt ever appears.",
+      "status": "deferred",
+      "basis": "assumption",
+      "note": "Not raised by the manager and not something this post-purchase nudge needs to vary by, since the message reaches the customer after the transaction regardless of where it happened. Carried as a possible explanation to watch in results, not a split to design around now."
+    }
+  ],
+  "successCriteria": [
+    "More transactions converted into EMI — a count of conversions, not the rupee value converted. Explicitly chosen over a value-based measure."
+  ],
+  "verdicts": [],
+  "contextChecked": [
+    {
+      "source": "knowledge base — EMI request expiry window (auth-triggered EMI stays open up to 7 days, P-003)",
+      "found": true
+    },
+    {
+      "source": "knowledge base — campaign performance history",
+      "found": false
+    }
+  ],
+  "converters": {
+    "shape": "Transactions of ₹10,000 or more convert to EMI on their own more often than smaller eligible transactions.",
+    "basis": "user",
+    "knowledge": "known",
+    "candidates": [
+      {
+        "segment": "High-value eligible transactions (₹10,000 and above)",
+        "restsOn": "transaction amount",
+        "why": "The campaign manager has observed these convert more often without prompting."
+      }
+    ],
+    "raisedInRound": 0
+  },
+  "barriers": [
+    {
+      "id": "eligibility-awareness",
+      "statement": "Customers don't realise a given purchase actually qualifies to be converted to EMI, so they never act on it.",
+      "basis": "user-belief",
+      "lever": "message",
+      "quote": "i think they dont know if txn is eligibile for emi or not"
+    }
+  ]
+}

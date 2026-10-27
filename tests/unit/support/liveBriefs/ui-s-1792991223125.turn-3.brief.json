@@ -1,0 +1,214 @@
+{
+  "objective": "We want more EMI-eligible card purchases to become EMI. We have no campaign history. I need a 7 day plan.",
+  "objectiveFingerprint": "become campaign card day eligible emi history no plan purchases",
+  "rounds": 0,
+  "questions": [
+    {
+      "id": "q0-0",
+      "text": "When you say you want more purchases converted to EMI, do you mean the raw count of transactions converted, or the value and revenue that comes from those conversions, such as interest or processing fees, or protecting against balances being paid off outright?",
+      "askedInRound": 0,
+      "author": "agent",
+      "impact": "fork",
+      "contingency": {
+        "ifA": "If it is the count, the campaign is tuned to maximise how many eligible customers convert, including small-ticket ones.",
+        "ifB": "If it is value or revenue, the campaign weights toward larger eligible transactions and customers likely to carry a balance.",
+        "ifUnknown": "Raw conversion count becomes the working measure since it is simplest to track on a first run.",
+        "thenA": "Design targets breadth across all eligible transactions, message emphasises ease and speed.",
+        "thenB": "Design targets and prioritises higher value eligible transactions, message emphasises affordability of large amounts."
+      },
+      "answeredInRound": 0,
+      "addressedInRound": 0
+    },
+    {
+      "id": "q0-1",
+      "text": "Who tends to do this already today — is there any pattern you have noticed, even a rough one? \"We do not track that\" is a complete answer.",
+      "askedInRound": 0,
+      "author": "app",
+      "impact": "shaping",
+      "answeredInRound": 0,
+      "addressedInRound": 0
+    },
+    {
+      "id": "q0-2",
+      "text": "Have you noticed any pattern in which customers already convert their eligible purchases to EMI on their own, anything you have seen about them, or is that not something you track?",
+      "askedInRound": 0,
+      "author": "agent",
+      "impact": "fork",
+      "contingency": {
+        "ifA": "If there is a seen pattern, it is used to decide who the campaign should prioritise and what the message should assume they already know.",
+        "ifB": "If nothing is tracked or noticed, this is treated as genuinely unknown and the first run tests two different plausible splits against each other rather than assuming one.",
+        "ifUnknown": "The plan tests at least two candidate patterns against each other rather than picking one blind.",
+        "thenA": "Target and message built around the observed converter profile.",
+        "thenB": "Campaign built as an experiment that measures which of two candidate patterns actually predicts conversion."
+      },
+      "answeredInRound": 0,
+      "addressedInRound": 0
+    },
+    {
+      "id": "q0-3",
+      "text": "When an eligible purchase does not get converted to EMI, what have you seen or heard about why, do customers say anything, or do you have a guess about what stops them?",
+      "askedInRound": 0,
+      "author": "agent",
+      "impact": "fork",
+      "contingency": {
+        "ifA": "If there is a specific reason such as cost worry, not knowing the option exists, or timing after the purchase, the message and timing are built to directly counter that stated reason.",
+        "ifB": "If genuinely no idea, the campaign leads with a generic awareness-plus-offer message and the first run is used to surface the real barrier from response data.",
+        "ifUnknown": "The message is broad awareness-led and the run is treated as diagnostic for the real barrier.",
+        "thenA": "Message copy and timing directly address the named barrier.",
+        "thenB": "Message is broad awareness or education led, and the run is treated as diagnostic for the real barrier."
+      },
+      "answeredInRound": 0,
+      "addressedInRound": 0
+    },
+    {
+      "id": "q0-4",
+      "text": "Beyond the ticket-size pattern, have you seen any difference in who converts by the type of purchase — say electronics or travel versus everyday spend — or by whether the customer has used EMI on this card before versus never has? Or is that not something you've noticed or track?",
+      "askedInRound": 0,
+      "author": "agent",
+      "impact": "shaping",
+      "contingency": {
+        "ifA": "A category or prior-usage pattern exists and is known",
+        "thenA": "I'll add a second message variant tuned to that pattern (e.g. category-specific framing, or a simpler first-timer explainer versus a faster CTA for repeat users) alongside the ticket-size split.",
+        "ifB": "No such pattern is known or tracked",
+        "thenB": "I'll keep a single message track per ticket-size tier and not fragment the audience further, since splitting on an untracked guess would just thin the test.",
+        "ifUnknown": "I'll proceed with ticket-size as the only segmentation axis and treat category/prior-usage as open questions for a later run."
+      },
+      "answeredInRound": 0,
+      "addressedInRound": 0
+    },
+    {
+      "id": "q0-5",
+      "text": "In your own words, what do you think is stopping the rest? An honest \"I am not sure\" is a useful answer.",
+      "askedInRound": 0,
+      "author": "app",
+      "impact": "shaping",
+      "answeredInRound": 0,
+      "addressedInRound": 0
+    }
+  ],
+  "answers": [
+    {
+      "round": 0,
+      "text": "1. raw count of transactions converted\n2. txns more than 10k convert more \n3. txns more than 10k convert more"
+    },
+    {
+      "round": 0,
+      "text": "1. not really \n2. i think they dont know if txn is eligible for conversion"
+    }
+  ],
+  "openUncertainties": [],
+  "evidenceRequests": [],
+  "facts": [
+    {
+      "statement": "They have no campaign history, and said so themselves. There is no conversion rate, benchmark, baseline or past result to ask for — this run IS the first one.",
+      "source": "user-answer",
+      "confidence": "confirmed",
+      "round": 0
+    },
+    {
+      "statement": "They asked for a plan over 7 days. That is the window the campaign has to work inside — do not ask how long they want.",
+      "source": "user-answer",
+      "confidence": "confirmed",
+      "round": 0
+    },
+    {
+      "statement": "1. raw count of transactions converted\n2. txns more than 10k convert more \n3. txns more than 10k convert more",
+      "source": "user-answer",
+      "round": 0,
+      "confidence": "confirmed",
+      "answers": [
+        "q0-0",
+        "q0-1",
+        "q0-2",
+        "q0-3"
+      ]
+    },
+    {
+      "statement": "1. not really \n2. i think they dont know if txn is eligible for conversion",
+      "source": "user-answer",
+      "round": 0,
+      "confidence": "confirmed",
+      "answers": [
+        "q0-4",
+        "q0-5"
+      ]
+    }
+  ],
+  "limitations": [
+    "Stated as unavailable by the user: We want more EMI-eligible card purchases to become EMI. We have no campaign history. I need a 7 day plan."
+  ],
+  "statedValues": [],
+  "dimensions": [
+    {
+      "name": "Transaction ticket size",
+      "rationale": "Manager has directly observed higher conversion above ₹10,000; splitting messaging framing (savings emphasis vs quick nudge) by this tier is the one segmentation grounded in actual observation.",
+      "status": "retained",
+      "basis": "user",
+      "note": "Used to split the audience into above-₹10,000 and ₹10,000-and-under tiers, with different urgency/framing for each. Not used to weight targeting toward the larger tier, since the stated success measure is raw count across all eligible transactions."
+    },
+    {
+      "name": "Purchase category and prior EMI usage",
+      "rationale": "Could have revealed a sharper segmentation (e.g. electronics buyers or EMI-experienced customers converting differently), which would have changed message content per segment.",
+      "status": "deferred",
+      "basis": "user",
+      "note": "Manager said \"not really\" — no pattern noticed or tracked by category or by whether the customer has used EMI before. Dropping this as a segmentation axis because the person best placed to know says it doesn't show a pattern; the campaign will not split on it."
+    }
+  ],
+  "successCriteria": [
+    "Raw count of transactions converted to EMI"
+  ],
+  "verdicts": [],
+  "contextChecked": [
+    {
+      "source": "Knowledge base: channel costs & availability",
+      "found": true
+    },
+    {
+      "source": "Knowledge base: operational constraints (quiet hours, DNC, NPA)",
+      "found": true
+    },
+    {
+      "source": "Knowledge base: historical learnings (campaign performance history)",
+      "found": true
+    },
+    {
+      "source": "Knowledge base: events calendar (freeze windows)",
+      "found": true
+    }
+  ],
+  "converters": {
+    "shape": "Transactions above ₹10,000 convert to EMI at a noticeably higher rate than transactions at or below ₹10,000.",
+    "basis": "user-belief",
+    "knowledge": "known",
+    "candidates": [
+      {
+        "segment": "Transactions above ₹10,000",
+        "restsOn": "ticket size, as observed by the manager",
+        "why": "User stated twice: \"txns more than 10k convert more\""
+      }
+    ],
+    "raisedInRound": 0
+  },
+  "barriers": [
+    {
+      "id": "barrier-unknown-cause",
+      "statement": "No stated reason exists yet for why eligible purchases under ₹10,000 fail to convert to EMI — only the size pattern itself has been observed, not the cause behind it.",
+      "basis": "none",
+      "lever": "message"
+    },
+    {
+      "id": "eligibility-unaware",
+      "statement": "Customers often do not realise a given purchase qualifies for EMI conversion, so they never attempt to convert it.",
+      "basis": "user-belief",
+      "lever": "message",
+      "quote": "i think they dont know if txn is eligible for conversion"
+    },
+    {
+      "id": "no-category-or-prior-usage-pattern",
+      "statement": "No pattern by purchase category (electronics/travel vs everyday) or by prior EMI usage has been noticed by the manager.",
+      "basis": "assumption",
+      "lever": "not-addressable",
+      "quote": "1. not really"
+    }
+  ]
+}

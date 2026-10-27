@@ -142,10 +142,16 @@ describe('the confirmation gate is structural, not advisory', () => {
     // GENERATING_CAMPAIGN first. Taking one hop instead of two is what threw
     // "Illegal state transition AWAITING_STRATEGY_CONFIRMATION ->
     // CONFIGURATION_INCOMPLETE" on every live Confirm.
+    // RETARGETED to the Confirm door, which is where a yes now compiles. The
+    // old slice started at `if (isBuildTurn)` because every live Confirm fell
+    // through to the build tail; both doors return from the one Confirm block
+    // above it now, and the guarantee is the same one — the generation hop
+    // immediately in front of the construction, so a campaign cannot exist
+    // without the session having passed through GENERATING_CAMPAIGN.
     expect(src).toMatch(
-      /if \(isBuildTurn\) \{[\s\S]{0,1400}?session = \{ \.\.\.session, state: transition\(session\.state, 'GENERATING_CAMPAIGN'\) \};\n    const out = buildAndValidate\(/,
+      /if \(intent === 'confirm' \|\| typedYes\) \{[\s\S]{0,4000}?session = \{ \.\.\.session, state: transition\(session\.state, 'GENERATING_CAMPAIGN'\) \};/,
     );
-    expect(src).toMatch(/intent === 'confirm' && req\.confirmedBlueprint/);
+    expect(src).toMatch(/intent === 'confirm' \|\| typedYes/);
     // ...and the confirm site is guarded by the state machine, not just by
     // the presence of a blueprint.
     expect(src).toMatch(/const permitted = briefMatchesStrategy/);
@@ -163,12 +169,32 @@ describe('the confirmation gate is structural, not advisory', () => {
     expect(src).toMatch(/phase: 'awaiting-confirmation',\s*\n\s*stage: 'proposed',\s*\n\s*reply: replyText,/);
     expect(src).toMatch(/const replyText = renderStrategy\(/);
     expect(src).toMatch(/pendingBlueprint: blueprint/);
-    // Neither build site sits inside the proposal return.
-    const proposalBlock = src.slice(
-      src.indexOf("reply: renderStrategy(strategy)"),
-      src.indexOf('/** Builds the graph and validates it'),
-    );
+    // Neither build site sits inside the PROPOSE return.
+    //
+    // THIS ASSERTION WAS VACUOUS, found 2026-10-26 while wrapping that reply.
+    // It sliced from `src.indexOf("reply: renderStrategy(strategy)")` — a
+    // string the file has not contained for a long time, because the call is
+    // written across several lines. `indexOf` returned -1, `slice(-1, n)` is
+    // the last character onwards, and the block it checked was empty. The
+    // file's own lesson, one more time: a slice marker that stopped existing
+    // silently becomes nothing, so both ends get asserted now.
+    const marker = src.indexOf("      phase: 'awaiting-confirmation',\n      stage: 'proposed',");
+    expect(marker).toBeGreaterThan(-1);
+    // BOUNDED TO THE RETURN OBJECT, not to a doc comment two hundred lines
+    // away: the old end marker put the whole build tail inside the slice, so
+    // once the start marker was fixed the assertion failed for the right
+    // reason and the wrong region. What must hold is that nothing in the
+    // PROPOSE return builds anything.
+    const objStart = src.lastIndexOf('return {', marker);
+    const objEnd = src.indexOf('\n    };', marker);
+    expect(objStart).toBeGreaterThan(-1);
+    expect(objEnd).toBeGreaterThan(marker);
+    const proposalBlock = src.slice(objStart, objEnd);
     expect(proposalBlock).not.toMatch(/buildAndValidate\(/);
+    // And it IS the propose return: the plan and its path travel, and the
+    // advice that goes beside the button is joined onto the reply here.
+    expect(proposalBlock).toMatch(/pendingBlueprint: blueprint \?\? null,/);
+    expect(proposalBlock).toMatch(/\.\.\.decision\.advice,/);
   });
 
   it('thinking is round-tripped to the API and exposed to nobody', async () => {

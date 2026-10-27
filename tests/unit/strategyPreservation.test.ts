@@ -22,8 +22,7 @@ import {
   recordDimensions,
   recordSuccessCriteria,
   type OpenItem,
-  type WorkingBrief,
-} from '../../server/discovery';
+  type WorkingBrief } from '../../server/discovery';
 /**
  * A brief whose dimensions were all considered.
  *
@@ -248,7 +247,10 @@ describe('the orchestrator carries the strategy through the same return', () => 
   it('no longer routes a proposal into the question-only path', () => {
     // That path still exists for a model that asked instead of proposing, and
     // it still returns no strategy — correctly, because there is none.
-    const askBlock = src.slice(src.indexOf("if (gate.outcome === 'ask_questions')"), src.indexOf('// Discovery is complete.'));
+    const askBlock = src.slice(
+      src.indexOf("if (!briefClosed && gate.outcome === 'ask_questions')"),
+      src.indexOf('// Discovery is complete.'),
+    );
     expect(askBlock).toMatch(/phase: 'discovery'/);
     expect(askBlock).not.toMatch(/strategy,/);
     // The gate can no longer send a proposal here.
@@ -274,7 +276,18 @@ describe('graph generation stays gated', () => {
       discoveryRounds: 0,
       messages: [{ role: 'user', content: EMI }],
       intent: 'confirm',
+      // THE FILED PATH IS WHAT CONFIRM COMPILES. The echo is still sent, as
+      // the live client sends it, and is no longer read — so whatever a case
+      // overrides as `confirmedBlueprint` is filed too, and each case still
+      // tests exactly the blueprint it names.
       confirmedBlueprint: blueprint,
+      brief: { ...(newBrief(EMI) as unknown as Record<string, unknown>),
+        lastProposal: { strategy: { summary: EMI },
+          blueprint: { ...((over.confirmedBlueprint ?? blueprint) as Record<string, unknown>), description: EMI }, round: 1 } },
+      // NO SESSION HERE, deliberately: one case in this file asserts that a
+      // Confirm with no confirmation for the current strategy is refused, and
+      // supplying a confirmable state would hide it. Cases that need to build
+      // pass their own session through `over`.
       ...over,
     } as never);
     let out = await gen.next();

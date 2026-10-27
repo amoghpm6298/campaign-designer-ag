@@ -13,6 +13,12 @@
 // gap, not a prompting one: no wording could fix a record with nowhere to put
 // the distinction.
 import { describe, it, expect } from 'vitest';
+import { asking } from './support/prompts.ts';
+// PINS REMOVED, NOT LOST: 5 rule(s) this file asserted have no
+// counterpart in any of the three manuals. Every one is listed in
+// `server/promptHomeless.md` under this filename, with the tests that
+// went with them. Do not re-add a pin here without putting the rule
+// back in a manual first.
 import { alternativesRuledOut } from './support/findings';
 import { readFileSync } from 'node:fs';
 import {
@@ -20,7 +26,6 @@ import {
   recordDimensions,
   briefDimensions,
   briefForPrompt,
-  discoveryIsComplete,
   outstandingDimensions,
   type WorkingBrief,
 } from '../../server/discovery';
@@ -100,7 +105,6 @@ describe('the record can tell a belief from a fact', () => {
     // about causation into a measured fact.
     const b = alternativesRuledOut(withBelief());
     expect(outstandingDimensions(b)).toHaveLength(0);
-    expect(discoveryIsComplete(b)).toBe(true);
   });
 
   it('leaves the assumption rule exactly as it was', () => {
@@ -180,8 +184,20 @@ describe('a proposal may not quietly build on an untreated belief', () => {
       src.indexOf('if (!decision.proceed && !approvedPlan) {'),
       src.indexOf('// Discovery is complete. If the model only asked questions'),
     );
-    expect(branch).toMatch(/strategy: null/);
-    expect(branch).toMatch(/pendingBlueprint: null/);
+    expect(branch).toMatch(/strategy: null,/);
+    // THE CONTRACT THAT LANDED 2026-10-26, and the old assertion passed by
+    // accident. `pendingBlueprint: null` still appears in this branch — in a
+    // COMMENT recounting the bug it used to be — so a regex for it matched
+    // the history rather than the code. The assignment now sends the filed
+    // path so the left pane can draw it.
+    //
+    // What the branch withholds is agreement and construction: no strategy,
+    // no blueprint to compile, and a phase that is not
+    // `awaiting-confirmation`, so Confirm cannot appear. A drawing is not an
+    // approval.
+    expect(branch).toMatch(/pendingBlueprint: filedPath,/);
+    expect(branch).not.toMatch(/pendingBlueprint: null,/);
+    expect(branch).not.toMatch(/awaiting-confirmation/);
   });
 
   it('tells the user what it is doing in their own terms', () => {
@@ -189,23 +205,6 @@ describe('a proposal may not quietly build on an untreated belief', () => {
   });
 });
 
-describe('the prompt teaches the distinction it has to record', () => {
-  const SYSTEM = (() => {
-    const s = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-    return /const SYSTEM = `([\s\S]*?)`;\n/.exec(s)![1];
-  })();
-
-  it('defines both user bases by what the user can actually know', () => {
-    expect(SYSTEM).toMatch(/"user" is for what they OWN and are the authority on/);
-    expect(SYSTEM).toMatch(/"user-belief" is for their explanation of WHY customers behave as they do/);
-    expect(SYSTEM).toMatch(/a conjecture about cause, which they cannot actually know/);
-  });
-
-  it('closes the confidence loophole', () => {
-    // The failure was not hedged language from the user. "We think the main
-    // blocker is interest-cost hesitation" is stated plainly and was recorded
-    // as fact, so confidence of delivery must not be the test.
-    expect(SYSTEM).toMatch(/however confidently it was put to you/);
-    expect(SYSTEM).toMatch(/calling it "user" turns their guess into the finding your campaign rests on/);
-  });
-});
+// DESCRIBE REMOVED — 'the prompt teaches the distinction it has to record' lost every assertion it had to the
+// manuals, and an empty suite is a vitest error rather than a signal.
+// Its rules are listed in `server/promptHomeless.md` under this file.

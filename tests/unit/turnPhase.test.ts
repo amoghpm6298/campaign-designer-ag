@@ -128,7 +128,10 @@ describe('every reader is keyed off it', () => {
   });
 
   it('the wrapper: keyed on the phase, not on the wording of our own refusal', () => {
-    expect(orch).toMatch(/tu\.name === 'propose_strategy' && phase !== 'asking'/);
+      // MOVED INTO `toolResultBlock`, which both the round loop and the
+      // forced propose call. The expression used to be written out at each
+      // site, and the forced one carried no correction at all for a while.
+    expect(orch).toMatch(/tool === 'propose_strategy' && phase !== 'asking'/);
   });
 
   it('one computation per model round, not one per reader', () => {

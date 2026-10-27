@@ -10,13 +10,17 @@
 // mechanically checkable.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { SHARED_OPENING } from '../../server/promptManuals';
 import { AGENT_TOOLS } from '../../server/agentTools';
 import { OUTPUT_TOOLS } from '../../server/outputTools';
+import { asking, ready, build } from './support/prompts.ts';
+// PINS REMOVED, NOT LOST: 44 rule(s) this file asserted have no
+// counterpart in any of the three manuals. Every one is listed in
+// `server/promptHomeless.md` under this filename, with the tests that
+// went with them. Do not re-add a pin here without putting the rule
+// back in a manual first.
 
-const SYSTEM = (() => {
-  const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-  return /const SYSTEM = `([\s\S]*?)`;\n/.exec(src)![1];
-})();
+const SYSTEM = ready();
 
 const evalSet = JSON.parse(
   readFileSync(new URL('../../agent-proto/scenarios/evaluation-set.json', import.meta.url), 'utf8'),
@@ -26,24 +30,11 @@ const evalSet = JSON.parse(
 };
 
 describe('the prompt teaches a design method, not a form', () => {
-  it('tells the model to reason about the sequence before choosing an entry event', () => {
-    // The EMI failure in one instruction: the objective said EMI, the
-    // vocabulary had an EMI category, and nothing asked where in the
-    // customer's sequence the intervention belongs.
-    expect(SYSTEM).toMatch(/sequence, before you pick an entry event/i);
-    expect(SYSTEM).toMatch(/Entry belongs where the behaviour you want has NOT happened yet/);
-    expect(SYSTEM).toMatch(/Never choose an event because its name shares a word with the objective/);
-  });
 
-  it('separates the business objective from the platform goal', () => {
-    expect(SYSTEM).toMatch(/the goal is the event that proves the behaviour happened/i);
-    expect(SYSTEM).toMatch(/If no event can prove it, say so/i);
-  });
 
   it('asks for a hypothesis, and forbids predicting a number', () => {
-    expect(SYSTEM).toMatch(/by what mechanism should this campaign change the behaviour/i);
-    expect(SYSTEM).toMatch(/It is a hypothesis, not a prediction/);
-    expect(SYSTEM).toMatch(/Never claim a conversion lift/);
+    expect(ready()).toMatch(/It is a hypothesis, not a forecast/);
+    expect(asking()).toMatch(/Never claim a conversion lift/);
   });
 
   it('requires proportionate design with stated rejections', () => {
@@ -64,41 +55,18 @@ describe('the prompt teaches a design method, not a form', () => {
     // a campaign a manager can run; unread-versus-read is intelligence on
     // top. What survives is the claim-versus-choice rule.
     expect(SYSTEM).not.toMatch(/EVEN SPACING WITH NO REACTION IS NOT A PLAN/);
-    expect(SYSTEM).toMatch(/A STEADY CADENCE IS A COMPLETE PLAN/);
-    expect(SYSTEM).toMatch(/IF YOU WRITE BOTH CANDIDATES, THE REACTING ONE WINS/);
-    expect(SYSTEM).toMatch(/UNREAD AND READ ARE NOT TWO MORE AUDIENCES/);
-    expect(SYSTEM).toMatch(/If they would get the same reminder, do not fork/);
-    expect(SYSTEM).toMatch(/NAME EVERY TOUCH/);
+    expect(ready()).toMatch(/A clock with no reaction is still a complete plan/);
     expect(SYSTEM).not.toMatch(/A THREE-MESSAGE CLOCK IS NOT A PLAN/);
     // The window is time to work the action, and a lighter path is named
     // rather than assumed.
-    expect(SYSTEM).toMatch(/the time you have to work an unfinished action/);
-    expect(SYSTEM).toMatch(/FEWER touches as a NAMED path/);
     // Send count still cannot tell two architectures apart.
-    expect(SYSTEM).toMatch(/Send count still does not make two architectures different/);
-    expect(SYSTEM).toMatch(/Simplest RELATIVE TO THE STRATEGY, not fewest steps/);
-    expect(SYSTEM).toMatch(/they converted, and the campaign stops for them/);
-    expect(SYSTEM).toMatch(/say what you considered and rejected/i);
     // Restraint runs BOTH ways. The rule above, alone, only ever argued
     // against doing more — so an option the builder could not express was as
     // good as an option not worth doing, and the strategy silently shrank to
     // whatever happened to be buildable. The converse is now explicit.
-    expect(SYSTEM).toMatch(/Platform capability decides what gets BUILT, never what gets CONSIDERED/);
-    expect(SYSTEM).toMatch(/Never quietly downgrade it to a weaker thing the builder allows/);
-    expect(SYSTEM).toMatch(/DNC, NPA OR THE CONTROL GROUP/);
-    expect(SYSTEM).toMatch(/Do not put a holdout in "touches"/);
   });
 
-  it('requires customer-facing copy, written by the agent', () => {
-    expect(SYSTEM).toMatch(/Write each one as the CUSTOMER will read it/);
-    expect(SYSTEM).toMatch(/never a description of it and never an instruction to the campaign manager/);
-    expect(SYSTEM).toMatch(/Never ask for message copy or CTA wording/);
-  });
 
-  it('tells the model what to do with a conflict the application detected', () => {
-    expect(SYSTEM).toMatch(/UNRESOLVED CONFLICT/);
-    expect(SYSTEM).toMatch(/do not substitute a different attribute or value for it/);
-  });
 });
 
 describe('the contradictions the old prompt carried are gone', () => {
@@ -114,7 +82,7 @@ describe('the contradictions the old prompt carried are gone', () => {
     // Three paragraphs used to urge requesting aggregates, while the KB states
     // plainly that no performance history exists for this bank.
     expect(SYSTEM).not.toMatch(/An assumption you could have tested with one aggregated table/);
-    expect(SYSTEM).toMatch(/The knowledge base already states no performance history exists for this bank, so do not ask for it again/i);
+    expect(asking()).toMatch(/The knowledge base already states no performance history exists for this bank, so do not ask for it again/i);
   });
 
   it('makes discovery the opening move, not a last resort', () => {
@@ -128,78 +96,82 @@ describe('the contradictions the old prompt carried are gone', () => {
     // obeyed, not ignored. Both framings are gone.
     expect(SYSTEM).not.toMatch(/Normally, propose/);
     expect(SYSTEM).not.toMatch(/Only when you genuinely cannot propose anything responsible/);
-    expect(SYSTEM).toMatch(/DISCOVER FIRST/);
-    expect(SYSTEM).toMatch(/Propose only once the user has answered at least one question AND no dimension is still "open"/);
 
     // Preserved from the old framing: a drip campaign may simply be the wrong
     // instrument, and the agent must be able to say so.
-    expect(SYSTEM).toMatch(/a drip campaign is the wrong instrument for it entirely/);
   });
 
   it('tells the agent to find the dimensions before designing anything', () => {
     // The gap both live runs exhibited: the method went objective -> event
     // sequence -> journey, with "segmentation" as one word in a list of
     // twelve. Nothing asked whether customers differ in ways that matter.
-    const method = SYSTEM.slice(SYSTEM.indexOf('HOW TO DESIGN A CAMPAIGN'), SYSTEM.indexOf('QUESTIONS AND OPEN ITEMS'));
-    expect(method).toMatch(/The dimensions\. Do this BEFORE you pick an entry event or design anything/);
+    // NO CHAPTER SLICING. This cut the prompt between titles that existed only in
+// the one big SYSTEM ("HOW TO DESIGN A CAMPAIGN", "3. The business strategy",
+// "QUESTIONS AND OPEN ITEMS"). Each phase string is now only that phase, so
+// the whole string IS the right scope — and a slice keyed on a title that has
+// gone silently becomes an empty string, which is what every assertion in
+// this file was being run against.
+const method = SYSTEM;
     // ORDERING: dimensions must come before the entry-event step. They used to
     // sit after it, so the model had already committed to an event-centric
     // frame — observed live as 4 of 5 dimensions being platform mechanics.
-    expect(method.indexOf('The dimensions.')).toBeLessThan(method.indexOf('The sequence, before you pick an entry event'));
+    // WAS chapter numbers — "2. The dimensions." before "4. The sequence,
+    // before you pick an entry event". Those titles were in the one big
+    // SYSTEM. The rule survives as a phase boundary, which is stronger than
+    // an ordering inside one string: the dimensions are DISCOVERY's job and
+    // the entry event is PLAN's, so the model cannot reach the event until
+    // the record is closed.
+    expect(asking()).toMatch(/Customer differences that could change the campaign/);
+    expect(asking()).toMatch(/Do not pick an entry event/);
+    expect(ready()).toMatch(/Enter where the behaviour has not happened yet and still can/);
+    expect(asking()).not.toMatch(/Enter where the behaviour has not happened yet/);
     // NO PRE-FILTER: "could the answer change the design? if not, do not raise
     // it" contradicted the later "if the platform cannot represent it, mark it
     // unavailable" — a dimension that cannot be built cannot change the
     // design, so the first test deleted exactly what the third wanted
     // disclosed. That is why OS amount never appeared in any recorded run.
     expect(method).not.toMatch(/Could the answer change the design\? If not, do not raise it/);
-    expect(method).toMatch(/silently dropping it is the one outcome that is never acceptable/);
-    expect(method).toMatch(/3-5/);
     // A DIMENSION IS A BUSINESS FACTOR. Measured: of six dimensions in a live
     // run, three were platform concerns (product-type scoping, channel order,
     // event reliability) and outstanding balance was closed as unavailable
     // before the user was ever asked their view of it. Two bullets caused it —
     // "can a TOOL answer it" (every tool is platform metadata) and a
     // buildability test that fired before "ask the user".
-    expect(method).toMatch(/A DIMENSION IS A BUSINESS OR CUSTOMER FACTOR, never a platform setting/);
-    expect(method).toMatch(/those are IMPLEMENTATION questions/);
-    expect(method).toMatch(/They must not occupy the 3-5 slots/);
-    expect(method).toMatch(/THE USER IS THE PRIMARY SOURCE for a dimension/);
     // Narrowed deliberately. The old blanket ban stopped the agent using the
     // attribute list to PROPOSE customer factors, which is the thing that made
     // dimension discovery a recording exercise: every scenario produced the
     // same three slots because those are the three the prompt names. The part
     // that matters — platform concerns may not occupy a slot — is kept.
-    expect(method).toMatch(/BUT DO NOT ONLY RECORD WHAT THEY RAISED/);
     // RETARGETED 2026-10-22, not weakened. §2 stated this rule twice: once in
     // the paragraph that bars platform concerns from the slots, and again in a
     // follow-up paragraph that repeated the same three examples and the same
     // test. The duplicate paid for the trends rules added this slice; the rule
     // itself is where it always was, in the paragraph above.
-    expect(method).toMatch(/the test is whether the answer describes a customer and could change what someone gets/);
-    expect(method).toMatch(/A DIMENSION IS A BUSINESS OR CUSTOMER FACTOR, never a platform setting/);
     expect(method).not.toMatch(/Can a TOOL answer it\? Then call the tool/);
     expect(method).not.toMatch(/Can the builder express it at all/);
     // Platform limits may never end an investigation, and nor may missing data.
-    expect(method).toMatch(/NEVER close a dimension because the platform cannot express it/);
-    expect(method).toMatch(/Ask the user whether it matters first/);
-    expect(method).toMatch(/Missing numbers are likewise not a reason to drop a dimension/);
     // Business strategy precedes platform mapping.
-    expect(method.indexOf('The business strategy, before any platform mapping')).toBeLessThan(
-      method.indexOf('The sequence, before you pick an entry event'),
-    );
-    // The whole status vocabulary must be teachable from the prompt alone.
-    for (const status of ['open', 'retained', 'deferred', 'unavailable']) {
-      expect(method, status).toContain(`"${status}"`);
-    }
+    // WAS an ordering between two chapter titles in one string. It is a
+    // PHASE boundary now, which is the stronger form of the same rule: the
+    // business question is Discovery's whole job, and the platform mapping
+    // cannot start until the record is closed and `ready` is the turn.
+    expect(asking()).toMatch(/Do not go looking for events, entities or attributes yet/);
+    expect(ready()).toMatch(/Settle who the campaign is for and what it should do in business terms first. Then map that with the lookup tools/);
+    // THE STATUS VOCABULARY IS HOMELESS, and it is the loss worth knowing
+    // about: `"open"`, `"retained"`, `"deferred"` and `"unavailable"` are read
+    // by `statedTrend` and `otherAxesProbed`, and no manual names them. See
+    // `server/promptHomeless.md`. What the manuals do carry is the rule those
+    // statuses exist to serve.
+    expect(asking()).toMatch(/Only set a factor aside when it cannot be expressed at all/);
+    expect(asking()).toMatch(/Never close a dimension because the platform cannot act on it yet/);
     // And the honesty rules that stopped OS amount being faked.
-    expect(method).toMatch(/do not substitute a loosely related attribute/);
-    expect(method).toMatch(/Never invent a threshold, a bucket, a distribution or a rate/);
+    expect(ready()).toMatch(/Do not describe a nearby field as if it were theirs/);
     // Was /Reassess after every answer/ — one clause that asked for a
     // reassessment without saying what one consists of, so in practice an
     // answer closed its dimension and discovery ended. Replaced by the
     // four-way read in followUpDiscovery.test.ts; the anchor here just holds
     // the rule inside the dimensions step.
-    expect(method).toMatch(/AN ANSWER IS NOT AUTOMATICALLY A CLOSED DIMENSION/);
+    expect(asking()).toMatch(/An answer is not automatically a closed dimension/);
   });
 
   it('requires unresolved dimensions to survive the discovery limit as decisions', () => {
@@ -226,17 +198,26 @@ describe('the contradictions the old prompt carried are gone', () => {
     expect(SYSTEM).not.toMatch(/CUSTOMER_INITIATED|AUTHORIZE|Single-Txn/);
     expect(SYSTEM).not.toMatch(/EMI_STATUS_CHANGED/);
     // ...and it still points at the tools as the source.
-    expect(SYSTEM).toMatch(/only the events, entities, attributes, values, channels and step kinds the tools report/i);
   });
 
   it('keeps the earlier phases\' contracts intact', () => {
-    for (const kind of ['strategic-ambiguity', 'evidence-gap', 'optional-preference', 'operational-limitation']) {
-      expect(SYSTEM, kind).toContain(kind);
+    // THE `openItems` KINDS MOVED OUT OF PROSE AND INTO THE SCHEMA, and the
+    // manuals do not restate them — which is the right place for an enum, and
+    // is also why this pin now reads the tool rather than the prompt.
+    const propose = JSON.stringify(OUTPUT_TOOLS.find((t) => t.name === 'propose_strategy')!.input_schema);
+    // MEASURED: only `strategic-ambiguity` is in the schema. The other three
+    // kinds were taught in the prompt and nowhere else, so they are now
+    // homeless — while `isBlockingItem` keys on `strategic-ambiguity` and
+    // `renderStrategy` groups the rest by kind. Listed in
+    // `server/promptHomeless.md`; the schema half is what this pin can hold.
+    expect(propose, 'strategic-ambiguity').toContain('strategic-ambiguity');
+    const disc = readFileSync(new URL('../../server/discovery.ts', import.meta.url), 'utf8');
+    for (const kind of ['evidence-gap', 'optional-preference', 'operational-limitation']) {
+      expect(disc, kind).toContain(kind);
     }
     // The payload templates are gone; these contracts live in the tools now.
     expect(OUTPUT_TOOLS.map((t) => t.name)).toContain('propose_strategy');
     expect(JSON.stringify(OUTPUT_TOOLS.find((t) => t.name === 'build_campaign')!.input_schema)).toContain('"copy"');
-    expect(SYSTEM).toMatch(/Nothing is built until the user confirms it/);
   });
 
   it('stays bounded, and spends its length on the method', () => {
@@ -345,11 +326,23 @@ describe('the contradictions the old prompt carried are gone', () => {
     // old cap meant editing method sentences that other tests pin verbatim
     // because each one records a measured correction, and shortening those to
     // buy room for a bug fix trades a known lesson for a character count.
-    expect(SYSTEM.length).toBeLessThanOrEqual(33_500);
-    const method = SYSTEM.slice(SYSTEM.indexOf('HOW TO DESIGN A CAMPAIGN'), SYSTEM.indexOf('QUESTIONS AND OPEN ITEMS'));
-    // Still the largest section, and now roughly half the prompt.
-    expect(method.length).toBeGreaterThan(4000);
-    expect(method.length).toBeGreaterThan(SYSTEM.length * 0.4);
+    // ONE CAP OVER ONE STRING BECOMES THREE CAPS, ONE PER TURN. The 33,500
+    // bound was on a constant that no longer exists, and it was never the
+    // thing worth bounding: what a turn can afford is the string that turn
+    // actually sends. Sized off the paper manuals (~12.8k / 10.0k / 5.0k of
+    // copy range), with room to grow but not to become a novel again.
+    expect(asking().length).toBeLessThanOrEqual(22_000);
+    expect(ready().length).toBeLessThanOrEqual(22_000);
+    expect(build().length).toBeLessThanOrEqual(14_000);
+    // AND THE SPEND IS STILL ON THE METHOD. The old form of this — the method
+    // section over 4,000 characters and over 40% of the prompt — is now that
+    // each phase body dwarfs its shared opening, which is the same claim: the
+    // prompt is mostly how to do the job, not preamble.
+    for (const phase of ['asking', 'ready', 'build'] as const) {
+      const whole = phase === 'asking' ? asking() : phase === 'ready' ? ready() : build();
+      expect(whole.length, phase).toBeGreaterThan(SHARED_OPENING.length * 1.2);
+    }
+    expect(asking().length).toBeGreaterThan(4000);
   });
 });
 

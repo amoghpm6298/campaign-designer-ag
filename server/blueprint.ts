@@ -26,6 +26,7 @@ import {
 } from '../src/data/conditionValidation';
 import { selectTemplate, proposeMessaging, type TemplateNeed } from '../agent-proto/templateSelect';
 import { statusVocabularyFor, isInFlight, isUndelivered, engagementStatusesFor } from './deliveryStatuses';
+import { forkAttribute } from './pathReading';
 import type { DripGraph, DripGoal, DripGoalCondition } from '../src/data/graphTypes';
 
 // --- the closed vocabulary the model may use -------------------------
@@ -261,6 +262,20 @@ export interface CampaignBlueprint {
 export interface BuildIssue {
   path: string;
   problem: string;
+  /**
+   * Set when the compiler put SOMETHING OF ITS OWN on the canvas in place of
+   * what was written — a name it resolved, or the default entry standing in
+   * for a trigger that is not real.
+   *
+   * WHY IT IS TAGGED RATHER THAN MATCHED. These lines have to reach the
+   * manager BEFORE they approve, because the Plan preview draws the JSON they
+   * were sent — `Purchase Posted`, `Amount` — while Confirm compiles the
+   * resolved graph. Without them the picture on screen is not the canvas they
+   * are agreeing to. Picking them out of `issues` by their wording would
+   * couple the propose boundary to compiler copy, which is exactly how four
+   * pins came to match a sentence that had been deleted.
+   */
+  substituted?: 'name-resolved' | 'entry-stand-in';
 }
 
 /**
@@ -320,8 +335,132 @@ export interface BuildResult {
 
 // --- vocabulary checks ------------------------------------------------
 
-const knownEventType = (cat: string, type: string) =>
-  Boolean(EVENT_CATEGORIES[cat]?.events.includes(type));
+// `knownEventType` is gone: all five readers — entry, goal, waitForEvent and
+// the two attribute forks — go through the resolver below, whose exact arm is
+// the same test case-insensitively. Left in place it would have been a second
+// definition of "is this a real event", which is how two event-label maps once
+// came to disagree. Deleted rather than parked, and `noUnusedLocals` is what
+// named it the moment the last call site moved.
+
+/**
+ * NAME RESOLUTION AGAINST THE SAME CATALOGUE THE LOOKUPS READ.
+ *
+ * MEASURED, `eval/runs/ui-s-1793080526410` turn 3. The agent filed the right
+ * campaign — a ticket-size split with five messages nested on the two arms —
+ * and the manager never saw a Confirm, because the compiler treated a
+ * catalogue MISS as "there is no campaign":
+ *
+ *  - entry was `Transaction Events / Purchase Posted`. The category is real,
+ *    the type is not, and the compiler returned before any step ran.
+ *  - the who-split was `Transaction` / **`Amount`**. The only amount field on
+ *    Transaction is `Transaction Amount`; the compiler said the entity has no
+ *    such attribute and returned before the arms.
+ *
+ * The refusal then told the model to nest the sends inside the arms. They were
+ * already nested. A wrong LABEL is an issue on a journey, not a deleted graph
+ * — the same family as defaulting a missing `stage`.
+ *
+ * WHY HERE AND NOT ON THE CALL. Lookups do not travel on the forced propose,
+ * and the canvas cannot depend on a tool the model did not call. The dry run
+ * and Confirm already share `buildFromBlueprint`, so resolving here is the one
+ * place both see the same graph. The filed JSON is NEVER rewritten: Confirm
+ * compiles the same object Plan filed and resolves again.
+ *
+ * UNIQUE ONLY, in both tables. A near-miss with one answer is a typo; a
+ * near-miss with two is a decision the application does not get to make.
+ */
+const tokensOf = (s: unknown): string[] =>
+  String(s ?? '')
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean);
+
+/**
+ * The attribute they meant, on the entity they named.
+ *
+ * Exact (case-insensitive) first. Then, on that entity only, an attribute that
+ * is a suffix of the asked name, or that contains every token of it — and only
+ * when exactly one does.
+ *
+ * `Amount` on Transaction resolves, because `Transaction Amount` is the only
+ * amount field. `Status` on Transaction resolves to `Transaction Status`.
+ * `Status` on Customer does NOT: `KYC Status` and `FKYC Status` both match, and
+ * picking one would silently build a different audience. `Status` with no
+ * entity resolves nothing, because there is no table to search.
+ */
+function resolveAttributeName(
+  entity: string | undefined,
+  asked: string | undefined,
+): { attribute: string | null; note?: string } {
+  const owns = entity ? (ELIGIBILITY_META as Record<string, Record<string, AttrMeta>>)[entity] : undefined;
+  const want = String(asked ?? '').trim();
+  if (!owns || !want) return { attribute: null };
+  const names = Object.keys(owns);
+  const exact = names.find((n) => n.toLowerCase() === want.toLowerCase());
+  if (exact) return { attribute: exact };
+  const wanted = tokensOf(want);
+  const hits = names.filter((n) => {
+    if (want.toLowerCase().endsWith(n.toLowerCase())) return true;
+    const mine = tokensOf(n);
+    return wanted.length > 0 && wanted.every((t) => mine.includes(t));
+  });
+  if (hits.length === 1) return { attribute: hits[0], note: `"${want}" was read as "${hits[0]}".` };
+  return { attribute: null };
+}
+
+/**
+ * Words that carry no identity, so they cannot be the distinctive token of an
+ * invented event name. "EMI Conversion Completed" is distinctive on EMI;
+ * "Purchase Posted" is distinctive on nothing the catalogue knows.
+ */
+const GENERIC_EVENT_WORDS = new Set([
+  'EVENT', 'EVENTS', 'STATUS', 'CHANGED', 'CHANGE', 'COMPLETED', 'COMPLETE', 'CREATED', 'UPDATED',
+  'NEW', 'DONE', 'SUCCESS', 'SUCCESSFUL', 'CONFIRMED', 'RECEIVED',
+]);
+
+/**
+ * The event they meant. Exact category + type first, case-insensitively.
+ *
+ * Then, when the TYPE is not in the catalogue, every real event whose category
+ * or type shares a distinctive token of what they wrote — and only when
+ * exactly one does. `EMI Conversion Completed` resolves to
+ * `EMI Events / EMI_STATUS_CHANGED`.
+ *
+ * THE TOKENS COME FROM THE TYPE, NEVER THE CATEGORY, and that is the whole
+ * guard. Transaction Events holds exactly one event, so matching on the
+ * written category would turn ANY junk under it into `Transaction` — which is
+ * how `Purchase Posted` would have become a purchase event it is not. Offer
+ * Events holding only `Outcome Issuance` is the same trap. A category with one
+ * event is not a licence to map anything onto it.
+ */
+function resolveEventName(
+  category: string | undefined,
+  type: string | undefined,
+): { eventCategory: string; eventType: string; note?: string } | null {
+  const cat = String(category ?? '').trim();
+  const type_ = String(type ?? '').trim();
+  const realCat = Object.keys(EVENT_CATEGORIES).find((c) => c.toLowerCase() === cat.toLowerCase());
+  if (realCat) {
+    const realType = EVENT_CATEGORIES[realCat].events.find((e) => e.toLowerCase() === type_.toLowerCase());
+    if (realType) return { eventCategory: realCat, eventType: realType };
+  }
+  const distinctive = tokensOf(type_).filter((t) => !GENERIC_EVENT_WORDS.has(t));
+  if (!distinctive.length) return null;
+  const hits: { eventCategory: string; eventType: string }[] = [];
+  for (const [c, meta] of Object.entries(EVENT_CATEGORIES)) {
+    for (const e of meta.events) {
+      const mine = new Set([...tokensOf(c), ...tokensOf(e)]);
+      if (distinctive.some((t) => mine.has(t))) hits.push({ eventCategory: c, eventType: e });
+    }
+  }
+  if (hits.length !== 1) return null;
+  return { ...hits[0], note: `"${cat} / ${type_}" was read as "${hits[0].eventCategory} / ${hits[0].eventType}".` };
+}
+
+/** The entity they named, case-insensitively. No near-miss mapping: an entity
+ *  is one of five words, and a wrong one is a different population. */
+const resolveEntityName = (asked: string | undefined): string | null =>
+  Object.keys(ELIGIBILITY_META).find((e) => e.toLowerCase() === String(asked ?? '').trim().toLowerCase()) ?? null;
 
 /**
  * Template objectives are matched by SUBSTRING against template copy, so a
@@ -552,7 +691,13 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
   // --- goal -----------------------------------------------------------
   let goal: DripGoal | null = null;
   if (bp.goal) {
-    if (!knownEventType(bp.goal.eventCategory, bp.goal.eventType)) {
+    // RESOLVE, THEN ATTACH. A goal named `EMI Conversion Completed` is the
+    // real `EMI Events / EMI_STATUS_CHANGED` under a description of itself.
+    // Still unknown keeps today's behaviour: report and continue WITHOUT a
+    // goal, because a goal is optional and the journey is not.
+    const resolvedGoal = resolveEventName(bp.goal.eventCategory, bp.goal.eventType);
+    if (resolvedGoal?.note) issues.push({ path: 'goal', problem: resolvedGoal.note, substituted: 'name-resolved' });
+    if (!resolvedGoal) {
       issues.push({
         path: 'goal',
         problem: `"${bp.goal.eventCategory} / ${bp.goal.eventType}" is not a real event. Known: ${Object.entries(
@@ -562,52 +707,100 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
           .join('; ')}`,
       });
     } else {
+      const goalCategory = resolvedGoal.eventCategory;
+      const goalType = resolvedGoal.eventType;
       // A goal's conditions filter the goal event's own entity. They were
       // never checked: a goal on New Status = "Converted" (not one of the
       // five real values) built and validated cleanly.
-      const check = validateEventConditions(bp.goal.eventCategory, bp.goal.eventType, conditions(bp.goal.conditions));
+      const check = validateEventConditions(goalCategory, goalType, conditions(bp.goal.conditions));
       issues.push(...conditionIssues(check, 'goal.conditions'));
       limitations.push(...check.limitations);
       goal = {
-        eventCategory: bp.goal.eventCategory,
-        eventType: bp.goal.eventType,
-        conditions: conditions(bp.goal.conditions, eventConditionTarget(bp.goal.eventCategory).entity),
+        eventCategory: goalCategory,
+        eventType: goalType,
+        conditions: conditions(bp.goal.conditions, eventConditionTarget(goalCategory).entity),
       };
     }
   }
 
   // --- entry ----------------------------------------------------------
-  if (bp.entry.kind === 'event') {
-    if (!knownEventType(bp.entry.eventCategory, bp.entry.eventType)) {
-      issues.push({ path: 'entry', problem: `"${bp.entry.eventCategory} / ${bp.entry.eventType}" is not a real event.` });
-      return { ok: false, graph, goal, issues, limitations, templateChoices, sendProposals };
-    }
-    // The gap that let the EMI campaign through: an event entry validated its
-    // EVENT and nothing else, so any attribute and any value could ride along.
-    const target = eventConditionTarget(bp.entry.eventCategory, bp.entry.eventType);
-    const check = validateEventConditions(bp.entry.eventCategory, bp.entry.eventType, conditions(bp.entry.conditions));
-    issues.push(...conditionIssues(check, 'entry.conditions'));
-    limitations.push(...check.limitations);
-    // Same rule as the audience entry: only what the builder can express
-    // reaches the node. The EVENT itself is still a hard reject above — an
-    // entry trigger that does not exist is not a condition to drop, it is a
-    // campaign that cannot start.
-    const eventFilter = expressible(bp.entry.conditions, target.entity, 'Entry');
-    limitations.push(...eventFilter.limitations);
+  /**
+   * THE APPLICATION'S OWN DEFAULT ENTRY, when the written trigger is not real.
+   *
+   * MEASURED: `Transaction Events / Purchase Posted` returned before any step
+   * ran, so five designed messages became no campaign and the manager was
+   * shown Plan with an empty canvas. Steps attach to the entry, so an unknown
+   * trigger needs a ROOT rather than a skip — this is the same family as
+   * defaulting a missing `stage`: report it, build it anyway.
+   *
+   * It is deliberately the BLANDEST true thing — every Customer, no conditions
+   * — and never a guess at what they meant. Planting a fake `ENTRY_EVENT`
+   * named "Purchase Posted" would put an event on the canvas that cannot fire,
+   * and mapping it onto `Transaction` because the campaign is post-purchase is
+   * the application designing the trigger.
+   */
+  const standInEntry = (problem: string) => {
+    issues.push({ path: 'entry', problem, substituted: 'entry-stand-in' });
     const cfg = {
-      ...dcDefaultConfig('ENTRY_EVENT', goal),
-      eventCategory: bp.entry.eventCategory,
-      eventType: bp.entry.eventType,
-      conditions: conditions(eventFilter.kept, target.entity),
+      ...dcDefaultConfig('ENTRY_SEGMENT', goal),
+      entity: 'Customer',
+      conditions: [],
+      extraEntityGroups: [],
+      stepName: 'All eligible customers',
     };
-    graph = dcConfirmAddNode(graph, 'ENTRY_EVENT', cfg, { kind: 'root' }, goal);
-  } else {
-    if (!ELIGIBILITY_META[bp.entry.entity as keyof typeof ELIGIBILITY_META]) {
-      issues.push({ path: 'entry', problem: `"${bp.entry.entity}" is not a real entity. Known: ${Object.keys(ELIGIBILITY_META).join(', ')}` });
-      return { ok: false, graph, goal, issues, limitations, templateChoices, sendProposals };
+    graph = dcConfirmAddNode(graph, 'ENTRY_SEGMENT', cfg, { kind: 'root' }, goal);
+  };
+
+  if (bp.entry.kind === 'event') {
+    // RESOLVE FIRST, so a real event under a described name still starts the
+    // journey it was written for.
+    const resolvedEntry = resolveEventName(bp.entry.eventCategory, bp.entry.eventType);
+    if (resolvedEntry?.note) issues.push({ path: 'entry', problem: resolvedEntry.note, substituted: 'name-resolved' });
+    if (!resolvedEntry) {
+      standInEntry(
+        `"${bp.entry.eventCategory} / ${bp.entry.eventType}" is not a real event, so the journey starts from every eligible customer instead. Known: ${Object.entries(
+          EVENT_CATEGORIES,
+        )
+          .map(([c, m]) => `${c}: ${m.events.join('/')}`)
+          .join('; ')}`,
+      );
+      // FALLS THROUGH TO THE STEPS. Everything below this block builds the
+      // journey, and it is the journey they approved.
+    } else {
+      const entryCategory = resolvedEntry.eventCategory;
+      const entryType = resolvedEntry.eventType;
+      // The gap that let the EMI campaign through: an event entry validated
+      // its EVENT and nothing else, so any attribute and any value could ride
+      // along.
+      const target = eventConditionTarget(entryCategory, entryType);
+      const check = validateEventConditions(entryCategory, entryType, conditions(bp.entry.conditions));
+      issues.push(...conditionIssues(check, 'entry.conditions'));
+      limitations.push(...check.limitations);
+      // Same rule as the audience entry: only what the builder can express
+      // reaches the node. An unreal event is no longer a hard reject — it
+      // stands in the default audience above and still runs the steps.
+      const eventFilter = expressible(bp.entry.conditions, target.entity, 'Entry');
+      limitations.push(...eventFilter.limitations);
+      const cfg = {
+        ...dcDefaultConfig('ENTRY_EVENT', goal),
+        eventCategory: entryCategory,
+        eventType: entryType,
+        conditions: conditions(eventFilter.kept, target.entity),
+      };
+      graph = dcConfirmAddNode(graph, 'ENTRY_EVENT', cfg, { kind: 'root' }, goal);
     }
+  } else if (!resolveEntityName(bp.entry.entity)) {
+    // SAME STAND-IN, SAME REPORT, THEN THE STEPS. A known entity carrying a
+    // bad condition is already handled by `expressible`, which drops the
+    // condition and keeps the entry — this is the case where the entity
+    // itself is not one of the five.
+    standInEntry(
+      `"${bp.entry.entity}" is not a real entity, so the journey starts from every eligible customer instead. Known: ${Object.keys(ELIGIBILITY_META).join(', ')}`,
+    );
+  } else {
+    const entryEntity = resolveEntityName(bp.entry.entity)!;
     // Was a name-only check. Now the operator and the value are checked too.
-    const check = validateAudienceConditions(bp.entry.entity, conditions(bp.entry.conditions));
+    const check = validateAudienceConditions(entryEntity, conditions(bp.entry.conditions));
     issues.push(...conditionIssues(check, 'entry.conditions'));
     limitations.push(...check.limitations);
     // WHAT THE BUILDER CAN ACTUALLY EXPRESS reaches the node; the rest becomes
@@ -615,7 +808,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
     // a node could carry "PIN Set" — an attribute Card does not have — and
     // "within_days", an operator nothing accepts. The campaign then looked
     // built and filtered on nothing.
-    const entryFilter = expressible(bp.entry.conditions, bp.entry.entity, 'Entry');
+    const entryFilter = expressible(bp.entry.conditions, entryEntity, 'Entry');
     limitations.push(...entryFilter.limitations);
     // Further ANDed entity blocks, mapped onto the node's own
     // `extraEntityGroups`. Each is validated like the primary block, so an
@@ -657,8 +850,8 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
 
     const cfg = {
       ...dcDefaultConfig('ENTRY_SEGMENT', goal),
-      entity: bp.entry.entity,
-      conditions: conditions(entryFilter.kept, bp.entry.entity),
+      entity: entryEntity,
+      conditions: conditions(entryFilter.kept, entryEntity),
       extraEntityGroups,
     };
     graph = dcConfirmAddNode(graph, 'ENTRY_SEGMENT', cfg, { kind: 'root' }, goal);
@@ -722,6 +915,9 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
 
   const addSteps = (steps: BpStep[], pathPrefix: string, at?: DcAddingAt) => {
     let target = at;
+    // Which send on THIS path this is, for the stage default above. Per
+    // invocation, so each arm of a fork opens with its own first touch.
+    let sendsOnThisPath = 0;
     steps.forEach((step, i) => {
       const path = `${pathPrefix}[${i}].${step.kind}`;
       // A TRAILING EXIT AFTER A FORK IS NOT A DEFECT, IT IS A HABIT.
@@ -744,7 +940,29 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
       if (step.kind === 'exit' && i > 0 && !target && openSlots().length > 1) return;
       const where = target ?? nextInChain(path);
       target = undefined;
-      if (!where) return;
+      if (!where) {
+        // A MESSAGE THEY WROTE IS NOT A TRAILING EXIT.
+        //
+        // `nextInChain` has already said WHY there is nowhere to put this —
+        // several arms are open, so attaching it to one would quietly end
+        // whichever the iteration reached first. What it does not say is that
+        // a SEND was lost, and an ambiguity message reads like a formatting
+        // note rather than a missing message. Measured:
+        // `eval/runs/ui-s-1793017853714` turn 3 refused twice over sends the
+        // model had written, with nothing naming them.
+        //
+        // Reported, not attached and not guessed. `propose_strategy` refuses
+        // the plan for this before it is ever filed, with the correction that
+        // says to nest the send inside its arm.
+        if (step.kind === 'send') {
+          const what = String((step as { name?: string; label?: string }).name ?? (step as { label?: string }).label ?? '').trim();
+          issues.push({
+            path,
+            problem: `This message${what ? ` ("${what}")` : ''} was not added to the journey: it comes after a fork, so there is no single arm to continue. Nest it inside the arm it belongs to.`,
+          });
+        }
+        return;
+      }
 
       const nodesBefore = new Set(Object.keys(graph.nodes));
       const slotsBefore = new Set(graph.edges.filter((e) => e.to === null).map((e) => e.id));
@@ -753,20 +971,43 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
       const place = () => {
 
       if (step.kind === 'send') {
-        // Validate model output BEFORE it reaches the selector. An
-        // unrecognised stage used to index STAGE_SIGNALS with undefined and
-        // crash the whole request — a malformed field must be a reported
-        // issue, not a 500.
+        // A MISSING STAGE IS A QUALITY PROBLEM, NOT A DELETED STEP.
+        //
+        // MEASURED, `eval/runs/ui-s-1793009889177`. The manager approved a
+        // seven-day EMI plan: one Transaction Amount branch with six sends on
+        // its arms, each with a label, copy and channels, and none with a
+        // `stage`. Confirm compiled the filed path and drew an entry, the
+        // split and three exits — ZERO message steps — because this branch
+        // `return`ed before inserting. The "3 open slots exist" warning that
+        // followed is the same skip seen from the other end: nothing consumed
+        // the arm.
+        //
+        // The validation still has to happen BEFORE the selector, because
+        // `TemplateNeed` indexes `STAGE_SIGNALS[need.stage]` and an undefined
+        // key crashed the whole request. So the stage is DEFAULTED rather than
+        // the step dropped, and the default is read off the order of this
+        // list: the first send on a path opens it, later sends on the same
+        // path are reminders. A nested reaction arm gets its own first-touch,
+        // which is accurate enough — nothing here counts messages across the
+        // whole tree, because that would be inventing a position the agent
+        // never stated.
+        //
+        // It is still reported either way. The issue keeps `ok: false`, so a
+        // journey built this way is not silently called complete.
         const STAGES = ['first-touch', 'reminder', 'outcome'] as const;
         type Stage = (typeof STAGES)[number];
         const isStage = (x: unknown): x is Stage => STAGES.includes(x as Stage);
+        const stage: Stage = isStage(step.stage) ? step.stage : sendsOnThisPath === 0 ? 'first-touch' : 'reminder';
         if (!isStage(step.stage)) {
           issues.push({
             path: `${path}.stage`,
-            problem: `"${String(step.stage)}" is not a valid stage. Use one of: ${STAGES.join(', ')}.`,
+            problem:
+              step.stage === undefined || step.stage === null || String(step.stage).trim() === ''
+                ? `No stage was set, so this was built as a "${stage}" from its place on the path. Set one of: ${STAGES.join(', ')}.`
+                : `"${String(step.stage)}" is not a valid stage, so this was built as a "${stage}" from its place on the path. Use one of: ${STAGES.join(', ')}.`,
           });
-          return;
         }
+        sendsOnThisPath += 1;
         // A MISSING OBJECTIVE IS A QUALITY PROBLEM, NOT A DELETED STEP.
         //
         // This used to `return` before inserting, so a send the agent had
@@ -838,7 +1079,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         // `undefined` is only half-inserting it: the canvas card renders
         // blank and `sendProposals` cannot be matched back to it.
         const stepName = givenName || describe;
-        const need: TemplateNeed = { objective: keywords, stage: step.stage, describe };
+        const need: TemplateNeed = { objective: keywords, stage, describe };
 
         // Has a person already supplied the real values for this step?
         const supplied = opts.resolvedSends?.[stepName] ?? {};
@@ -878,7 +1119,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         const templateResolved = Boolean(account && templateId);
         const agentMessaging = {
           objective: describe,
-          stage: step.stage,
+          stage,
           recommendedChannel: resolvedChannel,
           // Copy and CTA are only offered where nobody else is supplying the
           // message. With a real template matched, the bank's own content
@@ -961,18 +1202,28 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
       }
 
       if (step.kind === 'waitForEvent') {
-        if (!knownEventType(step.eventCategory, step.eventType)) {
-          issues.push({ path, problem: `"${step.eventCategory} / ${step.eventType}" is not a real event.` });
+        // RESOLVE, THEN INSERT. A wait for "EMI Conversion Completed" is a
+        // wait for the real `EMI_STATUS_CHANGED`. Still unknown SKIPS THIS
+        // WAIT and reports it, rather than returning out of the arm — later
+        // sends on the same path still attach, which is the whole rule of this
+        // slice applied one step down.
+        const resolvedWait = resolveEventName(step.eventCategory, step.eventType);
+        if (resolvedWait?.note) issues.push({ path, problem: resolvedWait.note, substituted: 'name-resolved' });
+        if (!resolvedWait) {
+          issues.push({
+            path,
+            problem: `"${step.eventCategory} / ${step.eventType}" is not a real event, so this wait is not on the canvas. The messages around it still are.`,
+          });
           return;
         }
-        const waitTarget = eventConditionTarget(step.eventCategory, step.eventType);
-        const waitCheck = validateEventConditions(step.eventCategory, step.eventType, conditions(step.conditions));
+        const waitTarget = eventConditionTarget(resolvedWait.eventCategory, resolvedWait.eventType);
+        const waitCheck = validateEventConditions(resolvedWait.eventCategory, resolvedWait.eventType, conditions(step.conditions));
         issues.push(...conditionIssues(waitCheck, `${path}.conditions`));
         limitations.push(...waitCheck.limitations);
         const cfg = {
           ...dcDefaultConfig('WAIT_UNTIL', goal),
-          eventCategory: step.eventCategory,
-          eventType: step.eventType,
+          eventCategory: resolvedWait.eventCategory,
+          eventType: resolvedWait.eventType,
           duration: Math.max(1, Math.round(step.timeoutDays)),
           unit: 'days',
           conditions: conditions(step.conditions, waitTarget.entity),
@@ -1032,8 +1283,22 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
           return;
         }
 
+        // WHICH HALF, FROM THE ONE CLASSIFICATION.
+        //
+        // This asked `!step.entity && !step.attribute`, so a fork that carried
+        // its attribute in `on` — which the step schema allows and the model
+        // uses — fell into the outcome half, failed its preceding-send check
+        // as the first step of the journey, and took its whole tree with it.
+        // MEASURED, `eval/runs/ui-s-1793077922155` turn 3: two proposes of
+        // seven and five nested sends compiled to ZERO, twice, and the refusal
+        // told the model to put the sends on the arms. They were on the arms.
+        //
+        // `forkAttribute` reads either place. The filed JSON is not rewritten:
+        // a branch stays a branch, and Confirm compiles the same object.
+        const splitsOn = forkAttribute(step);
+
         // --- OUTCOME BRANCH: what they did with the last message ----------
-        if (!step.entity && !step.attribute) {
+        if (!splitsOn) {
           if (!lastSend) {
             issues.push({ path, problem: 'A branch on delivery statuses needs a preceding Send.' });
             return;
@@ -1140,21 +1405,37 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         }
 
         // --- ATTRIBUTE BRANCH: who the customer is ------------------------
-        const owns = ELIGIBILITY_META[step.entity as keyof typeof ELIGIBILITY_META];
-        if (!owns || !Object.keys(owns).includes(step.attribute ?? '')) {
-          issues.push({ path, problem: `${step.entity} has no attribute "${step.attribute}".` });
+        //
+        // RESOLVED AGAINST THE ENTITY'S OWN CATALOGUE. `Amount` on
+        // Transaction is `Transaction Amount` — the only amount field there —
+        // and the live run lost a whole ticket-size split with five sends
+        // nested on its arms over that one short name.
+        //
+        // AN UNRESOLVED NAME STILL CANNOT BECOME A SPLIT. There is no field to
+        // point the node at, so the fork is reported and dropped exactly as
+        // before; a path whose sends lived only on those arms is still a
+        // 0-SEND and is still refused upstream.
+        const asked = resolveAttributeName(splitsOn.entity, splitsOn.attribute);
+        if (asked.note) issues.push({ path, problem: asked.note, substituted: 'name-resolved' });
+        if (!asked.attribute) {
+          issues.push({ path, problem: `${splitsOn.entity ?? 'That entity'} has no attribute "${splitsOn.attribute}".` });
           return;
         }
         const cfg = {
           ...dcDefaultConfig('DECISION_SPLIT', goal),
           name: step.label,
-          source: `${step.entity} attribute`,
-          attribute: step.attribute ?? '',
+          source: `${splitsOn.entity} attribute`,
+          attribute: asked.attribute,
           branches: step.paths.map((b, i) => ({
             id: `bp${i}`,
             label: b.label,
-            operator: b.operator ?? 'Equals',
-            value: b.value ?? '',
+            // THE FORK'S OWN COMPARISON IS THE FALLBACK. A model that writes
+            // the attribute in `on` tends to put the operator and value there
+            // too and leave the arms as labels; the first arm then means "the
+            // side that matches". Only a fallback — an arm that states its own
+            // comparison keeps it.
+            operator: b.operator ?? (i === 0 ? splitsOn.operator : undefined) ?? 'Equals',
+            value: b.value ?? (i === 0 ? splitsOn.value : undefined) ?? '',
             value2: '',
           })),
         };
@@ -1176,26 +1457,59 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         // is how a cohort split happens anywhere other than at entry.
         const onAttr = step.on;
         if (!onAttr && !step.outcomes?.length) {
-          issues.push({ path, problem: 'A condition needs either delivery outcomes or an attribute to check.' });
+          // A NAMELESS CHECK IS SKIPPED, AND ANYTHING INSIDE IT IS KEPT.
+          //
+          // MEASURED: the live path put three `condition` steps labelled
+          // "Check conversion" between its sends, with no `on` and no
+          // `outcomes`. Those are the Goal Checks the compiler already inserts
+          // after every send when a Goal is set, written out by hand — there is
+          // nothing to build and nothing is lost by skipping one.
+          //
+          // No event is invented for it. Reading "Check conversion" as
+          // `EMI_STATUS_CHANGED` would put a trigger on the canvas that the
+          // step never named.
+          //
+          // If it WRAPPED steps, they go on the current path rather than down a
+          // fork that does not exist, and they are not fanned onto every open
+          // arm, which would duplicate a message nobody wrote twice.
+          //
+          // SAID PLAINLY, because it is a real consequence: a nameless check
+          // that wrapped BOTH `yes` and `no` lays those sends IN ONE LINE, so
+          // a customer gets both rather than one. That is the honest reading of
+          // a fork with nothing to fork on — there is no condition to route
+          // anyone by, so there is one path. The three live checks wrapped
+          // NOTHING, so this is not the shape the measured run exercised; it is
+          // pinned so the next reader knows which way it goes.
+          issues.push({
+            path,
+            problem: `"${step.label ?? 'This check'}" names nothing to check, so it is not on the canvas. A Goal Check is already inserted after every message when a goal is set.`,
+          });
+          const wrapped = [...(step.yes ?? []), ...(step.no ?? [])];
+          if (wrapped.length) addSteps(wrapped, `${path}.inside`, where);
           return;
         }
         if (!onAttr && !lastSend) {
           issues.push({ path, problem: 'A delivery-outcome condition needs a preceding Send.' });
           return;
         }
+        // The same resolution as the attribute branch above, because this is
+        // the same question asked with two arms instead of n.
+        let onAttrName = onAttr?.attribute;
         if (onAttr) {
-          const owns = ELIGIBILITY_META[onAttr.entity as keyof typeof ELIGIBILITY_META];
-          if (!owns || !Object.keys(owns).includes(onAttr.attribute)) {
+          const askedOn = resolveAttributeName(onAttr.entity, onAttr.attribute);
+          if (askedOn.note) issues.push({ path, problem: askedOn.note, substituted: 'name-resolved' });
+          if (!askedOn.attribute) {
             issues.push({ path, problem: `${onAttr.entity} has no attribute "${onAttr.attribute}".` });
             return;
           }
+          onAttrName = askedOn.attribute;
         }
         const cfg = onAttr
           ? {
               ...dcDefaultConfig('SPLIT', goal),
               customSource: `${onAttr.entity} attribute`,
               customConditions: [
-                { attribute: onAttr.attribute, operator: onAttr.operator, value: onAttr.value ?? '' },
+                { attribute: onAttrName, operator: onAttr.operator, value: onAttr.value ?? '' },
               ],
             }
           : {
@@ -1217,7 +1531,28 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
       issues.push({ path, problem: `Unknown step kind "${(step as { kind: string }).kind}".` });
       };
       place();
-      target = continuationAfter(nodesBefore, slotsBefore);
+      // A STEP THAT BUILT NOTHING LEAVES THE CURSOR WHERE IT WAS.
+      //
+      // `continuationAfter` returns undefined for two different reasons: the
+      // step forked or terminated the path, or the step inserted nothing at
+      // all. Treating them alike is what broke the live arm: a nameless
+      // "Check conversion" between two sends was skipped, the cursor was
+      // recomputed to undefined, and the NEXT send fell back to `nextInChain`,
+      // saw three open slots across the fork and was reported as ambiguous. So
+      // a reported-and-skipped step cost every message after it on its own arm
+      // — two of five reached the canvas.
+      //
+      // A skip is not a move. If nothing was created the path has not
+      // advanced, and the next sibling continues from the same slot.
+      //
+      // `target` is CONSUMED above (`target = undefined`) before the step
+      // runs, so "keep it" means putting `where` back rather than leaving the
+      // variable alone — which is what my first attempt did, and it changed
+      // nothing. A linear path survived either way because `nextInChain` finds
+      // the one open slot; only an arm, where it sees the siblings too, showed
+      // the bug.
+      const built = Object.keys(graph.nodes).some((id) => !nodesBefore.has(id));
+      target = built ? continuationAfter(nodesBefore, slotsBefore) : (where ?? undefined);
     });
   };
 

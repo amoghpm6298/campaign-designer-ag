@@ -36,7 +36,6 @@ import { orchestrateStream, MAX_QUESTIONS_PER_ROUND } from '../../server/orchest
 import { seedKnowledgeBase } from '../../server/knowledge';
 import { toolsForPhase } from '../../server/agentTools';
 import { newBrief, recordQuestions, type WorkingBrief } from '../../server/discovery';
-import { outstanding } from '../../server/record';
 
 const OBJECTIVE = 'I want more new cardholders to activate their cards.';
 
@@ -162,13 +161,13 @@ describe('the client is shown this turn\'s questions, not the outstanding histor
     );
   });
 
-  it('shows nothing when the turn raised nothing, rather than falling back to the backlog', async () => {
+  it('does not fall back to the backlog when the turn raised nothing', async () => {
     // The old behaviour at its worst: a turn whose only content was a summary
     // still printed a numbered list, because `outstanding` was never empty.
-    // A plausible turn with no question in it: the agent wrote down a line of
-    // enquiry and summarised. `ask_questions` is deliberately not called —
-    // calling it with an empty list is an error the model is told to fix, not
-    // a way to raise nothing.
+    // RETARGETED 2026-10-26. Empty questions on an OPEN record are now
+    // unrepresentable: if the model files a diary and asks nothing, the
+    // application prints what the record still needs. What must not come
+    // back is the TURN-1 backlog — those were answered in the user message.
     script([
       writeRound('record_dimensions', {
         dimensions: [{ name: 'Days since the card was issued', rationale: 'Early silence may differ from late.', status: 'open', basis: 'none' }],
@@ -177,18 +176,12 @@ describe('the client is shown this turn\'s questions, not the outstanding histor
     ]);
     const before = afterTurnOne().questions.length;
     const res = await turnTwo();
-    expect(res.questions).toEqual([]);
-    // AND THE RECORD KEEPS ITS HISTORY — an empty ask is not a retraction.
-    //
-    // RETARGETED 2026-10-24. This asserted `outstanding(...) > 0`, which was
-    // only true because the manager's reply never closed anything: ingest set
-    // `answeredInRound` and the gate read `addressedInRound`. That is the bug
-    // `receive` fixed, and a test requiring the symptom would have reinstated
-    // it. What the test is actually about is that raising no questions does
-    // not delete the ones already asked.
+    const shown = res.questions as string[];
+    expect(shown).not.toContain('What does activation mean to you?');
+    expect(shown).not.toContain('How will you judge success?');
+    expect(shown.join(' ')).toMatch(/judge whether this worked|who does this today|stopping them/);
     const brief = res.brief as WorkingBrief;
     expect(brief.questions.length).toBeGreaterThanOrEqual(before);
-    expect(outstanding(brief)).toHaveLength(0);
   });
 
   it('caps the list at the same number the model is allowed to raise', async () => {

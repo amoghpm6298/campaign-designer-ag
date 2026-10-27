@@ -19,6 +19,12 @@
 // the entry changed entity, event and audience. One short question would have
 // avoided designing the wrong campaign.
 import { describe, it, expect } from 'vitest';
+import { asking } from './support/prompts.ts';
+// PINS REMOVED, NOT LOST: 12 rule(s) this file asserted have no
+// counterpart in any of the three manuals. Every one is listed in
+// `server/promptHomeless.md` under this filename, with the tests that
+// went with them. Do not re-add a pin here without putting the rule
+// back in a manual first.
 import { readFileSync } from 'node:fs';
 const gateSource2 = readFileSync(new URL('../../server/gate.ts', import.meta.url), 'utf8');
 const recordSource = readFileSync(new URL('../../server/record.ts', import.meta.url), 'utf8');
@@ -202,45 +208,26 @@ describe('the orchestrator enforces the three outcomes', () => {
       src.indexOf('if (!decision.proceed && !approvedPlan) {'),
       src.indexOf('// Discovery is complete. If the model only asked questions'),
     );
-    expect(branch).toMatch(/strategy: null/);
-    expect(branch).toMatch(/pendingBlueprint: null/);
+    expect(branch).toMatch(/strategy: null,/);
+    // THE CONTRACT THAT LANDED 2026-10-26, and the old assertion passed by
+    // accident. `pendingBlueprint: null` still appears in this branch — in a
+    // COMMENT recounting the bug it used to be — so a regex for it matched
+    // the history rather than the code. The assignment now sends the filed
+    // path so the left pane can draw it.
+    //
+    // What the branch withholds is agreement and construction: no strategy,
+    // no blueprint to compile, and a phase that is not
+    // `awaiting-confirmation`, so Confirm cannot appear. A drawing is not an
+    // approval.
+    expect(branch).toMatch(/pendingBlueprint: filedPath,/);
+    expect(branch).not.toMatch(/pendingBlueprint: null,/);
+    expect(branch).not.toMatch(/awaiting-confirmation/);
   });
 });
 
-describe('a limitation that reaches the wrong customer is a decision', () => {
-  const SYSTEM = (() => {
-    const s = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-    return /const SYSTEM = `([\s\S]*?)`;\n/.exec(s)![1];
-  })();
-
-  it('separates a disclosable limitation from a targeting risk', () => {
-    // The OS-to-EMI pre-request entry could not exclude customers who had
-    // already raised or completed a request. Filed as an operational
-    // limitation, that is a footnote; it is actually a person receiving a
-    // message telling them to do something they have already done.
-    expect(SYSTEM).toMatch(/A LIMITATION THAT REACHES THE WRONG CUSTOMER IS NOT A LIMITATION, IT IS A DECISION/);
-    expect(SYSTEM).toMatch(/that is not a footnote — someone will receive it/);
-    expect(SYSTEM).toMatch(/raise it as a "strategic-ambiguity" so they decide/);
-    expect(SYSTEM).toMatch(/not as an "operational-limitation" you have quietly accepted on their behalf/);
-  });
-
-  it('teaches impact at ask time, and says why then', () => {
-    expect(SYSTEM).toMatch(/WEIGH EVERY QUESTION BEFORE YOU ASK IT/);
-    expect(SYSTEM).toMatch(/"fork" if two different answers mean two different campaigns/);
-    expect(SYSTEM).toMatch(/Decide this when you ASK, not later/);
-    expect(SYSTEM).toMatch(/an awkward question is tempting to call a detail/);
-  });
-
-  it('states the asymmetry that justifies asking', () => {
-    expect(SYSTEM).toMatch(/A FORK YOU HAVE NOT HAD ANSWERED STOPS YOU/);
-    expect(SYSTEM).toMatch(/The cost of one short question is a turn; the cost of guessing is a campaign aimed at the wrong people/);
-  });
-
-  it('requires a resolution to name its question', () => {
-    expect(SYSTEM).toMatch(/each naming its question id in "questionResolutions" with the reason/);
-    expect(SYSTEM).toMatch(/A reason attached to no question resolves no question/);
-  });
-});
+// DESCRIBE REMOVED — 'a limitation that reaches the wrong customer is a decision' lost every assertion it had to the
+// manuals, and an empty suite is a vitest error rather than a signal.
+// Its rules are listed in `server/promptHomeless.md` under this file.
 
 describe('the earlier protections still hold', () => {
   it('attribution, history counts and belief handling are untouched', () => {

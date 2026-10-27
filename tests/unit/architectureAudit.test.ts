@@ -189,8 +189,19 @@ describe('the winner must be the campaign that got built', () => {
     expect(checkFidelity([arch({ chosen: true })], null)).toBeNull();
   });
 
-  it('reports an unrecognised declared journey rather than guessing', () => {
+  it('reads an unrecognised label from the steps rather than guessing a word', () => {
+    // MEASURED, `eval/runs/ui-s-1793086620956`. The winner described the
+    // ticket-size split in a sentence. That is not `linear` / `branch-on-response`.
+    // Guessing which closed word they meant would invent; the sends are already
+    // the journey.
     const r = checkFidelity([arch({ chosen: true, journey: 'vibes' })], bp([send()]))!;
+    expect(r.ok).toBe(true);
+    expect(r.built).toContain('linear');
+    expect(r.why).toMatch(/read from the steps/i);
+  });
+
+  it('still cannot check an unrecognised label when the path does nothing', () => {
+    const r = checkFidelity([arch({ chosen: true, journey: 'vibes' })], bp([]))!;
     expect(r.ok).toBe(false);
     expect(r.why).toContain('cannot be checked');
   });

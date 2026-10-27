@@ -275,7 +275,12 @@ function promptStack(title: string, system: string, context: string): string {
 }
 
 const extras = [
-  { id: 'retry', title: 'Reaction retry', when: 'Confirm only, if the built journey is a clock. Extra system paragraph. Forced build_campaign.', body: REACTION_RETRY },
+  // SENT BY NOTHING, SINCE 2026-10-26. The constant survives and is listed
+  // here so the text is still findable, but no system string carries it and no
+  // extra model call is made: a clock against a reactive claim is REPORTED on
+  // the build, because after a yes the application does not go looking for a
+  // fork the manager never approved.
+  { id: 'retry', title: 'Reaction retry (retired)', when: 'Not sent. Kept for reference only — a clock is reported by confirmGaps, with no extra model call.', body: REACTION_RETRY },
   { id: 'stop-ask', title: 'Last lookup round (asking / propose)', when: 'Tool-round cap hit on a non-build turn.', body: STOP_LOOKUPS_ASK },
   { id: 'stop-build', title: 'Last lookup round (build)', when: 'Tool-round cap hit on a build turn.', body: STOP_LOOKUPS_BUILD },
   { id: 'empty-round', title: 'Empty-round recovery (asking / propose)', when: 'Previous turn produced no usable answer.', body: EMPTY_ROUND },
