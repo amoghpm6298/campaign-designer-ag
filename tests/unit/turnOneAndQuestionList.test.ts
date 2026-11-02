@@ -127,10 +127,16 @@ describe('the client is shown this turn\'s questions, not the outstanding histor
   it('lists only the question raised this turn', async () => {
     script(askViaTool([{ text: 'Which cards count as new?', impact: 'shaping' }], 'Confirmed so far.'));
     const res = await turnTwo();
-    expect(res.questions[0]).toBe('Which cards count as new?');
-    expect(res.questions).toContain(
-      'Who tends to do this already today — is there any pattern you have noticed, even a rough one? "We do not track that" is a complete answer.',
-    );
+    // WIRE = RECORD, and it is ONE question because the model asked one.
+    //
+    // RETARGETED 2026-10-28. This required the canonical "Who tends to do
+    // this already today" to be appended, which `recordAsked` injected
+    // whenever converters were missing. MEASURED,
+    // `eval/runs/ui-s-1793168820316`: the model asked two and the manager read
+    // three, twice over. Skip & propose keys off this list, so the list has to
+    // be exactly what the turn added.
+    expect(res.questions).toEqual(['Which cards count as new?']);
+    expect(res.questions.join(' ')).not.toMatch(/Who tends to do this already/);
   });
 
   it('does not re-list a turn-1 question, even one the record left open', async () => {
@@ -261,9 +267,9 @@ describe('turn one cannot be a channel inventory', () => {
     // Only output tools — the ones the model writes THROUGH, never reads from.
     expect(tools.map((t) => t.name)).not.toContain('list_channels');
     expect(tools.map((t) => t.name)).toContain('ask_questions');
-    expect(res.questions[0]).toBe('What does activation mean to you?');
-    expect(res.questions).toContain(
-      'Who tends to do this already today — is there any pattern you have noticed, even a rough one? "We do not track that" is a complete answer.',
-    );
+    // The model asked one, so one goes out. See the retarget note above: the
+    // appended canonical converters question is gone with the inject.
+    expect(res.questions).toEqual(['What does activation mean to you?']);
+    expect(res.questions.join(' ')).not.toMatch(/Who tends to do this already/);
   });
 });

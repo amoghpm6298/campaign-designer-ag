@@ -17,6 +17,7 @@ import { runDesignerStream } from './stream';
 import { appendRunLog, loadSession, loadSessionById, saveSession, type DesignerSession } from './storage';
 import { campaignStages, detailsText, friendlyConstraint } from './status';
 import { previewFromBlueprint, type JourneyPreview, type PreviewRow } from './preview';
+import { buildExportPayload, exportFileName } from './exportPayload';
 import type { ChatTurn, DesignerResponse, KnowledgeBase, Phase, RunEvent, Tenant } from './types';
 import './designer.css';
 
@@ -427,38 +428,17 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
     return { category: root.meta || null, type: root.label || null };
   }, [graph]);
 
-  const exportPayload = useMemo(() => {
-    if (!campaign) return null;
-    return {
-      campaign: { ...campaign, root: graph ?? campaign.root },
-      campaignFieldProvenance: last?.provenance ?? null,
-      unresolvedCampaignFields: last?.unresolvedCampaignFields ?? [],
-      validation: last?.validation ?? null,
-      strategy: last?.strategy ?? null,
-      templateChoices: last?.templateChoices ?? [],
-      generatedBy: { model: last?.model, knowledgeVersion: knowledge.version, tenantId: tenant.tenantId },
-      // Suggested messaging travels with the design: it lives on each Send's
-      // _config.agentMessaging inside campaign.root, and is listed here too
-      // so whoever prepares the upload does not have to walk the graph.
-      suggestedMessaging: (last?.sendProposals ?? []).map((p) => ({
-        step: p.stepName,
-        channel: p.channel,
-        objective: p.messagingDirection,
-        suggestedCopy: p.sampleCopy,
-        cta: p.cta,
-        personalisationTokens: p.personalisationFields,
-        status: 'draft copy, written by the agent and not yet reviewed or registered',
-      })),
-      importReadiness: last?.importReadiness ?? null,
-      claim:
-        // Kept, and deliberately. The on-screen disclaimers were removed
-        // because they are said out loud in the room; this one travels with a
-        // FILE that will be read later, by someone who was not there. Shorter
-        // and in plain language, but it still says the two things that matter:
-        // nothing is live, and the copy is a draft.
-        'Proposed campaign design. Nothing here has been saved or activated, and the message copy is a draft for review.',
-    };
-  }, [campaign, graph, last, knowledge.version]);
+  const exportPayload = useMemo(
+    () =>
+      buildExportPayload({
+        campaign,
+        graph,
+        last,
+        tenantId: tenant.tenantId,
+        knowledgeVersion: knowledge.version,
+      }),
+    [campaign, graph, last, knowledge.version, tenant.tenantId],
+  );
 
   const exportable = Boolean(last?.exportable && exportPayload);
 
@@ -497,7 +477,10 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
     const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${campaign?.id ?? 'campaign'}.json`;
+    // THE NAME, NOT THE ID — see `exportFileName`. This read `id ?? name`,
+    // and a campaign-less Confirm synthesises `id: 'draft'`, so Download
+    // produced `draft.json`.
+    a.download = exportFileName(exportPayload);
     a.click();
     URL.revokeObjectURL(a.href);
     appendRunLog({
@@ -1104,10 +1087,20 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
             </div>
             {graph && (
             <div className="cd-actions">
-              <button className="cd-btn" disabled={!exportable} onClick={doCopy} title={last?.exportBlockedReason}>
+              <button
+                className="cd-btn"
+                disabled={!exportPayload}
+                onClick={doCopy}
+                title={exportPayload ? undefined : last?.exportBlockedReason}
+              >
                 {copied ? 'Copied' : 'Copy JSON'}
               </button>
-              <button className="cd-btn" disabled={!exportable} onClick={doDownload} title={last?.exportBlockedReason}>
+              <button
+                className="cd-btn"
+                disabled={!exportPayload}
+                onClick={doDownload}
+                title={exportPayload ? undefined : last?.exportBlockedReason}
+              >
                 Download JSON
               </button>
               {!exportable && blocking ? (

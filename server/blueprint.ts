@@ -26,7 +26,7 @@ import {
 } from '../src/data/conditionValidation';
 import { selectTemplate, proposeMessaging, type TemplateNeed } from '../agent-proto/templateSelect';
 import { statusVocabularyFor, isInFlight, isUndelivered, engagementStatusesFor } from './deliveryStatuses';
-import { forkAttribute } from './pathReading';
+import { forkAttribute, sendSteps } from './pathReading';
 import type { DripGraph, DripGoal, DripGoalCondition } from '../src/data/graphTypes';
 
 // --- the closed vocabulary the model may use -------------------------
@@ -331,6 +331,10 @@ export interface BuildResult {
   templateChoices: { step: string; templateId: string | null; channel: string; reason: string }[];
   /** Communication steps still needing a real account and template id. */
   sendProposals: SendProposal[];
+  /** Sends that lived only on an arm the compiler clerked. See `clerkedSends`
+   *  in `buildFromBlueprint`: the propose boundary subtracts these before it
+   *  decides a message went missing. */
+  clerkedSends: number;
 }
 
 // --- vocabulary checks ------------------------------------------------
@@ -684,6 +688,16 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
   dcResetIdCounters();
   const issues: BuildIssue[] = [];
   const limitations: ConditionLimitation[] = [];
+  /**
+   * Sends that lived ONLY on an arm the compiler clerked, so they were never
+   * going to reach the graph and their absence is not a defect to refuse over.
+   *
+   * A COUNT ON THE RESULT, not a field on the limitation and not a second
+   * reading of the path. `propose_strategy` compares sends-written against
+   * sends-built; without this the clerked arm looks exactly like a send that
+   * got lost after a fork, which is a real defect and must keep refusing.
+   */
+  let clerkedSends = 0;
   const templateChoices: BuildResult['templateChoices'] = [];
   const sendProposals: SendProposal[] = [];
   let graph: DripGraph = { nodes: {}, edges: [], rootId: null };
@@ -1314,6 +1328,10 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
           });
           const spoken = new Set(vocabulary.map((s) => s.toUpperCase()));
           const kept: { label: string; statuses: string[]; steps: BpStep[] }[] = [];
+          // TWO PASSES, because "which arm keeps this status" cannot be
+          // answered while still reading the arms: it depends on whether a
+          // LATER one messages.
+          const claims: { index: number; label: string; statuses: string[]; steps: BpStep[]; sends: number }[] = [];
           step.paths.forEach((b, i) => {
             const asked = (Array.isArray(b.statuses) ? b.statuses : []).map((s) => String(s ?? '').trim().toUpperCase()).filter(Boolean);
             if (!asked.length) {
@@ -1355,23 +1373,95 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
               });
               return;
             }
-            // ARMS MUST NOT OVERLAP. Two arms claiming READ route the same
-            // person two ways, and the reducer would send them down whichever
-            // edge it matched first — a campaign nobody designed. The earlier
-            // arm keeps the status, because the model wrote it first and
-            // guessing which it meant would be inventing.
-            const taken = new Set(kept.flatMap((k) => k.statuses));
-            const clash = usable.filter((s) => taken.has(s));
-            if (clash.length) {
-              issues.push({
-                path: `${path}.paths[${i}]`,
-                problem: `${clash.join(', ')} is already routed by an earlier arm of this split, so "${b.label}" cannot also claim it. One status, one arm.`,
-              });
-            }
-            const mine = usable.filter((s) => !taken.has(s));
-            if (!mine.length) return;
-            kept.push({ label: b.label, statuses: mine, steps: b.steps });
+            claims.push({ index: i, label: b.label, statuses: usable, steps: b.steps, sends: sendSteps(b.steps as unknown[]) });
           });
+
+          // ARMS MUST NOT OVERLAP, AND THE ARM THAT MESSAGES WINS.
+          //
+          // Two arms claiming DELIVERED route the same person two ways, and
+          // the reducer would take whichever edge it matched first — a campaign
+          // nobody designed. One of them has to go.
+          //
+          // IT USED TO BE EARLIEST-WINS, and MEASURED on
+          // `eval/runs/ui-s-1793089793593` turn 5 that is the wrong one. The
+          // agent wrote "Converted" first — DELIVERED, and nothing in it but an
+          // exit — then "Not yet converted" on the same status carrying the
+          // whole clock. Earliest-wins kept the empty arm, dropped two real
+          // sends with it, and `propose_strategy` then refused a journey that
+          // had compiled: three messages written, one built.
+          //
+          // So the arm that still has a SEND in its own steps keeps the status,
+          // nested forks counted. Earliest-wins survives as the tie-break when
+          // both message, which is the case it was written for. When NEITHER
+          // messages both are clerked, nothing is kept, and the 0-SEND refusal
+          // at the tool boundary says so — that refusal stays.
+          //
+          // The arm that loses is CLERKED: reported for the compile log,
+          // recorded as a limitation, and the rest of the journey is built.
+          // Same family as an undelivered arm and a wrong attribute name — the
+          // graph that can be built is the plan.
+          // Per status: the first claimant that MESSAGES, else — only when
+          // nobody contested it — the one arm that asked for it.
+          //
+          // A CONTESTED STATUS WITH NO MESSAGE ANYWHERE GOES TO NOBODY. Two
+          // arms that both route DELIVERED to an exit are two guesses at the
+          // same thing, and keeping whichever came first builds a split that
+          // sends no one anything. Both are clerked and the kept sends fall to
+          // whatever the rest of the path has; if that is nothing, the 0-SEND
+          // refusal at the tool says so.
+          //
+          // AN UNCONTESTED EMPTY ARM IS UNTOUCHED. One arm with an exit on it
+          // is a legal ending and always has been; this rule is about overlap.
+          const winnerOf = new Map<string, number>();
+          for (const st of new Set(claims.flatMap((c) => c.statuses))) {
+            const claimants = claims.filter((c) => c.statuses.includes(st));
+            const messaging = claimants.find((c) => c.sends > 0);
+            if (messaging) winnerOf.set(st, messaging.index);
+            else if (claimants.length === 1) winnerOf.set(st, claimants[0].index);
+          }
+          for (const c of claims) {
+            const mine = c.statuses.filter((st) => winnerOf.get(st) === c.index);
+            const lost = c.statuses.filter((st) => winnerOf.get(st) !== c.index);
+            if (lost.length) {
+              // ONE SENTENCE PER HOLDER. Two statuses can be lost to two
+              // DIFFERENT arms, and naming the first holder for both of them
+              // says something false about the second — "READ, DELIVERED is
+              // already routed by "Holds READ"" when DELIVERED is held by a
+              // third arm. Same class as the "by an earlier arm" claim this
+              // replaced, and a refusal quotes these verbatim.
+              const byHolder = new Map<number | undefined, string[]>();
+              for (const st of lost) {
+                const w = winnerOf.get(st);
+                byHolder.set(w, [...(byHolder.get(w) ?? []), st]);
+              }
+              for (const [w, mine_] of byHolder) {
+                const holder = claims.find((x) => x.index === w);
+                issues.push({
+                  path: `${path}.paths[${c.index}]`,
+                  problem: `${mine_.join(', ')} is already routed by "${holder?.label ?? 'another arm'}" on this split, so "${c.label}" cannot also claim it. One status, one arm.`,
+                });
+              }
+            }
+            if (mine.length) {
+              kept.push({ label: c.label, statuses: mine, steps: c.steps });
+              continue;
+            }
+            // CLERKED. Two notes, because they are two different facts and a
+            // manager reads them differently: an arm with nothing to send lost
+            // nothing, and an arm that was carrying messages did.
+            limitations.push(
+              c.sends
+                ? {
+                    attribute: `${c.label} (${c.statuses.join(', ')})`,
+                    note: `Another arm of this split already routes ${c.statuses.join(', ')}, so "${c.label}" is not on the canvas and the ${c.sends} message(s) written on it are not sent. One status routes to one arm.`,
+                  }
+                : {
+                    attribute: `${c.label} (${c.statuses.join(', ')})`,
+                    note: `"${c.label}" has no message on it and shares ${c.statuses.join(', ')} with an arm that does, so it is not built. Nothing is lost: the Goal Check after each send already takes whoever converted off the path.`,
+                  },
+            );
+            clerkedSends += c.sends;
+          }
           if (!kept.length) {
             issues.push({ path, problem: 'No usable arm is left on this branch, so the split was not built.' });
             return;
@@ -1579,7 +1669,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
   // Unresolved sends are NOT build issues: the design succeeded, the bank
   // simply has to supply ids only they hold. Export is blocked by the app's
   // own node-config validator instead.
-  return { ok: issues.length === 0, graph, goal, issues, limitations, templateChoices, sendProposals };
+  return { ok: issues.length === 0, graph, goal, issues, limitations, templateChoices, sendProposals, clerkedSends };
 }
 
 /**

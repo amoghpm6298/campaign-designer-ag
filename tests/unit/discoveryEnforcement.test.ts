@@ -369,16 +369,29 @@ describe('the orchestrator honours the outcome instead of falling through', () =
   it('records the model\'s dimensions into the brief before the gate reads it', () => {
     const record = src.indexOf('brief = recordDimensions(brief, parsed.value.dimensions)');
     expect(record).toBeGreaterThan(-1);
-    expect(record).toBeLessThan(src.indexOf('const gate = evaluateDiscovery({'));
+    // RETARGETED 2026-10-27: `decide` is the one reader of the record now, so
+    // the dimensions have to land before it rather than before a gate call
+    // that no longer exists.
+    expect(record).toBeLessThan(src.indexOf('const decision = decide(brief, {'));
   });
 
-  it('passes the refinement flag through, so a change request is not re-gated', () => {
-    const call = src.slice(src.indexOf('const gate = evaluateDiscovery({'), src.indexOf('const gate = evaluateDiscovery({') + 900);
-    expect(call).toMatch(/isRefinement/);
-    // AND THE RECORD'S OWN ANSWER, since 2026-10-26. The gate takes
-    // `briefClosed` rather than computing a completeness rule of its own, so
-    // an ask on a settled record cannot come back as `ask_questions`.
-    expect(call).toMatch(/briefClosed,/);
+  it('answers "are we done asking" in ONE place, and it is not this function', () => {
+    // RETARGETED 2026-10-27. It used to pin `isRefinement` and `briefClosed`
+    // being passed INTO `evaluateDiscovery`, which only matters while that
+    // function decides the screen. It does not any more — the orchestrator
+    // neither imports nor calls it — so what is worth pinning is the single
+    // writer that replaced it.
+    // PINNED ON THE CALL, not the name: the comments in `orchestrator.ts`
+    // explain the deletion and would satisfy a bare-name grep either way —
+    // the self-satisfying pin this codebase keeps relearning.
+    expect(src).not.toMatch(/evaluateDiscovery\(/);
+    expect(src, 'and it is not imported either').not.toMatch(/^\s+evaluateDiscovery,$/m);
+    // `briefClosed` is still the record's own answer, read straight from
+    // `turnPhase`, and it still guards both doors.
+    expect(src).toMatch(/const briefClosed = phaseNow\(\) !== 'asking';/);
+    // A refinement is still not re-gated: it is `building` to `decide`, which
+    // skips every propose-time check.
+    expect(src).toMatch(/building: isBuildTurn,/);
   });
 });
 

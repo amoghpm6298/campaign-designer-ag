@@ -1312,7 +1312,20 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       const builtSends = dry
         ? Object.values(dry.graph.nodes).filter((n) => (n as { type?: string }).type === 'SEND').length
         : sendKinds;
-      if (dry && builtSends < sendKinds) {
+      // SUBTRACT WHAT WAS CLERKED, so a plan that COMPILED is not refused.
+      //
+      // MEASURED, `eval/runs/ui-s-1793089793593` turn 5. Two arms claimed
+      // DELIVERED: an empty "Converted" arm first, the clock with two sends
+      // second. The compiler dropped one of them and still counted its sends
+      // here, so three written against one built read as a lost message and
+      // the whole plan was refused — a journey that had built fine.
+      //
+      // A clerked arm's sends were never going to land, and that is reported
+      // as a limitation rather than hidden. What must still refuse is a KEPT
+      // send that did not land: an orphan after a fork, a trailing sibling.
+      // Those are counted here exactly as before.
+      const clerked = dry?.clerkedSends ?? 0;
+      if (dry && builtSends < sendKinds - clerked) {
         // QUOTE WHAT THE COMPILER SAID, rather than guessing the cause.
         //
         // The sentence named one reason — a send placed after a fork — and
@@ -1377,10 +1390,24 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       //
       // Taken from the `substituted` tag rather than from the wording, so this
       // cannot drift from compiler copy the way four nest pins did.
+      // THE COMPILER'S LIMITATIONS, ON THE PLAN THEY ARE APPROVING.
+      //
+      // `operational-limitation` is the kind `renderStrategy` already prints
+      // under "Limitations", and these are exactly that: an arm that is not on
+      // the canvas, an undelivered path that is a fallback channel instead, a
+      // condition the builder cannot express. NEVER `substituted` — that
+      // channel is name-resolve and the entry stand-in, and its Plan copy says
+      // "the canvas uses the real field name", which is not true of a clerked
+      // arm.
+      const compilerLimits = (dry?.limitations ?? []).map((l) => ({
+        kind: 'operational-limitation',
+        question: `${l.attribute}: ${l.note}`,
+      }));
       const substitutions = (dry?.issues ?? []).filter((i) => i.substituted);
       const standIn = substitutions.some((i) => i.substituted === 'entry-stand-in');
       const openItemsWithSubs = [
         ...openItems,
+        ...compilerLimits,
         // `question` and `ifUnanswered` ARE THE FIELDS `renderStrategy` READS.
         // My first version called the second one `default`, which that
         // function never looks at — so the line would have been dropped on the

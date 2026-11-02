@@ -57,10 +57,19 @@ describe('impact survives from the model payload to the brief', () => {
     // rather than a decision about the plan, and that is what pulled them off
     // Confirm. The two remaining call sites are both pre-strategy discovery,
     // where asking is the whole point.
-    expect([...src.matchAll(/recordQuestions\(brief, withImpact\(gate\.questions\)\)/g)]).toHaveLength(2);
+    // RETARGETED 2026-10-27. Both call sites still go through `withImpact`,
+    // but neither takes a gate list any more: the Brief door takes the model's
+    // own questions, and the held door takes the one list that was also
+    // written to the record.
+    expect([...src.matchAll(/recordQuestions\(brief, withImpact\((askedByModel|briefQuestionsForHold)\)\)/g)]).toHaveLength(2);
     // And it is specifically the propose path that stopped, not one of the
     // discovery paths.
-    const propose = src.slice(src.indexOf("const withQuestions = gate.outcome === 'strategy_with_questions'"));
+    // RETARGETED 2026-10-27: there is no `strategy_with_questions` outcome any
+    // more — the plan carries open points, it does not form a questionnaire.
+    // ANCHORED ON THE PROPOSE RETURN ITSELF. `planOpenItems` is assembled
+    // early, beside the decision, so slicing from it would include the held
+    // discovery door and its legitimate `recordQuestions`.
+    const propose = src.slice(src.indexOf("em.emit('strategy.proposed'"));
     expect(propose).not.toMatch(/recordQuestions\(/);
   });
 

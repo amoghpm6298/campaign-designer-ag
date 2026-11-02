@@ -156,7 +156,11 @@ describe('F3 — a limitation stated in the opening brief', () => {
     expect(src).toMatch(/req\.brief \?\? noteOpeningFacts\(newBrief\(firstUserText\), firstUserText\)/);
     // ...and the gate is given the model's own classification of what is open,
     // not the retrieved context it used to score questions against.
-    expect(src).toMatch(/openItems: proposed\?\.openItems/);
+    // RETARGETED 2026-10-27: the plan's open points are assembled in the
+    // orchestrator now rather than handed to `evaluateDiscovery`, and
+    // `applyOutputTool` has already folded the compiler's limitations and
+    // substitutions into the payload's own list.
+    expect(src).toMatch(/const planOpenItems = \[\.\.\.\(appOpenItems \?\? \[\]\), \.\.\.\(proposed\?\.openItems \?\? \[\]\)\]/);
     expect(src).not.toMatch(/retrievedContext:/);
   });
 });

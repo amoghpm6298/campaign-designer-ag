@@ -523,3 +523,277 @@ describe('what this does NOT weaken', () => {
     expect(out.brief.lastProposal).toBeTruthy();
   });
 });
+
+describe('an overlapping arm is clerked, and the rest of the plan files', () => {
+  /**
+   * SAME FAMILY AS A WRONG NAME AND AN UNDELIVERED ARM: the graph that can be
+   * built is the plan.
+   *
+   * The SHAPE is from `eval/runs/ui-s-1793089793593` turn 5 — an empty
+   * "Converted" arm claiming DELIVERED written FIRST, then the clock carrying
+   * every send on the same status. The compiler dropped one arm and still
+   * counted its sends, so `propose_strategy` refused a journey that had
+   * compiled: three messages written, one built.
+   *
+   * The fixture is SYNTHETIC and says so. That run is not under
+   * `support/liveBriefs/`, and a test that reads `eval/runs/` passes here and
+   * fails from a clone.
+   */
+  const OVERLAP = JSON.parse(
+    readFileSync(new URL('./support/liveBriefs/overlapping-arms.synthetic.json', import.meta.url), 'utf8'),
+  ) as { entry: unknown; steps: unknown[] };
+
+  const compiled = () => build({ entry: OVERLAP.entry as never, steps: OVERLAP.steps });
+
+  it('keeps the arm that still has a send, whichever order they were written in', () => {
+    const r = compiled();
+    // EARLIEST-WINS WOULD KEEP THE EMPTY ONE. The arm that messages wins.
+    const arms = r.graph.edges.filter((e) => e.branchLabel).map((e) => e.branchLabel);
+    expect(arms.some((a) => /Not yet converted/.test(String(a)))).toBe(true);
+    expect(arms.some((a) => /^Converted/.test(String(a)))).toBe(false);
+    expect(typesIn(r).SEND, 'all three written messages are on the canvas').toBe(3);
+  });
+
+  it('clerks the empty arm as a limitation, not as a refusal', () => {
+    const r = compiled();
+    expect(r.limitations.some((l) => /^Converted/.test(l.attribute))).toBe(true);
+    expect(r.limitations.find((l) => /^Converted/.test(l.attribute))!.note).toMatch(
+      /has no message on it and shares DELIVERED/,
+    );
+    // NOT detected by reading the label. It is clerked because it has no send
+    // and lost the status to an arm that does — "Converted" could be called
+    // anything.
+    expect(r.clerkedSends, 'nothing was lost with it').toBe(0);
+  });
+
+  it('and keeps the "already routed" sentence as a compile issue', () => {
+    // THE WINNER IS NAMED, NOT THE ORDER. On this shape the empty "Converted"
+    // arm is written FIRST and loses, so "by an earlier arm" was the opposite
+    // of what happened — and a refusal on a path with both an overlap and a
+    // trailing sibling quotes `dry.issues` verbatim to the model.
+    expect(said(compiled(), /DELIVERED is already routed by "Not yet converted" on this split/)).toBe(true);
+    expect(said(compiled(), /an earlier arm/), 'the order claim is gone').toBe(false);
+  });
+
+  it('propose_strategy FILES it and does not refuse for "already routed"', () => {
+    const brief = structuredClone(LIVE.brief);
+    const barrier = (brief.barriers ?? [])[0]!.id;
+    const t = (day: number, purpose: string) => ({
+      day,
+      channel: 'WHATSAPP',
+      path: 'all',
+      purpose,
+      ifStillUnconverted: 'Unread, repeat on SMS; read and no action, change the argument',
+    });
+    const out = applyOutputTool(brief, 'propose_strategy', {
+      summary: 'Nudge every eligible purchase inside the window.',
+      approach: ['Enter on the eligible purchase.'],
+      assumptions: [],
+      unknowns: [],
+      architectures: [
+        { name: 'Immediate nudge', barrier, audience: 'All', timing: 'Now', lever: 'timing', journey: 'branch-on-response', chosen: true },
+        { name: 'Statement digest', barrier, audience: 'All', timing: 'Later', lever: 'message', journey: 'linear' },
+      ],
+      touches: [t(0, 'Name it'), t(2, 'Remind'), t(5, 'Last chance')],
+      blueprint: {
+        campaignName: 'EMI',
+        description: 'Prompt conversion inside the window.',
+        goal: null,
+        entry: OVERLAP.entry,
+        steps: OVERLAP.steps,
+      },
+    } as never);
+    expect(out.error ?? null, 'refused a journey that compiled').toBeNull();
+    expect(out.brief.lastProposal, 'so there is something to Confirm').toBeTruthy();
+    // The clerked arm reaches the manager as a limitation on the plan, never
+    // through the `substituted` channel, whose copy is about field names.
+    const items = (out.openItems ?? []) as { kind?: string; question?: string }[];
+    const limits = items.filter((i) => i.kind === 'operational-limitation');
+    expect(limits.some((i) => /^Converted/.test(String(i.question)))).toBe(true);
+    expect(items.some((i) => i.kind === 'optional-preference')).toBe(false);
+  });
+
+  it('the filed JSON still has both arms, so Confirm compiles the same object', () => {
+    const brief = structuredClone(LIVE.brief);
+    const barrier = (brief.barriers ?? [])[0]!.id;
+    const out = applyOutputTool(brief, 'propose_strategy', {
+      summary: 'Nudge every eligible purchase inside the window.',
+      approach: ['Enter on the eligible purchase.'],
+      assumptions: [],
+      unknowns: [],
+      architectures: [
+        { name: 'Immediate nudge', barrier, audience: 'All', timing: 'Now', lever: 'timing', journey: 'branch-on-response', chosen: true },
+        { name: 'Statement digest', barrier, audience: 'All', timing: 'Later', lever: 'message', journey: 'linear' },
+      ],
+      touches: [
+        { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Name it', ifStillUnconverted: 'Unread, repeat on SMS; read and no action, change the argument' },
+        { day: 2, channel: 'WHATSAPP', path: 'all', purpose: 'Remind', ifStillUnconverted: 'Unread, repeat on SMS; read and no action, change the argument' },
+      ],
+      blueprint: { campaignName: 'EMI', description: 'Prompt conversion inside the window.', goal: null, entry: OVERLAP.entry, steps: OVERLAP.steps },
+    } as never);
+    const filed = out.brief.lastProposal!.blueprint as { steps: { paths?: { label?: string }[] }[] };
+    expect(filed.steps[1].paths?.map((p) => p.label)).toEqual(['Converted', 'Not yet converted']);
+  });
+
+  it('two statuses lost to two DIFFERENT arms get one true sentence each', () => {
+    // FOUND IN REVIEW, 2026-11-02. `holder` was looked up from `lost[0]`
+    // only, so an arm losing READ to one arm and DELIVERED to another was
+    // told "READ, DELIVERED is already routed by "Holds READ"" — false about
+    // DELIVERED. Same class as the "by an earlier arm" claim it replaced, and
+    // a refusal quotes these verbatim.
+    const r = build({
+      steps: [
+        send('open', 'first-touch'),
+        {
+          kind: 'branch',
+          paths: [
+            { label: 'Holds READ', statuses: ['READ'], steps: [send('a', 'reminder')] },
+            { label: 'Holds DELIVERED', statuses: ['DELIVERED'], steps: [send('b', 'reminder')] },
+            { label: 'Wants both', statuses: ['READ', 'DELIVERED'], steps: [send('c', 'reminder')] },
+          ],
+        },
+      ],
+    });
+    const routed = r.issues.map((i) => i.problem).filter((p) => /already routed/.test(p));
+    expect(routed).toHaveLength(2);
+    expect(routed).toContain(
+      'READ is already routed by "Holds READ" on this split, so "Wants both" cannot also claim it. One status, one arm.',
+    );
+    expect(routed).toContain(
+      'DELIVERED is already routed by "Holds DELIVERED" on this split, so "Wants both" cannot also claim it. One status, one arm.',
+    );
+    // And no sentence lumps them under one holder.
+    expect(routed.join(' ')).not.toMatch(/READ, DELIVERED is already routed/);
+  });
+
+  it('two overlapping arms that BOTH message: earliest wins, the later is clerked WITH its sends', () => {
+    const r = build({
+      steps: [
+        send('open', 'first-touch'),
+        {
+          kind: 'branch',
+          paths: [
+            { label: 'A first', statuses: ['DELIVERED'], steps: [send('a', 'reminder')] },
+            { label: 'B later', statuses: ['DELIVERED'], steps: [send('b', 'reminder')] },
+          ],
+        },
+      ],
+    });
+    expect(typesIn(r).SEND).toBe(2);
+    expect(r.clerkedSends, 'B had a message, and it is not sent').toBe(1);
+    expect(r.limitations.some((l) => /^B later/.test(l.attribute))).toBe(true);
+    expect(r.limitations.find((l) => /^B later/.test(l.attribute))!.note).toMatch(/already routes DELIVERED/);
+  });
+
+  it('two overlapping arms where NEITHER messages: both clerked, no split built', () => {
+    const r = build({
+      steps: [
+        send('open', 'first-touch'),
+        {
+          kind: 'branch',
+          paths: [
+            { label: 'A', statuses: ['DELIVERED'], steps: [{ kind: 'exit', reason: 'x' }] },
+            { label: 'B', statuses: ['DELIVERED'], steps: [{ kind: 'exit', reason: 'y' }] },
+          ],
+        },
+      ],
+    });
+    expect(r.graph.edges.filter((e) => e.branchLabel)).toHaveLength(0);
+    expect(r.limitations.filter((l) => /^(A|B) /.test(l.attribute))).toHaveLength(2);
+  });
+
+  it('but ONE arm with no message and no overlap is untouched', () => {
+    // An exit on its own arm is a legal ending and always has been. This rule
+    // is about overlap, not about empty arms.
+    const r = build({
+      steps: [
+        send('open', 'first-touch'),
+        {
+          kind: 'branch',
+          paths: [
+            { label: 'Unread', statuses: ['DELIVERED'], steps: [send('u', 'reminder')] },
+            { label: 'Read', statuses: ['READ'], steps: [{ kind: 'exit', reason: 'Nothing more to say.' }] },
+          ],
+        },
+      ],
+    });
+    expect(r.graph.edges.filter((e) => e.branchLabel).map((e) => e.branchLabel)).toContain('Read (READ)');
+    expect(r.limitations.filter((l) => /^Read/.test(l.attribute))).toHaveLength(0);
+  });
+
+  it('a nested fork counts as a message on the arm', () => {
+    const r = build({
+      steps: [
+        send('open', 'first-touch'),
+        {
+          kind: 'branch',
+          paths: [
+            { label: 'Empty', statuses: ['READ'], steps: [{ kind: 'exit', reason: 'x' }] },
+            {
+              kind: 'path',
+              label: 'Has a nested fork',
+              statuses: ['READ'],
+              steps: [
+                {
+                  kind: 'branch',
+                  paths: [
+                    { label: 'inner unread', statuses: ['DELIVERED'], steps: [send('deep', 'reminder')] },
+                    { label: 'inner read', statuses: ['READ'], steps: [send('deeper', 'reminder')] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(typesIn(r).SEND).toBe(3);
+    expect(r.limitations.some((l) => /^Empty/.test(l.attribute))).toBe(true);
+  });
+});
+
+describe('the clerked sends are subtracted before a message counts as lost', () => {
+  it('a later overlapping arm WITH sends files, because those sends were never going to land', () => {
+    // THE PIN THE FIRST WRITEUP WAS MISSING. The overlap fixture above clerks
+    // an arm with no sends, so `clerkedSends` is 0 and removing the
+    // subtraction changed nothing — the suite stayed green. This is the case
+    // that needs it: three written, two built, one clerked.
+    const brief = structuredClone(LIVE.brief);
+    const barrier = (brief.barriers ?? [])[0]!.id;
+    const out = applyOutputTool(brief, 'propose_strategy', {
+      summary: 'Nudge every eligible purchase inside the window.',
+      approach: ['Enter on the eligible purchase.'],
+      assumptions: [],
+      unknowns: [],
+      architectures: [
+        { name: 'Immediate nudge', barrier, audience: 'All', timing: 'Now', lever: 'timing', journey: 'branch-on-response', chosen: true },
+        { name: 'Statement digest', barrier, audience: 'All', timing: 'Later', lever: 'message', journey: 'linear' },
+      ],
+      touches: [
+        { day: 0, channel: 'WHATSAPP', path: 'all', purpose: 'Name it', ifStillUnconverted: 'Unread, repeat on SMS; read and no action, change the argument' },
+        { day: 2, channel: 'WHATSAPP', path: 'all', purpose: 'Remind', ifStillUnconverted: 'Unread, repeat on SMS; read and no action, change the argument' },
+      ],
+      blueprint: {
+        campaignName: 'EMI',
+        description: 'Prompt conversion inside the window.',
+        goal: null,
+        entry: { kind: 'audience', entity: 'Customer', conditions: [] },
+        steps: [
+          send('open', 'first-touch'),
+          {
+            kind: 'branch',
+            paths: [
+              { label: 'A first', statuses: ['DELIVERED'], steps: [send('a', 'reminder')] },
+              { label: 'B later', statuses: ['DELIVERED'], steps: [send('b', 'reminder')] },
+            ],
+          },
+        ],
+      },
+    } as never);
+    expect(out.error ?? null, 'three written, two built, one clerked — not a lost message').toBeNull();
+    expect(out.brief.lastProposal).toBeTruthy();
+    // And the cost is stated rather than hidden.
+    const items = (out.openItems ?? []) as { kind?: string; question?: string }[];
+    expect(items.some((i) => i.kind === 'operational-limitation' && /^B later/.test(String(i.question)))).toBe(true);
+  });
+});

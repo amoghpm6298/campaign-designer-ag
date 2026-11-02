@@ -6166,3 +6166,562 @@ chain fails **2**.
 Nothing else moved: `PATH_HOLDS`, the habit reading, the zero-send hold and the
 record half are untouched, and the live plan still proceeds with no channel
 sentence anywhere in its reply.
+
+## 2026-10-27 (cont'd) — The first propose files. One writer for "are we done
+asking."
+
+Two jobs, two pins. Neither is a Confirm door and neither is in the gate.
+
+### Job 1 — clerk the empty overlapping arm, file the rest
+
+MEASURED, `eval/runs/ui-s-1793089793593` turn 5. Two arms claimed DELIVERED:
+
+```
+[Converted]          ["DELIVERED"]   exit only, no send     <- written FIRST
+[Not yet converted]  ["DELIVERED"]   wait, send, wait, send <- the whole clock
+```
+
+The compiler dropped the later arm and still counted its sends, so
+`propose_strategy` refused a journey that had compiled: three written, one
+built.
+
+**THE ARM THAT MESSAGES WINS.** Earliest-wins keeps the empty arm here and
+clerks the clock, which is the wrong one — so the first claimant that still has
+a SEND in its own steps keeps the status, nested forks counted. Earliest-wins
+survives as the tie-break when both message, which is the case it was written
+for. When NEITHER messages, a contested status goes to nobody, both arms are
+clerked, and the 0-SEND refusal says so. **An uncontested empty arm is
+untouched** — one exit on its own arm is a legal ending and always has been.
+
+No label is read. "Converted" is clerked because it has no send and lost the
+status to an arm that does; it could be called anything.
+
+**TWO LIMITATION NOTES, NEVER `substituted`.** That channel is name-resolve and
+the entry stand-in, and its Plan copy says "the canvas uses the real field
+name", which is not true of a clerked arm. The notes are `{attribute, note}`
+like undelivered: one for an arm that lost messages, one for an arm that had
+none to lose. At propose they travel as `operational-limitation` open items,
+which `renderStrategy` already prints under "Limitations". The "already routed"
+sentence is kept verbatim for the compile log.
+
+**The recount lives in the propose handler**, next to the existing
+`builtSends < sendKinds` check, as `builtSends < sendKinds - clerkedSends`.
+`clerkedSends` is a count on the build result — not a field on the limitation
+and not a second walk. `sendSteps` and `pathReading` are untouched: that
+reading is the path AS WRITTEN. A kept send that never landed still refuses:
+the trailing-sibling 3-written / 2-built case is unchanged.
+
+The filed JSON still carries both arms, pinned, so Confirm compiles the same
+object and clerks it the same way.
+
+**Fixture is SYNTHETIC and says so.** That run is not under
+`support/liveBriefs/`, and a test that reads `eval/runs/` passes here and fails
+from a clone.
+
+### Job 2 — one writer for "are we done asking"
+
+`evaluateDiscovery` still decided the screen: `ask_questions`,
+`request_evidence`, `strategy_with_questions`, and the
+`recordQuestions(..., gate.questions)` that wrote them to the brief. `decide`
+already answers completeness. **The "Who tends to do this already today" and
+"In your own words" rows a manager kept reading beside the model's own two were
+that function topping up the list.**
+
+**The call is DELETED, not demoted.** Keeping it "for the open items and the
+reason" is exactly what a grep test goes green on while the dual writer is
+still there. The orchestrator neither imports nor invokes it;
+`evaluateDiscovery` stays in `discovery.ts` for its own unit tests, which all
+still pass.
+
+What replaced each field:
+
+- **the ask** — `askedByModel`, the model's own questions capped at
+  `MAX_QUESTIONS_PER_ROUND`, and nothing appended.
+- **the hold** — `decision.blocks`, each already naming what clears it.
+  `briefQuestionsForHold` is computed ONCE, above the record write, so the wire
+  and the brief cannot disagree.
+- **evidence** — the model asked, and the already-handled filter
+  (`evidenceAlreadyHandled`, now exported) still drops what the record has
+  settled. No outcome enum.
+- **open points on a plan** — `planOpenItems`: the application's own plus the
+  payload's, into which `applyOutputTool` has already folded the compiler's
+  limitations and substitutions. `strategy_with_questions` is gone.
+
+A closed record records nothing, so commentary cannot reopen the brief. Skip
+still keys off `res.questions`, which is now the same list the record was
+given.
+
+### Verified
+
+**1649 unit (from 1633) and 118 agent-proto.** `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. `grep -c 'evaluateDiscovery('
+server/orchestrator.ts` is **0**.
+
+Reverts, each run: earliest-wins restored fails **5**; no clerked subtraction
+fails **1**; compiler limits off the Plan fails **1**; the fill-in topping up
+the model's list fails **1**; the held list ignoring `briefClosed` fails **2**.
+
+**TWO OF THOSE PASSED UNTIL THE PINS WERE WRITTEN, and both for the same
+reason: the fixture did not reach the code.** The overlap fixture clerks an arm
+with NO sends, so `clerkedSends` was 0 and the subtraction was free — the case
+that needs it is the both-message arm (three written, two built, one clerked).
+And the closed-record test sends an `ask`, which never reaches the held branch,
+so the guard there was inert — the case that needs it is a settled record with
+a PATH_HOLD standing, where the next turn must still be `ready`. Sixth and
+seventh time this session.
+
+### Retargeted, with the reason in each file
+
+Ten source pins across eight files keyed on the deleted call:
+`discoveryGate` (inverted to pin the ABSENCE), `discoveryEnforcement` (×2),
+`discoveryIntelligence`, `discoveryValidation`, `riskWeightedQuestions` (×2),
+`strategyPreservation` (×2), `answerAttribution`, `questionContract`,
+`fourScreens` (×2 — the diary-sweep exemption follows `freshEvidence`).
+
+**Two pins of mine were self-defeating and the suite said so.** The
+no-call assertion first read `/evaluateDiscovery/`, which my own comments
+explaining the deletion satisfy — it pins `evaluateDiscovery\(` and the import
+line now. And `questionContract`'s propose slice anchored on `planOpenItems`,
+which is assembled early beside the decision, so the slice swallowed the held
+door and its legitimate `recordQuestions`; it anchors on the
+`strategy.proposed` emit instead.
+
+One stale duplicate removed: `fourScreens` pinned the literal
+`slice(0, 3)` beside the named-cap assertion; the source uses
+`MAX_QUESTIONS_PER_ROUND`, which is the constant the rest of the file already
+uses for this limit.
+
+### Same day — three leftovers from that pass
+
+**The "already routed by an EARLIER arm" sentence was a lie, and a refusal
+quotes it.** It was true while the rule was earliest-wins. Now the arm that
+MESSAGES wins, so on the live shape the empty "Converted" arm is written FIRST
+and loses — and the compiler told the model its own first arm had been beaten
+by an earlier one.
+
+It is not only noise in the compile log, which is why it is fixed rather than
+left: MEASURED, a path with BOTH an overlap and a trailing sibling refuses, and
+the refusal quotes `dry.issues` verbatim. The sentence now names the arm that
+holds the status (`is already routed by "Not yet converted" on this split`),
+which is true whichever order they were written in. The Plan bubble was already
+honest — it uses the limitation note — and is unchanged. Two pins retargeted,
+one of them asserting the order claim is gone.
+
+**`strategyPreservation` was greping `strategy_with_questions` against the
+orchestrator and passing on this file's own comments about deleting it.** Same
+trap as the bare `/evaluateDiscovery/` grep: reverting the branch would have
+kept it green. It pins the ABSENCE of `outcome === 'strategy_with_questions'`
+and of the `withQuestions` flag now, plus the `if (planOpenItems.length)` that
+replaced the branch. Reverting the branch fails it — and fails the typecheck
+first, because the gate variable it read no longer exists.
+
+**The `decide()` header still called the change a demotion** that kept
+`evaluateDiscovery` supplying a fallback question. The code under it deleted
+that. Rewritten to say where the rule lives now: the blocks each name what is
+missing, and `briefQuestionsForHold` is the one list — the model's own
+questions when it asked any, the block reasons when it did not, nothing
+appended to a model that did ask.
+
+Reverts: the order claim restored fails **2**; the
+`strategy_with_questions` branch restored fails **1** and the typecheck.
+
+### Refused as out of scope
+
+No live run — the spec said not until both pins are green, and they are, so
+this stops here. No hold and no PATH_HOLD added. No overlap prose in the
+grammar, no auto-merge of two messaging arms, no canvas on Plan, no touch
+counting, no Confirm / density / habit change, no smarter `recordReply`, no new
+Discovery questions, no matcher anywhere (including on arm labels), no client
+change beyond its existing trust in `res.questions`. Nothing committed or
+pushed.
+
+## 2026-10-27 (cont'd) — A change to a built campaign is not a new brief
+
+MEASURED. After Confirm the manager typed a change to the same journey — "add
+one more send on the high-ticket arm", "make high ticket more aggressive".
+Word overlap against the objective is under 0.5, so the session was stamped
+`UNDERSTANDING_GOAL` and the confirmation withdrawn. `req.currentCampaign` was
+still posted, so the turn was ALSO a refinement and a build turn, and the
+refinement compile then ran:
+
+```
+transition(UNDERSTANDING_GOAL, 'GENERATING_CAMPAIGN')
+-> Illegal state transition UNDERSTANDING_GOAL -> GENERATING_CAMPAIGN.
+```
+
+It threw, and the graph did not update. `saysBuildNow` had already carved
+Confirm out of that reset; apply-change had not been.
+
+### The rule, and where it is applied
+
+**If `req.currentCampaign` is set, this turn is a change to THAT campaign.**
+The user's line is an instruction about a journey on screen, not a replacement
+objective. A genuinely new campaign is New chat or the UI reset — the
+application does not guess on a canvas that is already there. One conjunct:
+`!isRefinement` on the reset branch.
+
+`objectiveChangedMaterially` and its 0.5 threshold are untouched, and WITHOUT a
+graph a real new objective still withdraws the confirmation and resets, which
+`objectiveClarification` pins unmodified.
+
+**The state table is untouched.** `UNDERSTANDING_GOAL -> GENERATING_CAMPAIGN`
+stays illegal: widening it would delete the one guarantee `LEGAL` offers, that
+no campaign exists without passing through generation. The fix is the stamp.
+
+**A refinement that arrives with a graph but a pre-build state is lifted
+first** — to `CONFIGURATION_INCOMPLETE`, the honest description of "already
+built, configuration may still be incomplete" — by ASSIGNMENT, not a new edge.
+That covers a session restored without its state as well as this bug. After a
+real Confirm the state is `EXPORT_ELIGIBLE` or `CONFIGURATION_INCOMPLETE` and
+both may already generate; that path is unchanged.
+
+### The dodge is gone
+
+`confirmReachesGeneration`'s refinement case said **"WORDED LIKE THE OBJECTIVE
+ON PURPOSE"**, with a comment calling the reset "a hazard older than this slice
+and not what this test is about". It was live, and wording around it is why
+nothing caught this. That case now sends the real change line, for which
+`objectiveChangedMaterially` is TRUE, so it only reaches generation because of
+the carve-out.
+
+### One pin of mine proved nothing, twice, and measuring is what showed it
+
+**First version:** asserted `session.state !== 'UNDERSTANDING_GOAL'`. The lift
+below the compile restores a built state either way, so removing the carve-out
+changed nothing and the whole suite stayed green — two fixes, one pin, the
+second masking the first.
+
+**Second version:** added `strategyVersion === 1`. That reads **2** on a
+correct run, because the refinement compile bumps it legitimately. Measured
+rather than assumed, and the assertion was dropped with the reason written in.
+
+**What the reset leaves behind that nothing undoes** is the
+`stage.started` emit titled "Objective may have changed". That is the witness,
+and with it the carve-out revert fails.
+
+### Verified
+
+**1651 unit (from 1649; 2 new) and 118 agent-proto.** `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. `server/campaignState.ts` and
+`src/designer/` have no diff.
+
+Reverts, each run: the carve-out removed fails **1**; the lift removed fails
+**1**; widening `LEGAL` instead of fixing the stamp fails **3** — which is the
+useful one, because it shows the table's own pins are what stop that shortcut.
+
+### Refused as out of scope
+
+`objectiveChangedMaterially` unchanged, no utilisation teaching, Confirm door
+untouched (button and typed yes still require
+`AWAITING_STRATEGY_CONFIRMATION`), PATH_HOLDS untouched, no node spliced onto
+the old graph — the chat rebuilds the path and redraws — Brief not reopened, no
+`ask_questions` on build, catalogue clerking left alone, no fetch-failed UX, no
+live run, nothing committed or pushed.
+
+## 2026-10-28 — One writer on the live ask tool
+
+Job 2 deleted `evaluateDiscovery` from `orchestrateStream`, and the pin for it
+went through the JSON `action: 'ask'` path and stayed green. **Live Discovery
+does not use that path.** It calls the `ask_questions` TOOL, which lands in
+`recordAsked`, which injected a canonical finding question of its own. Same
+dual writer, other door.
+
+MEASURED, `eval/runs/ui-s-1793168820316`:
+
+```
+turn 1  model asked 2 (how success is counted; the business reason for EMI)
+        manager read 3 — third author='app', "Who tends to do this already today…"
+turn 2  model asked 2 (why sub-₹10k is not converting; a second pattern)
+        manager read 3 — third author='app', "In your own words, what do you
+        think is stopping the rest?"
+```
+
+### The rule
+
+`recordAsked` records the questions it was given — cap 3, existing de-dupe,
+closed-history filter — and pushes no row the model did not emit. The
+`nextCustomerQuestion` inject is deleted, with the "which one gives way when
+the inject pushes over the cap" re-ordering that existed only to protect that
+row. The cap stays, as a plain slice: with nothing injected, `fresh` can exceed
+three only when the MODEL asks more than three, and then the first three it
+asked are the three that go out.
+
+**Completeness is not lost, and it was never this function's job.**
+`converters` still unset means `decide` still holds the next turn — with
+whatever the model asks then, or with the blocks' own reasons if it asks none.
+Not with a row nobody emitted.
+
+`nextCustomerQuestion` stays exported from `discovery.ts`: three test files
+call it directly. It simply has no caller in `recordAsked`.
+
+**Wire = record** was already true and is now meaningful: the tool path returns
+`brief.questions` minus the ids present before the turn, so with the inject
+gone `res.questions` is exactly the texts this turn added, in order. Skip &
+propose keys off that list.
+
+### `alreadyAsksCustomerGap` went with it, and my comment was wrong first
+
+It answered "has this turn already asked the question the gate would inject",
+which only had a caller while something was being injected. My first comment
+for this change said the orchestrator still read it. **It does not** —
+`noUnusedLocals` named it immediately, and the grep confirms `record.ts` held
+the only copy. Deleted, with the correction written where the function was.
+
+### Verified
+
+**1658 unit (from 1651; 7 new) and 118 agent-proto.** `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. One server file changed:
+`server/record.ts`.
+
+Replayed through `recordAsked` on both live turns: **2 asked → 2 recorded**,
+every row `author: 'agent'`, no `/Who tends/` on turn 1 and no `/In your own
+words/` on turn 2.
+
+Reverts: the inject restored fails **10**; the record cap removed fails **1**.
+
+**That second one passed until the pin was written.** The ask tool does not
+pre-slice — `recordAsked`'s own cap is what turns five into three — and nothing
+in the suite asked more than three, so deleting the cap was free. Eighth time
+this session, and the same shape every time: the fixture never reached the
+code.
+
+### Retargeted, with the reason in each file
+
+Four pins required the injected row:
+
+- `fourScreens` "THE RECORD IS CAPPED TOO" — its NO_FINDINGS case asserted the
+  canonical converters question SURVIVED the cap while a scoreboard question
+  gave way. That was the defect with a tidy brief. It now pins the three the
+  model asked, in order, all `author: 'agent'`, and that the record still
+  holds afterwards (`no-participation` on that brief — measured, not the
+  `converters-unknown` I first guessed).
+- `openingFacts` "drops a closed-history reprint and still asks who converts" —
+  the closed-history filter is what it is really about; it now pins the one
+  surviving question and nothing else.
+- `turnOneAndQuestionList` ×2 — both required the canonical row appended to a
+  single model question. Both now pin `res.questions` equal to what was asked.
+
+Kept green and unmodified: they-asked-converters-in-their-own-words still gets
+no canonical row; the JSON `askTurn` two-questions pin; closed record records
+nothing; open brief has a question and a closed brief cannot reopen via
+commentary.
+
+### Same day — the comment got it wrong twice
+
+The note left where `alreadyAsksCustomerGap` used to be said the orchestrator
+"keeps its OWN gap matcher for its own inject suppression on the JSON path".
+There is no such matcher and no such inject: Job 2 deleted the
+`evaluateDiscovery` call that was the JSON path's version, and this slice
+deleted the tool path's. `grep -ciE 'gap matcher|alreadyAsksCustomerGap|
+nextCustomerQuestion' server/orchestrator.ts` is **0**.
+
+Worth recording because of HOW it happened. The first version of that comment
+claimed the orchestrator still READ the function; I corrected it in the same
+pass and, one sentence later, invented a second version of the same claim.
+Neither was measured before being written — a correction is not a measurement.
+
+The note now states the only fill that survives, and names all four writers so
+the claim is checkable: `orchestrator.ts` 2349 and 2489 write `decide().blocks`
+reasons (the model asked nothing while the record is open), 2848 writes
+`askedByModel`, 2944 writes `briefQuestionsForHold` — which is one or the other
+— and `recordAsked` writes what it was given. No behaviour change; 1658 unit
+and 118 agent-proto unmoved, typechecks clean.
+
+### Refused as out of scope
+
+Confirm, PATH_HOLDS, overlap clerking, `evaluateDiscovery` (already gone),
+download JSON, node-config / exportable, density, habit, hearing. No finding
+prose added to the manuals, no Skip change, no `nextCustomerQuestion` deletion,
+no live run, nothing committed or pushed.
+
+## 2026-11-02 — Review of the uncommitted span: three findings, all fixed
+
+A read of `git diff` against `2462067`, with every claim probed rather than
+reasoned about. Three real defects, all in code I had written in the preceding
+slices, none with a failing test — which is why the review was worth running.
+
+### 1. `coSentPairs` reported the shape the product asks for as fatigue
+
+MEASURED. A WhatsApp send, a fork on what that send did, and the SMS retry on
+the unread arm — no `delayDays` declared — came back:
+
+```
+pairs: [whatsapp vs sms], [whatsapp vs whatsapp]
+channelJobBlocks: ['channel-spray']
+```
+
+A fork did not pass time in that walk. **An OUTCOME fork does, by
+definition**: an arm fires BECAUSE the previous send landed or did not, so you
+cannot know READ until after delivery and the arm's message is a reaction, not
+a second message at the same moment. The chain no longer carries across one. A
+who-split or an experiment still does — those arms continue the same moment, so
+a send before the fork and a send on an arm can genuinely reach one person
+together.
+
+**It was silent whenever `delayDays` were declared**, which is why the live
+payload never tripped it and why nothing caught it. Advice-only, so it could
+not hide Confirm — and that is exactly the lying-advice-beside-the-button
+defect, in the function written to remove it.
+
+### 2. The overlap sentence named one holder for several lost statuses
+
+```
+READ, DELIVERED is already routed by "Holds READ" …   <- false about DELIVERED
+```
+
+`holder` was looked up from `lost[0]` only. Grouped by holder now, one true
+sentence each. Same class as the "by an earlier arm" claim it replaced last
+week, and a refusal quotes these verbatim.
+
+### 3. The state lift was broader than its comment claimed
+
+The comment named two causes (the reset bug, a session restored without its
+state) and read as exhaustive. The condition is `!canTransition(...)`, so it
+also catches `DISCOVERING`, `AWAITING_USER_ANSWER`, `STRATEGY_READY` and
+`FAILED`.
+
+**The breadth is right and is now deliberate rather than incidental.**
+`isRefinement` means a campaign is on screen, so a pre-build state alongside a
+graph is stale whichever one it is; `FAILED` is included on purpose, because the
+last turn erroring is not a reason to refuse a change to a journey that exists.
+Pinned across all five states.
+
+### Checked and clear
+
+Nested clerked arms do not double-count — a clerked arm is never descended
+into, so its inner overlaps never reach `clerkedSends`. A step with a bare
+`steps` array descends correctly; that suspicion was wrong. `planOpenItems`
+dropping `evaluateDiscovery`'s `alreadyCovered` filter is safe, because the
+items come from the current payload.
+
+### Verified
+
+**1667 unit (from 1658; 4 new) and 118 agent-proto.** `tsc --noEmit`,
+`server:typecheck` and `npm run build` clean. Reverts: the chain carrying
+across an outcome fork fails **1**; one sentence naming only the first holder
+fails **1**.
+
+### A parallel session's work is in the tree, and I misreported it
+
+`src/designer/CampaignDesigner.tsx` (modified) and
+`src/designer/exportPayload.ts` (untracked) were written on 2026-11-02 at
+11:18–11:19; the last edit from this line of work was 2026-10-28. They extract
+`buildExportPayload` and change the download-JSON / `exportable` gating — the
+area the last three specs froze. Not touched and not reverted.
+
+**And the previous entry claimed "`src/designer/` has no diff".** That came
+from `git diff --stat … src/designer/ | tail -3`, which cut the designer line
+off the output. The pipe produced the answer, not the repo. Second time in this
+span that a check was written to look like a measurement and was not — the
+other being the comment that invented a gap matcher twice.
+
+## 2026-11-02 (cont'd) — Graph on the canvas → Copy/Download
+
+**This slice was already in the working tree when the spec arrived**, written
+by a parallel session earlier the same day (`src/designer/exportPayload.ts`
+untracked, `CampaignDesigner.tsx` modified, both 11:18–11:19). It was verified
+against the spec line by line rather than rewritten. Everything the spec asks
+for was there:
+
+```
+campaign null + graph        .campaign.root === that graph
+                             .campaign.name = plan name, else "Untitled"
+                             issuer "" · programs []
+no graph                     null
+real campaign + newer graph  campaign kept, canvas graph overlaid
+buttons                      disabled={!exportPayload}, not !exportable
+wrapper keys                 suggestedMessaging, strategy, claim,
+                             campaignFieldProvenance, importReadiness — all present
+STEP_DEF / BLUEPRINT_SCHEMA  0 lines touched
+Confirm door                 no line in the diff
+designGenerated              not referenced by either file, so it cannot grey anything
+```
+
+The source pin `expect(src).not.toMatch(/if \(!campaign\) return null;/)` is
+the right pin and it bites: reinstating the guard fails it while `tsc` stays
+clean, so without it the regression would be silent.
+
+### Three gaps closed
+
+**The null guard was `&&`, so a `rootId` with no nodes downloaded** — a file
+whose root does not exist. Unreachable from a live Confirm, where `res.graph`
+is null or a real compile, but `campaign.root` is read here too and a restored
+session carries whatever storage held; a hand-seeded one has white-screened
+this app before. It now requires at least one node, which is what "a graph on
+the canvas" means.
+
+**The live miss itself was unpinned.** The existing cases covered
+campaign-null, but not the state the buttons actually greyed on: graph present,
+`campaign` null, `exportable` false, `designGenerated` false,
+`templateChoices: []`, `importReadiness: 'unverified'`. A pin that only
+asserts `exportable` misses it, which the spec says in those words — so the
+pin now sets all five and requires a file, with the readiness travelling IN it
+rather than gating it.
+
+**"Does not rewrite Sends" was unpinned.** The fixture graph had no
+`agentMessaging` and no old `_config`, so `toEqual(GRAPH)` proved nothing about
+pass-through. There is now a graph carrying `_config.agentMessaging`,
+`source: 'Previous step outcome'` and `customSource: 'Transaction attribute'`,
+required back byte-for-byte, plus an assertion that no filter rows appear
+anywhere in the file.
+
+### Verified
+
+**1669 unit (from 1667; 2 new, 2 extended) and 118 agent-proto.**
+`tsc --noEmit`, `server:typecheck` and `npm run build` clean.
+
+Reverts, each run: `if (!campaign) return null` back in the component fails
+**1**; buttons back on `exportable` fails **1**; the module requiring a
+campaign fails **4**; the loose `rootId` guard fails **1**.
+
+Nothing in the locked list was touched: the Confirm door, `PATH_HOLDS`,
+overlap clerking, the nested path on Plan, and `grep -c 'evaluateDiscovery('
+server/orchestrator.ts` still 0. No drip Import, no choosers, no filter rows,
+no utilisation, no live run.
+
+### Same day — the file is named after the campaign, not its id
+
+THE LEFTOVER, and the last thing between Download and a manager who can find
+the file. The download read `campaign.id ?? campaign.name`, and a
+campaign-less Confirm synthesises `id: 'draft'` — so hitting Download produced
+**`draft.json`**: unrecognisable in Finder, and identical between two runs.
+
+`exportFileName(payload)` names it from `.campaign.name`. The id still travels
+INSIDE the JSON and drip replaces it on Import; it is just not what to call the
+file.
+
+**`id` is not in the fallback chain at all**, which is what makes `draft.json`
+unreachable rather than unlikely: `name` → the generic word, never the id. A
+real campaign with an empty name gives `campaign.json`.
+
+Measured:
+
+```
+EMI on eligible purchases   -> EMI-on-eligible-purchases.json   (id "draft" still in the JSON)
+(no plan name)              -> Untitled.json
+EMI ₹10,000+ / Q4: push     -> EMI-10-000-Q4-push.json
+"", "   ", no payload       -> campaign.json
+120 chars                   -> capped at 80 + .json
+```
+
+Anything that is not a letter or a number becomes a hyphen, so a slash cannot
+nest the download or break it, and `₹` and `:` — the symbols a real campaign
+name actually carries — cannot either.
+
+Fixed on the way past: the `buildExportPayload` doc comment had been left
+stacked above `exportFileName`'s own, describing the function below the one it
+sat on. Same defect as the two stacked JSDoc blocks in `promptManuals.ts`.
+
+Reverts, each run: the download back to the id fails **1**; the id back in the
+fallback chain fails **1**; the filesystem-safe slug removed fails **2**.
+
+**1673 unit (from 1669; 4 new) and 118 agent-proto**, typechecks and build
+clean. Nothing in the locked list touched, no drip list or wizard, no
+utilisation, no live run.
+
+### Worth recording about provenance
+
+Two sessions wrote into one tree on the same day, and the previous entry here
+reported `src/designer/` as having no diff — from a `git diff --stat … |
+tail -3` that cut the designer line off the output. The work was fine; the
+check was not. `git status --short` before claiming a path is clean.

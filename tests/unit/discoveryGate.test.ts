@@ -263,11 +263,21 @@ describe('the orchestrator wires the gate in, not the model', () => {
     const src = await import('node:fs').then((fs) =>
       fs.readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8'),
     );
-    expect(src).toMatch(/const gate = evaluateDiscovery\(/);
-    // GUARDED BY THE RECORD. The outcome still decides the Brief screen, and
-    // it may only reach it while the brief is open — commentary on a settled
-    // record is not a questionnaire.
-    expect(src).toMatch(/if \(!briefClosed && gate\.outcome === 'ask_questions'\)/);
+    // INVERTED 2026-10-27, and this is the product of the slice. The
+    // orchestrator must NOT call `evaluateDiscovery`: it decided the screen —
+    // `ask_questions`, `request_evidence`, `strategy_with_questions` and the
+    // `recordQuestions` that wrote them — on top of `decide`, which already
+    // answers completeness. Two writers for one question, and the second one
+    // topped up the model's list with its own rows.
+    //
+    // KEEPING THE CALL "for the open items and the reason" is exactly what
+    // this assertion would have gone green on while the dual writer stayed,
+    // so it pins the absence rather than a shape.
+    expect(src).not.toMatch(/evaluateDiscovery\(/);
+    // The doors are still guarded by the record: commentary on a settled
+    // brief is not a questionnaire.
+    expect(src).toMatch(/if \(!briefClosed && askedByModel\.length\)/);
+    expect(src).toMatch(/if \(!briefClosed && freshEvidence\.length\)/);
     expect(src).not.toMatch(/parsed\.value\.action === 'ask' && !limitReached/);
     expect(src).toMatch(/mayGenerate\(session, brief\.objectiveFingerprint\)/);
   });

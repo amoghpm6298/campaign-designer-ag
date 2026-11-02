@@ -47,7 +47,6 @@ import {
   type RequirementVerdict,
 } from './capability';
 import {
-  evaluateDiscovery,
   recordAddressedQuestions,
   recordQuestionResolutions,
   asImpact,
@@ -57,6 +56,7 @@ import {
   type QuestionImpact,
   fingerprint,
   newBrief,
+  evidenceAlreadyHandled,
   recordQuestions,
   recordEvidenceRequests,
   resolveEvidence,
@@ -79,7 +79,7 @@ import {
 } from './discovery';
 import { detectStatedValues, mergeStatedValues, unresolvedConflicts } from './conflicts';
 import { eventConditionTarget } from '../src/data/conditionValidation';
-import { mayGenerate, newSession, transition, invalidateConfirmation, type SessionState } from './campaignState';
+import { canTransition, mayGenerate, newSession, transition, invalidateConfirmation, type SessionState } from './campaignState';
 import { DC_NODE_META } from '../src/data/nodeMeta';
 import { dcAddFormValid } from '../src/reducer/defaultConfig';
 import { loadCapabilities, knowledgeForPrompt, type KnowledgeBase } from './knowledge';
@@ -731,7 +731,11 @@ export async function* orchestrateStream(
       // The user may volunteer that data does not exist without having been
       // asked for it. Capture that as a limitation so the strategy carries it.
       brief = noteVolunteeredLimitation(brief, latestUserText);
-    } else if (!saysBuildNow(latestUserText) && objectiveChangedMaterially(brief.objective, latestUserText)) {
+    } else if (
+      !saysBuildNow(latestUserText) &&
+      !isRefinement &&
+      objectiveChangedMaterially(brief.objective, latestUserText)
+    ) {
       // A TYPED CONFIRMATION IS NOT A NEW BRIEF. "Confirmed. Build this
       // campaign." shares almost no words with any objective, so it read as a
       // changed one: the approval was withdrawn and the machine reset to
@@ -740,6 +744,28 @@ export async function* orchestrateStream(
       // which is one more way the two doors were different products.
       // `saysBuildNow` is an exact match on that one sentence, so this cannot
       // swallow a real change of direction.
+      //
+      // AND A CHANGE TO A BUILT CAMPAIGN IS NOT A NEW BRIEF EITHER.
+      //
+      // MEASURED. After Confirm the manager typed a change to the same
+      // journey — "add one more send on the high-ticket arm", "make high
+      // ticket more aggressive". Word overlap against the objective is under
+      // 0.5, so this stamped `UNDERSTANDING_GOAL` and withdrew the
+      // confirmation. `req.currentCampaign` was still posted, so the turn was
+      // ALSO a refinement and a build turn, and the refinement compile then
+      // ran `transition(UNDERSTANDING_GOAL, 'GENERATING_CAMPAIGN')` — illegal.
+      // It threw, and the graph did not update.
+      //
+      // `saysBuildNow` already carved Confirm out of this reset; apply-change
+      // was not carved out. If `currentCampaign` is set, this turn is a change
+      // to THAT campaign: the user's line is an instruction about a journey
+      // that is on screen, not a replacement objective. A genuinely new
+      // campaign is New chat or the UI reset — the application does not guess
+      // on a canvas that is already there.
+      //
+      // `objectiveChangedMaterially` and its 0.5 threshold are untouched, and
+      // WITHOUT a graph a real new objective still withdraws the confirmation
+      // and resets, which is what `objectiveClarification` pins.
       // The CONFIRMATION is withdrawn. The discovery is not thrown away.
       //
       // This used to rebuild the brief from whatever had just been typed —
@@ -2674,12 +2700,17 @@ export async function* orchestrateStream(
   // ===================================================================
   // THE DECISION, in one place.
   //
-  // `decide()` is now the authority on whether the agent may propose, and
-  // every refusal it returns carries the mutation that clears it. What follows
-  // is a deliberate DEMOTION rather than a deletion: `evaluateDiscovery` keeps
-  // its second job of supplying a fallback question when the agent has not
-  // asked one, because "never leave a refusal with nothing to answer" is a
-  // separate and still-correct rule. It no longer decides anything.
+  // `decide()` is THE authority on whether the agent may propose, and every
+  // refusal it returns carries the mutation that clears it.
+  //
+  // This block used to describe a DEMOTION: `evaluateDiscovery` keeping a
+  // second job of supplying a fallback question when the agent had not asked
+  // one. That job is gone with the call — the rule it served ("never leave a
+  // refusal with nothing to answer") is still correct and is now served by the
+  // blocks themselves, each of which already names what is missing in the
+  // manager's own terms. See `briefQuestionsForHold` below: the model's own
+  // questions when it asked any, the block reasons when it did not, and
+  // nothing appended to a model that did ask.
   //
   // WHY. Sixteen mechanisms could block the agent and none had to say what
   // would clear it. Three deadlocks came out of that in one session, and four
@@ -2721,24 +2752,54 @@ export async function* orchestrateStream(
   // record and nothing else — the same answer `turnPhase` gives the tool
   // list — so the plan checks cannot move it.
   const briefClosed = phaseNow() !== 'asking';
-  const gate = evaluateDiscovery({
-    appOpenItems,
-    briefClosed,
-    brief,
-    modelAction:
-      parsed.value.action === 'ask' ? 'ask' : parsed.value.action === 'request_evidence' ? 'request_evidence' : 'propose',
-    modelQuestions:
-      parsed.value.action === 'ask'
-        ? (parsed.value.questions ?? []).map((q) => (typeof q === 'string' ? q : q.text))
-        : [],
-    modelEvidence: parsed.value.action === 'request_evidence' ? (parsed.value.evidence ?? []) : [],
-    openItems: proposed?.openItems ?? [],
-    // Read only if the model still emits the old shape.
-    declaredUnknowns: proposed?.strategy?.unknowns ?? [],
-    forced: limitReached,
-    maxRounds: MAX_DISCOVERY_ROUNDS,
-    isRefinement,
-  });
+
+  // ===================================================================
+  // ONE WRITER FOR "ARE WE DONE ASKING".
+  //
+  // `evaluateDiscovery` IS NOT CALLED HERE. It used to decide the screen —
+  // `ask_questions`, `request_evidence`, `strategy_with_questions`, and the
+  // `recordQuestions(..., gate.questions)` that wrote them to the brief — on
+  // top of `decide()`, which already answers completeness. Two writers for one
+  // question, and the second one filled in: the "Who tends to do this already
+  // today" and "In your own words" rows a manager kept reading beside the
+  // model's own two were that function topping up the list.
+  //
+  // DELETED RATHER THAN DEMOTED. Keeping the call "for the open items and the
+  // reason" is what a grep test goes green on while the dual writer is still
+  // there. Completeness is `decide` / `turnPhase` and nothing else;
+  // `evaluateDiscovery` stays in `discovery.ts` for its own unit tests and the
+  // orchestrator neither imports nor invokes it.
+  //
+  // What the three fields were, and what answers them now:
+  //
+  //  - the ask    — the model's own questions, capped, and NOTHING appended.
+  //  - the hold   — `decision.blocks`, each of which already names what
+  //                 clears it in the manager's terms.
+  //  - open points on a plan — `proposed.openItems` plus what the compiler
+  //                 reported, which `applyOutputTool` has already folded in.
+  const askedByModel =
+    parsed.value.action === 'ask'
+      ? (parsed.value.questions ?? [])
+          .map((q) => (typeof q === 'string' ? q : String((q as { text?: string }).text ?? '')))
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .slice(0, MAX_QUESTIONS_PER_ROUND)
+      : [];
+  // THE ALREADY-HANDLED FILTER IS KEPT. Re-asking for data the manager has
+  // already supplied or declined is the loop `evidenceAlreadyHandled` exists
+  // to stop, and it is a fact about the record rather than an outcome enum.
+  const freshEvidence =
+    parsed.value.action === 'request_evidence'
+      ? (parsed.value.evidence ?? []).filter((e) => !evidenceAlreadyHandled(e, brief)).slice(0, MAX_QUESTIONS_PER_ROUND)
+      : [];
+  /** The one sentence the client shows as the reason this turn asked. */
+  const holdReason = decision.blocks[0]?.reason ?? '';
+  // OPEN POINTS ON A PLAN are the application's own plus the ones that came
+  // back with the payload — and `applyOutputTool` has already folded the
+  // compiler's limitations and substitutions into those. Never
+  // `strategy_with_questions`, which was the gate forming a question list for
+  // a turn whose job is a decision.
+  const planOpenItems = [...(appOpenItems ?? []), ...(proposed?.openItems ?? [])];
 
   // COMMENTARY CANNOT REOPEN THE BRIEF, and these two returns are the doors
   // it came through. Each sets `phase: 'discovery'` — `request_evidence` with
@@ -2750,8 +2811,8 @@ export async function* orchestrateStream(
   // record (it takes `briefClosed` above), so these guards are the second
   // half of the same rule, kept explicit because a future outcome could reach
   // them the same way.
-  if (!briefClosed && gate.outcome === 'request_evidence') {
-    brief = recordEvidenceRequests(brief, gate.evidence);
+  if (!briefClosed && freshEvidence.length) {
+    brief = recordEvidenceRequests(brief, freshEvidence);
     session = {
       ...session,
       state: transition(
@@ -2759,9 +2820,9 @@ export async function* orchestrateStream(
         'AWAITING_USER_ANSWER',
       ),
     };
-    em.emit('discovery.questions', 'discovery', `Asked for ${gate.evidence.length} piece(s) of data`, {
+    em.emit('discovery.questions', 'discovery', `Asked for ${freshEvidence.length} piece(s) of data`, {
       detail: 'This is a request for aggregated data, not a prerequisite — you can say it is unavailable and the agent will proceed.',
-      data: { evidence: gate.evidence, round: brief.rounds },
+      data: { evidence: freshEvidence, round: brief.rounds },
     });
     em.emit('run.completed', 'discovery', 'Waiting for your data or a reply that it is unavailable', { correlationId: 'run' });
     yield* drain();
@@ -2773,18 +2834,18 @@ export async function* orchestrateStream(
         (parsed.value.action === 'request_evidence' ? parsed.value.rationale : undefined) ??
         'Some aggregated data would materially improve this design.',
       questions: [],
-      evidenceRequests: gate.evidence,
+      evidenceRequests: freshEvidence,
       discoveryRounds: brief.rounds,
       discoveryLimitReached: brief.rounds >= MAX_DISCOVERY_ROUNDS,
       brief,
       session,
-      discoveryReason: gate.reason,
+      discoveryReason: holdReason,
       usage,
     };
   }
 
-  if (!briefClosed && gate.outcome === 'ask_questions') {
-    brief = recordQuestions(brief, withImpact(gate.questions));
+  if (!briefClosed && askedByModel.length) {
+    brief = recordQuestions(brief, withImpact(askedByModel));
     // Always route through DISCOVERING: both UNDERSTANDING_GOAL (the first
     // turn) and AWAITING_USER_ANSWER (a follow-up round) reach the question
     // state that way, and neither may jump there directly.
@@ -2795,9 +2856,9 @@ export async function* orchestrateStream(
         'AWAITING_USER_ANSWER',
       ),
     };
-    em.emit('discovery.questions', 'discovery', `Asked ${gate.questions.length} question${gate.questions.length === 1 ? '' : 's'}`, {
-      detail: gate.overrodeModel ? 'The agent proposed early, so its own open unknowns were put to you first.' : gate.reason,
-      data: { questions: gate.questions, reason: gate.reason, overrodeModel: gate.overrodeModel, round: brief.rounds },
+    em.emit('discovery.questions', 'discovery', `Asked ${askedByModel.length} question${askedByModel.length === 1 ? '' : 's'}`, {
+      detail: 'The agent needs more information before it can design this.',
+      data: { questions: askedByModel, round: brief.rounds },
     });
     em.emit('run.completed', 'discovery', 'Waiting for your answer', { correlationId: 'run' });
     yield* drain();
@@ -2815,15 +2876,15 @@ export async function* orchestrateStream(
       // properly:") and drops the enumeration, and only ever runs when a list
       // is actually going out.
       reply: withoutNumberedTail(
-        ((parsed.value.action === 'ask' ? parsed.value.rationale : gate.reason) ??
+        ((parsed.value.action === 'ask' ? parsed.value.rationale : undefined) ??
           'A few questions before I design this.') as string,
       ),
-      questions: gate.questions,
+      questions: askedByModel,
       discoveryRounds: brief.rounds,
       discoveryLimitReached: brief.rounds >= MAX_DISCOVERY_ROUNDS,
       brief,
       session,
-      discoveryReason: gate.reason,
+      discoveryReason: holdReason,
       usage,
     };
   }
@@ -2871,7 +2932,16 @@ export async function* orchestrateStream(
   // say. What is left after that is a change to the PLAN, which is a
   // different screen with a different reply and no questions at all.
   if (!decision.proceed && !approvedPlan) {
-    brief = briefClosed ? brief : recordQuestions(brief, withImpact(gate.questions));
+    // WHAT GOES ON THE WIRE IS WHAT GOES ON THE RECORD. One list, computed
+    // once: the model's own questions when it asked any, else the blocks'
+    // own reasons so a hold is never an empty ask. Nothing is appended to a
+    // model that did ask, which is the fill-in this slice removes.
+    const briefQuestionsForHold = briefClosed
+      ? []
+      : askedByModel.length
+        ? askedByModel
+        : decision.blocks.slice(0, MAX_QUESTIONS_PER_ROUND).map((b) => b.reason);
+    brief = briefClosed ? brief : recordQuestions(brief, withImpact(briefQuestionsForHold));
     // The fork-refusal counter is gone with the veto that fed it. It counted
     // how often the APPLICATION had given up; the bound that matters is how
     // often the USER has been asked the same thing, and that lives in
@@ -2885,11 +2955,10 @@ export async function* orchestrateStream(
     };
     const open = outstandingDimensions(brief);
     em.emit('discovery.questions', 'discovery', 'Discovery continues', {
-      detail: gate.reason,
+      detail: holdReason,
       data: {
-        reason: gate.reason,
-        overrodeModel: gate.overrodeModel,
-        questions: gate.questions,
+        reason: holdReason,
+        questions: briefQuestionsForHold,
         // Names and statuses only. No strategy and no blueprint leave this
         // branch, so nothing the gate refused can reach the client.
         openDimensions: open.map((d) => ({ name: d.name, status: d.status })),
@@ -2958,15 +3027,12 @@ export async function* orchestrateStream(
     // `decision.advice` already carries the journey sentences — `decide`
     // aligns the same proposal and merges them — so they are not appended a
     // second time here.
-    const briefQuestions = briefClosed
-      ? []
-      : gate.questions.length
-        ? gate.questions
-        : // NEVER AN EMPTY ASK WHILE THE RECORD IS OPEN. The blocks each name
-          // the thing that is missing, in the manager's own terms, and
-          // `renderBlocks` is already saying them — but the client's question
-          // list is what it offers an answer box for.
-          decision.blocks.slice(0, 3).map((b) => b.reason);
+    // THE SAME LIST THE RECORD WAS GIVEN, so the wire and the brief cannot
+    // disagree. NEVER AN EMPTY ASK WHILE THE RECORD IS OPEN: the blocks each
+    // name the thing that is missing in the manager's own terms, and
+    // `renderBlocks` is already saying them — but the client's question list
+    // is what it offers an answer box for.
+    const briefQuestions = briefQuestionsForHold;
     const prose = briefQuestions.length ? withoutNumberedTail(heldProse) : heldProse;
     // THE HOLD IS THE POINT OF THIS TURN, and the Plan sentence does not
     // replace it.
@@ -3025,7 +3091,7 @@ export async function* orchestrateStream(
       discoveryLimitReached: brief.rounds >= MAX_DISCOVERY_ROUNDS,
       brief,
       session,
-      discoveryReason: gate.reason,
+      discoveryReason: holdReason,
       usage,
     };
   }
@@ -3056,7 +3122,7 @@ export async function* orchestrateStream(
       correlationId: 'run',
     });
     yield* drain();
-    const asked = gate.openItems.map((i) => i.question).filter(Boolean);
+    const asked = planOpenItems.map((i) => i.question).filter(Boolean);
     return {
       ...base,
       phase: planOrRevise(filed),
@@ -3260,7 +3326,7 @@ export async function* orchestrateStream(
       reply: [
         renderStrategy(
         strategy,
-        gate.openItems,
+        planOpenItems,
         undefined,
         brief.questionResolutions ?? [],
         brief.questions,
@@ -3294,7 +3360,7 @@ export async function* orchestrateStream(
       //
       // NOTHING IS HIDDEN. These items are `strategic-ambiguity` by
       // construction (`isBlockingItem`), they are already in
-      // `gate.openItems` three lines above, and `renderStrategy` prints that
+      // `planOpenItems` three lines above, and `renderStrategy` prints that
       // kind under "Worth settling before this is built". The manager reads
       // every one of them — as open points on a plan they may still approve,
       // rather than as a questionnaire.
@@ -3307,7 +3373,7 @@ export async function* orchestrateStream(
       discoveryLimitReached: brief.rounds >= MAX_DISCOVERY_ROUNDS,
       brief,
       session,
-      discoveryReason: gate.reason,
+      discoveryReason: holdReason,
       usage,
     };
   }
@@ -3332,6 +3398,37 @@ export async function* orchestrateStream(
     // that was never generated. A rule nothing is checked against is not a
     // rule, and a refinement rebuilds the journey exactly as a first build
     // does.
+    //
+    // A REFINEMENT WITH A GRAPH BUT A PRE-BUILD STATE IS LIFTED FIRST.
+    //
+    // After a real Confirm the state is `EXPORT_ELIGIBLE` or
+    // `CONFIGURATION_INCOMPLETE`, and both may generate — that path is
+    // unchanged. `CONFIGURATION_INCOMPLETE` is the honest description of the
+    // rest — already built, configuration may still be incomplete — and it is
+    // an ASSIGNMENT of a legal built state, not a new edge.
+    //
+    // EVERY STATE THAT CANNOT GENERATE, and the breadth is deliberate rather
+    // than incidental. An earlier version of this comment named two causes
+    // (the reset bug above, a session restored without its state) and read as
+    // if those were the only ones; the condition is `!canTransition`, so it
+    // also catches `DISCOVERING`, `AWAITING_USER_ANSWER`, `STRATEGY_READY`
+    // and `FAILED`.
+    //
+    // That is the right set, because `isRefinement` means a campaign is on
+    // screen: the graph is the evidence, and a pre-build state alongside one
+    // is stale whichever pre-build state it is. `FAILED` is included on
+    // purpose — the last turn erroring is not a reason to refuse a change to a
+    // journey that exists, and refusing there is the shape this file keeps
+    // removing. What it does NOT do is invent a door: a session with no graph
+    // never reaches here, because this whole block is `if (isRefinement)`.
+    //
+    // `UNDERSTANDING_GOAL -> GENERATING_CAMPAIGN` stays illegal in `LEGAL`,
+    // and the fix is the stamp rather than the legality: widening the table
+    // would delete the one guarantee it offers, that no campaign exists
+    // without having passed through generation.
+    if (!canTransition(session.state, 'GENERATING_CAMPAIGN')) {
+      session = { ...session, state: 'CONFIGURATION_INCOMPLETE' };
+    }
     session = { ...session, state: transition(session.state, 'GENERATING_CAMPAIGN') };
     const out = buildAndValidate(req, tenant, bank, availableChannels, blueprint, strategy, em, reactionGap);
     // THE SAME REPORT THE CONFIRM DOOR MAKES. Deduped, because this path has
@@ -3372,25 +3469,21 @@ export async function* orchestrateStream(
   // OUTSTANDING, which makes the manager's next typed message an answer to a
   // question rather than a decision about the plan — so even on this path it
   // is the wrong bookkeeping for a turn that is asking for approval.
-  const withQuestions = gate.outcome === 'strategy_with_questions';
 
   em.emit('strategy.proposed', 'strategy', 'Strategy ready for your review', {
-    detail: withQuestions
-      ? 'Nothing has been built yet. Some points are still open and are listed with the plan; confirm to build it as it stands.'
-      : 'Nothing has been built yet — confirm to generate the campaign.',
+    detail: 'Nothing has been built yet — confirm to generate the campaign.',
     data: {
       summary: strategy?.summary,
       steps: blueprint.steps.length,
-      openItems: gate.openItems,
-      questions: gate.questions,
+      openItems: planOpenItems,
     },
   });
-  if (withQuestions) {
+  if (planOpenItems.length) {
     // Still recorded in the activity panel — the run should say what was left
     // open — but named as what it is now: points carried with the plan.
-    em.emit('discovery.questions', 'strategy', `${gate.questions.length} point(s) still open on this plan`, {
-      detail: gate.reason,
-      data: { openPoints: gate.questions, round: brief.rounds },
+    em.emit('discovery.questions', 'strategy', `${planOpenItems.length} point(s) still open on this plan`, {
+      detail: 'Recorded against the plan rather than held against it.',
+      data: { openPoints: planOpenItems.map((i) => i.question), round: brief.rounds },
     });
   }
   em.emit('run.completed', 'strategy', 'Waiting for you to approve the plan', { correlationId: 'run' });
@@ -3613,7 +3706,7 @@ export async function* orchestrateStream(
   const campaignSummary = journeySummary(blueprint);
 
   const replyText = renderStrategy(
-    strategy, gate.openItems, readiness, brief.questionResolutions ?? [], brief.questions, unsupportedClaims(optionAudits),
+    strategy, planOpenItems, readiness, brief.questionResolutions ?? [], brief.questions, unsupportedClaims(optionAudits),
   ).replace(/^/, campaignSummary ? campaignSummary.trim() + '\n\n' : '') + gapSection;
   brief = recordApplicationVerdict(brief, {
     comparison: strategy?.architectureComparison,
@@ -3708,7 +3801,7 @@ export async function* orchestrateStream(
     discoveryLimitReached: brief.rounds >= MAX_DISCOVERY_ROUNDS,
     brief,
     session,
-    discoveryReason: gate.reason,
+    discoveryReason: holdReason,
     usage,
   };
 }

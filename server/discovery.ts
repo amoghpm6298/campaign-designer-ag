@@ -840,7 +840,7 @@ export function evaluateDiscovery(input: GateInput): GateDecision {
 //   by answering it.
 
 /** Has this data already been requested, supplied, or declined? */
-function evidenceAlreadyHandled(
+export function evidenceAlreadyHandled(
   candidate: { question: string; fields: string[] },
   brief: WorkingBrief,
 ): boolean {

@@ -39,7 +39,19 @@ describe('the exact EMI opening message', () => {
     const out = outstanding(asked).map((q) => q.text);
     expect(out.join(' ')).not.toMatch(/benchmark|first run/i);
     expect(out).toContain(COUNT_VS_VALUE);
-    expect(out).toContain(nextCustomerQuestion(brief, { skipSuccess: true }));
+    // RETARGETED 2026-10-28. It used to require `nextCustomerQuestion` to be
+    // appended here — "and still asks who converts" — which is the row the
+    // manager never asked for. MEASURED, `eval/runs/ui-s-1793168820316`: that
+    // inject put "Who tends to do this already today" on turn 1 and "In your
+    // own words, what do you think is stopping the rest?" on turn 2, over two
+    // questions the model had asked each time.
+    //
+    // The closed-history filter still drops the benchmark reprint, which is
+    // what this test is really about. What is left is the one question that
+    // survived, and nothing else.
+    expect(out).toHaveLength(1);
+    expect(out).not.toContain(nextCustomerQuestion(brief, { skipSuccess: true }));
+    expect(asked.questions!.every((q) => q.author === 'agent')).toBe(true);
   });
 
   it('does not add a second converters question when the agent already asked who converts', () => {

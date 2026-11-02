@@ -285,7 +285,14 @@ describe('what cannot be an arm', () => {
         ],
       },
     ]);
-    expect(out.issues.map((i) => i.problem).join(' ')).toMatch(/already routed by an earlier arm/);
+    // RETARGETED 2026-10-27: the sentence names the arm that HOLDS the status
+    // rather than asserting it came earlier. Both arms message here, so
+    // earliest-wins applies and "Read" is the holder — but the wording is no
+    // longer a claim about order, because the arm that messages can be the
+    // later one, and a refusal quotes this text verbatim.
+    expect(out.issues.map((i) => i.problem).join(' ')).toMatch(
+      /READ is already routed by "Read" on this split, so "Also read" cannot also claim it/,
+    );
     const cfg = outcomeSplits(out.graph)[0]._config as { branches: { values: string[] }[] };
     expect(cfg.branches).toHaveLength(1);
     expect(cfg.branches[0].values).toEqual(['READ', 'DELIVERED']);

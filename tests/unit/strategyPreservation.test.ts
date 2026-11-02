@@ -241,20 +241,28 @@ describe('the orchestrator carries the strategy through the same return', () => 
     expect(tail).toMatch(/questions: \[\],/);
     expect(tail).not.toMatch(/questions: gate\.questions/);
     // The open items still reach the reply. Same source, same render.
-    expect(src).toMatch(/const replyText = renderStrategy\(\n?\s*strategy, gate\.openItems,/);
+    expect(src).toMatch(/const replyText = renderStrategy\(\n?\s*strategy, planOpenItems,/);
   });
 
   it('no longer routes a proposal into the question-only path', () => {
     // That path still exists for a model that asked instead of proposing, and
     // it still returns no strategy — correctly, because there is none.
     const askBlock = src.slice(
-      src.indexOf("if (!briefClosed && gate.outcome === 'ask_questions')"),
+      src.indexOf("if (!briefClosed && askedByModel.length) {"),
       src.indexOf('// Discovery is complete.'),
     );
     expect(askBlock).toMatch(/phase: 'discovery'/);
     expect(askBlock).not.toMatch(/strategy,/);
-    // The gate can no longer send a proposal here.
-    expect(src).toMatch(/strategy_with_questions/);
+    // INVERTED 2026-10-27. This read `toMatch(/strategy_with_questions/)`,
+    // which the orchestrator's own comments about deleting that outcome
+    // satisfy — so reverting the branch would have kept it green. Same trap as
+    // the bare `/evaluateDiscovery/` grep. The honest pin is the ABSENCE of the
+    // branch and of the flag it set.
+    expect(src).not.toMatch(/outcome === 'strategy_with_questions'/);
+    expect(src).not.toMatch(/const withQuestions/);
+    // What replaced it: open points travel with the plan, and the emit fires
+    // on there being some rather than on an outcome enum.
+    expect(src).toMatch(/if \(planOpenItems\.length\) \{/);
   });
 });
 

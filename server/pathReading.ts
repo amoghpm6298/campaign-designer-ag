@@ -344,7 +344,23 @@ export function coSentPairs(steps: unknown[] | undefined): { a: Set<string>; b: 
         forked = true;
         // EACH ARM IS ITS OWN CHAIN, carrying what came before it. Siblings
         // are never compared with each other, which is the whole point.
-        for (const b of branches) walkChain(b, [...chain]);
+        //
+        // EXCEPT ACROSS AN OUTCOME FORK, WHICH PASSES TIME BY DEFINITION.
+        //
+        // An arm of a delivery fork only fires BECAUSE the previous send
+        // landed or did not, so you cannot know READ until after it was
+        // delivered — the arm's message is a reaction, never a second message
+        // at the same moment. Carrying the chain across one reported the exact
+        // journey this product asks for as fatigue: a WhatsApp send, a fork on
+        // what it did, and the SMS retry on the unread arm came back
+        // `channel-spray` whenever no `delayDays` were declared. That is the
+        // lying-advice-beside-the-button defect, in the function written to
+        // remove it.
+        //
+        // A who-split or an experiment does NOT pass time — those arms
+        // continue the same moment — so they still carry what came before.
+        const carried = forkKind(step) === 'outcome' ? [] : [...chain];
+        for (const b of branches) walkChain(b, carried.slice());
       }
     }
     if (!forked) compare(chain);

@@ -88,8 +88,11 @@ describe('BRIEF — the record is open, so there is a question', () => {
     const orch = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
     // The model's questions where it asked the right thing, the block reasons
     // where it did not. `questions: []` on an open record is unconstructable.
-    expect(orch).toMatch(/const briefQuestions = briefClosed/);
-    expect(orch).toMatch(/decision\.blocks\.slice\(0, 3\)\.map\(\(b\) => b\.reason\)/);
+    // RETARGETED 2026-10-27: the list is computed ONCE, above the record
+    // write, so the wire and the brief cannot disagree. The fill-in from
+    // `evaluateDiscovery` is gone; the blocks are the only fallback.
+    expect(orch).toMatch(/const briefQuestionsForHold = briefClosed/);
+    expect(orch).toMatch(/decision\.blocks\.slice\(0, MAX_QUESTIONS_PER_ROUND\)\.map\(\(b\) => b\.reason\)/);
     expect(orch).toMatch(/questions: briefQuestions,/);
   });
 
@@ -591,7 +594,7 @@ describe('the remaining diary doors', () => {
       // ask in `evidenceRequests`, which the client renders with its own "we
       // do not have that" reply. It is also reachable only while the record is
       // open — `!briefClosed` guards it — so it cannot appear beside a plan.
-      if (/evidenceRequests: gate\.evidence,/.test(window)) return;
+      if (/evidenceRequests: freshEvidence,/.test(window)) return;
       offenders.push(`line ${i + 1}`);
     });
     expect(offenders).toEqual([]);
@@ -1230,16 +1233,20 @@ describe('a numbered list is not restated in the bubble', () => {
     expect(String(res.reply)).not.toMatch(/^\s*\d[.)]\s/m);
   });
 
-  it('THE RECORD IS CAPPED TOO, not only the response list', async () => {
-    // MEASURED, live turn 1: three asked, a fourth injected, the response
-    // sliced to three — and the fourth stayed OUTSTANDING on the brief, so the
-    // next turn waited for an answer nobody had been shown.
+  it('THE RECORD IS WHAT THE MODEL ASKED, and it is capped', async () => {
+    // RETARGETED 2026-10-28, and the old assertions below were the defect.
     //
-    // THREE QUESTIONS THAT COVER NEITHER FINDING, so the inject genuinely
-    // fires. My first fixture used the three that include the converters ask
-    // in its own words — which the gap matcher now recognises, so nothing was
-    // injected, nothing exceeded three, and removing the cap left the test
-    // green. A cap test needs something to cap.
+    // MEASURED, `eval/runs/ui-s-1793168820316`. Turn 1: the model asked TWO
+    // and the manager read THREE — the third "Who tends to do this already
+    // today", `author: 'app'`. Turn 2: two more, and "In your own words, what
+    // do you think is stopping the rest?". `recordAsked` injected a canonical
+    // finding question whenever converters or barriers were missing, which is
+    // the same dual writer `evaluateDiscovery` was, through the ask TOOL
+    // instead of the JSON path.
+    //
+    // THREE QUESTIONS THAT COVER NEITHER FINDING. They used to make the
+    // inject fire; now they are simply the three that go out, which is the
+    // point. The cap still applies to the record and not only to the response.
     const NO_FINDINGS = [
       'When you say more conversions, do you mean the count or the value?',
       'Is the seven-day window the same for every eligible purchase?',
@@ -1255,15 +1262,22 @@ describe('a numbered list is not restated in the bubble', () => {
     const recorded = brief.questions ?? [];
     expect(recorded).toHaveLength(3);
     expect(outstanding(brief)).toHaveLength(3);
-    // WHICH THREE, and this is the half a length check cannot see. An
-    // inject-then-`slice(0, 3)` drops the INJECTED question — the converters
-    // ask, fourth in line — and still records exactly three. That is the
-    // original defect with a tidy brief: the gate blocks on converters, so
-    // the question it blocks on is the one that has to survive the cap.
-    expect(recorded.some((q) => /Who tends to do this already/i.test(q.text))).toBe(true);
-    expect(recorded.filter((q) => q.author === 'app')).toHaveLength(1);
-    // And a scoreboard question is what gives way, not a finding.
-    expect(recorded.map((q) => q.text)).not.toContain(NO_FINDINGS[2]);
+    // WHICH THREE: the three they asked, in the order they asked them. The old
+    // version of this asserted the opposite — that the canonical converters
+    // question SURVIVED the cap and a scoreboard question gave way — which is
+    // the row the manager never asked for.
+    expect(recorded.map((q) => q.text)).toEqual(NO_FINDINGS);
+    expect(recorded.every((q) => q.author === 'agent'), 'no row the model did not emit').toBe(true);
+    expect(recorded.some((q) => /Who tends to do this already/i.test(q.text))).toBe(false);
+    // COMPLETENESS IS NOT LOST, and it was never this function's job:
+    // `converters` is still unset, so `decide` still holds the next turn —
+    // with whatever the model asks then, or with the blocks' own reasons if it
+    // asks nothing.
+// MEASURED rather than guessed at: on this brief the standing block is
+    // `no-participation` (nothing has been answered yet), not
+    // `converters-unknown`. What matters is that the record still holds.
+    expect(decide(brief).proceed, 'the record is still open').toBe(false);
+    expect(decide(brief).blocks.length).toBeGreaterThan(0);
   });
 
   it('does not ask who-converts twice when they asked it in their own words', async () => {

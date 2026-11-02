@@ -233,7 +233,10 @@ describe('a proposal cannot quietly drop an unanswered question', () => {
   it('records the attribution before the gate reads the brief', () => {
     const record = src.indexOf('brief = recordAddressedQuestions(brief, parsed.value.answered)');
     expect(record).toBeGreaterThan(-1);
-    expect(record).toBeLessThan(src.indexOf('const gate = evaluateDiscovery'));
+    // RETARGETED 2026-10-27. `evaluateDiscovery` is not called here any more;
+    // `decide` is the one reader of the record, so that is what the write has
+    // to land before.
+    expect(record).toBeLessThan(src.indexOf('const decision = decide(brief, {'));
   });
 });
 

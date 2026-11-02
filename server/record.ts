@@ -22,7 +22,7 @@
 // false positive therefore costs a stated assumption the user can correct,
 // not a campaign built on a guess and not a loop. Every heuristic in this file
 // is one-directional for that reason.
-import { nextCustomerQuestion, readsAsDecline, recordAnswer, type WorkingBrief, type OpenQuestion, type DiscoveryDimension } from './discovery';
+import { readsAsDecline, recordAnswer, type WorkingBrief, type OpenQuestion, type DiscoveryDimension } from './discovery';
 
 /**
  * Who wrote the question.
@@ -102,44 +102,26 @@ const historyIsClosed = (brief: WorkingBrief): boolean => {
 const asksForClosedHistory = (text: string): boolean =>
   /\b(benchmark|baseline|target|conversion rate|historical|history|past campaigns?|previous campaigns?|first run|book amount|industry average)\b/i.test(text);
 
-/**
- * Has this turn already asked the customer question the gate would inject?
- *
- * Exact text is not enough: the live mixed list asked who converts in the
- * agent's own words, and injecting the canonical sentence on top would have
- * been two questions about the same gap. Count-versus-value mentions
- * "convert" but not who, so it does not count as covered.
- */
-const alreadyAsksCustomerGap = (instead: string, text: string): boolean => {
-  if (instead.startsWith('Who tends')) {
-    // THE GAP, NOT THE WORD "WHO". MEASURED, turn 1 of
-    // `eval/runs/ui-s-1792984906680`: the model asked "Have you noticed any
-    // pattern in WHICH CUSTOMERS already convert an eligible purchase to EMI
-    // on their own" — the converters question, in its own words — and the
-    // `\bwho\b` test missed it, so the canonical sentence went out as a
-    // fourth question about the same thing.
-    //
-    // What makes a question the converters ask is that it asks about the
-    // PEOPLE or PURCHASES that already do it: a subject (who / which
-    // customers / what kind of purchases / segment / cohort) plus the
-    // behaviour (convert, activate, do this already, a pattern in it).
-    //
-    // COUNT-VERSUS-VALUE IS STILL NOT COVERED, which is the case this must not
-    // over-match: "do you mean more transactions converted, or more value
-    // converted" says "converted" and names no subject at all.
-    const subject = /\bwho\b|\bwhich (customers?|cardholders?|purchases?|transactions?|accounts?|merchants?)\b|\bwhat (kind|sort|type)s? of (customers?|purchases?|transactions?)\b|\bsegment\b|\bcohort\b|\bprofile\b/i;
-    const behaviour = /\b(convert|converts|converting|converted|activates?|activating|do this|does this|take it up|already)\b/i;
-    const pattern = /\bpattern\b|\btrend\b|\bcorrelat/i;
-    return subject.test(text) && (behaviour.test(text) || pattern.test(text));
-  }
-  if (instead.startsWith('In your own words')) {
-    // The barrier ask, by the same test: something about why the rest do not
-    // act, however it is worded.
-    return /\b(stopping|stops|blocking|blocks|holding .{0,20}back|in the way)\b/i.test(text) ||
-      /\bwhy\b[^.?]{0,90}\b(not|don.?t|aren.?t|fail|do not)\b/i.test(text);
-  }
-  return text === instead;
-};
+// `alreadyAsksCustomerGap` LIVED HERE AND IS GONE WITH THE INJECT.
+//
+// It answered "has this turn already asked the customer question the gate
+// would inject", which only had a caller while something was being injected.
+//
+// NO GAP MATCHER AND NO INJECT SURVIVES ANYWHERE. Measured: zero matches for
+// either in `orchestrator.ts`. Job 2 deleted the `evaluateDiscovery` call that
+// was the JSON path's version, and this deleted the tool path's.
+//
+// Said plainly because this comment got it wrong twice. The first version
+// claimed the orchestrator still READ this function; the correction then
+// claimed it kept its OWN matcher "for its own inject suppression". Both were
+// invented, one sentence apart, and neither was measured before being written.
+//
+// THE ONLY FILL LEFT is the model asking nothing while the record is still
+// open, and it writes `decide().blocks` reasons — each already naming what
+// would clear it, in the manager's own terms. Four writers, all of them either
+// the model's own texts or those reasons: `orchestrator.ts` 2349 and 2489
+// (block reasons), 2848 (`askedByModel`), 2944 (`briefQuestionsForHold`, which
+// is one or the other), and this function (what it was given).
 
 export function recordAsked(
   brief: WorkingBrief,
@@ -169,28 +151,30 @@ export function recordAsked(
       ...(q.impact ? { impact: q.impact } : {}),
       ...(q.contingency ? { contingency: q.contingency } : {}),
     }));
-  // A MIXED LIST STILL HAS TO ASK ABOUT CUSTOMERS. Measured, ui-s-1792770967470
-  // turn 1: the history filter dropped the benchmark reprint and kept
-  // count-versus-value, so the "if every question was history, substitute"
-  // branch never ran — and the manager was not asked who converts. Inject
-  // whenever converters or barriers are still missing, even if another
-  // question survived. Skip the success-criteria branch: that is a later
-  // question, and it is what spent this live first turn.
-  const instead = nextCustomerQuestion(brief, { skipSuccess: true });
-  const outgoing = [
-    ...existing.filter((e) => e.answeredInRound === undefined),
-    ...fresh,
-  ];
-  const covered = outgoing.some((q) => q.text === instead || (!!instead && alreadyAsksCustomerGap(instead, q.text)));
-  if (instead && !covered) {
-    fresh.push({
-      id: `q${brief.rounds}-${existing.length + fresh.length}`,
-      text: instead,
-      askedInRound: brief.rounds,
-      author: 'app' satisfies AskAuthor,
-      impact: 'shaping',
-    } as RecordedQuestion);
-  }
+  // THE RECORD GETS WHAT IT WAS GIVEN. NOTHING IS INJECTED.
+  //
+  // This used to append a canonical finding question — "Who tends to do this
+  // already today…", "In your own words, what do you think is stopping the
+  // rest?" — whenever `converters` or `barriers` were still missing, with
+  // `author: 'app'`.
+  //
+  // MEASURED, `eval/runs/ui-s-1793168820316`. Turn 1: the model asked TWO
+  // (how success is counted; the business reason for pushing EMI) and the
+  // manager read THREE, the third being "Who tends to do this already today".
+  // Turn 2: the model asked two more and the third was "In your own words,
+  // what do you think is stopping the rest?". Both app rows, neither asked for.
+  //
+  // IT IS THE SAME DUAL WRITER AS `evaluateDiscovery`, THROUGH THE OTHER
+  // DOOR. That one was deleted from `orchestrateStream` and the JSON `ask`
+  // path went quiet, so the pin for it stayed green — while live Discovery
+  // goes through the `ask_questions` TOOL, which lands here. One writer means
+  // this one too: `decide` / `turnPhase` answers "are we done asking", and if
+  // the model asked, the screen and the brief are exactly those texts.
+  //
+  // Completeness is not lost. `converters` still unset means `decide` still
+  // holds the next turn — with the questions the model asks, or with the
+  // blocks' own reasons if it asks none. Not with a row nobody emitted.
+  //
 
   // AT MOST THREE ON THE RECORD, NOT ONLY ON THE SCREEN.
   //
@@ -200,23 +184,14 @@ export function recordAsked(
   // for an answer nobody had been shown. Capping the list without capping the
   // record is how a question becomes unanswerable.
   //
-  // WHICH ONE GOES, when the inject pushes it over: a question that is NOT
-  // about a customer finding. Converters and barriers are what the gate blocks
-  // on, so they have to survive the cap; a scoreboard question can wait a
-  // turn. Nothing is dropped from `existing` — the cap applies to what this
-  // turn adds.
+  // The cap stays, and it is now a plain slice. The "which one gives way"
+  // re-ordering that used to sit here existed ONLY to protect the injected
+  // row from its own overflow — with nothing injected, `fresh` can exceed
+  // three only when the MODEL asks more than three, and then the first three
+  // it asked are the three that go out. Nothing is dropped from `existing`:
+  // the cap applies to what this turn adds.
   const CAP = 3;
-  if (fresh.length > CAP) {
-    const findingQuestion = (q: RecordedQuestion) =>
-      q.author === 'app' ||
-      (!!instead && alreadyAsksCustomerGap(instead, q.text)) ||
-      alreadyAsksCustomerGap('Who tends', q.text) ||
-      alreadyAsksCustomerGap('In your own words', q.text);
-    const keep = [...fresh.filter(findingQuestion), ...fresh.filter((q) => !findingQuestion(q))].slice(0, CAP);
-    // Re-ordered back into the order they were asked, so the ids and the
-    // reading order still match the conversation.
-    fresh = fresh.filter((q) => keep.includes(q));
-  }
+  fresh = fresh.slice(0, CAP);
   return { ...brief, questions: [...existing, ...fresh] };
 }
 

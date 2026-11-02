@@ -1251,12 +1251,17 @@ describe('the button and a typed yes are the same product', () => {
       messages: [
         { role: 'user', content: 'Get new cardholders activated.' },
         { role: 'assistant', content: 'Built.' },
-        // WORDED LIKE THE OBJECTIVE ON PURPOSE. A change request that shares
-        // nothing with the brief is read as a NEW objective and resets the
-        // machine to `UNDERSTANDING_GOAL`, which then cannot legally enter
-        // generation. That hazard is older than this slice and is not what
-        // this test is about.
-        { role: 'user', content: 'Get new cardholders activated a day later than this.' },
+        // A REAL CHANGE REQUEST, 2026-10-27. This used to be worded like the
+        // objective ON PURPOSE, because a change that shares nothing with the
+        // brief was read as a NEW objective, reset the machine to
+        // `UNDERSTANDING_GOAL`, and then could not legally enter generation.
+        // Wording around it was a dodge: the hazard was real and live.
+        //
+        // `objectiveChangedMaterially` is TRUE for this sentence, so the turn
+        // only reaches generation because `currentCampaign` carves it out of
+        // that reset. Reverting the carve-out fails this test with the live
+        // error.
+        { role: 'user', content: 'add one more send on the high ticket branch, make it more aggressive' },
       ],
     } as never);
     let out = await gen.next();
@@ -1281,6 +1286,136 @@ describe('the button and a typed yes are the same product', () => {
       'the uncited send must be stated on the blockers or under what this design cannot do',
     ).toMatch(/do not say which problem they solve/);
     expect(`${blockers} ${warnings}`).toMatch(/Nameless nudge/);
+  });
+
+  it('A CHANGE TO A BUILT CAMPAIGN IS NOT A NEW BRIEF, and does not throw', async () => {
+    // MEASURED. After Confirm the manager typed a change to the same journey —
+    // "add one more send on the high-ticket arm", "make high ticket more
+    // aggressive". Word overlap against the objective is under 0.5, so the
+    // session was stamped `UNDERSTANDING_GOAL` and the confirmation withdrawn.
+    // `currentCampaign` was still posted, so the turn was ALSO a refinement
+    // and a build turn, and the refinement compile then ran
+    // `transition(UNDERSTANDING_GOAL, 'GENERATING_CAMPAIGN')`:
+    //
+    //     Illegal state transition UNDERSTANDING_GOAL -> GENERATING_CAMPAIGN.
+    //
+    // It threw, and the graph did not update. `saysBuildNow` had already
+    // carved Confirm out of that reset; apply-change had not been.
+    script([buildTurn(COMPLETE), proseTurn('Changed.')]);
+    const gen = orchestrateStream({
+      sessionId: 'apply-change',
+      tenantId: 'TEN-IBL',
+      knowledge,
+      discoveryRounds: 3,
+      brief: filePath(settled(), COMPLETE),
+      // THE SAME PAYLOAD THE APP SENDS. `CampaignDesigner` posts
+      // `currentCampaign: campaign` on every converse turn once a campaign
+      // exists; a minimal real graph is enough to make this turn a change.
+      currentCampaign: { id: 'c1', name: 'Existing', root: { rootId: 'n1', nodes: {}, edges: [] } },
+      session: { state: 'EXPORT_ELIGIBLE', strategyVersion: 1, confirmation: null },
+      messages: [
+        { role: 'user', content: 'Get new cardholders activated.' },
+        { role: 'assistant', content: 'Built.' },
+        { role: 'user', content: 'add one more send on the high ticket branch, make it more aggressive' },
+      ],
+    } as never);
+    let out = await gen.next();
+    while (!out.done) out = await gen.next();
+    const res = out.value as unknown as Record<string, unknown>;
+
+    // THE ERROR IS GONE, and the turn reached generation rather than merely
+    // avoiding the throw.
+    expect(String(res.reply ?? ''), 'the live failure').not.toMatch(/Illegal state transition/);
+    expect(JSON.stringify(res)).not.toMatch(/Illegal state transition/);
+    expect(res.graph, 'the change reaches the canvas').toBeTruthy();
+    expect(res.phase).not.toBe('error');
+
+    // AND THE SESSION WAS NOT RESET.
+    //
+    // PINNED ON WHAT THE RESET LEAVES BEHIND, not on the final state. The
+    // first version of this asserted `state !== 'UNDERSTANDING_GOAL'`, which
+    // the lift below the compile restores either way — so removing the
+    // carve-out changed nothing and the whole suite stayed green. What the
+    // reset does that nothing undoes is bump `strategyVersion` and emit
+    // "Objective may have changed".
+    const session = res.session as { state?: string };
+    expect(session.state, 'never stamped back to the start').not.toBe('UNDERSTANDING_GOAL');
+    // `strategyVersion` is NOT the witness: the refinement compile bumps it
+    // legitimately, so it reads 2 either way. Measured, not assumed.
+    const titles = ((res.events as { title?: string }[] | undefined) ?? []).map((e) => e.title ?? '');
+    expect(titles, 'a change to this campaign is not a changed objective').not.toContain(
+      'Objective may have changed',
+    );
+
+    // THE TABLE IS UNTOUCHED. The fix is the stamp, not the legality: a
+    // pre-build state still cannot enter generation, which is the one
+    // guarantee `LEGAL` offers.
+    expect(canTransition('UNDERSTANDING_GOAL', 'GENERATING_CAMPAIGN')).toBe(false);
+    expect(canTransition('EXPORT_ELIGIBLE', 'GENERATING_CAMPAIGN')).toBe(true);
+    expect(canTransition('CONFIGURATION_INCOMPLETE', 'GENERATING_CAMPAIGN')).toBe(true);
+  });
+
+  it('a refinement whose session lost its state is lifted to a built one, not to a new edge', async () => {
+    // The same change, arriving with a session that says `UNDERSTANDING_GOAL`
+    // — this bug before the carve-out, or a session restored without its
+    // state. A campaign is demonstrably on screen, so the state is corrected
+    // to `CONFIGURATION_INCOMPLETE` (already built, configuration may still be
+    // incomplete) by ASSIGNMENT before the hop. No new edge in `LEGAL`.
+    script([buildTurn(COMPLETE), proseTurn('Changed.')]);
+    const gen = orchestrateStream({
+      sessionId: 'apply-change-lost',
+      tenantId: 'TEN-IBL',
+      knowledge,
+      discoveryRounds: 3,
+      brief: filePath(settled(), COMPLETE),
+      currentCampaign: { id: 'c1', name: 'Existing', root: { rootId: 'n1', nodes: {}, edges: [] } },
+      session: { state: 'UNDERSTANDING_GOAL', strategyVersion: 1, confirmation: null },
+      messages: [
+        { role: 'user', content: 'Get new cardholders activated.' },
+        { role: 'user', content: 'add one more send on the high ticket branch, make it more aggressive' },
+      ],
+    } as never);
+    let out = await gen.next();
+    while (!out.done) out = await gen.next();
+    const res = out.value as unknown as Record<string, unknown>;
+    expect(JSON.stringify(res)).not.toMatch(/Illegal state transition/);
+    expect(res.graph).toBeTruthy();
+  });
+
+  it('the lift covers EVERY state that cannot generate, FAILED included', async () => {
+    // FOUND IN REVIEW, 2026-11-02. The comment on the lift named two causes
+    // and read as if they were the only ones; the condition is
+    // `!canTransition(...)`, so it also catches DISCOVERING,
+    // AWAITING_USER_ANSWER, STRATEGY_READY and FAILED.
+    //
+    // That breadth is right and is now deliberate: `isRefinement` means a
+    // campaign is on screen, and a pre-build state alongside a graph is stale
+    // whichever one it is. FAILED is included on purpose — the last turn
+    // erroring is not a reason to refuse a change to a journey that exists.
+    for (const state of ['UNDERSTANDING_GOAL', 'DISCOVERING', 'AWAITING_USER_ANSWER', 'STRATEGY_READY', 'FAILED'] as const) {
+      expect(canTransition(state, 'GENERATING_CAMPAIGN'), `${state} may not generate directly`).toBe(false);
+      script([buildTurn(COMPLETE), proseTurn('Changed.')]);
+      const gen = orchestrateStream({
+        sessionId: `lift-${state}`,
+        tenantId: 'TEN-IBL',
+        knowledge,
+        discoveryRounds: 3,
+        brief: filePath(settled(), COMPLETE),
+        currentCampaign: { id: 'c1', name: 'Existing', root: { rootId: 'n1', nodes: {}, edges: [] } },
+        session: { state, strategyVersion: 1, confirmation: null },
+        messages: [
+          { role: 'user', content: 'Get new cardholders activated.' },
+          { role: 'user', content: 'add one more send on the high ticket branch, make it more aggressive' },
+        ],
+      } as never);
+      // eslint-disable-next-line no-await-in-loop
+      let out = await gen.next();
+      // eslint-disable-next-line no-await-in-loop
+      while (!out.done) out = await gen.next();
+      const res = out.value as unknown as Record<string, unknown>;
+      expect(JSON.stringify(res), `from ${state}`).not.toMatch(/Illegal state transition/);
+      expect(res.graph, `from ${state} the change still reaches the canvas`).toBeTruthy();
+    }
   });
 
   it('nothing claims the tail still runs a yes', () => {

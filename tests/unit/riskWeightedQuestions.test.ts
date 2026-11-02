@@ -200,7 +200,10 @@ describe('the orchestrator enforces the three outcomes', () => {
   it('records resolutions before the gate reads the brief', () => {
     const rec = src.indexOf('brief = recordQuestionResolutions(brief, parsed.value.questionResolutions)');
     expect(rec).toBeGreaterThan(-1);
-    expect(rec).toBeLessThan(src.indexOf('const gate = evaluateDiscovery'));
+    // RETARGETED 2026-10-27: `decide` is the one reader of the record, so a
+    // resolution has to land before it rather than before a gate call that no
+    // longer exists.
+    expect(rec).toBeLessThan(src.indexOf('const decision = decide(brief, {'));
   });
 
   it('returns no strategy through the fork branch', () => {
@@ -297,7 +300,7 @@ describe('a carried decision stays visible at the moment of confirmation', () =>
     // The defect was never in renderStrategy's ability to print this — it was
     // that the orchestrator never passed it.
     const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
-    expect(src).toMatch(/const replyText = renderStrategy\(\s*\n\s*strategy, gate\.openItems, readiness, brief\.questionResolutions \?\? \[\], brief\.questions, unsupportedClaims\(optionAudits\),\s*\n\s*\)/);
+    expect(src).toMatch(/const replyText = renderStrategy\(\s*\n\s*strategy, planOpenItems, readiness, brief\.questionResolutions \?\? \[\], brief\.questions, unsupportedClaims\(optionAudits\),\s*\n\s*\)/);
   });
 });
 

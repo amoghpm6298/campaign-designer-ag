@@ -319,15 +319,17 @@ describe('10 & 11. an evidence request is not a confirmation', () => {
       fs.readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8'),
     );
     const block = src.slice(
-      src.indexOf("if (!briefClosed && gate.outcome === 'request_evidence')"),
-      src.indexOf("if (!briefClosed && gate.outcome === 'ask_questions')"),
+      src.indexOf("if (!briefClosed && freshEvidence.length) {"),
+      src.indexOf("if (!briefClosed && askedByModel.length) {"),
     );
     expect(block).toMatch(/phase: 'discovery'/);
     // AND ONLY WHILE THE BRIEF IS OPEN. An evidence request on a settled
     // record used to return this same `discovery` phase with no questions at
     // all — the quieter half of the door that turned a leftover into
     // question 1 beside a plan.
-    expect(src).toMatch(/if \(!briefClosed && gate\.outcome === 'request_evidence'\)/);
+    // RETARGETED 2026-10-27: the door is the model having asked for data the
+    // record has not already handled, not a gate outcome enum.
+    expect(src).toMatch(/if \(!briefClosed && freshEvidence\.length\)/);
     // Nothing is built on this path.
     expect(block).not.toMatch(/buildAndValidate\(/);
     // ...and the user is told it is optional.
