@@ -1,0 +1,37 @@
+<svg viewBox="0 0 1000 212" role="img" aria-label="Two routes into discovery. If data is in the tenant the agent queries it. If there is none yet the agent asks your team. Both produce the same brief, and the same strategy.">
+  <g font-family="UncutSans,Inter,sans-serif">
+    <rect x="2" y="14" width="208" height="64" fill="#fff" stroke="rgba(0,0,0,.14)"/>
+    <text x="106" y="41" text-anchor="middle" fill="#111" font-size="13.5" font-weight="500">Your data is connected</text>
+    <text x="106" y="60" text-anchor="middle" fill="rgba(0,0,0,.6)" font-size="11.5">customers, transactions, campaigns</text>
+    <rect x="2" y="130" width="208" height="64" fill="#fff" stroke="rgba(0,0,0,.14)"/>
+    <text x="106" y="157" text-anchor="middle" fill="#111" font-size="13.5" font-weight="500">No data yet</text>
+    <text x="106" y="176" text-anchor="middle" fill="rgba(0,0,0,.6)" font-size="11.5">a new tenant, or a new programme</text>
+    <rect x="276" y="14" width="248" height="64" fill="rgba(42,217,196,.2)" stroke="rgba(29,64,60,.5)" stroke-dasharray="5 4"/>
+    <text x="400" y="41" text-anchor="middle" fill="#1D403C" font-size="13.5" font-weight="500">The agent queries it</text>
+    <text x="400" y="60" text-anchor="middle" fill="rgba(29,64,60,.72)" font-size="11.5">and asks only what the data cannot settle</text>
+    <rect x="276" y="130" width="248" height="64" fill="rgba(42,217,196,.2)" stroke="rgba(29,64,60,.5)" stroke-dasharray="5 4"/>
+    <text x="400" y="157" text-anchor="middle" fill="#1D403C" font-size="13.5" font-weight="500">The agent asks your team</text>
+    <text x="400" y="176" text-anchor="middle" fill="rgba(29,64,60,.72)" font-size="11.5">the questions a strategist would ask</text>
+    <rect x="606" y="72" width="210" height="64" fill="#fff" stroke="rgba(0,0,0,.14)"/>
+    <text x="711" y="99" text-anchor="middle" fill="#111" font-size="13.5" font-weight="500">The same brief</text>
+    <text x="711" y="118" text-anchor="middle" fill="rgba(0,0,0,.6)" font-size="11.5">who converts, what stops the rest</text>
+    <rect x="874" y="72" width="124" height="64" fill="#0F2E2A" stroke="#1D403C"/>
+    <text x="936" y="99" text-anchor="middle" fill="#2AD9C4" font-size="13.5" font-weight="500">Strategy</text>
+    <text x="936" y="118" text-anchor="middle" fill="rgba(255,255,255,.62)" font-size="11.5">and a journey</text>
+    <path d="M210 46 H276" stroke="#2AD9C4" stroke-width="1.2" stroke-dasharray="5 4" fill="none"/>
+    <path d="M210 162 H276" stroke="#2AD9C4" stroke-width="1.2" stroke-dasharray="5 4" fill="none"/>
+    <path d="M524 46 H566 V98 H606" stroke="#2AD9C4" stroke-width="1.2" stroke-dasharray="5 4" fill="none"/>
+    <path d="M524 162 H566 V110 H606" stroke="#2AD9C4" stroke-width="1.2" stroke-dasharray="5 4" fill="none"/>
+    <path d="M816 104 H874" stroke="#2AD9C4" stroke-width="1.2" stroke-dasharray="5 4" fill="none"/>
+    <rect x="207" y="43" width="6" height="6" fill="#fff" stroke="#2AD9C4"/>
+    <rect x="273" y="43" width="6" height="6" fill="#fff" stroke="#2AD9C4"/>
+    <rect x="207" y="159" width="6" height="6" fill="#fff" stroke="#2AD9C4"/>
+    <rect x="273" y="159" width="6" height="6" fill="#fff" stroke="#2AD9C4"/>
+    <rect x="521" y="43" width="6" height="6" fill="#fff" stroke="#2AD9C4"/>
+    <rect x="521" y="159" width="6" height="6" fill="#fff" stroke="#2AD9C4"/>
+    <rect x="603" y="95" width="6" height="6" fill="#fff" stroke="#2AD9C4"/>
+    <rect x="603" y="107" width="6" height="6" fill="#fff" stroke="#2AD9C4"/>
+    <rect x="813" y="101" width="6" height="6" fill="#fff" stroke="#2AD9C4"/>
+    <rect x="871" y="101" width="6" height="6" fill="#fff" stroke="#2AD9C4"/>
+  </g>
+</svg>

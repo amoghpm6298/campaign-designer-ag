@@ -1,0 +1,174 @@
+<title>Campaign Designer — Internal Sales Brief</title>
+<style>
+:root{
+  --navy:#080a36; --navy-line:#22265c; --teal:#0ae0bc; --teal-2:#07bbba; --blue:#0380b6;
+  --accent:#1b2a6b; --n50:#f7f8fb; --n100:#eff1f6; --n200:#e2e5ee; --n300:#cbd0de;
+  --n400:#9aa1b5; --n500:#6e7689; --n700:#3c4356; --n900:#171b28; --r:13px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:var(--n900);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:15.5px;line-height:1.55;
+  -webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0;letter-spacing:-.022em;line-height:1.15;text-wrap:balance}
+p{margin:0}
+.wrap{max-width:920px;margin:0 auto;padding:0 26px}
+header{background:var(--navy);color:#fff;padding:44px 0 40px;position:relative;overflow:hidden}
+header:after{content:'';position:absolute;inset:0;background:radial-gradient(700px 320px at 82% -20%,rgba(10,224,188,.18),transparent 62%)}
+header .wrap{position:relative;z-index:1}
+.tagline{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  background:#fdf3e0;color:#8a5a00;padding:5px 11px;border-radius:999px;margin-bottom:16px}
+header h1{font-size:34px;font-weight:700;letter-spacing:-.03em}
+header p{color:#aeb6d4;margin-top:12px;max-width:58ch}
+header a{color:var(--teal);font-weight:600}
+section{padding:40px 0;border-top:1px solid var(--n200)}
+h2{font-size:21px;font-weight:670;margin-bottom:6px}
+.lede{color:var(--n500);font-size:15px;max-width:68ch;margin-bottom:20px}
+.eyebrow{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--blue);margin-bottom:10px}
+.scroll{overflow-x:auto;border:1px solid var(--n200);border-radius:var(--r)}
+table{width:100%;border-collapse:collapse;font-size:13.5px;background:#fff}
+th{text-align:left;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--n500);font-weight:700;
+  padding:11px 14px;border-bottom:1px solid var(--n200);background:var(--n50);white-space:nowrap}
+td{padding:12px 14px;border-bottom:1px solid var(--n100);color:var(--n700);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td:first-child{font-weight:650;color:var(--n900);white-space:nowrap}
+tr.us td{background:#f2fdfb}
+tr.us td:first-child{color:var(--teal-2)}
+.quote{border-left:3px solid var(--teal-2);padding:4px 0 4px 18px;margin:22px 0 0}
+.quote p{font-size:19px;font-weight:570;letter-spacing:-.015em}
+.quote cite{display:block;font-style:normal;font-size:13px;color:var(--n500);margin-top:8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.box{border:1px solid var(--n200);border-radius:var(--r);padding:20px 21px;background:#fff}
+.box.warn{border-color:#e4cfa3;background:#fffdf6}
+.box h3{font-size:15px;font-weight:660;margin-bottom:11px}
+ul{margin:0;padding-left:19px}
+li{margin-bottom:8px;font-size:14.5px;color:var(--n700)}
+li:last-child{margin-bottom:0}
+li b{font-weight:650;color:var(--n900)}
+ol.beats{counter-reset:b;list-style:none;padding:0;margin:0}
+ol.beats li{display:grid;grid-template-columns:30px 1fr;gap:14px;margin-bottom:14px;align-items:start}
+ol.beats li:before{counter-increment:b;content:counter(b);width:26px;height:26px;border-radius:8px;background:var(--navy);
+  color:#fff;font-size:12.5px;font-weight:700;display:grid;place-items:center}
+.foot{background:var(--n50);border-top:1px solid var(--n200);padding:22px 0;font-size:12.5px;color:var(--n500)}
+@media print{header{background:#fff;color:#000}header p{color:#333}.tagline{border:1px solid #999}}
+</style>
+
+<header><div class="wrap">
+  <span class="tagline">Internal — do not send to clients</span>
+  <h1>Campaign Designer: how to sell it.</h1>
+  <p>Positioning, the competitive picture, and the demo. The client-facing page is a separate link —
+    send that one.</p>
+</div></header>
+
+<section><div class="wrap">
+  <div class="eyebrow">Positioning</div>
+  <h2>Lead with the loop, close on accountability.</h2>
+  <p class="lede">Three sentences, in order. They work in a lift and they work in a steering committee.</p>
+  <div class="grid">
+    <div class="box"><h3>1 · What it is</h3>
+      <p style="font-size:14.5px;color:var(--n700)">"You describe the outcome. It works out the strategy,
+        builds the journey in your own platform, runs it, and comes back with a better one."</p></div>
+    <div class="box"><h3>2 · Why it is different</h3>
+      <p style="font-size:14.5px;color:var(--n700)">"Everyone else optimises inside a campaign somebody
+        already designed. This decides what the campaign should be."</p></div>
+    <div class="box"><h3>3 · Why a bank can run it</h3>
+      <p style="font-size:14.5px;color:var(--n700)">"Nothing is built until your manager approves it, and
+        every decision it made is on the record afterwards."</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eyebrow">Against the field</div>
+  <h2>MoEngage, CleverTap and Braze are not doing this job.</h2>
+  <p class="lede">All three ship AI decisioning, and all three mean per-user optimisation inside an existing
+    campaign. Read from their own pages, November 2026.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th></th><th>What the AI decides</th><th>Where the human sits</th><th>What it runs on</th></tr></thead>
+      <tbody>
+        <tr><td>MoEngage</td><td>Copy, creative, timing and channel, per user — "an agent for every user"</td><td>Not addressed anywhere on the page</td><td>Their own engagement stack</td></tr>
+        <tr><td>CleverTap</td><td>"CleverAI decides and orchestrates customer experience"</td><td>Outside: "you define goals and guardrails"</td><td>Their own engagement stack</td></tr>
+        <tr><td>Braze</td><td>Channel, message, creative, offer, timing, frequency</td><td>Outside: you pick what the agents may test</td><td>Their own engagement stack</td></tr>
+        <tr class="us"><td>Campaign Designer</td><td><b>The campaign itself — who, why, and the sequence</b></td><td><b>Inside: approves the campaign before it exists</b></td><td><b>The bank's own journey engine</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="quote">
+    <p>"As a CEO, I can't live with black box marketing."</p>
+    <cite>William Niles, CEO of Brinks Home — quoted on Braze's own decisioning page. The category knows this
+      is the objection. None of them answer it with an approval step.</cite>
+  </div>
+  <div class="grid" style="margin-top:22px">
+    <div class="box"><h3>If the client already runs one of them</h3>
+      <p style="font-size:14.5px;color:var(--n700)">That is not an objection. Ask who decides what the
+        campaign should be in the first place, and how long that takes. We sit upstream of their decisioning,
+        not against it.</p></div>
+    <div class="box warn"><h3>When they quote numbers at you</h3>
+      <ul>
+        <li>They will: 128% engagement, 105% cross-sells, 2x conversions.</li>
+        <li>Those are per-user optimisation results on consumer apps, not campaign-strategy results on a
+          regulated card portfolio.</li>
+        <li>We have nothing published and we do not borrow. Answer on mechanism and accountability, then
+          offer a pilot that produces our own number.</li>
+      </ul></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eyebrow">The demo</div>
+  <h2>Four beats, ten minutes.</h2>
+  <ol class="beats" style="margin-top:18px">
+    <li><div><b>Frame it.</b> "Your team opens a journey builder already knowing the answer. Watch what
+      happens when something asks first."</div></li>
+    <li><div><b>Type the objective, then answer badly.</b> Say "not sure" to one question on purpose. It
+      records the gap instead of inventing a reason — this is the moment that separates us from a prompt
+      wrapper.</div></li>
+    <li><div><b>Read the plan aloud.</b> Who enters, what each message does, and what it says it cannot do.
+      This is the credibility moment; do not rush it.</div></li>
+    <li><div><b>Confirm, then change it.</b> Build the journey, then ask for a change in one sentence.
+      Finish on the canvas inside their own console.</div></li>
+  </ol>
+</div></section>
+
+<section><div class="wrap">
+  <div class="grid">
+    <div class="box warn"><h3>Do not say</h3>
+      <ul>
+        <li><b>"It learns from your campaigns."</b> Not yet — that is the next stage. Say it is built to, and
+          show the loop.</li>
+        <li><b>"It runs campaigns autonomously."</b> Nothing is autonomous today. Approval is required for
+          every build.</li>
+        <li><b>Any lift or conversion number.</b> We have none published, and the product refuses invented
+          numbers — quoting one undercuts the whole pitch.</li>
+        <li><b>"It replaces your campaign team."</b> It replaces the blank canvas.</li>
+        <li><b>Another client's programme by name</b>, unless marketing has cleared it.</li>
+      </ul></div>
+    <div class="box"><h3>Qualify early</h3>
+      <ul>
+        <li>How long does one campaign take them to get live today?</li>
+        <li>Do they run experiments, and can they say which arm won on the last one?</li>
+        <li>Is Smart Nudges already live in their tenant, or does this land with an implementation?</li>
+        <li>Who approves an agent touching customer comms — and are they in the room?</li>
+      </ul></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eyebrow">After the first pilot</div>
+  <h2>Three numbers to collect.</h2>
+  <p class="lede">We cannot match their stat bands until we have our own. These are the ones worth having,
+    and all three are measurable from the platform itself.</p>
+  <div class="grid">
+    <div class="box"><h3>Time from brief to live campaign</h3>
+      <p style="font-size:14.5px;color:var(--n700)">Measured against how long the same team takes by hand.
+        The easiest number to win on.</p></div>
+    <div class="box"><h3>Campaigns per manager per month</h3>
+      <p style="font-size:14.5px;color:var(--n700)">Throughput, before and after. Speaks to headcount
+        without threatening it.</p></div>
+    <div class="box"><h3>Lift against the control group</h3>
+      <p style="font-size:14.5px;color:var(--n700)">An agent-designed journey against the holdout the
+        platform already runs. The only number a CFO cares about.</p></div>
+  </div>
+</div></section>
+
+<div class="foot"><div class="wrap">Hyperface · Campaign Designer — internal sales brief. Competitor
+  descriptions are quoted from their public product pages, November 2026.</div></div>

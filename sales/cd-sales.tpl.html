@@ -1,0 +1,511 @@
+<title>Campaign Designer Agent — Hyperface</title>
+<style>
+@font-face{font-family:'UncutSans';src:url({{FONT_R}}) format('woff2');font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'UncutSans';src:url({{FONT_M}}) format('woff2');font-weight:500;font-style:normal;font-display:swap}
+:root{
+  --bg:#0E0E0E; --bg-2:#0A1614; --bg-3:#0A0A0A; --ink:#0A0A0A;
+  --mint:#2AD9C4; --mint-2:#10CBBA;
+  --txt:#fff; --mut:rgba(255,255,255,.6); --mut-2:rgba(255,255,255,.44);
+  --line:rgba(67,85,101,.34); --line-2:rgba(255,255,255,.1);
+  --card:rgba(255,255,255,.035);
+  --maxw:1240px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);
+  font-family:'UncutSans',Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:16px;font-weight:400;line-height:1.5;letter-spacing:-.01em;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;font-weight:500;letter-spacing:-.02em;text-wrap:balance}
+p{margin:0}
+a{color:var(--mint)}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 32px}
+section{padding:78px 0}
+.tint{background:var(--bg-2)}
+.deep{background:var(--bg-3)}
+.dots{background-image:radial-gradient(rgba(255,255,255,.055) 1px,transparent 1px);background-size:24px 24px}
+.h1{font-size:clamp(34px,3.9vw,48px);line-height:1.4;letter-spacing:-.02em}
+/* their light sections: vertical hairlines at the container edge, and the
+   header inside a bordered, dotted panel */
+.lt .wrap{border-left:1px solid rgba(0,0,0,.08);border-right:1px solid rgba(0,0,0,.08)}
+.shead{text-align:center;padding:44px 28px 46px}
+.lt .shead{border:1px solid rgba(0,0,0,.1);
+  background-image:radial-gradient(rgba(0,0,0,.075) 1.1px,transparent 1.1px);background-size:22px 22px}
+.lt .wrap{padding-top:0;padding-bottom:0}
+.shead .eyebrow{margin-bottom:12px}
+.shead .h2{max-width:22ch;margin:0 auto}
+.shead .sub{margin:14px auto 0;max-width:66ch}
+.h2{font-size:27px;line-height:1.5;letter-spacing:-.02em}
+.lede{font-size:clamp(17px,1.5vw,21px);line-height:1.45;color:var(--mut);max-width:50ch;letter-spacing:-.016em}
+.sub{font-size:16px;line-height:1.5;letter-spacing:-.02em;color:var(--mut);max-width:66ch;margin-top:14px}
+
+.pillbrow{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line);
+  border-radius:999px;padding:7px 15px 7px 13px;font-size:13.5px;color:var(--txt);margin-bottom:26px}
+.pillbrow i{width:9px;height:9px;background:var(--mint);display:block;flex:none}
+.eyebrow{font-size:16px;font-weight:400;line-height:1.5;letter-spacing:-.02em;text-transform:uppercase;color:rgba(255,255,255,.7);margin-bottom:12px}
+
+.bar{position:sticky;top:0;z-index:40;background:rgba(14,14,14,.86);backdrop-filter:blur(12px);border-bottom:1px solid var(--line-2)}
+.bar .wrap{display:flex;align-items:center;gap:0;height:72px;padding:0 0 0 32px;
+  border-left:1px solid var(--line-2);border-right:1px solid var(--line-2)}
+.bar .brand{padding-right:28px}
+.brand{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:500;white-space:nowrap}
+.mark{width:26px;height:26px;flex:none;display:block}
+.brand .sep{color:rgba(255,255,255,.28);font-weight:400;margin:0 2px}
+.navlinks{display:flex;margin-left:auto;overflow-x:auto;scrollbar-width:none;align-self:stretch}
+.navlinks::-webkit-scrollbar{display:none}
+.navlinks a{font-size:14.5px;color:var(--mut);text-decoration:none;white-space:nowrap;
+  display:flex;align-items:center;padding:0 20px;border-left:1px solid var(--line-2)}
+.navlinks a:last-child{border-right:1px solid var(--line-2)}
+.navlinks a:hover{color:#fff}
+
+.btn{display:inline-block;padding:13px 24px;border-radius:0;font-size:16px;font-weight:500;
+  letter-spacing:-.01em;text-decoration:none;border:1px solid transparent;cursor:pointer;font-family:inherit}
+.btn-p{background:var(--mint);color:var(--ink)}
+.btn-p:hover{background:#3fe6d2}
+.btn-s{border-color:var(--line);color:#fff}
+.btn-s:hover{border-color:rgba(255,255,255,.5)}
+.bar .btn{padding:0 26px;font-size:15px;display:flex;align-items:center;align-self:stretch;margin-left:auto}
+.btns{display:flex;gap:12px;flex-wrap:wrap;margin-top:34px}
+
+.hero{padding:64px 0 36px;position:relative;overflow:hidden}
+.hero:after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(760px 420px at 78% 18%,rgba(42,217,196,.1),transparent 64%)}
+.hero .wrap{position:relative;z-index:1}
+.hero-grid{display:grid;grid-template-columns:1.06fr 1fr;gap:40px;align-items:center}
+.hero-ill svg{display:block;width:100%;height:auto}
+@media (max-width:960px){.hero-grid{grid-template-columns:1fr;gap:28px}}
+
+.loopband{padding:0 0 40px}
+.loopband svg{display:block;width:100%;height:auto}
+
+.chip{display:inline-block;background:rgba(42,217,196,.2);color:#1D403C;border:1px dashed rgba(29,64,60,.5);border-radius:0;padding:8px 12px;font-size:12.6px;font-weight:500;letter-spacing:-.01em}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(252px,1fr));gap:16px}
+.card{border:1px solid var(--line);background:var(--card);padding:24px 24px 26px;border-radius:10px}
+.card h3{font-size:17px;margin-bottom:8px}
+.card p{font-size:14.5px;color:var(--mut)}
+
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px;align-items:stretch;margin-top:40px}
+.flow>div{display:flex;flex-direction:column}
+.payoff{margin-top:auto;padding-top:28px}
+.payoff p{font-size:clamp(21px,2.1vw,26px);line-height:1.3;letter-spacing:-.022em;color:#fff}
+.payoff p b{font-weight:500;color:var(--mint)}
+.lt .payoff p{color:#111}.lt .payoff p b{color:#07837f}
+.flow>div{border:1px solid var(--line);border-radius:10px;padding:26px 28px 28px;background:var(--card)}
+.flow>div.ours{border-color:var(--mint);background:rgba(42,217,196,.07);box-shadow:0 0 0 1px rgba(42,217,196,.25),0 24px 60px -34px rgba(42,217,196,.5)}
+.flow .lbl{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut-2);
+  margin-bottom:22px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.flow .lbl span{letter-spacing:-.01em;text-transform:none;font-size:13px;color:var(--mut)}
+.flow>div.ours .lbl{color:var(--mint)}
+.flow ol{counter-reset:f;list-style:none;margin:0;padding:0}
+.flow li{counter-increment:f;position:relative;padding:0 0 22px 36px;font-size:15px;color:rgba(255,255,255,.82)}
+.flow li:last-child{padding-bottom:0}
+.flow li:before{content:counter(f);position:absolute;left:0;top:-1px;width:23px;height:23px;border-radius:6px;
+  background:rgba(255,255,255,.07);color:var(--mut);font-size:11.5px;display:grid;place-items:center}
+.flow li:after{content:'';position:absolute;left:11px;top:26px;bottom:6px;width:1px;background:var(--line-2)}
+.flow li:last-child:after{display:none}
+.flow>div.ours li:before{background:rgba(42,217,196,.16);color:var(--mint)}
+.flow>div.ours li:after{background:rgba(42,217,196,.3)}
+.flow li em{display:block;font-style:normal;font-size:13.5px;color:var(--mut-2);margin-top:8px}
+
+.feat{display:grid;grid-template-columns:1fr 1.18fr;gap:56px;align-items:center}
+.feat+.feat{margin-top:62px}
+.feat.flip{grid-template-columns:1.18fr 1fr}
+.feat.flip>div:first-child{order:2}
+.feat .lead{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.feat .sn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;flex:none;
+  border:1px solid var(--line);color:var(--mut);font-size:12.5px;border-radius:7px}
+.feat .kick{font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mint)}
+.feat h3{font-size:clamp(22px,2.1vw,27px);line-height:1.3}
+.feat p{font-size:16px;color:var(--mut);margin-top:14px;max-width:46ch}
+@media (max-width:900px){.feat{grid-template-columns:1fr;gap:28px}.feat.flip>div:first-child{order:0}}
+
+.frame{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#0c0c0c;
+  box-shadow:0 30px 70px -36px rgba(0,0,0,.9)}
+.frame .chrome{display:flex;align-items:center;gap:7px;padding:11px 15px;background:rgba(255,255,255,.04);border-bottom:1px solid var(--line-2)}
+.frame .chrome i{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.18);display:block}
+.frame .chrome span{font-size:12px;color:var(--mut-2);margin-left:8px}
+.frame img{display:block;width:100%}
+.frame figcaption{font-size:13px;color:var(--mut-2);padding:12px 16px;border-top:1px solid var(--line-2)}
+figure{margin:0}
+
+/* step 07, drawn rather than screenshotted */
+.mock{padding:22px 24px 24px;font-size:13.5px;background:#fff;color:#171b28}
+.mock .mhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid #eff1f6}
+.mock .mhead b{font-size:15.5px;font-weight:600}
+.mock .mhead span{font-size:12px;color:#9aa1b5}
+.mock .msg{margin:15px 0 4px;font-size:14px;color:#171b28;font-weight:550}
+.mock .ev{display:grid;gap:7px;margin:12px 0 16px}
+.mock .ev div{display:flex;align-items:center;gap:10px;font-size:13px;color:rgba(0,0,0,.72);
+  background:#F6F6F6;border:1px solid rgba(0,0,0,.09);border-radius:0;padding:9px 12px}
+.mock .ev em{font-style:normal;font-weight:650;font-variant-numeric:tabular-nums;color:#171b28;white-space:nowrap}
+.mock .ev .dn{color:#b4443a}.mock .ev .up{color:#1D403C}
+.mock .prop{border:1px dashed rgba(29,64,60,.5);background:rgba(42,217,196,.14);border-radius:0;padding:14px 15px}
+.mock .prop .t{font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#1D403C;margin-bottom:9px}
+.mock .prop ul{margin:0;padding:0;list-style:none;display:grid;gap:7px}
+.mock .prop li{font-size:13px;color:#3c4356;padding-left:19px;position:relative}
+.mock .prop li:before{content:'';position:absolute;left:0;top:7px;width:7px;height:7px;background:#1D403C}
+.mock .acts{display:flex;gap:9px;margin-top:15px}
+.mock .acts b{background:#2AD9C4;color:#0A0A0A;border-radius:0;padding:9px 16px;font-size:13px;font-weight:500}
+.mock .acts i{font-style:normal;border:1px solid rgba(0,0,0,.18);color:#111;border-radius:0;padding:9px 16px;font-size:13px;font-weight:500}
+
+.twoway{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:34px 30px 26px;margin-top:38px}
+.twoway svg{display:block;width:100%;height:auto}
+
+.trust{display:grid;grid-template-columns:repeat(auto-fit,minmax(252px,1fr));gap:16px;margin-top:40px}
+.trust div{border:1px solid var(--line);border-radius:10px;padding:22px 22px 24px;background:rgba(255,255,255,.028)}
+.trust b{display:block;font-size:16px;font-weight:500;margin-bottom:7px}
+.trust span{font-size:14.5px;color:var(--mut)}
+
+.uses{display:grid;grid-template-columns:repeat(auto-fit,minmax(252px,1fr));gap:16px;margin-top:34px}
+.use{border:1px solid var(--line);border-radius:10px;padding:22px;background:var(--card)}
+.use b{display:block;font-size:16px;font-weight:500;margin-bottom:6px}
+.use span{font-size:14.5px;color:var(--mut)}
+
+details{border-bottom:1px solid var(--line-2)}
+summary{padding:22px 2px;font-size:17px;font-weight:500;cursor:pointer;list-style:none;display:flex;
+  justify-content:space-between;gap:20px;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary:after{content:'+';color:var(--mut-2);font-weight:400;font-size:22px;line-height:1}
+details[open] summary:after{content:'–'}
+details p{padding:0 2px 24px;font-size:15.5px;color:var(--mut);max-width:78ch}
+
+.comp{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:34px}
+.comp span{font-size:12.5px;color:var(--mut-2);border:1px solid var(--line);padding:8px 14px;border-radius:6px}
+.note{font-size:14px;color:var(--mut-2);margin-top:18px}
+
+.cta{padding:88px 0;text-align:center;position:relative;overflow:hidden}
+.cta:after{content:'';position:absolute;inset:0;background:radial-gradient(620px 300px at 50% 118%,rgba(42,217,196,.16),transparent 64%)}
+.cta .wrap{position:relative;z-index:1}
+.cta p{color:var(--mut);margin:18px auto 0;max-width:48ch;font-size:17.5px}
+.cta .btns{justify-content:center}
+footer{border-top:1px solid var(--line-2);padding:30px 0;font-size:13.5px;color:var(--mut-2)}
+footer .wrap{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;align-items:center}
+
+/* their page runs dark → a sage transition → #F6F6F6 → dark again */
+
+.lt{background:#F6F6F6;color:#0A0A0A}
+.lt .eyebrow{color:rgba(0,0,0,.7)}
+.lt .h2,.lt h3,.lt b{color:#111}
+.lt .sub,.lt .note,.lt .card p,.lt .use span,.lt .trust span,.lt details p{color:rgba(0,0,0,.7)}
+.lt .card,.lt .use,.lt .trust div,.lt .twoway{background:#fff;border-color:rgba(0,0,0,.09);border-radius:0;box-shadow:none}
+.lt .flow>div,.lt .frame{border-radius:0}
+.lt .frame{box-shadow:0 18px 40px -26px rgba(0,0,0,.35)}
+.lt .feat .sn{border-color:rgba(0,0,0,.14);color:rgba(10,10,10,.55)}
+.lt .feat .kick{color:#07837f}
+.lt .feat p{color:rgba(10,10,10,.62)}
+.lt .frame{background:#fff;border-color:rgba(0,0,0,.09);box-shadow:0 2px 6px rgba(8,10,54,.05),0 26px 56px -28px rgba(8,10,54,.3)}
+.lt .frame .chrome{background:#f7f8fb;border-bottom-color:rgba(0,0,0,.07)}
+.lt .frame .chrome i{background:#cbd0de}
+.lt .frame .chrome span,.lt .frame figcaption{color:rgba(10,10,10,.5)}
+.lt .frame figcaption{border-top-color:rgba(0,0,0,.07)}
+.lt .flow>div{background:#fff;border-color:rgba(0,0,0,.09)}
+.lt .flow>div.ours{background:linear-gradient(329.29deg,#dbfaf6 11.51%,#ffffff 49.81%);border-color:#8fe3d6}
+.lt .flow .lbl{color:rgba(10,10,10,.5)}
+.lt .flow .lbl span{color:rgba(10,10,10,.6)}
+.lt .flow>div.ours .lbl{color:#07837f}
+.lt .flow li{color:rgba(10,10,10,.82)}
+.lt .flow li:before{background:rgba(0,0,0,.055);color:rgba(10,10,10,.55)}
+.lt .flow li:after{background:rgba(0,0,0,.1)}
+.lt .flow>div.ours li:before{background:#dbfaf6;color:#07837f}
+.lt .flow>div.ours li:after{background:#aee4da}
+.lt .flow li em{color:rgba(10,10,10,.5)}
+.lt .trust b,.lt .use b,.lt .card h3{color:#0A0A0A}
+.lt details{border-bottom-color:rgba(0,0,0,.1)}
+.lt summary:after{color:rgba(10,10,10,.45)}
+.lt .comp span{color:rgba(10,10,10,.55);border-color:rgba(0,0,0,.12)}
+.lt.dots{background-image:radial-gradient(rgba(0,0,0,.055) 1px,transparent 1px);background-size:24px 24px}
+
+.rv{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
+.rv.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.rv{opacity:1;transform:none;transition:none}}
+@media (max-width:720px){section{padding:64px 0}.hero{padding:48px 0 40px}}
+</style>
+
+<div class="bar"><div class="wrap">
+  <span class="brand"><img class="mark" src="{{LOGO}}" alt="Hyperface" width="26" height="26"> Hyperface</span>
+  <nav class="navlinks">
+    <a href="#why">Why</a><a href="#walk">How it works</a><a href="#data">Your data</a>
+    <a href="#trust">Control</a><a href="#uses">Use cases</a><a href="#qa">FAQ</a>
+  </nav>
+  <a class="btn btn-p" href="#cta">Book a demo</a>
+</div></div>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <span class="pillbrow"><i></i> Campaign Designer Agent</span>
+        <h1 class="h1">Agentic campaign design for card portfolios.</h1>
+        <p class="lede" style="margin-top:22px">Tell the agent the outcome you want. It designs the
+          campaign, builds the journey in your own platform, and improves it with every run.</p>
+        <div class="btns">
+          <a class="btn btn-p" href="#cta">Book a demo</a>
+          <a class="btn btn-s" href="#walk">See how it works</a>
+        </div>
+      </div>
+      <div class="hero-ill">{{ILL}}</div>
+    </div>
+  </div>
+</header>
+
+<div class="loopband"><div class="wrap">{{LOOP}}</div></div>
+
+<section class="dots" id="why" style="background:#0E0E0E">
+  <div class="wrap">
+    <div class="shead rv">
+      <div class="eyebrow">Why this exists</div>
+      <h2 class="h2">One campaign takes three teams and seven steps.</h2>
+      <p class="sub">Every handover costs days. Then the next campaign starts from the beginning.</p>
+    </div>
+    <div class="flow rv">
+      <div>
+        <div class="lbl">The usual way <span>three teams, every time</span></div>
+        <ol>
+          <li>The portfolio team picks a metric to move</li>
+          <li>The data team analyses it and comes back with insights</li>
+          <li>IT approves access to the data they need</li>
+          <li>The portfolio team builds the journey by hand</li>
+          <li>The campaign runs</li>
+          <li>The data team analyses what happened</li>
+          <li>It all starts again for the next campaign</li>
+        </ol>
+      </div>
+      <div class="ours">
+        <div class="lbl">With the agent <span>one decision</span></div>
+        <ol>
+          <li>The portfolio team picks a metric to move</li>
+          <li>The agent does the rest, then comes back with a better version
+            <em>Discovery. Strategy. The journey. Execution. Measurement. The next version.</em></li>
+        </ol>
+        <div class="payoff"><p>Six steps and every handover<br><b>disappear.</b></p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="lt" id="walk">
+  <div class="wrap">
+    <div class="shead rv">
+      <div class="eyebrow">How it works</div>
+      <h2 class="h2">One objective in. A campaign that keeps getting better out.</h2>
+      <p class="sub">Seven stages, in the order they happen. Every screen below is from the working
+      product.</p>
+    </div>
+
+    <div style="margin-top:46px">
+      <div class="feat rv">
+        <div>
+          <div class="lead"><div class="sn">01</div><div class="kick">Context</div></div>
+          <h3>It starts from what you already have.</h3>
+          <p>No setup. No training. No briefing document. The agent reads your channels, templates,
+            attributes and events before it asks anything.</p>
+          <p>Everything it knows is on one page, and your team can correct it.</p>
+        </div>
+        <figure class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span>Knowledge Base</span></div>
+          <img src="{{F0}}" alt="The knowledge base: what the agent knows, listed by category, with channel costs and availability and the bank's own preferences.">
+        </figure>
+      </div>
+
+      <div class="feat flip rv">
+        <div>
+          <div class="lead"><div class="sn">02</div><div class="kick">Discovery</div></div>
+          <h3>It works out who converts, and what stops the rest.</h3>
+          <p>Who already converts, what stops everyone else, and how success will be judged. The agent works
+            this out from your data where it exists, and from your team where it does not. It keeps going
+            until the brief is settled.</p>
+        </div>
+        <figure class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span>Campaign Designer</span></div>
+          <img src="{{F1}}" alt="The brief filling in: the objective, how success is judged, who converts today, and what is stopping the rest.">
+        </figure>
+      </div>
+
+      <div class="feat rv">
+        <div>
+          <div class="lead"><div class="sn">03</div><div class="kick">Strategy</div></div>
+          <h3>It decides what the campaign should be.</h3>
+          <p>The agent weighs two genuinely different approaches and picks one. It writes the full sequence
+            of messages. The reasoning sits beside the plan, so you can argue with the thinking.</p>
+        </div>
+        <figure class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span>Proposed journey</span></div>
+          <img src="{{F2}}" alt="The proposed journey: the objective, who converts, what is stopping them, and the first split of the path.">
+        </figure>
+      </div>
+
+      <div class="feat flip rv">
+        <div>
+          <div class="lead"><div class="sn">04</div><div class="kick">Approval</div></div>
+          <h3>Nothing is built until you say so.</h3>
+          <p>The whole journey is on screen before you decide. Confirm it, or say what to change in a
+            sentence. The agent rewrites the plan and brings it back, as many times as you like. Nothing
+            exists until you confirm.</p>
+        </div>
+        <figure class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span>Confirm</span></div>
+          <img src="{{F2B}}" alt="The approval panel: generate this campaign, with Confirm and generate, or Request a change.">
+        </figure>
+      </div>
+
+      <div class="feat rv">
+        <div>
+          <div class="lead"><div class="sn">05</div><div class="kick">Execution</div></div>
+          <h3>It builds into the journey engine you already run.</h3>
+          <p>The agent builds it through the same builder your team uses by hand. What appears is an
+            ordinary campaign. You can edit it, pause it or kill it.</p>
+          <p>It lands in the same five-step wizard your team uses. Guardrails and review are still ahead of
+            it, exactly as they would be by hand.</p>
+        </div>
+        <figure class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span>Drip Campaigns</span></div>
+          <img src="{{F3B}}" alt="The campaign open in the five-step edit wizard: Basic Details and Goal complete, Builder in progress with the journey on the canvas, Guardrails and Review still ahead.">
+        </figure>
+      </div>
+
+      <div class="feat flip rv">
+        <div>
+          <div class="lead"><div class="sn">06</div><div class="kick">Measurement</div></div>
+          <h3>Then it finds out whether it worked.</h3>
+          <p>Every step carries its own numbers. Reach, delivery, opens and conversion, measured against the
+            control group. This is not a dashboard someone has to remember to read. It is the input to what
+            happens next.</p>
+        </div>
+        <figure class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span>Campaign analytics</span></div>
+          <img src="{{F4}}" alt="The analytics view: conversion cards above the journey, with reach, delivery, open and click figures on each step.">
+        </figure>
+      </div>
+
+      <div class="feat rv">
+        <div>
+          <div class="lead"><div class="sn">07</div><div class="kick">Improvement</div></div>
+          <h3>And comes back with a better version.</h3>
+          <p>The agent reads what the campaign actually did. Then it proposes the next one. Drop the arm
+            that lost. Move the message nobody read. Keep the split that worked.</p>
+          <p>The same approval step applies. It proposes, you decide. Ask for a new campaign instead and it
+            starts from the same evidence.</p>
+        </div>
+        <figure class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span>Campaign Designer</span></div>
+{{MOCK}}
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="lt" id="data">
+  <div class="wrap">
+    <div class="shead rv">
+      <div class="eyebrow">With your data, or without it</div>
+      <h2 class="h2">It does not wait for a data project.</h2>
+      <p class="sub">Most agents are useless until your data is clean and connected. This one gets to the
+      same brief either way.</p>
+    </div>
+    <div class="twoway rv">{{TWOWAY}}</div>
+    <div class="cards rv" style="margin-top:18px">
+      <div class="card"><h3>When the data is there</h3>
+        <p>The agent queries your customer, transaction and campaign tables for the answers it would
+          otherwise have to ask for. Your team is only asked what the data cannot settle.</p></div>
+      <div class="card"><h3>When it is not</h3>
+        <p>No integration, no data project, no waiting. The agent asks what a strategist would ask, and the
+          first campaign is built to produce the evidence the next one uses.</p></div>
+    </div>
+    <p class="note rv">Either way the source is recorded. A finding from data is marked as a finding. A
+      belief from a person stays a belief.</p>
+  </div>
+</section>
+
+<section class="lt" id="trust">
+  <div class="wrap">
+    <div class="shead rv">
+      <div class="eyebrow">Control</div>
+      <h2 class="h2">It will not build what it cannot justify.</h2>
+      <p class="sub">Most AI decisioning asks you to set boundaries and trust what happens inside them.
+      This agent asks you to approve the campaign itself.</p>
+    </div>
+    <div class="trust rv">
+      <div><b>Nothing ships unapproved</b><span>A person confirms every campaign. They can change it first.</span></div>
+      <div><b>No invented numbers</b><span>It never invents a rate, a baseline or a cutoff.</span></div>
+      <div><b>Every message has a reason</b><span>A message that answers no stated problem is refused.</span></div>
+      <div><b>It cites its source</b><span>It keeps what you said apart from what it assumed.</span></div>
+      <div><b>Your guardrails apply</b><span>DNC, NPA, quiet hours, control groups and the kill switch.</span></div>
+      <div><b>Fully auditable</b><span>Every question, finding and decision is kept.</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="lt" id="uses">
+  <div class="wrap">
+    <div class="shead rv">
+      <div class="eyebrow">Use cases</div>
+      <h2 class="h2">Point it at a portfolio problem.</h2>
+    </div>
+    <div class="uses rv">
+      <div class="use"><b>Card activation</b><span>New cardholders who have not set a PIN or spent yet.</span></div>
+      <div class="use"><b>EMI conversion</b><span>Eligible purchases that expire before anyone converts them.</span></div>
+      <div class="use"><b>Dormant reactivation</b><span>Cards with no transaction in the last 90 days.</span></div>
+      <div class="use"><b>Spend milestones</b><span>Customers tracking toward a benefit they will miss.</span></div>
+    </div>
+    <p class="note rv">The agent works out the audience and the sequence from your objective. There is no
+      template.</p>
+  </div>
+</section>
+
+<section class="lt" id="qa">
+  <div class="wrap">
+    <div class="shead rv">
+      <div class="eyebrow">FAQ</div>
+      <h2 class="h2">Questions we get asked.</h2>
+    </div>
+    <div class="rv" style="margin-top:34px">
+      <details open><summary>Is this a chatbot writing campaigns?</summary>
+        <p>No. The agent proposes and the platform decides. A design that narrows the audience at the door,
+          invents a number, or claims a test it cannot settle is refused before you see it.</p></details>
+      <details><summary>Can it message our customers on its own?</summary>
+        <p>No. The agent designs. Your team approves. Your comms stack sends, with DNC, NPA and quiet hours
+          applied.</p></details>
+      <details><summary>We have no campaign history in the platform. Does it work?</summary>
+        <p>Yes. This is the point. With data connected the agent queries it. With none, it interviews your
+          team instead and the first campaign is built to produce the evidence the next one uses. Nothing is
+          invented to fill the gap either way.</p></details>
+      <details><summary>Who is accountable for what it builds?</summary>
+        <p>The manager who approved it. Every question, finding and check is kept. The decision trail can be
+          read back at any time.</p></details>
+      <details><summary>How is this different from AI decisioning in our engagement tools?</summary>
+        <p>Those optimise inside a campaign someone already designed. They choose the message, the channel
+          and the time. This agent decides what the campaign should be, then hands it to your journey engine
+          to run.</p></details>
+      <details><summary>What do you need from us to start?</summary>
+        <p>A tenant with your channels and templates configured. Reading your customer and campaign data is
+          the next stage. That needs its own conversation.</p></details>
+    </div>
+    <div class="comp rv">
+      <span>ISO 27001</span><span>PCI DSS</span><span>SOC 2</span>
+      <span style="border:0;padding-left:4px">Platform certifications Campaign Designer Agent inherits.</span>
+    </div>
+  </div>
+</section>
+
+<section class="cta" id="cta">
+  <div class="wrap">
+    <h2 class="h2">See it against one of your own objectives.</h2>
+    <p>Bring a campaign you are about to run. We will design it live in your tenant, in under an hour.</p>
+    <div class="btns">
+      <a class="btn btn-p" href="#walk">See how it works</a>
+      <a class="btn btn-s" href="#qa">Read the FAQ</a>
+    </div>
+  </div>
+</section>
+
+<footer><div class="wrap">
+  <span style="display:flex;align-items:center;gap:10px"><img src="{{LOGO}}" alt="" width="20" height="20">
+    Campaign Designer Agent, part of Smart Engage</span>
+  <span>Product screens from a demo tenant.</span>
+</div></footer>
+
+<script>
+const io = new IntersectionObserver((es) => {
+  es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+}, { rootMargin: '0px 0px -8% 0px' });
+document.querySelectorAll('.rv').forEach(el => io.observe(el));
+</script>
