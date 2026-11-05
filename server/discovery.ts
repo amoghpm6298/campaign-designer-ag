@@ -1073,19 +1073,50 @@ const mentionsData = (text: string) =>
   /\b(data|figures|numbers|stats|statistics|metrics?|history|historical|records|benchmarks?|rates?)\b/i.test(text);
 
 /**
- * A duration the user named, in their words.
+ * A CAMPAIGN LENGTH the user asked for, in their words. Not any duration.
  *
  * READ TO RECORD, NEVER TO BLOCK. The standing rule is that a judgement about
  * someone's words may only release a block, never raise one — which is why
  * `cadenceBlocks` deliberately parses no window. This writes a FACT: if the
  * regex misses, the brief is as it was; if it matches, the agent stops asking
  * how long the campaign has when they already said.
+ *
+ * WHO IS ELIGIBLE IS NOT HOW LONG THE CAMPAIGN RUNS. This took the FIRST
+ * "N days" anywhere in the opening brief, so "reactivate cards that have had
+ * no transaction in the last 90 days" recorded a ninety-day campaign clock —
+ * and the agent then had a calendar to fill and added messages to fill it. A
+ * lookback, a quiet-for, a no-purchase-in-the-last is the AUDIENCE. The
+ * campaign length is a separate decision, and Plan makes it.
+ *
+ * SO THIS IS AN ALLOWLIST: the duration has to sit next to a word that means
+ * the campaign itself. A phrasing nobody anticipated therefore records
+ * nothing, which is the safe direction — the fact is an answer the agent no
+ * longer has to ask for, so a miss costs one question and a false positive
+ * costs a calendar.
  */
+const PLAN_LENGTH: RegExp[] = [
+  // "a 7-day plan", "7 day campaign", "two-week drip"
+  /\b(\d{1,3})[-\s]?(day|days|week|weeks|month|months)\s+(?:long\s+)?(?:plan|campaign|journey|drip|sequence|programme|program)\b/i,
+  // "plan over 7 days", "campaign should run for 14 days"
+  /\b(?:plan|campaign|journey|drip|sequence)\b(?:\s+(?:should|must|will|can|to))?(?:\s+run|\s+last)?\s+(?:over|for|across|lasting|spanning|of)\s+(\d{1,3})[-\s]?(day|days|week|weeks|month|months)\b/i,
+  // "run it for 7 days", "run this over two weeks"
+  /\brun(?:s|ning)?\s+(?:it\s+|this\s+|the\s+campaign\s+)?(?:for|over|across)\s+(\d{1,3})[-\s]?(day|days|week|weeks|month|months)\b/i,
+];
+
 export const statedWindow = (text: string): string | null => {
-  const m = /\b(\d{1,3})[-\s]?(day|days|week|weeks|month|months)\b/i.exec(text);
-  if (!m) return null;
-  const unit = m[2].toLowerCase().replace(/s$/, '');
-  return `${m[1]} ${unit}${Number(m[1]) === 1 ? '' : 's'}`;
+  for (const re of PLAN_LENGTH) {
+    const m = re.exec(text);
+    if (!m) continue;
+    // The number and its unit are the last two capture groups in every
+    // pattern, whichever side of the campaign word they sit on.
+    const groups = m.slice(1).filter(Boolean);
+    const unitRaw = groups[groups.length - 1];
+    const amount = groups[groups.length - 2];
+    if (!/^\d{1,3}$/.test(amount ?? '')) continue;
+    const unit = unitRaw.toLowerCase().replace(/s$/, '');
+    return `${amount} ${unit}${Number(amount) === 1 ? '' : 's'}`;
+  }
+  return null;
 };
 
 /**

@@ -157,7 +157,14 @@ describe('no history is a reason to test, not a reason to ship a flat sequence',
     // The failure mode this guards: "we have no history, so do not split the
     // audience or the baseline is unreadable." It is backwards — with no
     // history the comparison is the only way to get one.
-    expect(ready()).toMatch(/No history is a reason to test, not a reason to skip/);
+    //
+    // THE SENTENCE GREW A THIRD CLAUSE, 2026-11-03, and the clause is the
+    // point: no history is not a reason to GUESS WHY either. The live run
+    // that prompted it answered "not sure" to why and got a two-arm
+    // "forgot the card" against "switched to UPI" experiment. Pinned in
+    // halves so the rule survives the next rewording of the sentence.
+    expect(ready()).toMatch(/No history is a reason to test that, not a reason to skip/);
+    expect(ready()).toMatch(/not a reason to guess why/);
     expect(SYSTEM.toLowerCase()).not.toMatch(/so the baseline is ?n.t split|keep the baseline clean/);
   });
 

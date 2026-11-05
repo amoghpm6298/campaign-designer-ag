@@ -239,13 +239,20 @@ describe('blueprint → graph, built by the application reducer', () => {
   // channels, and none carrying a `stage`. Confirm compiled it into an entry,
   // the split and three exits — zero message steps — and the manager had
   // approved a journey that was not on the canvas.
-  it('says a message was LOST when it sits after a fork, not just that it is ambiguous', () => {
-    // `nextInChain` already reported why there is nowhere to put it: several
-    // arms are open, so attaching it to one would quietly end whichever the
-    // iteration reached first. What it did not say is that a SEND went
-    // missing, and an ambiguity message reads like a formatting note. On
-    // `eval/runs/ui-s-1793017853714` two forced attempts were refused over
-    // sends the model had written, with nothing naming them.
+  it('copies a message that sits after a fork onto every arm that is still open', () => {
+    // SUPERSEDED, DELIBERATELY. This used to pin the opposite: the send was
+    // dropped, named as lost, and the plan refused. That was the right
+    // behaviour while the compiler had no way to place it — attaching it to
+    // one arm would have quietly ended whichever the iteration reached first.
+    //
+    // `eval/runs/ui-s-1793613837789` turn 4 is what changed it. A last
+    // reminder after a read/not-read fork is not a mistake: everyone still in
+    // the journey gets it, whichever arm they took. Fan-out is a join, so the
+    // tail is copied onto the arms rather than dropped, and the written count
+    // and the built count are allowed to differ.
+    //
+    // The old rule still holds for everything that is NOT a linear tail — a
+    // fork after a fork, and a trailing exit, are both unchanged.
     const r = buildFromBlueprint(
       {
         ...linear,
@@ -262,12 +269,19 @@ describe('blueprint → graph, built by the application reducer', () => {
       },
       CHANNELS,
     );
-    const lost = r.issues.filter((i) => /was not added to the journey/.test(i.problem));
-    expect(lost, 'the dropped message is named').toHaveLength(1);
-    expect(lost[0].problem).toMatch(/Shared last chance/);
-    expect(lost[0].problem).toMatch(/Nest it inside the arm it belongs to/);
-    // NOT ATTACHED TO AN ARBITRARY ARM, and the two that ARE on arms still build.
-    expect(Object.values(r.graph.nodes).filter((n) => (n as { type: string }).type === 'SEND')).toHaveLength(2);
+    expect(r.issues.filter((i) => /was not added to the journey/.test(i.problem))).toHaveLength(0);
+    // ON EVERY ARM, NOT ON ONE. Two arms were open, so the tail is built
+    // twice and nobody receives both copies: each person still gets two
+    // messages, their own day-0 and the shared last chance.
+    const sends = Object.values(r.graph.nodes).filter((n) => (n as { type: string }).type === 'SEND');
+    const named = sends.filter((n) => /Shared last chance/.test((n as { label?: string }).label ?? ''));
+    expect(named).toHaveLength(2);
+    expect(sends).toHaveLength(4);
+    // And it is reported as what the compiler did, in the manager's terms,
+    // rather than as a message that went missing.
+    const note = r.limitations.find((l) => /comes after a fork/.test(l.note));
+    expect(note?.note).toMatch(/Shared last chance/);
+    expect(note?.note).toMatch(/each of the 2 paths that were still open/);
   });
 
   it('builds the sends on both arms when no stage was set anywhere', () => {

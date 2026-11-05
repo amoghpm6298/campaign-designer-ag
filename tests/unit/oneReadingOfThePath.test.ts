@@ -108,12 +108,23 @@ describe('every send the live run wrote reaches the canvas', () => {
     expect(groups.map((g) => g.sends)).toEqual([2, 5]);
   });
 
-  it('and it reacts — `reactsToDelivery` is UNCHANGED by the new reading', () => {
-    // The point of this pin is that nothing moved. `reactsToDelivery` finds
-    // the nested read fork either way; the attribute fork above it was never
-    // a reaction and still is not.
-    expect(reactsToDelivery(pathAs(LIVE.branchOnWithReadFork))).toBe(true);
-    expect(journeyReacts(pathAs(LIVE.branchOnWithReadFork))).toBe(true);
+  it('does NOT react, because its read fork spends 2 against 2', () => {
+    // FLIPPED 2026-11-02, and it is a measured consequence on a REAL payload
+    // rather than a fixture artefact. This pin used to assert
+    // `reactsToDelivery` was unchanged by the one-reading slice, which was
+    // true of that slice.
+    //
+    // The rule changed since: an outcome fork whose engagement arms spend the
+    // same number of messages is not a reaction. The live nested fork is
+    // "Read, not converted" with 2 sends against "Not read" with 2 — the agent
+    // forked and then ran the same amount on both sides, which is a label on a
+    // clock. The attribute fork above it was never a reaction and still is
+    // not.
+    const low = (LIVE.branchOnWithReadFork[0] as { paths: { steps: unknown[] }[] }).paths[1];
+    const nested = low.steps.find((x) => (x as { kind?: string }).kind === 'branch') as { paths: { steps: unknown[] }[] };
+    expect(nested.paths.map((p) => p.steps.filter((x) => (x as { kind?: string }).kind === 'send').length)).toEqual([2, 2]);
+    expect(reactsToDelivery(pathAs(LIVE.branchOnWithReadFork))).toBe(false);
+    expect(journeyReacts(pathAs(LIVE.branchOnWithReadFork))).toBe(false);
   });
 
   it('the 5-send branch+on with no nested fork compiles to 5, and does NOT react', () => {
@@ -181,7 +192,10 @@ describe('what is still NOT a guest list', () => {
         kind: 'branch',
         paths: [
           { label: 'Unread', statuses: ['DELIVERED'], steps: [{ kind: 'wait', duration: 1, unit: 'days' }, send('Repeat the fact', 'reminder')] },
-          { label: 'Read', statuses: ['READ'], steps: [send('Change the argument', 'reminder')] },
+          // SPENDS DIFFERENTLY: read-and-no-action gets the argument and then
+          // the consequence, so the arms are two jobs rather than one on two
+          // clocks.
+          { label: 'Read', statuses: ['READ'], steps: [send('Change the argument', 'reminder'), send('What waiting costs', 'outcome')] },
         ],
       },
     ];
@@ -236,11 +250,13 @@ describe('what is still NOT a guest list', () => {
       },
     ];
     expect(reactsToDelivery(pathAs(asAttribute))).toBe(false);
-    // Drop the attribute and the identical arms ARE a reaction, which is what
+    // Drop the attribute and the SAME arms ARE a reaction — which is what
     // makes the line above a statement about the classification rather than
-    // about the arms.
+    // about the arms. The arms have to spend differently for that to be true
+    // at all now, so the low arm carries the extra message.
     const sameArms = structuredClone(asAttribute) as Record<string, unknown>[];
     delete (sameArms[1] as { on?: unknown }).on;
+    ((sameArms[1] as { paths: { steps: unknown[] }[] }).paths[1].steps).push(send('What waiting costs', 'outcome'));
     expect(reactsToDelivery(pathAs(sameArms))).toBe(true);
   });
 });
@@ -282,9 +298,12 @@ describe('the refusals this reading does NOT remove', () => {
     expect(out.strategy ?? null).toBeNull();
   });
 
-  it('a mixed path with sends on the arms AND one after the fork still refuses', () => {
-    // The sibling has no single arm to continue from, so the compiler reports
-    // it and drops it. Counted, not classified: 3 written, 2 built.
+  it('a mixed path with sends on the arms AND one after the fork now files', () => {
+    // SUPERSEDED by `eval/runs/ui-s-1793613837789` turn 4. The sibling has no
+    // single arm to continue from, so it is copied onto every arm that is
+    // still open: 3 written, 4 built, and each person still receives two.
+    // `sendSteps` is unchanged — this reading is the path AS WRITTEN, which is
+    // the point of the file.
     const mixed = [
       {
         kind: 'branch',
@@ -297,13 +316,10 @@ describe('the refusals this reading does NOT remove', () => {
       send('Shared last chance', 'reminder'),
     ];
     expect(sendSteps(mixed)).toBe(3);
-    expect(builtSends(mixed).sends).toBe(2);
+    expect(builtSends(mixed).sends).toBe(4);
     const out = applyOutputTool(liveBrief(), 'propose_strategy', { ...filedPlan(), blueprint: pathAs(mixed) });
-    expect(out.error).toMatch(/has 3 messages in it and only 2 reached the journey/i);
-    expect(out.error).toMatch(/Nest it inside the arm it belongs to/i);
-    // QUOTES THE SKIP, rather than guessing the cause: the compiler names the
-    // message it lost, so the refusal repeats its words.
-    expect(out.error).toMatch(/Shared last chance/);
+    expect(out.error ?? null).toBeNull();
+    expect(out.strategy ?? null, 'filed and approvable').not.toBeNull();
   });
 
   it('and a refusal quotes the compiler when the compiler knows why', () => {

@@ -668,13 +668,34 @@ banned list names what the run produced:
 
 **Titles are the phase, in sentences.** "Gathering context" → "Reading your
 brief and bank context". "Agent thinking"/"Agent continuing" → one title per
-turn: `isBuildTurn ? 'Building the journey' : decide(brief).proceed ?
-'Drafting the plan' : 'Writing a reply'`. That `decide` call is cosmetic and
-commented as such — the real gate runs after the rounds. Later rounds keep
-the same sentence, because the row is correlated and resolves in place and
-the existing `detail` already says which round it is. "Agent answer unusable,
-asking again" → "That reply came back empty, asking again" — a sentence about
-what happened rather than a verdict on the agent.
+ROUND, sourced from `phaseNow()` inside the round loop: `build` → "Building
+the journey", `ready` → "Drafting the plan", `asking` → "Writing a reply".
+Cosmetic, as it always was — the real gate runs after the rounds — and
+`decide` is not called for it.
+
+**Corrected 2026-11-04.** It used to be one title per TURN, computed above
+the loop from `decide(brief).proceed` while the record was still open. A
+mixed send therefore kept its opening title to the end: measured on
+`eval/runs/ui-s-1793700781000` turn 3, a send that recorded findings, looked
+the catalogue up and then proposed a strategy printed "Writing a reply" on
+all five of its rounds. The paragraph above this one already claimed the row
+told "answering the manager" apart from "writing the plan", and on the one
+send that does both it did not. The row is still correlated and still
+resolves in place; what changed is that the sentence follows the round, which
+is the same `phaseNow()` the prompt, the tool list and the handler already
+read.
+
+**Stages follow the round too**, through one `stageOf(phase)`: a refinement
+is `review` whatever the phase, then `build` → `generating`, `ready` →
+`strategy`, `asking` → `discovery`. Six `model.*` emits were a bare
+`isRefinement ? 'review' : 'discovery'` and the output-tool
+`tool_call.completed` was a hardcoded `'discovery'` — so `propose_strategy`
+completed at `discovery` on a turn already carrying a strategy. The LOOKUP
+tools keep `'understanding'` on requested, started and completed; that is
+what `data.kind` and the lookup count read, and it was not touched.
+
+"Agent answer unusable, asking again" → "That reply came back empty, asking
+again" — a sentence about what happened rather than a verdict on the agent.
 
 **Every row's Details panel has a sentence above the JSON**, from one shared
 helper so the two surfaces cannot drift:

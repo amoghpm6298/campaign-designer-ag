@@ -54,18 +54,33 @@ const filed = () => {
 };
 
 describe('the live brief that had a journey and showed none', () => {
-  it('STEP 0: the steps react, so there was never a false claim here', () => {
+  it('STEP 0: the fork is there, but its arms spend 2 against 2', () => {
+    // FLIPPED 2026-11-02, on a REAL payload rather than a fixture. This used
+    // to assert the steps reacted and the claim stood.
+    //
+    // The rule changed since: an outcome fork whose engagement arms spend the
+    // same number of messages is a label on a clock, not a reaction. This
+    // filed path forks on READ against DELIVERED/DELETED and then runs TWO
+    // sends down each side — Day2 follow-up and Day5 last chance, twice over,
+    // the same shape with different words.
+    //
+    // So the claim is repaired rather than held, which is the product rule
+    // this file exists for: the path is unchanged, the label is corrected, and
+    // the sentence about what would have been smarter travels as advice.
     const lp = live().lastProposal!;
     expect(shapedBlueprint(lp.blueprint as never)).toBe(true);
-    expect(journeyReacts(lp.blueprint as never)).toBe(true);
-    // The claim and the path agree, so nothing is rewritten.
+    const arms = JSON.stringify(lp.blueprint).match(/"statuses"/g) ?? [];
+    expect(arms.length, 'the fork really is there').toBe(2);
+    expect(journeyReacts(lp.blueprint as never), 'equal spend on both arms').toBe(false);
+
     const aligned = alignJourneyClaim(filed());
-    expect(aligned.stripped).toBe(false);
+    expect(aligned.stripped, 'the false claim is repaired, not refused').toBe(true);
     expect(aligned.proposed!.strategy!.architectures!.find((a: { chosen?: boolean }) => a.chosen)!.journey).toBe(
-      'branch-on-response',
+      'linear',
     );
-    // And no advice, because there is nothing to advise: the fork is there.
-    expect(aligned.advice).toEqual([]);
+    expect(aligned.advice.join(' ')).toMatch(/read-fork|different jobs/i);
+    // THE PATH IS NOT TOUCHED. Only the word describing it.
+    expect(aligned.proposed!.blueprint).toEqual(lp.blueprint);
   });
 
   it('the fork is an outcome branch on READ against DELIVERED/DELETED', () => {
@@ -354,13 +369,18 @@ describe('a clock that is allowed through still owes one sentence', () => {
     expect((res.strategy as { architectures?: { journey?: string; chosen?: boolean }[] }).architectures!.find((a) => a.chosen)!.journey).toBe('linear');
   });
 
-  it('a reacting path gets Confirm with no lecture', async () => {
+  it('an equal-spend fork still gets Confirm, with the advice beside it', async () => {
+    // RETARGETED 2026-11-02 together with STEP 0. The live filed path forks
+    // and spends 2 against 2, so it is not a reaction any more — and the
+    // locked rule is that reaction is SMARTER, NOT MANDATORY. So Confirm still
+    // appears, the claim comes back repaired, and the sentence about the fork
+    // travels as advice rather than a hold.
     const reacting = { ...CLOCK_PLAN, blueprint: live().lastProposal!.blueprint };
     const res = await proposeTurn(reacting);
-    expect(res.phase).toBe('awaiting-confirmation');
-    expect(String(res.reply)).not.toContain(READ_FORK_ADVICE);
+    expect(res.phase, 'taste does not hide the button').toBe('awaiting-confirmation');
+    expect(String(res.reply)).toContain(READ_FORK_ADVICE);
     expect((res.strategy as { architectures?: { journey?: string; chosen?: boolean }[] }).architectures!.find((a) => a.chosen)!.journey).toBe(
-      'branch-on-response',
+      'linear',
     );
   });
 });

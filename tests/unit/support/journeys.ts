@@ -22,7 +22,17 @@ export const send = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-/** The fork itself: three WhatsApp people, three jobs. */
+/**
+ * The fork itself: two WhatsApp people, two jobs — and the arms SPEND
+ * DIFFERENTLY.
+ *
+ * Both arms used to carry one send, and `jobSignature` called them different
+ * because one waited and one changed channel. `reactsToDelivery` counts the
+ * messages now: equal spend is the same job however the channels or waits
+ * differ. So the read arm gets the argument AND the consequence of waiting,
+ * which is what "read and no action needs a different ask" means — the unread
+ * arm just needs the same fact again, sooner.
+ */
 export const engagementFork = (barrier = 'cost-perception') => ({
   kind: 'branch',
   label: 'What happened to the first message',
@@ -38,7 +48,10 @@ export const engagementFork = (barrier = 'cost-perception') => ({
     {
       label: 'Read, not booked',
       statuses: ['READ'],
-      steps: [send({ name: 'What it costs a month', stage: 'outcome', describe: 'Argue the instalment.', channelPreference: ['SMS'], barrier })],
+      steps: [
+        send({ name: 'What it costs a month', stage: 'reminder', describe: 'Argue the instalment.', channelPreference: ['SMS'], barrier }),
+        send({ name: 'What waiting costs', stage: 'outcome', describe: 'The window closes and the rate goes.', channelPreference: ['SMS'], barrier }),
+      ],
     },
   ],
 });
@@ -55,4 +68,33 @@ export const reactingPath = (over: Record<string, unknown> = {}, barrier = 'cost
   entry: { kind: 'audience', entity: 'Card', conditions: [{ attribute: 'Status', operator: 'Equals', value: 'Active' }] },
   steps: [send({ fallbackChannel: 'SMS', barrier }), engagementFork(barrier)],
   ...over,
+});
+
+/**
+ * Two arms that are the same journey, described differently.
+ *
+ * THE SHAPE A LIVE RUN KEEPS PRODUCING: same contacts, same channels, same
+ * spacing, different paragraphs. `checkExperimentClaims` refuses it for any
+ * claim except `wording`, and since 2026-11-03 it is refused at propose time
+ * rather than after a refinement — `eval/runs/ui-s-1793616608652` turn 3
+ * filed one against a record that said nobody knew why, and Confirm built it.
+ *
+ * SHARED, because two files now assert on it and the audit's own fixture is
+ * the authority on what "copy-only" means. A second copy is how the
+ * architecture fields and the two event-label maps drifted.
+ */
+export const COPY_ONLY_ARMS: [unknown[], unknown[]] = [
+  [send({ copy: 'Converting is easy.' }), { kind: 'wait', durationHours: 48 }, send({ stage: 'reminder', channelPreference: ['SMS'] })],
+  [send({ copy: 'Here is what it costs.' }), { kind: 'wait', durationHours: 48 }, send({ stage: 'reminder', channelPreference: ['SMS'] })],
+];
+
+/** One experiment step over a pair of arms, with whatever it claims to test. */
+export const experimentOf = (tests: string, arms: [unknown[], unknown[]] = COPY_ONLY_ARMS) => ({
+  kind: 'experiment',
+  label: 'Dormancy test',
+  tests,
+  arms: [
+    { label: 'A', pct: 50, steps: arms[0] },
+    { label: 'B', pct: 50, steps: arms[1] },
+  ],
 });

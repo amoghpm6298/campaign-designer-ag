@@ -16,6 +16,20 @@ import { OUTPUT_TOOLS, OUTPUT_TOOL_NAMES, isOutputTool, applyOutputTool, outputT
 import { blocksFor } from '../../server/gate';
 import { reactingPath } from './support/journeys';
 import { readFileSync } from 'node:fs';
+import { buildFromBlueprint } from '../../server/blueprint';
+
+/**
+ * SEND nodes the compiler actually builds from a path.
+ *
+ * Used where the written count and the built count are deliberately allowed
+ * to differ — a linear tail after a fork is copied onto every arm that is
+ * still open, so the canvas carries more sends than the plan lists and nobody
+ * receives two of them.
+ */
+const builtSendCount = (bp: unknown): number => {
+  const out = buildFromBlueprint(bp as never, ['WHATSAPP', 'SMS', 'EMAIL']);
+  return Object.values(out.graph.nodes).filter((n) => (n as { type: string }).type === 'SEND').length;
+};
 
 const started = (): WorkingBrief =>
   recordReply(
@@ -484,14 +498,18 @@ describe('a proposal must compare two genuinely different theories of the proble
     expect(out.strategy ?? null).toBeNull();
   });
 
-  // TWO MISTAKES, TWO SENTENCES.
+  // TWO MISTAKES, TWO SENTENCES — and only one of them is still a mistake.
   //
   // MEASURED, `eval/runs/ui-s-1793017853714` turn 3. Both forced attempts came
   // back with the waits-only sentence and neither fixed anything, because it
   // told a model that HAD written sends to write the sends into the path. They
-  // were written; they were not attached. A send after a fork has several arms
-  // it could continue from, so the compiler reports the ambiguity and drops the
-  // step rather than guessing one.
+  // were written; they were not attached.
+  //
+  // SUPERSEDED for the send-after-a-fork half by
+  // `eval/runs/ui-s-1793613837789` turn 4: the compiler copies a linear tail
+  // onto the arms that are still open, so a plan whose last message sits after
+  // the fork now FILES. The waits-only sentence is untouched — a path with no
+  // messages in it still has nothing to approve.
   const SENDS_AFTER_A_FORK = {
     campaignName: 'EMI', description: 'Prompt conversion inside the window.', goal: null,
     entry: { kind: 'audience', entity: 'Card', conditions: [] },
@@ -508,19 +526,17 @@ describe('a proposal must compare two genuinely different theories of the proble
     ],
   };
 
-  it('a path whose sends are after the fork gets the nest-under-arm sentence', () => {
+  it('a path whose only send is after the fork is filed, on both arms', () => {
     const out = applyOutputTool(withBarriers(['awareness']), 'propose_strategy', {
       ...plan(twoArchitectures),
       blueprint: SENDS_AFTER_A_FORK,
     });
-    // COUNTED, since the mixed case. The sentence names how many messages the
-    // path has and how many reached the journey, because "none of them" is a
-    // lie when five of six did — see the mixed-shape case below.
-    expect(out.error).toMatch(/has 1 message in it and none of them reached the journey/i);
-    expect(out.error).toMatch(/Nest it inside the arm it belongs to/i);
-    // NOT the waits-only sentence: that one asks for sends the plan already has.
-    expect(out.error).not.toMatch(/compiles to no messages/i);
-    expect(out.brief.lastProposal ?? null, 'nothing filed').toBeNull();
+    expect(out.error ?? null, 'the tail has somewhere to go now').toBeNull();
+    expect(out.brief.lastProposal, 'so the plan is filed').toBeTruthy();
+    // THE COUNT IS ALLOWED TO GO UP. One message written, two built, and
+    // nobody receives both — which is why the recount files on built BELOW
+    // written rather than on the two numbers differing.
+    expect(builtSendCount(SENDS_AFTER_A_FORK)).toBe(2);
   });
 
   // THE MIXED CASE, and the one the zero-SEND check walked straight through.
@@ -551,19 +567,18 @@ describe('a proposal must compare two genuinely different theories of the proble
     };
   })();
 
-  it('a path with sends on the arms AND one after the fork is refused, not filed', () => {
+  it('a path with sends on the arms AND one after the fork is filed, tail on each arm', () => {
     const out = applyOutputTool(withBarriers(['awareness']), 'propose_strategy', {
       ...plan(twoArchitectures),
       blueprint: MIXED,
     });
-    expect(out.error, 'three in the JSON, two on the canvas').toBeTruthy();
-    expect(out.error).toMatch(/has 3 messages in it and only 2 reached the journey/i);
-    expect(out.error).toMatch(/Nest it inside the arm it belongs to/i);
-    // NOT the waits-only sentence: this path has messages.
-    expect(out.error).not.toMatch(/compiles to no messages/i);
-    // AND NOTHING IS FILED. Confirm compiles exactly `lastProposal`, so a plan
-    // stashed here is a campaign approved five-sixths of the way.
-    expect(out.brief.lastProposal ?? null).toBeNull();
+    expect(out.error ?? null, 'three written, four built, nobody gets both').toBeNull();
+    expect(out.brief.lastProposal, 'filed, so Confirm can compile it').toBeTruthy();
+    expect(builtSendCount(MIXED)).toBe(4);
+    // AND THE SHAPE A MANAGER SEES IS STILL THREE MESSAGES EACH WAY. The
+    // written path is what gets filed and what Confirm compiles, so the
+    // duplicate exists on the canvas and not in the plan.
+    expect(JSON.stringify(out.brief.lastProposal?.blueprint)).toBe(JSON.stringify(MIXED));
   });
 
   it('and the same path with that send inside each arm is filed', () => {

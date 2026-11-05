@@ -311,6 +311,10 @@ export const DONT_KNOW = [
   "can't say",
   'unsure',
   'no visibility',
+  // "We don't track that" is the same answer as "I don't know", and it was the
+  // one the live run actually got. MEASURED, `eval/runs/ui-s-1793611326664`.
+  "don't track",
+  'dont track',
 ];
 
 /** Did the user say, in this reply, that they do not have the answer? */
@@ -318,6 +322,99 @@ export const saysUnknown = (text: string): boolean => {
   const t = text.toLowerCase();
   return DONT_KNOW.some((p) => t.includes(p));
 };
+
+/**
+ * "We do not know why" IS an answer about why, and it is theirs.
+ *
+ * MEASURED, `eval/runs/ui-s-1793611326664`. The manager said they do not track
+ * why dormant cardholders stay inactive. The model filed it honestly enough as
+ * a barrier called `reason-unknown` — and gave it `basis: 'none'` with
+ * `lever: 'not-addressable'`. Both are wrong in a way that stalls the
+ * conversation:
+ *
+ *  - `basis: 'none'` means nobody said it, so `designableBarriers` drops the
+ *    row and `no-barrier` holds. The manager answered and the gate did not
+ *    hear it.
+ *  - `not-addressable` means "this reason is real and a drip cannot fix it".
+ *    Not knowing the reason is not that. It is the thing the first run exists
+ *    to find out.
+ *
+ * So the row becomes theirs: `basis: 'user'`, their words as the quote, and a
+ * lever that leaves Plan free to test. `no-barrier` then clears on its own,
+ * because `designableBarriers` already accepts `basis: 'user'` — the block is
+ * not demoted and nothing else about it changes.
+ *
+ * WHY IT RUNS AFTER `record_findings` AND NOT BESIDE `settleUnknowns`. The
+ * inbound reply is settled first, then the model's own tool call writes the
+ * barriers — so a rewrite that only ran on the way in would be overwritten by
+ * the very filing it exists to correct. The last write has to be this one.
+ *
+ * WHAT IT WILL NOT DO. It fires only while there is NO designable barrier on
+ * the record, so a reason the manager really did state can never be rewritten,
+ * and a stated reason they say a drip cannot fix stays exactly as filed. It
+ * invents no second cause. It reads only `DONT_KNOW`, which may convert a row
+ * and may never create a refusal.
+ */
+export function fileUnknownWhy(brief: WorkingBrief): WorkingBrief {
+  const reply = brief.answers?.[brief.answers.length - 1]?.text ?? '';
+  if (!reply.trim() || !saysUnknown(reply)) return brief;
+  const rows = brief.barriers ?? [];
+  // A barrier THEY stated means the why question is answered. Nothing here
+  // touches it.
+  //
+  // `assumption` IS NOT IN THAT LIST, and that was the whole defect.
+  // MEASURED, `eval/runs/ui-s-1793616608652` turn 3: they answered "1. not
+  // sure / 2. not sure / 3. not really", the model filed `why-dormant-unknown`
+  // as `user` quoting "not sure", and `quoteIsTheirs` wants three content
+  // words — so attribution stored it as `assumption`. This function then bailed
+  // on any assumption, `mustTestBarriers` stayed true, and Plan shipped a
+  // two-arm "forgot the card" against "switched to UPI" experiment over a
+  // reason nobody had given. Confirm built it.
+  //
+  // An unknown filed under a weaker basis is still the manager saying they do
+  // not know. A cause the agent GUESSED is not, and the quote is what tells
+  // the two apart.
+  if (rows.some((b) => b.basis === 'user' || b.basis === 'user-belief')) return brief;
+
+  const theirs = {
+    basis: 'user' as const,
+    // THE LEVER IS NOT A CLAIM ABOUT THE CAUSE. There is no "unknown" lever,
+    // and `not-addressable` is the one thing this must not be. `message` is
+    // the instrument a first run uses to find out, and the statement says
+    // plainly that the reason is unknown so nothing downstream reads a cause
+    // into it.
+    lever: 'message' as const,
+    quote: reply.trim().slice(0, 300),
+  };
+  const statement = 'They do not know why the rest do not convert, and said so. This run has to find out.';
+
+  // Rewrite the row the model filed for this reply, if it filed one.
+  //
+  // THE ASSUMPTION ROW HAS TO BE IN THIS SEARCH, not only `none` and
+  // `not-addressable`. Dropping the bail above without widening it appends
+  // `reason-unknown` BESIDE the bad row: `mustTestBarriers` goes false, the
+  // quasi-cause stays on the record, and the brief then carries two barriers
+  // where the manager gave none. One row after this reply, never two.
+  //
+  // An assumption only qualifies when its own quote is itself an unknown —
+  // "not sure" is enough. A guessed cause carries a CAUSE in the quote, and
+  // that row is left exactly as the model filed it.
+  const wrong = rows.findIndex(
+    (b) => b.basis === 'none' || b.lever === 'not-addressable' || (b.basis === 'assumption' && saysUnknown(b.quote ?? '')),
+  );
+  if (wrong >= 0) {
+    const next = [...rows];
+    // THE STATEMENT IS REPLACED, not kept. The model's wording for an unknown
+    // reads as a quasi-cause often enough to matter, and every reader
+    // downstream takes the statement as what the campaign is attacking.
+    next[wrong] = { ...next[wrong], ...theirs, statement };
+    return { ...brief, barriers: next };
+  }
+  return {
+    ...brief,
+    barriers: [...rows, { id: 'reason-unknown', statement, ...theirs }],
+  };
+}
 
 /**
  * Convert dimensions the user has just said they cannot settle into stated

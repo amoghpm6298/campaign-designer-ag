@@ -301,11 +301,11 @@ describe('with no history, the first run has to test something', () => {
           // on what they did with the last message.
           kind: 'branch',
           label: 'What happened to the first message',
-          // COPIED FROM THE RECORD, not imagined. My first version gave both
-          // arms the same shape, so `journeyReacts` correctly said no — two
-          // arms doing the identical job is not a reaction. The live plan sent
-          // the unread arm by SMS and the read arm by WhatsApp, which is the
-          // difference that makes it one.
+          // COPIED FROM THE RECORD, then given a third message on the read
+          // arm. The live plan sent the unread arm by SMS and the read arm by
+          // WhatsApp — two sends each — and a CHANNEL difference on the same
+          // spend is no longer a reaction (2026-11-02). The shape this test is
+          // about is unchanged: engagement arms are not a who-split.
           paths: [
             { label: 'Unread path', statuses: ['DELIVERED'], steps: [
               { ...send('Day 3 — repeat for unread'), channelPreference: ['SMS'], delayDays: 3 },
@@ -313,7 +313,8 @@ describe('with no history, the first run has to test something', () => {
             ] },
             { label: 'Read path', statuses: ['READ'], steps: [
               { ...send('Day 3 — sharper reason for read-no-action'), channelPreference: ['WHATSAPP'], delayDays: 3 },
-              { ...send('Day 6 — last chance (read path)'), channelPreference: ['WHATSAPP'], delayDays: 3, stage: 'reminder' },
+              { ...send('Day 5 — what waiting costs'), channelPreference: ['WHATSAPP'], delayDays: 2, stage: 'reminder' },
+              { ...send('Day 6 — last chance (read path)'), channelPreference: ['WHATSAPP'], delayDays: 1, stage: 'reminder' },
             ] },
           ],
         },

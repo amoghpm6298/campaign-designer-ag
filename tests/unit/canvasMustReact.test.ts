@@ -129,7 +129,14 @@ const REACTING = [
     kind: 'condition',
     label: 'Did it land?',
     outcomes: ['Delivered'],
-    yes: [{ kind: 'wait', durationHours: 48, why: 'Let them act.' }, send({ name: 'Nudge again', stage: 'reminder' })],
+    // SPENDS DIFFERENTLY, since 2026-11-02. One send each read as a reaction
+    // only because one side also waited; `reactsToDelivery` counts messages
+    // now, so the landed side gets the nudge and then the consequence.
+    yes: [
+      { kind: 'wait', durationHours: 48, why: 'Let them act.' },
+      send({ name: 'Nudge again', stage: 'reminder' }),
+      send({ name: 'What waiting costs', stage: 'outcome' }),
+    ],
     no: [send({ name: 'SMS fallback', stage: 'first-touch', channelPreference: ['SMS'] })],
   },
   { kind: 'exit', reason: 'The window closed.' },

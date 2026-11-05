@@ -90,9 +90,9 @@
  "riskAppetite": {
   "level": "unspecified",
   "notes": [
-   "No appetite is on file for this issuer, so design the full plan.",
-   "Do not thin the messages or drop tests to be safe. An unstated appetite is missing information, not a request for restraint.",
-   "If the manager states an appetite later, trim then and say what you removed."
+   "No appetite on file. Send more messages and include a test.",
+   "Do not thin the plan to be safe. Do not spread a few messages across a long calendar. An unstated appetite is missing information, not a request for restraint.",
+   "If they later say conservative, cut messages and tests, and say what you removed."
   ]
  },
  "eventsCalendar": {

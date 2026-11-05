@@ -31,6 +31,8 @@ import { seedKnowledgeBase } from '../../server/knowledge';
 import { blocksFor, blockDelta, renderBlocks, decide } from '../../server/gate';
 import { applyOutputTool } from '../../server/outputTools';
 import { newBrief, recordAnswer, recordConverters, recordDimensions, recordQuestions, type WorkingBrief } from '../../server/discovery';
+import { receive } from '../../server/record';
+import { turnPhase } from '../../server/gate';
 import { detailsText, friendlyEvent } from '../../src/designer/status';
 import { asking } from './support/prompts.ts';
 // PINS REMOVED, NOT LOST: 3 rule(s) this file asserted have no
@@ -111,7 +113,7 @@ async function run(brief: WorkingBrief) {
     ],
   } as never);
   let out = await gen.next();
-  const events: { type: string; title?: string; detail?: string; data?: unknown }[] = [];
+  const events: { type: string; stage?: string; title?: string; detail?: string; data?: unknown }[] = [];
   while (!out.done) {
     events.push(out.value as never);
     out = await gen.next();
@@ -383,5 +385,123 @@ describe('the streaming placeholder is not a scavenged JSON fragment', () => {
     expect(code).not.toContain('Working on the campaign strategy');
     expect(src).toMatch(/Drafting the plan…/);
     expect(src).toMatch(/Writing a reply…/);
+  });
+});
+
+describe('the row follows the round, because one send can close the record half way through', () => {
+  // MEASURED, `eval/runs/ui-s-1793700781000` turn 3. One send recorded the
+  // findings, looked the catalogue up, and then proposed a strategy. All five
+  // of its `model.started` rows read "Writing a reply" at stage `discovery`,
+  // and `propose_strategy` completed at `discovery` while the response was
+  // already carrying a strategy.
+  //
+  // The cause was WHEN the title was read, not what it said: `modelTitle` was
+  // computed once above the round loop from `decide(brief).proceed`, while
+  // the record was still open. The comment above it already claimed the row
+  // told "answering the manager" apart from "writing the plan" — and on the
+  // one send that does both, it did not.
+
+  /** One reply that answers everything the first question asked. */
+  const ANSWERED =
+    'Activation means the PIN is set. We measure how many new cardholders activate. ' +
+    'Cards issued in branch activate more often than ones posted out. ' +
+    'The rest just never get round to setting the PIN. We do not track anything else.';
+
+  /** A brief that is exactly one `record_findings` away from ready. */
+  const oneAway = (): WorkingBrief => {
+    const b = recordQuestions(newBrief('I want more new cardholders to activate their cards.'), [
+      { text: 'What does activation mean, and how will you judge this worked?', impact: 'shaping' },
+    ]);
+    return receive(b, ANSWERED).brief;
+  };
+
+  /** The `record_findings` call that closes it. */
+  const CLOSES_THE_RECORD = sse([
+    { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'f1', name: 'record_findings', input: {} } },
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: {
+        type: 'input_json_delta',
+        partial_json: JSON.stringify({
+          successCriteria: ['The count of new cardholders who set a PIN in their first two weeks.'],
+          converters: { shape: 'Cards issued in branch activate more often than ones posted out.', basis: 'user', knowledge: 'known' },
+          barriers: [
+            {
+              id: 'inertia',
+              statement: 'They never get round to setting the PIN',
+              basis: 'user',
+              lever: 'message',
+              quote: 'The rest just never get round to setting the PIN',
+            },
+          ],
+        }),
+      },
+    },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 40 } },
+  ]);
+
+  it('is the fixture the test needs: asking before the call, ready after it', () => {
+    // Pinned so the case cannot quietly stop being a MIXED send — if the
+    // brief ever starts out ready, both rounds would say "Drafting the plan"
+    // and the test would pass while proving nothing.
+    expect(turnPhase(oneAway(), { isBuildTurn: false, limitReached: false })).toBe('asking');
+  });
+
+  it('says "Writing a reply" first and "Drafting the plan" after the record closes', async () => {
+    script([CLOSES_THE_RECORD, proseTurn('Here is the plan.')]);
+    const { events } = await run(oneAway());
+    const rounds = events.filter((e) => e.type === 'model.started');
+    expect(rounds.length, 'a mixed send runs more than one round').toBeGreaterThan(1);
+    expect(rounds[0].title, 'the record was still open').toBe('Writing a reply');
+    expect(rounds[1].title, 'the findings closed it in the round before').toBe('Drafting the plan');
+  });
+
+  it('stamps the stage of the round, not of the send', async () => {
+    script([CLOSES_THE_RECORD, proseTurn('Here is the plan.')]);
+    const { events } = await run(oneAway());
+    const rounds = events.filter((e) => e.type === 'model.started');
+    expect(rounds[0].stage).toBe('discovery');
+    expect(rounds[1].stage, 'the plan is being written, so this is not discovery').toBe('strategy');
+  });
+
+  it('files a failure under the round that failed, not under discovery', () => {
+    // The three `model.failed` emits were the last hardcoded `'discovery'`
+    // on this path, so a call that died while the plan was being written was
+    // filed as more discovery. Same defect as the rest of the slice; they
+    // were simply not named in the brief, so they are done separately.
+    const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+    expect(src, 'no failure row is pinned to discovery').not.toMatch(/em\.emit\('model\.failed', 'discovery'/);
+    expect((src.match(/em\.emit\('model\.failed', stageOf\(/g) ?? []).length).toBe(3);
+  });
+
+  it('leaves the lookups on "understanding", which is what the count reads', () => {
+    // `data.kind` decides what is a lookup and the stage is NOT used for it.
+    // Retargeting these would move rows the lookup count and the Logs tab
+    // both rely on, for no gain.
+    const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/em\.emit\(out\.ok \? 'model\.tool_call\.completed' : 'model\.tool_call\.failed', 'understanding'/);
+    expect((src.match(/'model\.tool_call\.(requested|started)', 'understanding'/g) ?? []).length).toBe(2);
+  });
+
+  it('reads the title inside the loop, after the phase', () => {
+    // The ordering IS the fix. A `modelTitle` above the loop is the defect
+    // whatever it is computed from, and `decide` must not be called here —
+    // the real gate runs after the rounds finish and a second call reads as
+    // one.
+    const src = readFileSync(new URL('../../server/orchestrator.ts', import.meta.url), 'utf8');
+    const loop = src.indexOf('for (let round = 0; round < MAX_TOOL_ROUNDS');
+    const title = src.indexOf('const modelTitle =');
+    const phase = src.indexOf('const phase: TurnPhase = phaseNow();');
+    expect(loop, 'the round loop is still here').toBeGreaterThan(-1);
+    expect(title, 'modelTitle is inside the loop').toBeGreaterThan(loop);
+    expect(title, 'and after the phase it reads').toBeGreaterThan(phase);
+    // COMMENTS STRIPPED FIRST. The note above `modelTitle` explains the
+    // defect by naming `decide(brief).proceed`, so a raw scan matches the
+    // explanation rather than a call — a pin satisfied by its own prose,
+    // which this file has been bitten by before.
+    const code = src.slice(loop, title).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    expect(code, 'no decide() between the loop head and the title').not.toMatch(/decide\(/);
   });
 });

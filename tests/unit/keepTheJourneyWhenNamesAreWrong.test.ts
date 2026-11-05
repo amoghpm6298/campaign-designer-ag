@@ -468,7 +468,12 @@ describe('what this does NOT weaken', () => {
     expect(out.brief.lastProposal ?? null).toBeNull();
   });
 
-  it('a mixed 3-written / 2-built path still refuses, and still does not file', () => {
+  // SUPERSEDED by `eval/runs/ui-s-1793613837789` turn 4: a linear tail after a
+  // fork is copied onto the arms that are still open, so this path builds FOUR
+  // sends from three written and files. What this file is about is unchanged —
+  // a resolution miss still does not invent a journey, and the waits-only and
+  // 0-SEND refusals above still stand.
+  it('a mixed 3-written / 2-built path now files, with the tail on both arms', () => {
     const out = applyOutputTool(brief(), 'propose_strategy', envelope([
       {
         kind: 'branch',
@@ -482,13 +487,11 @@ describe('what this does NOT weaken', () => {
       // The trailing sibling: no single arm to continue from.
       send('shared last chance', 'reminder'),
     ]) as never);
-    expect(out.error).toMatch(/has 3 messages in it and only 2 reached the journey/i);
-    // HERE the compiler really did say it, so the instruction is its own.
-    expect(out.error).toMatch(/Nest it inside the arm it belongs to/i);
-    expect(out.brief.lastProposal ?? null).toBeNull();
+    expect(out.error ?? null).toBeNull();
+    expect(out.brief.lastProposal, 'filed, because every message has somewhere to go').toBeTruthy();
   });
 
-  it('and the trailing sibling is still not attached to an arbitrary arm', () => {
+  it('and the trailing sibling goes to EVERY open arm, never to one of them', () => {
     const r = build({
       steps: [
         {
@@ -503,8 +506,11 @@ describe('what this does NOT weaken', () => {
         send('shared last chance', 'reminder'),
       ],
     });
-    expect(typesIn(r).SEND, 'two, not three, and not fanned onto both arms').toBe(2);
-    expect(said(r, /Nest it inside the arm it belongs to/)).toBe(true);
+    // FOUR, not three and not two: one copy per arm. "Not attached to an
+    // arbitrary arm" is still the rule — what changed is that the answer is
+    // both of them rather than neither.
+    expect(typesIn(r).SEND, 'one per arm, so nobody receives two').toBe(4);
+    expect(said(r, /Nest it inside the arm it belongs to/), 'nothing was lost to name').toBe(false);
   });
 
   it('the same sends nested on the arms file, as they always did', () => {

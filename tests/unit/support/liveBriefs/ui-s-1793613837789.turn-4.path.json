@@ -1,0 +1,91 @@
+[
+ {
+  "kind": "send",
+  "label": "First touch: reactivation nudge",
+  "stage": "first-touch",
+  "barrier": "reason-unknown",
+  "channelPreference": [
+   "WHATSAPP"
+  ],
+  "fallbackChannel": "SMS",
+  "delayDays": 0,
+  "atTime": "11:00",
+  "copy": "We've missed you! Your IndusInd card is ready whenever you are. Use it today and pick up right where you left off.",
+  "cta": "Use your card now"
+ },
+ {
+  "kind": "branch",
+  "label": "Did they see the first message?",
+  "paths": [
+   {
+    "label": "Not read / no response",
+    "statuses": [
+     "DELIVERED"
+    ],
+    "steps": [
+     {
+      "kind": "wait",
+      "delayDays": 2
+     },
+     {
+      "kind": "send",
+      "label": "Restate on a more visible channel",
+      "stage": "reminder",
+      "barrier": "reason-unknown",
+      "channelPreference": [
+       "SMS"
+      ],
+      "delayDays": 0,
+      "atTime": "11:00",
+      "copy": "Your IndusInd card is active and ready. One small spend today keeps it working for you -- no fees, no forms.",
+      "cta": "Make a purchase"
+     }
+    ]
+   },
+   {
+    "label": "Read, no transaction yet",
+    "statuses": [
+     "READ"
+    ],
+    "steps": [
+     {
+      "kind": "wait",
+      "delayDays": 2
+     },
+     {
+      "kind": "send",
+      "label": "Different angle: ease of use",
+      "stage": "reminder",
+      "barrier": "reason-unknown",
+      "channelPreference": [
+       "WHATSAPP"
+      ],
+      "fallbackChannel": "SMS",
+      "delayDays": 0,
+      "atTime": "11:00",
+      "copy": "Still thinking about it? Your card already works everywhere -- online, in-store, on bills. Try it on your next small buy.",
+      "cta": "Try it now"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "wait",
+  "delayDays": 5
+ },
+ {
+  "kind": "send",
+  "label": "Final reminder before close",
+  "stage": "outcome",
+  "barrier": "reason-unknown",
+  "channelPreference": [
+   "WHATSAPP"
+  ],
+  "fallbackChannel": "SMS",
+  "delayDays": 0,
+  "atTime": "11:00",
+  "copy": "Last check-in: your IndusInd card is sitting unused. Make one purchase this week and keep it active for when you need it.",
+  "cta": "Reactivate now"
+ }
+]

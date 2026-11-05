@@ -925,14 +925,46 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
     return opened.length === 1 ? { kind: 'edge', edgeId: opened[0].id } : undefined;
   };
 
+  /**
+   * Is this the rest of ONE path, or the start of a second decision?
+   *
+   * Only `wait` and `send` travel, with an optional trailing `exit` that the
+   * loop skips anyway. A fork in the tail is a decision of its own and is left
+   * where the model wrote it, reported as before. At least one message has to be
+   * in there: copying a bare wait onto every arm changes nothing a customer sees.
+   */
+  const isLinearTail = (steps: BpStep[]): boolean => {
+    const body = steps[steps.length - 1]?.kind === 'exit' ? steps.slice(0, -1) : steps;
+    return body.length > 0 && body.some((s) => s.kind === 'send') && body.every((s) => s.kind === 'send' || s.kind === 'wait');
+  };
+
   let lastSend: { channel: string; fallbackChannel: string } | null = null;
 
-  const addSteps = (steps: BpStep[], pathPrefix: string, at?: DcAddingAt) => {
+  /**
+   * Lay a list of steps down one path, and report where that path is left open.
+   *
+   * The return value is the continuation after the LAST step — undefined when
+   * the path forked, terminated, or built nothing. An arm's recursion hands it
+   * back to the invocation that built the fork, which is what lets a trailing
+   * tail be copied onto the arms that are still open. See `TAIL_AFTER_A_FORK`.
+   */
+  const addSteps = (steps: BpStep[], pathPrefix: string, at?: DcAddingAt): DcAddingAt | undefined => {
     let target = at;
     // Which send on THIS path this is, for the stage default above. Per
     // invocation, so each arm of a fork opens with its own first touch.
     let sendsOnThisPath = 0;
+    // Where every KEPT arm of the fork this invocation built last is still
+    // open. Empty for every other kind of step, so it cannot outlive the
+    // sibling position it belongs to.
+    let forkArms: DcAddingAt[] = [];
+    // The tail was taken by the fan-out below, so the remaining siblings have
+    // already been laid down on the arms and must not be laid down again here.
+    let tailTaken = false;
     steps.forEach((step, i) => {
+      if (tailTaken) return;
+      // Filled by `place()` for a fork, and read AFTER it, so the next
+      // sibling sees the arms this step opened and nothing else.
+      const armsOpened: DcAddingAt[] = [];
       const path = `${pathPrefix}[${i}].${step.kind}`;
       // A TRAILING EXIT AFTER A FORK IS NOT A DEFECT, IT IS A HABIT.
       //
@@ -951,6 +983,49 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
       // `i > 0` IS THE GUARD THAT MATTERS: an exit that is the only step on
       // an arm is the arm's real ending, and it still goes through
       // `nextInChain` exactly as before.
+      // TAIL_AFTER_A_FORK — fan-out is a join, and the plan said so.
+      //
+      // MEASURED, `eval/runs/ui-s-1793613837789` turn 4: a first send, a
+      // read/not-read fork with a reminder on each arm, then a wait and a last
+      // reminder AFTER the fork. There is no single arm to continue from, so
+      // `nextInChain` called it ambiguous, the tail was dropped, the recount
+      // refused the plan at 4 written against 3 built, and the manager got an
+      // empty canvas. That shape is not a mistake: everyone who is still in
+      // the journey gets that last reminder, whichever arm they took.
+      //
+      // So the tail is COPIED onto the arms that are still open, and only
+      // those. Each arm's continuation is what its own recursion returned, so
+      // the goal-yes exit cannot be one (it is not an open slot), the delivery
+      // catch-all cannot be one (it is never recursed into), an arm that ended
+      // deliberately gets nothing, and no arm is picked over another. The
+      // people who receive it are the ones who got a path and have not
+      // converted.
+      //
+      // ONE PERSON STILL GETS ONE OF EACH. The journey has two copies of that
+      // last send and nobody receives both, which is why the written count and
+      // the built count are allowed to differ — see `clerkedSends`' sibling
+      // rule in `outputTools`, which files on built < written and not on
+      // inequality.
+      //
+      // Only a LINEAR tail travels. Another fork after a fork is a second
+      // decision rather than the rest of one path, and it is left exactly as
+      // it was.
+      if (!target && forkArms.length && isLinearTail(steps.slice(i))) {
+        const tail = steps.slice(i);
+        forkArms.forEach((arm, k) => addSteps(tail, `${pathPrefix}[${i}]@arm${k + 1}`, arm));
+        const named = tail
+          .filter((t) => t.kind === 'send')
+          .map((t) => String((t as { name?: string; label?: string }).name ?? (t as { label?: string }).label ?? '').trim())
+          .filter(Boolean);
+        limitations.push({
+          attribute: named[0] ?? 'the last message',
+          note: `${
+            named.length ? `"${named.join('", "')}"` : 'The last message'
+          } comes after a fork, so it was placed on each of the ${forkArms.length} paths that were still open rather than on one of them. Everyone who has not converted still receives it once.`,
+        });
+        tailTaken = true;
+        return;
+      }
       if (step.kind === 'exit' && i > 0 && !target && openSlots().length > 1) return;
       const where = target ?? nextInChain(path);
       target = undefined;
@@ -968,6 +1043,14 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         // Reported, not attached and not guessed. `propose_strategy` refuses
         // the plan for this before it is ever filed, with the correction that
         // says to nest the send inside its arm.
+        // AND THE TAIL MUST FOLLOW THE FORK DIRECTLY. A step that was dropped
+        // breaks the chain: the arms this invocation knows about are no longer
+        // the step before, so a later sibling must not be copied onto them
+        // across the gap. Without this, a second fork after the first was
+        // reported and the send behind it was still fanned onto the first
+        // fork's arms — "another fork after a fork is left as it was" has to
+        // mean the whole tail, not just its first step.
+        forkArms = [];
         if (step.kind === 'send') {
           const what = String((step as { name?: string; label?: string }).name ?? (step as { label?: string }).label ?? '').trim();
           issues.push({
@@ -1284,7 +1367,8 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
             issues.push({ path: `${path}.arms[${ai}]`, problem: 'The reducer did not create an arm for this branch.' });
             return;
           }
-          addSteps(arm.steps, `${path}.arms[${ai}]`, { kind: 'edge', edgeId: edge.id });
+          const end = addSteps(arm.steps, `${path}.arms[${ai}]`, { kind: 'edge', edgeId: edge.id });
+          if (end) armsOpened.push(end);
         });
         return;
       }
@@ -1489,7 +1573,10 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
           const outcomeArms = graph.edges.filter((e) => e.from === outcomeId);
           kept.forEach((b, i) => {
             const edge = outcomeArms.find((e) => e.branchLabel === b.label) ?? outcomeArms[i];
-            if (edge) addSteps(b.steps, `${path}.paths[${i}]`, { kind: 'edge', edgeId: edge.id });
+            // The reducer's own catch-all is not in `kept`, so it is never
+            // recursed into and can never receive a copied tail.
+            const end = edge && addSteps(b.steps, `${path}.paths[${i}]`, { kind: 'edge', edgeId: edge.id });
+            if (end) armsOpened.push(end);
           });
           return;
         }
@@ -1536,7 +1623,8 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         step.paths.forEach((b, i) => {
           // Match the reducer's own arm by its label, falling back to order.
           const edge = outs.find((e) => e.branchLabel === b.label) ?? outs[i];
-          if (edge) addSteps(b.steps, `${path}.paths[${i}]`, { kind: 'edge', edgeId: edge.id });
+          const end = edge && addSteps(b.steps, `${path}.paths[${i}]`, { kind: 'edge', edgeId: edge.id });
+          if (end) armsOpened.push(end);
         });
         return;
       }
@@ -1613,8 +1701,10 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         const arms = graph.edges.filter((e) => e.from === splitId);
         const yesEdge = arms.find((e) => e.branchLabel === 'Yes') ?? arms[0];
         const noEdge = arms.find((e) => e.branchLabel === 'No') ?? arms[1];
-        if (yesEdge) addSteps(step.yes, `${path}.yes`, { kind: 'edge', edgeId: yesEdge.id });
-        if (noEdge) addSteps(step.no, `${path}.no`, { kind: 'edge', edgeId: noEdge.id });
+        const yesEnd = yesEdge && addSteps(step.yes, `${path}.yes`, { kind: 'edge', edgeId: yesEdge.id });
+        const noEnd = noEdge && addSteps(step.no, `${path}.no`, { kind: 'edge', edgeId: noEdge.id });
+        if (yesEnd) armsOpened.push(yesEnd);
+        if (noEnd) armsOpened.push(noEnd);
         return;
       }
 
@@ -1643,7 +1733,9 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
       // the bug.
       const built = Object.keys(graph.nodes).some((id) => !nodesBefore.has(id));
       target = built ? continuationAfter(nodesBefore, slotsBefore) : (where ?? undefined);
+      forkArms = armsOpened;
     });
+    return target;
   };
 
   addSteps(bp.steps, 'steps');

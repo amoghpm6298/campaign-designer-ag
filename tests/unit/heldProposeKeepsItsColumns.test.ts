@@ -74,7 +74,9 @@ const REACTING_PATH = {
       label: 'What happened to the first message',
       paths: [
         { label: 'Delivered, unread', statuses: ['DELIVERED'], steps: [{ kind: 'wait', durationHours: 24 }, send({ label: 'Day 1 SMS - same message, other channel', stage: 'reminder', channelPreference: ['SMS'] })] },
-        { label: 'Read, no action', statuses: ['READ'], steps: [send({ label: 'Day 2 WhatsApp - how to convert', stage: 'outcome' })] },
+        // Two, so the arms spend differently: a channel-only difference on one
+        // send each is not a reaction since 2026-11-02.
+        { label: 'Read, no action', statuses: ['READ'], steps: [send({ label: 'Day 2 WhatsApp - how to convert', stage: 'reminder' }), send({ label: 'Day 4 WhatsApp - what waiting costs', stage: 'outcome' })] },
       ],
     },
   ],

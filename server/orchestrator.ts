@@ -32,7 +32,7 @@ import {
 import { outputToolsForPhase, isOutputTool, toolKind, applyOutputTool } from './outputTools';
 import { decide, blockDelta, renderBlocks, turnPhase, alignJourneyClaim, shapedBlueprint, type TurnPhase } from './gate';
 import { saysProceed, saysBuildNow, receive, reopen, outstanding, REOPEN_LIMIT } from './record';
-import { EventEmitterSeq, type RunEvent } from './runEvents';
+import { EventEmitterSeq, type RunEvent, type RunStage } from './runEvents';
 import { auditOptions, applyAudit, unsupportedClaims, copyOnlyExperiments, journeyReacts, type OptionAudit } from './optionAudit';
 import { compareArchitectures, checkFidelity, checkExperimentClaims, checkAudienceLearning, checkBarrierCoverage, checkBarrierTesting } from './architectureAudit';
 import { jargonNotes } from './plainLanguage';
@@ -420,7 +420,7 @@ export const REACTION_RETRY =
   'WHERE EVERY ARM WOULD WAIT THE SAME TIME AND SEND THE SAME KIND OF REMINDER, DO NOT SPLIT — that is a clock with extra nodes. One or two designed checks on a whole path is the shape; a check after every message is not, and nested three-way forks on a four-touch path are unreadable. A last chance whose every arm exits needs no fork. Fallback SMS reports no read, so it needs none either. ' +
   'Use kind "branch" with no entity and no attribute and `statuses` on each path, taken from that channel\'s own list. Arms must not overlap: on WhatsApp, READ is not also DELIVERED. Say in "approach" which send you chose to read back and why that one. ' +
   'Do NOT add a FAILED, UNKNOWN or NOT_DELIVERED arm, and do not route the failure to another channel as a step: undelivered is `fallbackChannel` on the Send, and it stays exactly where it is. Never branch on QUEUED, SENT or PENDING — the message is still in flight and that is not a person. WhatsApp and SMS report no opens and no clicks, so never put OPENED or CLICKED on one; Email and RCS do report them. Do not add a converted arm: the goal check already takes booked people off the path. ' +
-  'Different WAITS on each arm is not different jobs. A split on ticket size is segmentation, not a reaction — keep it, it is evidenced, but it is not this. Do not invent a second barrier. Keep every message, every day and every channel job you already had.';
+  'The same number of messages on every arm is not a different job. Different WAITS on each arm is not different jobs. A split on ticket size is segmentation, not a reaction — keep it, it is evidenced, but it is not this. Do not invent a second barrier. Keep every message, every day and every channel job you already had.';
 
 /**
  * How to write this turn. It rides the END of `systemForPhase`.
@@ -1181,6 +1181,24 @@ export async function* orchestrateStream(
   };
 
   const phaseNow = (): TurnPhase => turnPhase(brief, { isBuildTurn, limitReached });
+
+  /**
+   * Which stage an event belongs to, from the phase of the ROUND that emitted
+   * it — not from a value frozen when the send began.
+   *
+   * MEASURED, `eval/runs/ui-s-1793700781000` turn 3. One send recorded
+   * findings, looked the catalogue up, and proposed a strategy. All five of
+   * its `model.started` rows said `discovery`, and `propose_strategy`
+   * completed at `discovery` while `strategy.proposed` was already carrying a
+   * strategy — because every one of these sites was a hardcoded literal or a
+   * ternary on `isRefinement` alone. One send can close the record half way
+   * through, and the rounds after that are Plan.
+   *
+   * A refinement is `review` whatever the phase: the campaign already exists
+   * and this turn is a change to it.
+   */
+  const stageOf = (p: TurnPhase): RunStage =>
+    isRefinement ? 'review' : p === 'build' ? 'generating' : p === 'ready' ? 'strategy' : 'discovery';
   const context = buildContextPrompt(req, brief, tenant, kbText, availableChannels, limitReached, isRefinement, phaseNow());
 
   const conversation: ApiMessage[] = [
@@ -1291,17 +1309,6 @@ export async function* orchestrateStream(
   let designRequirements: CapabilityRequirement[] = [];
   let designVerdicts: RequirementVerdict[] = [];
 
-  // COSMETIC ONLY, and deliberately computed before the loop so nobody reads
-  // it as a gate: `decide` runs for real after the rounds finish. All this
-  // decides is whether the activity row says the agent is answering the
-  // manager or writing the plan, which is the difference between a turn the
-  // manager should reply to and one they should read.
-  const modelTitle = isBuildTurn
-    ? 'Building the journey'
-    : decide(brief).proceed
-      ? 'Drafting the plan'
-      : 'Writing a reply';
-
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const budgetSpent = round === MAX_TOOL_ROUNDS - 1;
     const stopLookingUp = budgetSpent || repeatRounds >= MAX_REPEAT_ROUNDS;
@@ -1319,6 +1326,16 @@ export async function* orchestrateStream(
     // schema the model writes against and the handler that judges what comes
     // back cannot disagree inside one round.
     const phase: TurnPhase = phaseNow();
+    // COSMETIC ONLY, exactly as before — `decide` runs for real after the
+    // rounds finish and nothing here is a gate. What changed is WHEN it is
+    // read: this was computed once above the loop from `decide(brief).proceed`
+    // while the record was still open, so a send that closed the record in its
+    // first round still said "Writing a reply" on every round after it. It
+    // follows `phaseNow()` now, which is the same value the prompt, the tool
+    // list and the handler already use for this round, so the row cannot
+    // disagree with the turn it is describing. `decide` is NOT called here.
+    const modelTitle =
+      phase === 'build' ? 'Building the journey' : phase === 'ready' ? 'Drafting the plan' : 'Writing a reply';
     // SAY WHAT IT IS DOING, NOT THAT IT IS THINKING.
     //
     // These titles were 'Agent thinking' and 'Agent continuing'. Both describe
@@ -1327,7 +1344,7 @@ export async function* orchestrateStream(
     // The row is correlated and resolves in place, so a later round keeps the
     // same sentence and the existing `detail` says which round it is — there
     // is nothing for a second title to add.
-    em.emit('model.started', isRefinement ? 'review' : 'discovery', modelTitle, {
+    em.emit('model.started', stageOf(phase), modelTitle, {
       status: 'running',
       correlationId: roundId,
       detail: round === 0 ? undefined : `after tool results (round ${round + 1})`,
@@ -1429,7 +1446,7 @@ export async function* orchestrateStream(
         if (chunk.text) {
           assistantText += chunk.text;
           // Forwarded exactly as the provider sent it.
-          em.emit('model.text.delta', isRefinement ? 'review' : 'discovery', 'delta', {
+          em.emit('model.text.delta', stageOf(phase), 'delta', {
             status: 'running',
             data: { text: chunk.text },
           });
@@ -1472,13 +1489,13 @@ export async function* orchestrateStream(
       const raw = (e as Error).message;
       const human = e instanceof AnthropicConfigError ? { message: e.message } : humaniseModelError(raw);
       const msg = human.action ? `${human.message} ${human.action}` : human.message;
-      em.emit('model.failed', 'discovery', 'Agent call failed', { status: 'failed', detail: msg, data: { raw } });
+      em.emit('model.failed', stageOf(phase), 'Agent call failed', { status: 'failed', detail: msg, data: { raw } });
       em.emit('run.failed', 'discovery', 'Run failed', { correlationId: 'run', status: 'failed' });
       yield* drain();
       return { ...base, phase: 'error', stage: 'error', reply: msg, errorDetail: raw, brief, session };
     }
 
-    em.emit('model.completed', isRefinement ? 'review' : 'discovery', 'Agent responded', {
+    em.emit('model.completed', stageOf(phase), 'Agent responded', {
       correlationId: roundId,
       durationMs: Date.now() - callStart,
       // Block TYPES and counts only. No block contents, so the model's
@@ -1525,7 +1542,7 @@ export async function* orchestrateStream(
     // nothing usable gets one more chance to answer.
     if (!toolUses.length && unusable && emptyRecoveries < MAX_EMPTY_RECOVERIES) {
       emptyRecoveries++;
-      em.emit('model.started', isRefinement ? 'review' : 'discovery', 'That reply came back empty, asking again', {
+      em.emit('model.started', stageOf(phase), 'That reply came back empty, asking again', {
         status: 'running',
         detail: assistantText.trim()
           ? 'The turn produced text that was not the expected JSON. Retrying once.'
@@ -1553,7 +1570,7 @@ export async function* orchestrateStream(
       } catch {
         // Fall through: the empty-response error below is the honest outcome.
       }
-      em.emit('model.completed', isRefinement ? 'review' : 'discovery', 'Agent responded', {
+      em.emit('model.completed', stageOf(phase), 'Agent responded', {
       correlationId: roundId,
         durationMs: Date.now() - retryStart,
         data: { usage, stopReason, toolCalls: 0, round: round + 1, retryOfEmptyRound: true, textChars: assistantText.length },
@@ -1678,7 +1695,7 @@ export async function* orchestrateStream(
     // Only a spent budget ends the run. A nudged round that still asks for a
     // tool simply continues.
     if (budgetSpent) {
-      em.emit('model.failed', 'discovery', 'Could not reach an answer this turn', {
+      em.emit('model.failed', stageOf(phase), 'Could not reach an answer this turn', {
         status: 'failed',
         detail: `The agent kept requesting tools after ${MAX_TOOL_ROUNDS} rounds and did not produce an answer.`,
       });
@@ -1742,9 +1759,9 @@ export async function* orchestrateStream(
             ? { error: applied.error, summary: String(sent.summary ?? sent.strategy?.summary ?? '').trim() }
             : null;
         }
-        em.emit(applied.error ? 'model.tool_call.failed' : 'model.tool_call.completed', 'discovery', toolTitle(tu.name), {
+        em.emit(applied.error ? 'model.tool_call.failed' : 'model.tool_call.completed', stageOf(phase), toolTitle(tu.name), {
           status: applied.error ? 'failed' : 'ok',
-          detail: applied.error ?? applied.ok,
+          detail: applied.error ?? applied.said ?? applied.ok,
           durationMs: Date.now() - started,
           correlationId: tu.id,
           data: {
@@ -1920,7 +1937,7 @@ export async function* orchestrateStream(
       if (!applied.error) recordedViaTools = true;
       em.emit(applied.error ? 'model.tool_call.failed' : 'model.tool_call.completed', 'generating', toolTitle(tu.name), {
         status: applied.error ? 'failed' : 'ok',
-        detail: applied.error ?? applied.ok,
+        detail: applied.error ?? applied.said ?? applied.ok,
         correlationId: tu.id,
         data: {
           tool: tu.name,
@@ -2048,7 +2065,7 @@ export async function* orchestrateStream(
         outcomes.push({ tu, error: applied.error, ok: applied.ok });
         em.emit(applied.error ? 'model.tool_call.failed' : 'model.tool_call.completed', 'strategy', toolTitle(tu.name), {
           status: applied.error ? 'failed' : 'ok',
-          detail: applied.error ?? applied.ok,
+          detail: applied.error ?? applied.said ?? applied.ok,
           correlationId: tu.id,
           data: {
           tool: tu.name,
@@ -2317,7 +2334,7 @@ export async function* orchestrateStream(
   // two where the manager said "go ahead and build it".
   if (!parsed.ok && recordedViaTools && !toolStrategy && !toolBlueprint) {
     const prose = proseBefore(assistantText);
-    em.emit('model.completed', isRefinement ? 'review' : 'discovery', 'Agent responded', {
+    em.emit('model.completed', stageOf(phaseNow()), 'Agent responded', {
       detail: 'Wrote its message as text and recorded the rest through tools.',
     });
     // `limitReached`, NOT `saysProceed` ALONE. Rounds spent and the Skip &
@@ -2473,7 +2490,7 @@ export async function* orchestrateStream(
     // in the record would be the wrong kind of graceful.
     const prose = proseBefore(assistantText);
     const readable = prose.length > 80 && !prose.startsWith('{') && !prose.startsWith('[');
-    em.emit('model.failed', 'discovery', 'Could not read the agent\'s answer', {
+    em.emit('model.failed', stageOf(phaseNow()), 'Could not read the agent\'s answer', {
       status: 'failed',
       detail: readable ? `${parsed.error} Showing its plain reply instead.` : parsed.error,
     });
@@ -3967,7 +3984,7 @@ function buildAndValidateUnguarded(
   const started = Date.now();
   em.emit('graph.generation.started', 'generating', 'Building the journey', {
     status: 'running',
-    detail: `${blueprint.steps.length} planned step(s)`,
+    detail: `${blueprint.steps.length === 1 ? 'One step' : `${blueprint.steps.length} steps`} to place`,
   });
 
   const built = buildFromBlueprint(blueprint, {

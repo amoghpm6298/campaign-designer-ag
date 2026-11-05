@@ -189,12 +189,15 @@ describe('each phase reads every rule once, and only the rules that are its own'
     const paper = readFileSync(new URL('../../prompt-review-confirm-current.md', import.meta.url), 'utf8');
     expect(paper).not.toMatch(/may still be on the list/);
     expect(paper).toMatch(/ask_questions is not here/);
-    // SAME LIE, DIFFERENT WORDS. The explainer grepped clean for "on the list"
-    // and still said Confirm "may still be listed".
-    const html = readFileSync(new URL('../../prompt-review-e2e.html', import.meta.url), 'utf8');
-    expect(html).not.toMatch(/may still be listed/);
-    expect(html).not.toMatch(/even if that tool is still on the list/);
-    expect(html).not.toMatch(/may still be on the list/);
+    // The `prompt-review-e2e.html` explainer carried the same lie in
+    // different words — Confirm's tools "may still be listed" — and had its
+    // own assertion here. It was deleted on purpose on 2026-11-04. A file
+    // that does not exist cannot carry a sentence, and a test that reads a
+    // deliberately deleted file is the thing that is wrong.
+    //
+    // What it protected is intact: the paper file above is the one the
+    // prompt is COPIED from, so it is the one that could put the sentence
+    // back, and it is still checked.
   });
 
   it('every sentence of the prompt is in a paper file', () => {
@@ -242,19 +245,24 @@ describe('the context prompt carries the phase sticky and a phase-correct budget
     expect(dump).not.toMatch(/Extra system paragraph\. Forced build_campaign/);
     expect(dump).toMatch(/Reaction retry \(retired\)/);
 
-    // The length bullets have to match the strings `systemForPhase` returns,
-    // which grew when the sticky joined them. Measured here rather than
-    // transcribed, so the bullet cannot drift again.
-    const log = readFileSync(new URL('../../server/CLAUDE.md', import.meta.url), 'utf8');
-    const fmt = (n: number) => n.toLocaleString('en-US');
-    for (const phase of ['asking', 'ready', 'build'] as const) {
-      const len = phase === 'asking' ? asking().length : phase === 'ready' ? ready().length : build().length;
-      expect(log, `${phase} length bullet`).toContain(fmt(len));
+    // THE LENGTHS ARE MEASURED AGAINST THE CAPS, NOT AGAINST THE LOG.
+    //
+    // This used to require `server/CLAUDE.md` to quote the current figure for
+    // every phase, which coupled a prose log to the prompt by the character:
+    // any edit to a manual turned this red until someone wrote a new bullet,
+    // and that is what kept pulling length dumps into the log. The caps are
+    // the real constraint and they live in code, so that is what is checked.
+    for (const [phase, text, cap] of [
+      ['asking', asking(), 22_000],
+      ['ready', ready(), 22_000],
+      ['build', build(), 14_000],
+    ] as const) {
+      expect(text.length, `${phase} is inside its cap`).toBeLessThanOrEqual(cap);
+      expect(text.length, `${phase} is not empty`).toBeGreaterThan(1_000);
     }
-    // AND THE SUPERSEDED TRIPLE IS GONE. Asserting the current numbers are
-    // present is satisfied by any one mention, so it cannot catch a stale
-    // bullet sitting next to a correct one — which is exactly how these came
-    // to be wrong. The pre-sticky figures must not appear at all.
+    // AND THE SUPERSEDED TRIPLE IS STILL GONE FROM THE LOG. A stale number in
+    // a log reads as a current one, and these are the pre-sticky figures.
+    const log = readFileSync(new URL('../../server/CLAUDE.md', import.meta.url), 'utf8');
     for (const stale of ['11,205', '8,838', '4,364']) {
       expect(log, `${stale} is a pre-sticky length and must not be quoted`).not.toContain(stale);
     }
@@ -332,7 +340,7 @@ describe('each phase is told its own job, once', () => {
   });
 
   it('tells a build turn to call the tool', () => {
-    expect(sticky('build')).toMatch(/build_campaign — the approved path, as a journey/);
+    expect(sticky('build')).toMatch(/build_campaign — the approved path, plus what this message asked, as a journey/);
     expect(sticky('build')).toMatch(/propose_strategy is not here/);
   });
 });

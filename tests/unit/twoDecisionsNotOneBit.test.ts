@@ -375,7 +375,10 @@ describe('what is still nothing to approve', () => {
     expect(out.brief.lastProposal ?? null).toBeNull();
   });
 
-  it('a trailing sibling after the fork still refuses', () => {
+  // SUPERSEDED by `eval/runs/ui-s-1793613837789` turn 4: the tail is copied
+  // onto the arms rather than dropped, so this is no longer nothing to
+  // approve. The waits-only case above is the refusal that remains.
+  it('a trailing sibling after the fork is built onto the arms, not refused', () => {
     const brief = mixBrief();
     brief.lastProposal = undefined;
     const out = applyOutputTool(brief, 'propose_strategy', {
@@ -399,8 +402,8 @@ describe('what is still nothing to approve', () => {
         ],
       },
     } as never);
-    expect(out.error).toMatch(/has 3 messages in it and only 2 reached the journey/i);
-    expect(out.brief.lastProposal ?? null).toBeNull();
+    expect(out.error ?? null).toBeNull();
+    expect(out.brief.lastProposal ?? null).not.toBeNull();
   });
 });
 

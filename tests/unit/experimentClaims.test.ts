@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { checkExperimentClaims } from '../../server/architectureAudit';
 import { EXPERIMENT_CLAIMS, isExperimentClaim, type CampaignBlueprint, type BpStep } from '../../server/blueprint';
+import { COPY_ONLY_ARMS as SHARED_COPY_ONLY_ARMS } from './support/journeys';
 
 const send = (over: Partial<Extract<BpStep, { kind: 'send' }>> = {}): BpStep => ({
   kind: 'send', name: 'n', objective: ['emi'], stage: 'first-touch', describe: 'd', channelPreference: ['EMAIL'], ...over,
@@ -22,11 +23,10 @@ const bp = (tests: string, a: BpStep[], b: BpStep[]): CampaignBlueprint => ({
   ] } as unknown as BpStep],
 });
 
-// The exact shape the live run produced, three times running.
-const COPY_ONLY_ARMS: [BpStep[], BpStep[]] = [
-  [send({ copy: 'Converting is easy.' }), { kind: 'wait', durationHours: 48 }, send({ stage: 'reminder', channelPreference: ['SMS'] })],
-  [send({ copy: 'Here is what it costs.' }), { kind: 'wait', durationHours: 48 }, send({ stage: 'reminder', channelPreference: ['SMS'] })],
-];
+// The exact shape the live run produced, three times running — now SHARED,
+// because `proposeRefusesCopyOnly` asserts on the same pair and the two must
+// not drift. Still owned here: this file is where "copy-only" is defined.
+const COPY_ONLY_ARMS = SHARED_COPY_ONLY_ARMS as unknown as [BpStep[], BpStep[]];
 
 describe('a claim is checked against what was built', () => {
   it('refuses an explanation claim backed by identical arms', () => {

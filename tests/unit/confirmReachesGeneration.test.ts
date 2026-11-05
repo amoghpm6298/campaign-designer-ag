@@ -901,7 +901,7 @@ describe('a Confirm turn can actually build', () => {
     // WAS pinned on "# THIS TURN BUILDS THE APPROVED PLAN" in the context
     // prompt, which is deleted: it restated what the Confirm sticky says, and
     // carried the {"action":"design"} handshake that has never fired live.
-    expect(stickyForPhase('build')).toMatch(/build_campaign — the approved path, as a journey/);
+    expect(stickyForPhase('build')).toMatch(/build_campaign — the approved path, plus what this message asked, as a journey/);
     expect(stickyForPhase('build')).toMatch(/This is the job of the turn/);
     // HOMELESS, and listed in `server/promptHomeless.md`: "never tell them the
     // build is unavailable to you" was written for a measured live failure —

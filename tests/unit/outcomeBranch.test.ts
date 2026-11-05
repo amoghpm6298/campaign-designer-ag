@@ -350,7 +350,12 @@ describe('the whole EMI design, end to end', () => {
       {
         label: 'Read, not booked',
         statuses: ['READ'],
-        steps: [send({ name: 'What it costs a month', stage: 'reminder', describe: 'Argue the instalment, not the eligibility.' })],
+        // TWO, so this arm spends differently from the other two. See
+        // `reactsToDelivery`: equal counts are the same job.
+        steps: [
+          send({ name: 'What it costs a month', stage: 'reminder', describe: 'Argue the instalment, not the eligibility.' }),
+          send({ name: 'What waiting costs', stage: 'outcome', describe: 'The window closes.' }),
+        ],
       },
       {
         label: 'Dismissed',
@@ -459,13 +464,17 @@ describe('reactsToDelivery, on the shapes that look close', () => {
         label: 'Engagement',
         paths: [
           { label: 'Unread', statuses: ['DELIVERED'], steps: [{ kind: 'wait', durationHours: 24 }, send({ name: 'Sooner', stage: 'reminder' })] },
-          { label: 'Read', statuses: ['READ'], steps: [send({ name: 'Different argument', stage: 'reminder' })] },
+          // SPENDS DIFFERENTLY, since 2026-11-02. One send each read as a
+          // reaction only because `jobSignature` saw a wait on one side;
+          // `reactsToDelivery` counts messages now, so read-and-no-action
+          // gets the argument AND what waiting costs.
+          { label: 'Read', statuses: ['READ'], steps: [send({ name: 'Different argument', stage: 'reminder' }), send({ name: 'What waiting costs', stage: 'outcome' })] },
         ],
         ...over,
       },
     ]);
 
-  it('is true for two engagement arms doing different things', () => {
+  it('is true for two engagement arms that SPEND differently', () => {
     expect(reactsToDelivery(twoArm())).toBe(true);
   });
 
@@ -532,7 +541,9 @@ describe('reactsToDelivery, on the shapes that look close', () => {
             kind: 'condition',
             label: 'Did they read it',
             outcomes: ['READ'],
-            yes: [send({ name: 'Different argument', stage: 'reminder' })],
+            // The YES side spends more: they read it and did not book, so
+            // they get the argument and then the consequence.
+            yes: [send({ name: 'Different argument', stage: 'reminder' }), send({ name: 'What waiting costs', stage: 'outcome' })],
             no: [{ kind: 'wait', durationHours: 24 }, send({ name: 'Same fact sooner', stage: 'reminder' })],
           },
         ]),
@@ -658,7 +669,7 @@ describe('different waits are not different jobs', () => {
             label: 'Engagement',
             paths: [
               { label: 'Unread', statuses: ['DELIVERED'], steps: [{ kind: 'wait', durationHours: 24 }, send({ name: 'Same fact sooner', stage: 'reminder' })] },
-              { label: 'Read', statuses: ['READ'], steps: [send({ name: 'What it costs', stage: 'outcome' })] },
+              { label: 'Read', statuses: ['READ'], steps: [send({ name: 'What it costs', stage: 'reminder' }), send({ name: 'What waiting costs', stage: 'outcome' })] },
             ],
           },
         ]),
@@ -668,10 +679,17 @@ describe('different waits are not different jobs', () => {
 
   it('leaves structuralSignature alone, because the experiment audits share it', () => {
     // A timing experiment is one of the four claims the schema allows, so a
-    // different wait IS a legitimate difference between ARMS. The wait-blind
-    // comparison is local to the engagement check.
+    // different wait IS a legitimate difference between ARMS.
+    //
+    // RETARGETED 2026-11-02: `jobSignature` is gone. Normalising the wait away
+    // did not go far enough — two arms each sending ONE message still differed
+    // under it whenever anything else about their shape did, so a fork whose
+    // arms spend the same was reported as a reaction. The engagement
+    // comparison is `spend` now, and `structuralSignature` is untouched, which
+    // is what this test is really about.
     const src = readFileSync(new URL('../../server/optionAudit.ts', import.meta.url), 'utf8');
-    expect(src).toMatch(/const jobSignature = /);
+    expect(src).not.toMatch(/const jobSignature = /);
+    expect(src).toMatch(/const spend = /);
     expect(src).toMatch(/wait:\$\{s\.durationHours\}/);
     const timingArms = bp([
       {
@@ -886,7 +904,11 @@ describe('the plan the manager approves is the plan that gets built', () => {
     const out = buildFromBlueprint(approved, OPTS);
     expect(out.issues).toEqual([]);
     expect(outcomeSplits(out.graph)).toHaveLength(1);
-    expect(Object.values(out.graph.nodes).filter((n) => n.type === 'SEND').length).toBe(3);
+    // FOUR, since the shared `reactingPath` gave its read arm a second send:
+    // equal spend on both arms is no longer a reaction, so the fixture had to
+    // become one. Opening touch + unread's repeat + read's argument and its
+    // consequence.
+    expect(Object.values(out.graph.nodes).filter((n) => n.type === 'SEND').length).toBe(4);
     expect(journeyReacts(approved)).toBe(true);
   });
 });

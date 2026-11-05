@@ -19,7 +19,7 @@
 // rather than silent.
 import type { CampaignBlueprint, BpStep } from './blueprint';
 import { isEngagement } from './deliveryStatuses';
-import { forkKind } from './pathReading';
+import { forkKind, sendSteps } from './pathReading';
 
 export type OptionVerdict = 'used' | 'not-applicable' | 'cannot-evaluate';
 
@@ -329,22 +329,25 @@ export function journeyReacts(bp: CampaignBlueprint | null | undefined): boolean
  * plus the wait.
  */
 /**
- * The same walk, blind to HOW LONG a wait is.
+ * HOW MANY MESSAGES AN ARM SPENDS. The one reader of "is this a reaction".
  *
- * DIFFERENT WAITS ARE NOT DIFFERENT JOBS, and `structuralSignature` carries
- * `wait:24` against `wait:72` as a difference — so two arms that both wait and
- * then send the same reminder read as a reaction when they are one treatment
- * on two clocks. The retry has said this in words since it was written; this
- * is the check agreeing with it.
+ * `jobSignature` lived here — `structuralSignature` with the wait durations
+ * normalised away, because `wait:24` against `wait:72` is one treatment on two
+ * clocks rather than two jobs. It is gone, because the normalisation did not
+ * go far enough: two arms that each send ONE message still differed under it
+ * whenever anything else about their shape did, so a fork whose arms spend the
+ * same was still reported as a reaction.
  *
- * LOCAL TO THE ENGAGEMENT COMPARISON, deliberately. `structuralSignature` is
- * shared with the experiment audits and `copyOnlyExperiments`, where a
- * different wait IS a legitimate difference between arms — an experiment on
- * timing is one of the four claims the schema allows. Changing it globally
- * would silently reclassify every timing experiment ever proposed.
+ * An arm that reacts spends differently. Unread still needs the fact; read and
+ * no action needs a different ask, and that costs a different number of
+ * messages. A different channel, or a longer wait on the same sequence, is the
+ * same job delivered differently.
+ *
+ * ENGAGEMENT ARMS ONLY. Who-split arms may match in count all day — two ticket
+ * bands getting two messages each is a who-split, not a claim about reacting —
+ * and nothing here looks at them.
  */
-const jobSignature = (steps: BpStep[] | undefined): string =>
-  structuralSignature(steps).replace(/wait:\d+(\.\d+)?/g, 'wait');
+const spend = (steps: BpStep[] | undefined): number => sendSteps(steps as unknown[] | undefined);
 
 export function reactsToDelivery(bp: CampaignBlueprint | null | undefined): boolean {
   if (!bp) return false;
@@ -356,7 +359,9 @@ export function reactsToDelivery(bp: CampaignBlueprint | null | undefined): bool
   //    is a person and the other is a delivery receipt; splitting on it tells
   //    you nothing about what anybody did.
   //  - different things, so an outcome fork whose arms run the same journey
-  //    is still a label on a clock.
+  //    is still a label on a clock. "Different" is HOW MANY MESSAGES the arm
+  //    spends: equal counts are the same job however the channels or the waits
+  //    differ. See `spend`.
   //
   // THE CHANNEL-FALLBACK LEG IS GONE, deliberately. It used to count "the No
   // arm goes out on a different channel" as the reaction, which taught the
@@ -375,7 +380,7 @@ export function reactsToDelivery(bp: CampaignBlueprint | null | undefined): bool
   );
   if (
     outcomeForks.some(
-      (c) => engaged(c.outcomes ?? []).length > 0 && jobSignature(c.yes) !== jobSignature(c.no),
+      (c) => engaged(c.outcomes ?? []).length > 0 && spend(c.yes) !== spend(c.no),
     )
   )
     return true;
@@ -404,7 +409,7 @@ export function reactsToDelivery(bp: CampaignBlueprint | null | undefined): bool
   return outcomeBranches.some((b) => {
     const arms = (b.paths ?? []).filter((p) => engaged(p.statuses ?? []).length > 0);
     if (arms.length < 2) return false;
-    return new Set(arms.map((p) => jobSignature(p.steps))).size > 1;
+    return new Set(arms.map((p) => spend(p.steps))).size > 1;
   });
 }
 

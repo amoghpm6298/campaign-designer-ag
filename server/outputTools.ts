@@ -31,6 +31,7 @@
 // rather than riding along with this one.
 import {
   recordAsked,
+  fileUnknownWhy,
   reopen,
   type AskAuthor,
 } from './record';
@@ -50,6 +51,7 @@ import {
 import type { Converters, Barrier } from './findings';
 import { buildFromBlueprint, type CampaignBlueprint } from './blueprint';
 import { sendSteps } from './pathReading';
+import { checkExperimentClaims } from './architectureAudit';
 import type { Strategy } from './orchestrator';
 import { registerToolTitles, type ToolDef } from './agentTools';
 import { decide, namedOutcomes, type TurnPhase } from './gate';
@@ -420,7 +422,7 @@ export const OUTPUT_TOOLS: ToolDef[] = [
           type: 'array',
           minItems: 2,
           description:
-            'EVERY customer-facing send in the chosen plan, in order, one row each. Prose is not this list: "a staggered multi-touch sequence over the full 14 days" names no sends, and a manager cannot approve a cadence they cannot see. Give the first touch, at least one reminder, and the last chance before the window closes. A lighter path — a group that mostly acts on its own — may carry fewer rows, but it must be a NAMED path here rather than an absence; the primary path still needs at least two.',
+            'EVERY customer-facing send in the chosen plan, in order, one row each. Prose is not this list: "a staggered multi-touch sequence over the full 14 days" names no sends, and a manager cannot approve a cadence they cannot see. List every message, in order. Do not add a last message just because time is left on who is eligible. A lighter path — a group that mostly acts on its own — may carry fewer rows, but it must be a NAMED path here rather than an absence; the primary path still needs at least two.',
           items: {
             type: 'object',
             properties: {
@@ -558,7 +560,7 @@ export const OUTPUT_TOOLS: ToolDef[] = [
               lever: {
                 type: 'string',
                 enum: ['message', 'timing', 'targeting', 'not-addressable'],
-                description: '"not-addressable" is how you say this reason is real and a drip campaign cannot fix it.',
+                description: '"not-addressable" is how you say this reason is real and a drip campaign cannot fix it. "I don\'t know" and "we don\'t track that" are not that lever: the reason is unknown, which is what the first run exists to settle. File those as basis "user" with their words as the quote.',
               },
               quote: { type: 'string', description: "The manager's own words. Checked." },
             },
@@ -799,6 +801,23 @@ export interface ApplyResult {
   error?: string;
   /** Said back to the model on success, so it knows the record moved. */
   ok?: string;
+  /**
+   * The same event, said to the PERSON. Shown on the activity row; `ok` is
+   * used only if this is absent.
+   *
+   * ONE STRING CANNOT SERVE TWO READERS. `ok` is the last thing the model
+   * reads before it writes, so it is written to steer the next sentence —
+   * and the note above `ask_questions` explains at length how its wording
+   * shapes the reply. That same string was also the activity row's `detail`,
+   * so the manager was shown "3 question(s) recorded. Now write your message,
+   * asking them directly." — an instruction to the model, on screen, in a
+   * product sold on being inspectable. The counts leaked the same way:
+   * "1 barrier(s)", "3 line(s) of enquiry", "1 planned step(s)".
+   *
+   * Written as a complete sentence with the number spelled into it, because
+   * a person reads this and `(s)` is not a plural.
+   */
+  said?: string;
   /** The plan, when this call was `propose_strategy`. */
   strategy?: Strategy;
   /** The journey to build, when this call was `build_campaign`. */
@@ -885,6 +904,12 @@ const wasSent = (value: unknown): boolean => value !== undefined && value !== nu
  * A `propose_strategy` call on an asking turn is now impossible through the
  * API and a test bug anywhere else.
  */
+/**
+ * "1 barrier" / "2 barriers". The `(s)` form reads as a placeholder nobody
+ * filled in, and it was on screen in every recorded run.
+ */
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
 export function applyOutputTool(brief: WorkingBrief, name: string, input: unknown): ApplyResult {
   const obj = (input ?? {}) as Record<string, unknown>;
 
@@ -914,6 +939,8 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
         // Says what happened and nothing about who sees it, so there is no
         // third person to copy.
         ok: `${usable.length} question(s) recorded. Now write your message, asking them directly.`,
+        // No instruction to the model, and no "(s)". What happened, to them.
+        said: `Put ${plural(usable.length, 'question')} to you.`,
       };
     }
 
@@ -966,8 +993,25 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
         next = recordConverters(next, converters);
         notes.push('who converts');
       }
+      if (barriers.length) next = recordBarriers(next, barriers);
+      // AFTER `recordBarriers`, NOT BESIDE `settleUnknowns`. The inbound reply
+      // is settled on the way in, and then this tool writes the barriers — so
+      // a rewrite that ran earlier would be overwritten by the filing it
+      // exists to correct. MEASURED, `eval/runs/ui-s-1793611326664`: "we don't
+      // track that" came back as `basis: 'none'` with `lever:
+      // 'not-addressable'`, which is not designable, so `no-barrier` held on a
+      // question the manager had already answered.
+      //
+      // OUTSIDE THE `barriers.length` BLOCK, because the same reply arrives on
+      // a call that files only converters or only success, and the hold would
+      // stand there for the same reason. No-op unless this reply says they do
+      // not know and no designable barrier is on file.
+      const beforeUnknown = (next.barriers ?? []).length;
+      next = fileUnknownWhy(next);
+      if (!barriers.length && (next.barriers ?? []).length > beforeUnknown) {
+        notes.push('that they do not know why the rest do not convert, in their own words');
+      }
       if (barriers.length) {
-        next = recordBarriers(next, barriers);
         const after = (next.barriers ?? []);
         // THE TOTAL ON THE RECORD, NOT THE DELTA.
         //
@@ -999,7 +1043,11 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
         const after = next.questions.filter((q) => q.addressedInRound === undefined).length;
         if (after > before) notes.push(`${after - before} question(s) put back to them`);
       }
-      return { brief: next, ok: `Recorded ${notes.join('; ')}.` };
+      return {
+        brief: next,
+        ok: `Recorded ${notes.join('; ')}.`,
+        said: `Recorded what you said. ${plural((next.barriers ?? []).length, 'barrier')} on the record.`,
+      };
     }
 
     case 'record_dimensions': {
@@ -1022,7 +1070,11 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
         next = recordQuestionResolutions(next, resolutions);
         notes.push(`${resolutions.length} question decision(s)`);
       }
-      return { brief: next, ok: `Recorded ${notes.join(', ')}.` };
+      return {
+        brief: next,
+        ok: `Recorded ${notes.join(', ')}.`,
+        said: `Recorded ${plural(usable.length, 'line')} of enquiry.`,
+      };
     }
 
     case 'request_evidence': {
@@ -1030,7 +1082,12 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       if (evidence.length === 0) {
         return { brief, error: 'No request in that call. Each one needs a "question", the "fields" you want and what it "wouldInform".' };
       }
-      return { brief, evidence, ok: `Asked for ${evidence.length} piece(s) of data.` };
+      return {
+        brief,
+        evidence,
+        ok: `Asked for ${evidence.length} piece(s) of data.`,
+        said: `Asked you for ${plural(evidence.length, 'piece')} of data.`,
+      };
     }
 
     case 'propose_strategy': {
@@ -1359,6 +1416,33 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
               : 'A send placed AFTER a fork has more than one arm it could continue from, so it is reported and dropped rather than attached to whichever arm came first. Send the SAME plan again with every send nested inside the arm it belongs to — in that arm\'s own "steps", not after the branch — and give each arm its own last message rather than one shared afterwards.'),
         );
       }
+      // AN EXPERIMENT MAY NOT CLAIM WHAT ITS ARMS CANNOT ANSWER.
+      //
+      // MEASURED, `eval/runs/ui-s-1793616608652` turn 3. The manager had
+      // answered "not sure" to why, so the record held the reason as unknown
+      // — and the plan still came back with `tests: 'explanation'` and two
+      // arms labelled "forgot the card" against "switched to UPI": causes
+      // nobody had named, and structurally the same journey on both sides.
+      // Same contacts, same channels, same spacing, different paragraphs. It
+      // was filed, Confirm built it, and whichever arm won it could not have
+      // told anyone which reason was real.
+      //
+      // `checkExperimentClaims` has refused exactly this since it was
+      // written; it was simply never asked at propose time, only after a
+      // refinement. Asking it HERE, before the stash, is the whole fix: the
+      // same function, the same rule, one turn earlier. `tests: 'wording'`
+      // is exempt in that function and stays exempt — two paragraphs is what
+      // a wording test IS.
+      //
+      // No question is put to the manager. The arms are the agent's own
+      // claim about its own design, and asking which way they would like it
+      // hands them a choice they were never given the information to make.
+      const claims = checkExperimentClaims(path as never);
+      if (claims.length) {
+        return refuse(
+          `${claims.map((c) => c.why).join(' ')} Send the SAME plan again with that fixed: either make the arms genuinely different journeys — a different moment, a different number of messages, a different channel doing a different job — or drop the experiment and send one first ask for everyone eligible. If the record says nobody knows why customers do not convert, there is no explanation to test; a test here is when or how many.`,
+        );
+      }
       if (dry && sendKinds === 0) {
         return refuse(
           'This path compiles to no messages. The steps are in the right grammar, but nothing in them produces a send — a journey of waits and exits reaches nobody, and Confirm compiles exactly this path, so there would be nothing on the canvas to approve. Send the SAME plan again with the sends written into the path, each one on the arm it belongs to.',
@@ -1466,7 +1550,12 @@ export function applyOutputTool(brief: WorkingBrief, name: string, input: unknow
       if (!blueprint.entry?.kind) {
         return { brief, error: 'The journey needs an "entry" with a "kind" of either "event" or "audience".' };
       }
-      return { brief, blueprint, ok: `Journey received: ${blueprint.steps.length} step(s). Validating.` };
+      return {
+        brief,
+        blueprint,
+        ok: `Journey received: ${blueprint.steps.length} step(s). Validating.`,
+        said: `Checking the ${plural(blueprint.steps.length, 'step')} in this journey.`,
+      };
     }
 
     default:

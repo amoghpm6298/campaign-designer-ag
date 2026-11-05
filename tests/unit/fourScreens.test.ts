@@ -144,7 +144,14 @@ describe('REVISE — the brief is closed and the plan needs a change', () => {
     expect(client).toMatch(/\{!busy && phase === 'awaiting-confirmation' && \(/);
     // And the numbered list is hidden on both plan phases the same way.
     expect(client).toMatch(/const planOnScreen = phase === 'awaiting-confirmation' \|\| phase === 'revising';/);
-    expect(client).toMatch(/last\?\.questions\?\.length && !planOnScreen/);
+    expect(client).toMatch(/const qs = latest && planOnScreen \? \[\] : stored;/);
+    // Discovery has one primary: Design campaign. There is no Skip & propose
+    // and no suggestion chip under the questions. Typing "stop asking" or
+    // "I am not sure" is still a valid answer; round 8 still forces a proposal.
+    expect(client).not.toContain('Skip &amp; propose');
+    expect(client).not.toContain('forceProposal: true');
+    expect(client).not.toMatch(/className="cd-quick"/);
+    expect(client).not.toContain('I am not sure about that. Say what you would assume, and why.');
   });
 });
 

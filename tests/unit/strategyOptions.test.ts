@@ -151,7 +151,10 @@ describe('the prompt asks for a decision between approaches, not one approach', 
     // The exact reasoning aud4 used to decline an A/B test. The conclusion
     // survives; "it stops you sizing an effect in advance, it does not stop
     // you running the comparison" is homeless and flagged.
-    expect(ready()).toMatch(/No history is a reason to test, not a reason to skip/);
+    // "test" became "test that" when §5 gained the settled-as-unknown
+    // paragraph: what an absent history licenses is a test of WHEN or HOW
+    // MANY, never a guess at the reason.
+    expect(ready()).toMatch(/No history is a reason to test that, not a reason to skip/);
   });
 
   it('asks what would differ between segments, not merely whether they exist', () => {
@@ -168,10 +171,17 @@ describe('the prompt asks for a decision between approaches, not one approach', 
   });
 
   it('requires the cost of a message to be weighed against its incremental value', () => {
-    expect(ready()).toMatch(/Extra messages have to earn their irritation and cost/);
+    // RETARGETED 2026-11-02. "Extra messages have to earn their irritation and
+    // cost" went with the one-send-per-group line it sat beside: read
+    // together they told the agent to send as little as it could defend, and
+    // with no appetite on file that is the thin plan. What survives is the
+    // half that forces a judgement rather than a posture.
+    expect(ready()).not.toMatch(/Extra messages have to earn their irritation and cost/);
     // A general instruction to "consider fatigue" is unfalsifiable; naming the
     // weakest message forces an actual judgement.
-    expect(ready()).toMatch(/Name the weakest one and say why you kept or cut it/);
+    expect(ready()).toMatch(/Name the weakest message and say why you kept or cut it/);
+    // And the appetite rule is the counterweight: unstated is not conservative.
+    expect(ready()).toMatch(/If there is no appetite on file, send more messages and run a test/);
   });
 
   it('forbids claiming causation without a design that can evidence it', () => {
