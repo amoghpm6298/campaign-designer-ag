@@ -1,0 +1,149 @@
+/* ===================================================================
+ * The Hyperface Dashboard design system, as agent360 defines it.
+ *
+ * PORTED, NOT INVENTED. Every value below is copied from
+ * `hyperface-tech/agent360` → `frontend/src/app/globals.css`, which themes
+ * that product to the company's `design_handoff_v2_theme`. This app used to
+ * carry its own palette derived from the logo — a navy accent picked because
+ * the brand teal fails contrast at small sizes. The company had already
+ * solved that with a blue, and two Hyperface consoles reading as two
+ * products is the thing this file exists to stop.
+ *
+ * KEEP IT A COPY. When agent360's tokens move, re-copy rather than edit:
+ * a value tuned here is a divergence nobody will find later.
+ * =================================================================== */
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Source Code Pro Variable', 'Source Code Pro', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Brand blue (Hyperface #0A66F0) */
+  --color-primary: #0a66f0;
+  --color-primary-hover: #0857ce;
+  --color-primary-light: #e7f0fe;
+
+  /* Content area — Untitled-UI gray ramp */
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f9fafb;
+  --color-border: #e4e7ec;
+  --color-text-primary: #101828;
+  --color-text-secondary: #475467;
+  --color-text-tertiary: #98a2b3;
+
+  /* Status (design-system semantic colors) */
+  --color-success: #027a48;
+  --color-warning: #d58f15;
+  --color-error: #b42318;
+}
+
+/* Design-system radii & shadows. Consumed via arbitrary utilities, e.g.
+   `rounded-[var(--radius-card)]` and `shadow-[var(--shadow-xs)]`.
+   A single border and a single radius everywhere is what made this product
+   read as a form; these are applied by ROLE, not uniformly. */
+:root {
+  --radius-input: 8px;
+  --radius-button: 10px;
+  --radius-panel: 12px;
+  --radius-card: 16px;
+  --radius-pill: 20px;
+
+  --shadow-xs: 0px 1px 2px 0px rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0px 1px 3px 0px rgba(16, 24, 40, 0.1), 0px 1px 2px 0px rgba(16, 24, 40, 0.06);
+  --shadow-button: 0px 1px 3px 0px rgba(129, 129, 129, 0.25);
+  --shadow-button-secondary: 0px 1px 3px 0px rgba(129, 129, 129, 0.15);
+  --shadow-button-hover-primary: 0px 1px 8px 0px rgba(10, 102, 240, 0.3);
+  --shadow-focus-ring: 0px 1px 2px 0px rgba(16, 24, 40, 0.05), 0px 0px 0px 4px #e7f0fe;
+  --shadow-dropdown: 0px 4px 6px -2px rgba(16, 24, 40, 0.03), 0px 12px 16px -4px rgba(16, 24, 40, 0.08);
+}
+
+/* ── Scrollbars ───────────────────────────────────────────────────── */
+.chat-scroll::-webkit-scrollbar { width: 6px; }
+.chat-scroll::-webkit-scrollbar-track { background: transparent; }
+.chat-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+.chat-scroll::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+.pane-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
+.pane-scroll::-webkit-scrollbar-track { background: transparent; }
+.pane-scroll::-webkit-scrollbar-thumb { background: #d7dbe2; border-radius: 4px; }
+.pane-scroll::-webkit-scrollbar-thumb:hover { background: #b6bcc7; }
+
+/* ── "The agent is alive" ─────────────────────────────────────────────
+   Four utilities, about twenty lines, and they carry most of the
+   difference between a screen that looks finished and one that does not.
+   All four are reduced-motion aware. */
+
+/* Text-clip shimmer for any label that means "working". */
+.txt-shimmer { color: var(--color-text-secondary); }
+@media (prefers-reduced-motion: no-preference) {
+  .txt-shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--color-text-secondary) 25%,
+      var(--color-primary) 50%,
+      var(--color-text-secondary) 75%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: txt-shimmer 1.8s linear infinite;
+  }
+}
+@keyframes txt-shimmer { from { background-position: 200% 0; } to { background-position: 0 0; } }
+
+/* Breathing ring on an in-flight surface: the thinking bubble, a running step. */
+@media (prefers-reduced-motion: no-preference) {
+  .breathe-glow { animation: breathe-glow 2.2s ease-in-out infinite; }
+}
+@keyframes breathe-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(10, 102, 240, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(10, 102, 240, 0.1); }
+}
+
+/* Staggered typing dots. */
+@keyframes pulse-dot { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+.typing-dot { animation: pulse-dot 1.4s infinite ease-in-out; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+@media (prefers-reduced-motion: reduce) { .typing-dot { animation: none; opacity: 0.6; } }
+
+/* One-shot tint when the view jumps to an older message. */
+@keyframes msg-flash {
+  0% { background-color: color-mix(in srgb, var(--color-primary) 14%, transparent); }
+  100% { background-color: transparent; }
+}
+.msg-flash { border-radius: 12px; animation: msg-flash 1.8s ease-out both; }
+@media (prefers-reduced-motion: reduce) { .msg-flash { animation: none !important; } }
+
+/* A spinner that slows rather than stops, so a running step still reads as
+   running when motion is reduced. */
+.spin-slow { animation: hf-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spin-slow { animation-duration: 2.5s; } }
+@keyframes hf-spin { to { transform: rotate(360deg); } }
+
+/* ── Read-only, pretty-printed, highlighted code ──────────────────────
+   Seven classes and a small tokenizer, instead of a highlighter dependency.
+   The colours are the theme's, so it can never drift from the rest of the
+   product the way a vendored syntax theme does. */
+.code-block {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-subtle);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  overflow-x: auto;
+  white-space: pre;
+  tab-size: 2;
+}
+.code-block code { font-family: inherit; }
+.tok-keyword { color: var(--color-primary); font-weight: 600; }
+.tok-fn { color: #6941c6; }
+.tok-string { color: var(--color-success); }
+.tok-number { color: #b4530a; }
+.tok-comment { color: var(--color-text-tertiary); font-style: italic; }
+.tok-punct { color: var(--color-text-secondary); }
+.tok-ident { color: var(--color-text-primary); }

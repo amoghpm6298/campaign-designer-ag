@@ -474,8 +474,29 @@ describe('a stored response missing a field cannot take the page down', () => {
     // properties of undefined". Found by seeding a session by hand; every live
     // response carries the field, which is exactly why it went unnoticed. The
     // type says required and the restore path reads localStorage.
-    expect(designer).toMatch(/last\?\.sendProposals\?\.length/);
-    expect(designer).toMatch(/last\?\.questions\?\.length/);
+    // RETARGETED 2026-11-04: the template panel was the only reader of
+    // `sendProposals`, and it is gone — `NodeForms`' AccountTemplateFields
+    // already offered the same two fields on the Send node's own drawer, as
+    // dropdowns over the real template list rather than free text, so the
+    // panel was a second and worse way to do one thing.
+    //
+    // THE LESSON IS KEPT, which is what this test is actually about: nothing
+    // may read an array off `last` without guarding BOTH hops. A stored
+    // response predating a field is the case that crashed the designer, and
+    // the restore path reads whatever localStorage holds.
+    expect(designer, 'the panel and its unguarded read are both gone').not.toMatch(/last\?\.sendProposals/);
+    for (const m of designer.matchAll(/last\?\.(\w+)\.length/g)) {
+      throw new Error(`last?.${m[1]}.length reads an array with only one guarded hop`);
+    }
+    // `last?.questions?.length` WAS THE SKIP GATE, and Skip & propose is gone,
+    // so the chain it guarded is gone with it — there is no `questions` read
+    // off `last` left to crash. The numbered questions come from the
+    // transcript message instead, which is the stronger arrangement: a stored
+    // response missing the field cannot reach them at all. `fourScreens`
+    // owns the behaviour; this asserts only that nothing reads `questions`
+    // back off the last response.
+    expect(designer).toMatch(/const qs = latest && planOnScreen \? \[\] : stored;/);
+    expect(designer).not.toMatch(/last\?\.questions/);
     // No remaining short chain anywhere in the file, comments included — the
     // comment explaining this fix deliberately does not quote the broken form,
     // because a source-text assertion that reads its own documentation is not
@@ -537,5 +558,65 @@ describe('the journey panel is the size of the journey', () => {
     // surface being worked on should refuse to shrink past legibility.
     expect(canvasSrc).toMatch(/minZoom\?: number;/);
     expect(canvasSrc).toMatch(/\{\.\.\.\(minZoom === undefined \? \{\} : \{ minZoom \}\)\}/);
+  });
+});
+
+describe('a chat that produced a journey can hand it over', () => {
+  // The journey was readable on the Journey tab and not TAKEABLE: the only
+  // way to get the file was to go back to Design and rebuild the campaign.
+  // "Copy this chat" is the transcript, which is a different artefact for a
+  // different reader — an importer wants the campaign, not the conversation.
+  const view = readFileSync(new URL('../../src/designer/RunLogsView.tsx', import.meta.url), 'utf8');
+
+  it('offers Copy and Download only when there is a journey', () => {
+    expect(view).toMatch(/\{exportable && \(/);
+    expect(view).toMatch(/Copy JSON/);
+    expect(view).toMatch(/Download JSON/);
+  });
+
+  it('uses the designer\'s own builder rather than assembling a second payload', () => {
+    // ONE BUILDER. A second assembler drifts, and the drift is invisible
+    // because each side keeps passing its own tests — the download filename
+    // bug (`id ?? name`, which produced `draft.json`) lived in exactly that
+    // gap while the module was inline in the designer.
+    expect(view).toMatch(/buildExportPayload\(\{ campaign: built/);
+    expect(view).toMatch(/exportFileName\(exportable\)/);
+    expect(view, 'no hand-rolled wrapper').not.toMatch(/campaignFieldProvenance|importReadiness/);
+  });
+
+  it('names the file after the campaign, not the chat', () => {
+    // `exportFileName` reads `.campaign.name`; the chat title is the first
+    // message, which is a sentence rather than a filename.
+    expect(view).not.toMatch(/a\.download = session/);
+  });
+});
+
+describe('the Logs tab reads like the Design panel, because it is the same run', () => {
+  const view = readFileSync(new URL('../../src/designer/RunLogsView.tsx', import.meta.url), 'utf8');
+  const designer = readFileSync(new URL('../../src/designer/CampaignDesigner.tsx', import.meta.url), 'utf8');
+
+  it('uses the same step vocabulary as the live timeline', () => {
+    // ONE VISUAL IDIOM FOR ONE THING. The Logs tab was a flat list of
+    // cards — the shape the Design panel had before the timeline port — so
+    // the same run looked like two different kinds of object depending on
+    // which tab you opened it from.
+    for (const cls of ['cd-steps', 'cd-step-dot', 'cd-step-label', 'cd-step-tick']) {
+      expect(view, `Logs uses ${cls}`).toContain(cls);
+      expect(designer, `Design uses ${cls}`).toContain(cls);
+    }
+    expect(view, 'the old card list is gone').not.toMatch(/className="cd-event-k"/);
+  });
+
+  it('shows how long a step took without making you read the number', () => {
+    expect(view).toMatch(/cd-lat-fill/);
+    // Thresholds, not a raw scale: the bar answers "is this one slow".
+    expect(view).toMatch(/ms > 20000 \? 'bad' : ms > 5000 \? 'warn' : 'ok'/);
+  });
+
+  it('keeps the payload behind the row that owns it', () => {
+    // The JSON is the record this product is sold on. Re-skinning the tab
+    // must not quietly drop it.
+    expect(view).toMatch(/JSON\.stringify\(e\.data, null, 1\)/);
+    expect(view).toMatch(/detailsText\(e\)/);
   });
 });

@@ -19,7 +19,7 @@
 // would make the preview worse than no preview.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { previewFromBlueprint, type PreviewRow } from '../../src/designer/preview';
+import { previewFromBlueprint, templateSegments, type PreviewRow } from '../../src/designer/preview';
 
 const designer = readFileSync(new URL('../../src/designer/CampaignDesigner.tsx', import.meta.url), 'utf8');
 
@@ -282,21 +282,38 @@ describe('a malformed or older blueprint still draws something', () => {
 
 // --------------------------------------------------- the pane it renders in
 
-describe('the propose turn puts the schematic in the left pane only', () => {
+describe('the propose turn puts the schematic in the work pane only', () => {
+  // RENAMED 2026-11-04, agent360 port. The panes swapped sides: the
+  // conversation is on the LEFT now and the work surface on the RIGHT,
+  // matching agent360 and every other Hyperface console. "The left pane"
+  // named a position rather than a role, so it stopped being true the
+  // moment the layout moved; "the work pane" is what this file was always
+  // actually about and cannot be invalidated by a column order.
+  //
+  // THE RULE UNDER TEST IS UNCHANGED: a proposal draws in the work pane and
+  // nowhere else, and drawing it is not approving it.
   it('shows the proposal heading instead of "What I have so far"', () => {
     expect(designer).toContain("'Proposed journey'");
-    expect(designer).toContain("'Not built yet. Confirm on the right, or say what to change.'");
+    expect(designer).toContain("'Not built yet. Confirm on the left, or say what to change.'");
   });
 
   it('banners the schematic as not built', () => {
     expect(designer).toMatch(/Proposed — not built yet\./);
   });
 
-  it('replaces the skeleton rather than sitting beside it', () => {
+  it('replaces the empty state rather than sitting beside it', () => {
     // Two pictures of the same journey, one of them grey, is worse than
-    // either alone.
+    // either alone. THE RULE IS UNCHANGED; only the thing being replaced
+    // was renamed — `.cd-skeleton` was a wireframe pinned to the bottom of
+    // the pane, and is now `.cd-empty`, a centred card carrying a headline
+    // and one sentence. The pin is on the EXCLUSIVITY, which is what this
+    // test has always been about.
     expect(designer).toMatch(/\{preview && <JourneySchematic preview=\{preview\} busy=\{busy\} \/>\}/);
-    expect(designer).toMatch(/\{!preview && \(\s*<div className="cd-skeleton"/);
+    // `cd-emptystate`, NOT `cd-empty`: the latter is a long-standing
+    // modifier on `.cd-body` (`!messages.length && !busy`), and styling it
+    // laid the whole two-column body out as one centred row.
+    expect(designer).toMatch(/\{!preview && \(\s*<div className="cd-emptystate">/);
+    expect(designer, 'the old wireframe is not still mounted somewhere').not.toMatch(/className="cd-skeleton"/);
   });
 
   it('does not mount DripCanvas or set a graph for a proposal', () => {
@@ -337,20 +354,36 @@ describe('the propose turn puts the schematic in the left pane only', () => {
     expect(work).not.toContain('cd-confirm');
   });
 
-  it('points at the left pane from the confirm gate', () => {
-    expect(designer).toContain("' The proposed path is on the left.'");
+  it('points at the work pane from the confirm gate', () => {
+    // RETARGETED 2026-11-04 with the column flip. The gate sits in the
+    // conversation column and the journey beside it, so the sentence has to
+    // name the other side — and BOTH directions have to move together.
+    // The pin is kept precisely because the two can disagree: a gate that
+    // points at the pane it is standing in is the defect this catches.
+    expect(designer).toContain("' The proposed path is on the right.'");
+    expect(designer, 'both sentences moved, not one').toContain(
+      "'Not built yet. Confirm on the left, or say what to change.'",
+    );
   });
 
-  it('holds the template-id panel back until something is built', () => {
-    // `sendProposals?.length` since 2026-10-22: the chain stopped at `last`,
-    // so a stored response without the field took the whole designer down.
-    // The condition under test — held back until something is built — is
-    // unchanged.
-    // RETARGETED: two phases carry a plan now, so the gate is `planOnScreen`
-    // (`awaiting-confirmation` or `revising`). Asking for template ids beside
-    // an unapproved plan reads as though the campaign already existed,
-    // whichever of the two it is.
-    expect(designer).toMatch(/last\?\.sendProposals\?\.length && !planOnScreen/);
+  it('has no template-id panel to hold back, and still knows what a plan on screen is', () => {
+    // REPLACED 2026-11-04. This pinned the panel's gate — template ids must
+    // not be asked for beside a plan nobody has approved, because it reads
+    // as though the campaign already existed.
+    //
+    // The panel is gone. `NodeForms`' AccountTemplateFields already put the
+    // same two fields on the Send node's own drawer, as dropdowns over the
+    // real template list, so the panel was a second and worse way to do one
+    // thing — the shape this repo named when Condition's "Goal" source and
+    // the Goal Check node answered one question and built different graphs.
+    //
+    // THE RULE THE GATE PROTECTED IS NOW STRUCTURAL: there is nowhere to ask
+    // for a template id except the node itself, which only exists once the
+    // campaign is built. So the pin is that the panel is gone...
+    expect(designer, 'no second template editor').not.toMatch(/cd-sends/);
+    expect(designer).not.toMatch(/Apply and revalidate/);
+    // ...and that `planOnScreen` still means what the rest of this file
+    // relies on, since the numbered-question and Confirm rules read it.
     expect(designer).toMatch(/const planOnScreen = phase === 'awaiting-confirmation' \|\| phase === 'revising';/);
   });
 
@@ -371,5 +404,224 @@ describe('the propose turn puts the schematic in the left pane only', () => {
     const preview = readFileSync(new URL('../../src/designer/preview.ts', import.meta.url), 'utf8');
     expect(preview).not.toMatch(/from '\.\.\/\.\.\/server\//);
     expect(designer).not.toMatch(/from '\.\.\/\.\.\/server\/blueprint'/);
+  });
+});
+
+describe('the schematic shows the message, not a label for it', () => {
+  // THE WORST THING ON THE PROPOSAL SCREEN, measured in `.ux-shots/03-plan`:
+  // five send cards all reading "WHATSAPP / A message". The cause was not
+  // the renderer — `ViewStep` never declared `copy`, so `previewFromBlueprint`
+  // could only ever reach `describe`, and the agent writes a description on
+  // some sends and not others. Nobody approves copy they cannot see.
+  const withCopy = previewFromBlueprint(
+    bp([
+      {
+        kind: 'send',
+        name: 'Day 0 eligibility notice',
+        describe: 'Say the purchase qualifies and what the instalment costs.',
+        copy: 'Hi {customerFirstName}, your ₹24,000 purchase can be split from ₹2,100 a month.',
+        cta: 'Convert now',
+        channelPreference: ['WHATSAPP'],
+      },
+    ]),
+  )!;
+
+  it('carries the customer-facing words through to the row', () => {
+    expect(withCopy.rows[0]).toMatchObject({
+      kind: 'send',
+      channel: 'WhatsApp',
+      copy: 'Hi {customerFirstName}, your ₹24,000 purchase can be split from ₹2,100 a month.',
+      cta: 'Convert now',
+    });
+  });
+
+  it('never says "A message" again, and says what is actually missing', () => {
+    // A send with neither a purpose nor words is a real gap in the plan, so
+    // the row states that rather than standing in for the message.
+    const bare = previewFromBlueprint(bp([{ kind: 'send', channelPreference: ['SMS'] }]))!;
+    const row = bare.rows[0] as { text: string; copy?: string };
+    expect(row.text).not.toBe('A message');
+    expect(row.text).toMatch(/no description/i);
+    // ...and ONLY when there are no words either. A send carrying the
+    // message needs no apology for lacking a label; the bubble is the
+    // content, and printing both read as a complaint beside the answer.
+    const copyOnly = previewFromBlueprint(
+      bp([{ kind: 'send', copy: 'Your purchase is still eligible for EMI.', channelPreference: ['SMS'] }]),
+    )!;
+    expect((copyOnly.rows[0] as { text: string }).text).toBe('');
+    expect(row.copy, 'nothing is invented to fill the bubble').toBeUndefined();
+  });
+
+  it('draws it as the channel, with placeholders as slots', () => {
+    const src = readFileSync(new URL('../../src/designer/CampaignDesigner.tsx', import.meta.url), 'utf8');
+    // The device and the channel class are what make one send card differ
+    // from another; without them it is a grey rectangle whatever it carries.
+    expect(src).toMatch(/<MessageMock channel=\{row\.channel\} copy=\{row\.copy\}/);
+    expect(src).toMatch(/ch-\$\{row\.channel\.toLowerCase\(\)/);
+    expect(src, 'placeholders read as slots, not as a name').toMatch(/renderTemplate/);
+  });
+});
+
+describe('a placeholder is a slot, not a name', () => {
+  // The builder's own templates are written `${customerFirstName}`. Splitting
+  // on `{…}` alone strands the dollar in the preceding run, and the bubble
+  // reads "Hi $ {customerFirstName}" — measured in `.ux-shots-p9/03-plan`.
+  it('keeps the $ with the token it belongs to', () => {
+    expect(templateSegments('Hi ${customerFirstName}, your card is ready.')).toEqual([
+      { text: 'Hi ', token: false },
+      { text: '${customerFirstName}', token: true },
+      { text: ', your card is ready.', token: false },
+    ]);
+  });
+
+  it('reads a bare placeholder too, since both spellings are in use', () => {
+    expect(templateSegments('Hello {name}')).toEqual([
+      { text: 'Hello ', token: false },
+      { text: '{name}', token: true },
+    ]);
+  });
+
+  it('leaves a message with no placeholders as one run', () => {
+    expect(templateSegments('Convert before the window closes.')).toEqual([
+      { text: 'Convert before the window closes.', token: false },
+    ]);
+  });
+
+  it('drops the empty runs a split leaves at the edges', () => {
+    // `'{a}'.split(...)` yields ['', '{a}', ''] — three segments for one
+    // token, and two empty spans in the bubble.
+    expect(templateSegments('${only}')).toEqual([{ text: '${only}', token: true }]);
+  });
+});
+
+describe('the decision does not scroll away', () => {
+  // It lived inside `.cd-msgs`, so on a long turn — and a propose turn is
+  // always long, it carries the whole strategy — the one thing the manager
+  // is here to do sat below a telemetry list and had to be scrolled to.
+  const src = readFileSync(new URL('../../src/designer/CampaignDesigner.tsx', import.meta.url), 'utf8');
+
+  it('is a sibling of the transcript, not a card inside it', () => {
+    // MEASURED BY DEPTH, not by index. Comparing positions passes whether
+    // the gate is nested or not — the transcript opens first either way —
+    // and the first version of this pin did exactly that and survived its
+    // own revert. What matters is whether `.cd-msgs` has CLOSED by the time
+    // the gate opens, so the tags are counted.
+    const msgs = src.indexOf('className="cd-msgs"');
+    const confirm = src.indexOf('className="cd-confirm"');
+    const compose = src.indexOf('className="cd-compose"');
+    expect(msgs).toBeGreaterThan(-1);
+    expect(confirm).toBeGreaterThan(msgs);
+    expect(confirm).toBeLessThan(compose);
+
+    const between = src.slice(msgs, confirm);
+    const opened = (between.match(/<div\b/g) ?? []).length;
+    const closed = (between.match(/<\/div>/g) ?? []).length;
+    // SELF-CLOSING TAGS ARE NOT OPENS. `<div className="cd-sk-line" />` is
+    // matched by `<div\b` and never closes, so a naive `closed - opened`
+    // reads -1 in BOTH states and the first version of this failed whether
+    // the gate was pinned or nested. Measured: 0 pinned, -1 nested.
+    const selfClosing = (between.match(/<div\b[^>]*\/>/g) ?? []).length;
+    expect(closed - (opened - selfClosing), 'the transcript has closed before the gate opens').toBe(0);
+  });
+
+  it('is still gated on the phase and nothing else', () => {
+    // A drawing is not a decision. The preview is tied to `pendingBlueprint`
+    // and a held plan draws without offering a button; moving the gate must
+    // not have quietly widened what opens it.
+    expect(src).toMatch(/\{!busy && phase === 'awaiting-confirmation' && \(/);
+    expect(src, 'not keyed on a path existing').not.toMatch(/pendingBlueprint && phase === 'awaiting-confirmation'/);
+  });
+});
+
+describe('a run that is working, and a turn that failed', () => {
+  const src = readFileSync(new URL('../../src/designer/CampaignDesigner.tsx', import.meta.url), 'utf8');
+
+  it('keeps the live step where it cannot scroll away', () => {
+    // The timeline says this too, and it scrolls. A 105-second tool call —
+    // measured, `eval/runs/ui-s-1793613837789` — leaves whatever is on
+    // screen looking frozen.
+    expect(src).toMatch(/\{busy && \(\s*<span className="cd-runbadge">/);
+    expect(src).toMatch(/const running = \[\.\.\.liveEvents\]\.reverse\(\)\.find/);
+  });
+
+  it('puts no Stop on the badge, because interrupting is the composer\'s job', () => {
+    const badge = src.slice(src.indexOf('className="cd-runbadge"'), src.indexOf('className="cd-tabs"'));
+    expect(badge).not.toMatch(/Stop|onClick/);
+  });
+
+  it('reports a failure even when a campaign is already on the canvas', () => {
+    // THE DEFECT. The error was rendered in the canvas and gated on
+    // `!graph`, so a refinement that failed over an existing campaign said
+    // nothing at all — the one case where the manager most needs to know
+    // the change did not land.
+    expect(src, 'not gated on there being no graph').not.toMatch(/!busy && !graph && err &&/);
+    expect(src).toMatch(/\{err && \(\s*<div className="cd-turnerror" role="alert">/);
+  });
+
+  it('is dismissible and sits outside the scrolling transcript', () => {
+    const msgs = src.indexOf('className="cd-msgs"');
+    const err = src.indexOf('className="cd-turnerror"');
+    const between = src.slice(msgs, err);
+    const opened = (between.match(/<div\b/g) ?? []).length;
+    const closed = (between.match(/<\/div>/g) ?? []).length;
+    const selfClosing = (between.match(/<div\b[^>]*\/>/g) ?? []).length;
+    expect(closed - (opened - selfClosing), 'outside the transcript').toBe(0);
+    expect(src).toMatch(/aria-label="Dismiss"/);
+  });
+});
+
+describe('the campaign has one state, not a pipeline', () => {
+  const src = readFileSync(new URL('../../src/designer/CampaignDesigner.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../src/designer/designer.css', import.meta.url), 'utf8');
+
+  it('shows the blocking stage, not all five', () => {
+    // Three green dots, one amber and one red read as a CI pipeline, and
+    // put five verdicts in front of someone who can act on one. `blocking`
+    // already picks that one and the sentence under it already spells it
+    // out — the dots were a second, worse copy of the same thing.
+    expect(src, 'no dot per stage').not.toMatch(/className="cd-stage-dot"/);
+    expect(src, 'no row of stage rows').not.toMatch(/className=\{`cd-stage \$\{st\.state\}`\}/);
+    expect(src).toMatch(/<span className=\{`cd-statepill \$\{blocking \? blocking\.state : 'ok'\}`\}/);
+  });
+
+  it('keeps every stage and its reason on the chip', () => {
+    // Collapsing the strip must not throw the detail away: a reader who
+    // wants the whole list can still get it.
+    expect(src).toMatch(/title=\{stages\.map\(\(st\) => `\$\{st\.label\}: \$\{st\.detail\}`\)\.join/);
+  });
+
+  it('leaves no rules behind for the markup it replaced', () => {
+    // Dead CSS outlives the markup that used it and reads as live styling
+    // to the next person. These eight also carried six raw hex values.
+    expect(css).not.toMatch(/^\.cd-stage\b/m);
+    expect(css).not.toMatch(/\.cd-stage-dot/);
+  });
+});
+
+describe('a finding says whose it is', () => {
+  const src = readFileSync(new URL('../../src/designer/CampaignDesigner.tsx', import.meta.url), 'utf8');
+
+  it('reads the basis the server has always recorded', () => {
+    // `server/findings.ts` has carried `basis: user | user-belief |
+    // assumption` since findings existed, and `recordBarriers` VERIFIES the
+    // quote against what the manager actually typed, downgrading one that
+    // does not check out. `BriefView` declared neither, so none of it
+    // reached the screen and an invented theory read like a quote.
+    expect(src).toMatch(/barriers\?: \{ statement: string; basis\?: string; quote\?: string \}\[\]/);
+    expect(src).toMatch(/<Basis basis=\{b\.basis\} quote=\{b\.quote\} \/>/);
+  });
+
+  it('tells theirs from ours in words, not only in colour', () => {
+    const basis = src.slice(src.indexOf('function Basis('), src.indexOf('function Basis(') + 900);
+    expect(basis).toMatch(/You said this/);
+    expect(basis).toMatch(/Our assumption, untested/);
+    // Colour alone fails for anyone who cannot see it, and this is the
+    // distinction the product is sold on.
+    expect(basis).toMatch(/theirs \? 'theirs' : 'ours'/);
+  });
+
+  it('puts the manager\'s own words behind the chip', () => {
+    const basis = src.slice(src.indexOf('function Basis('), src.indexOf('function Basis(') + 900);
+    expect(basis).toMatch(/title=\{quote \?/);
   });
 });

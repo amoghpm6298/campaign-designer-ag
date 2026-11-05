@@ -59,6 +59,9 @@ export interface ViewStep {
   kind?: string;
   name?: string;
   describe?: string;
+  /** What the customer actually receives. Never read until 2026-11-04. */
+  copy?: string;
+  cta?: string;
   channelPreference?: string[];
   durationHours?: number;
   why?: string;
@@ -78,7 +81,16 @@ export interface ViewStep {
 
 /** One row of the schematic. A fork carries its own paths, so forks nest. */
 export type PreviewRow =
-  | { kind: 'send'; channel: string; fallback?: string; text: string }
+  | {
+      kind: 'send';
+      channel: string;
+      fallback?: string;
+      /** The step's own purpose, in the agent's words. */
+      text: string;
+      /** The message itself, drawn as the customer would see it. */
+      copy?: string;
+      cta?: string;
+    }
   | { kind: 'wait'; text: string }
   | { kind: 'await'; text: string }
   | { kind: 'exit'; text: string }
@@ -180,11 +192,26 @@ function rowFrom(step: ViewStep): PreviewRow {
   switch (step.kind) {
     case 'send': {
       const [first, second] = step.channelPreference ?? [];
+      // THE MESSAGE, NOT JUST A LABEL FOR IT.
+      //
+      // `copy` was never in `ViewStep`, so the schematic could only ever
+      // show `describe` — and when the agent wrote neither a description
+      // nor a name, every card on the proposal read "A message". Five
+      // identical cards is what a manager was asked to approve.
+      //
+      // The fallback is a statement about the PLAN rather than a stand-in
+      // for the message: a send with no purpose and no words is a real gap
+      // in the proposal and should read as one.
       return {
         kind: 'send',
         channel: channelWord(first),
         ...(second ? { fallback: channelWord(second) } : {}),
-        text: step.describe?.trim() || step.name?.trim() || 'A message',
+        text:
+          step.describe?.trim() ||
+          step.name?.trim() ||
+          (step.copy?.trim() ? '' : 'This step has no description yet'),
+        ...(step.copy?.trim() ? { copy: step.copy.trim() } : {}),
+        ...(step.cta?.trim() ? { cta: step.cta.trim() } : {}),
       };
     }
     case 'wait':
@@ -271,4 +298,23 @@ export function previewFromBlueprint(bp: unknown): JourneyPreview | null {
     ...(v.goal?.eventType ? { stops: `Stops as soon as ${sentence(v.goal.eventType).toLowerCase()}` } : {}),
     rows,
   };
+}
+
+/**
+ * A message split into plain runs and `{placeholder}` tokens.
+ *
+ * THE `$` BELONGS TO THE TOKEN. The builder's own templates are written
+ * `${customerFirstName}`, so splitting on `{…}` alone strands the dollar in
+ * the preceding run and the bubble reads "Hi $ {customerFirstName}".
+ *
+ * Pure, and here rather than in the component, so it can be tested on its
+ * own — the first version of this was pinned by matching a regex against
+ * `CampaignDesigner.tsx`, which passed against a file the revert had failed
+ * to change.
+ */
+export function templateSegments(text: string): { text: string; token: boolean }[] {
+  return text
+    .split(/(\$?\{[^}]+\})/)
+    .filter((part) => part !== '')
+    .map((part) => ({ text: part, token: /^\$?\{[^}]+\}$/.test(part) }));
 }

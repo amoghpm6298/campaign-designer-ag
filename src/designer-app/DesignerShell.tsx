@@ -1,6 +1,7 @@
 // The standalone application shell: its own header, navigation and global
 // tenant selector. Nothing here comes from the ib-face-mock chrome.
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Activity, Library, MessagesSquare, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import logo from '../assets/hfLogo.svg';
 import {
   applyOverrides,
@@ -98,62 +99,108 @@ export function DesignerShell() {
 
   return (
     <>
-      {/* THE RAIL. The one dark surface in the product, and a deliberate
-          exception rather than a theme: content stays light throughout. Same
-          choice the propensity agent makes, where the sidebar is the only
-          dark region in an otherwise entirely light app, so it reads as
-          product chrome instead of a mode. */}
-      <nav className={`hf-rail ${railOpen ? '' : 'collapsed'}`} aria-label="Sections">
-        <div className="hf-rail-top">
-          <img className="hf-rail-logo" src={logo} alt="Hyperface" width={26} height={26} />
+      {/* THE RAIL \u2014 agent360's `Sidebar`, ported.
+          White, 60px collapsed, 256px expanded, with the preference kept.
+          It used to be navy, argued for as "the one dark surface, product
+          chrome rather than a theme". That argument held while this app was
+          judged on its own; it does not hold next to the company console,
+          whose rail is white. Matching the house style and keeping our own
+          chrome were never both available. */}
+      <aside
+        className={`shrink-0 bg-white border-r border-border flex flex-col h-screen transition-[width] duration-200 ease-out ${
+          railOpen ? 'w-64' : 'w-[60px]'
+        }`}
+      >
+        {/* h-16, the height every pane header in this product now uses, so the
+            rail's foot and the headers beside it sit on one line. */}
+        <div className={`h-16 flex items-center shrink-0 ${railOpen ? 'px-4 gap-2.5' : 'justify-center'}`}>
           {railOpen && (
-            <span className="hf-rail-wordmark">
-              Campaign Designer
-              <small>Hyperface</small>
-            </span>
+            <>
+              {/* The mark keeps its own navy on a tinted chip rather than
+                  being knocked out white on a blue one: at 18px the swoosh
+                  inside it closes up and reads as a plain ring. */}
+              <span className="flex flex-1 items-center gap-2.5 min-w-0">
+                <span className="w-8 h-8 rounded-[10px] bg-primary-light grid place-items-center shrink-0">
+                  <img src={logo} alt="" aria-hidden="true" width={19} height={19} />
+                </span>
+                <span className="leading-tight min-w-0">
+                  {/* 12.5px semibold, not 14px bold: "Campaign Designer" is
+                      six characters longer than the name this rail was sized
+                      for, and at 14px it truncates inside a 256px drawer. */}
+                  <span className="block text-text-primary font-semibold text-[12.5px] truncate">Campaign Designer</span>
+                  <span className="block text-text-tertiary text-[11px]">Hyperface</span>
+                </span>
+              </span>
+            </>
           )}
           <button
-            className="hf-rail-toggle"
             onClick={() => setRailOpen((v) => !v)}
-            aria-label={railOpen ? 'Collapse navigation' : 'Expand navigation'}
+            title={railOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-label={railOpen ? 'Collapse sidebar' : 'Expand sidebar'}
             aria-expanded={railOpen}
+            className="grid place-items-center w-8 h-8 rounded-lg text-text-tertiary hover:bg-surface-subtle hover:text-text-secondary shrink-0"
           >
-            {railOpen ? '\u00AB' : '\u00BB'}
+            {railOpen ? <PanelLeftClose className="w-[18px] h-[18px]" /> : <PanelLeftOpen className="w-[18px] h-[18px]" />}
           </button>
         </div>
 
-        <div className="hf-rail-items hf-scroll-rail">
+        <nav
+          aria-label="Sections"
+          className={`mt-2 flex-1 min-h-0 overflow-y-auto hf-scroll flex flex-col gap-1 ${
+            railOpen ? 'px-3' : 'px-0 items-center'
+          }`}
+        >
           {(
             [
-              ['designer', 'Design', 'M3 12h4l3 7 4-14 3 7h4'],
-              ['knowledge', 'Knowledge Base', 'M4 5h16M4 12h16M4 19h10'],
-              ['logs', 'Chats', 'M5 4h14v16H5zM8 9h8M8 13h8M8 17h5'],
-            ] as [Page, string, string][]
-          ).map(([k, label, d]) => (
-            <button
-              key={k}
-              className={`hf-railitem ${page === k ? 'on' : ''}`}
-              onClick={() => setPage(k)}
-              title={railOpen ? undefined : label}
-              aria-current={page === k ? 'page' : undefined}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d={d} />
-              </svg>
-              {railOpen && <span>{label}</span>}
-            </button>
-          ))}
-        </div>
+              ['designer', 'Design', Activity],
+              ['knowledge', 'Knowledge Base', Library],
+              ['logs', 'Chats', MessagesSquare],
+            ] as [Page, string, typeof Activity][]
+          ).map(([k, label, Icon]) => {
+            const on = page === k;
+            return (
+              <button
+                key={k}
+                onClick={() => setPage(k)}
+                title={label}
+                aria-label={label}
+                aria-current={on ? 'page' : undefined}
+                className={`relative flex items-center rounded-lg transition-colors ${
+                  railOpen ? 'gap-2.5 px-3 h-9 text-sm w-full' : 'justify-center w-9 h-9'
+                } ${
+                  on
+                    ? 'bg-primary-light text-primary font-medium'
+                    : 'text-[#667085] hover:bg-surface-subtle hover:text-text-secondary'
+                }`}
+              >
+                {/* A 3px bar at the edge, not a filled row: at rail width a
+                    solid fill on white reads as a button, not a selection. */}
+                {on && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-primary" />}
+                <Icon className="w-[18px] h-[18px] shrink-0" />
+                {railOpen && <span className="truncate">{label}</span>}
+              </button>
+            );
+          })}
+        </nav>
 
         {/* The tenant belongs down here, not in a top bar. It is set once and
-            then read, so it is reference rather than navigation. */}
-        <div className="hf-rail-foot">
+            then read, so it is reference rather than navigation \u2014 the slot
+            agent360 gives to identity. */}
+        <div className={`border-t border-border shrink-0 ${railOpen ? 'px-3 py-3' : 'py-3'}`}>
           {railOpen ? (
-            <>
-              <label className="hf-rail-cap" htmlFor="hf-tenant">
+            <div className="px-1">
+              <label
+                className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary"
+                htmlFor="hf-tenant"
+              >
                 Tenant
               </label>
-              <select id="hf-tenant" value={tenantId} onChange={(e) => setTenantId(e.target.value)}>
+              <select
+                id="hf-tenant"
+                value={tenantId}
+                onChange={(e) => setTenantId(e.target.value)}
+                className="w-full h-9 px-2.5 text-[13px] rounded-[var(--radius-input)] border border-border bg-white text-text-primary focus:outline-none focus:border-[#8FB9F8] focus:shadow-[var(--shadow-focus-ring)]"
+              >
                 {!tenants.length && <option value="">Loading\u2026</option>}
                 {tenants.map((t) => (
                   <option key={t.tenantId} value={t.tenantId}>
@@ -161,14 +208,17 @@ export function DesignerShell() {
                   </option>
                 ))}
               </select>
-            </>
+            </div>
           ) : (
-            <span className="hf-rail-initial" title={tenant?.displayName ?? tenantId}>
+            <span
+              className="mx-auto grid w-8 h-8 place-items-center rounded-full bg-primary-light text-primary text-[11.5px] font-bold"
+              title={tenant?.displayName ?? tenantId}
+            >
               {(tenant?.displayName ?? tenantId ?? '?').slice(0, 2).toUpperCase()}
             </span>
           )}
         </div>
-      </nav>
+      </aside>
 
       <div className="hf-main">
         {tenantMismatch && (

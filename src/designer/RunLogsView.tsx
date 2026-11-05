@@ -10,6 +10,10 @@ import { DripCanvas } from '../canvas/DripCanvas';
 import { computeDagreLayout } from '../canvas/layoutGraph';
 import { detailsText, friendlyEvent } from './status';
 import type { RunLog } from './types';
+import { buildExportPayload, exportFileName } from './exportPayload';
+import { EmptyState } from './States';
+import { AlertCircle, Check, ChevronDown, ChevronRight, Loader2, MessagesSquare } from 'lucide-react';
+import { RichText } from './RichText';
 import './designer.css';
 
 interface Props {
@@ -27,6 +31,20 @@ const OUTCOME: Record<string, { label: string; cls: string }> = {
   error: { label: 'Failed', cls: 'bad' },
   export: { label: 'Exported', cls: 'info' },
 };
+
+/** What a run's status is called, with a name for one we do not know. */
+const outcomeOf = (run: { status?: string } | null | undefined) =>
+  run ? OUTCOME[run.status ?? ''] ?? { label: run.status || 'Unknown', cls: 'info' } : { label: 'Not run yet', cls: 'info' };
+
+/** The validation verdict as a sentence, or nothing when there is none. */
+const validationLine = (v: string | undefined) =>
+  v === 'failed'
+    ? 'Blocked. Information is missing'
+    : v === 'incomplete'
+      ? 'Passed, some still need a person'
+      : v
+        ? 'All checks passed'
+        : null;
 
 /** A value worth printing, or nothing. Never a bare label over a blank. */
 const Fact = ({ label, children }: { label: string; children: React.ReactNode }) =>
@@ -172,8 +190,13 @@ const when = (iso: string) => {
 
 export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Props) {
   const [sel, setSel] = useState<string | null>(null);
+  /** Narrows the list by campaign name. Matching is on what the chat is
+   *  CALLED, which is its first message — the one thing a person would
+   *  remember about it. */
+  const [q, setQ] = useState('');
   const [rawFor, setRawFor] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedJson, setCopiedJson] = useState(false);
   /**
    * Which half of a chat you are looking at.
    *
@@ -232,6 +255,14 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
       .sort((a, b) => b.at.localeCompare(a.at));
   }, [logs, stored]);
 
+  /** The rows actually shown. Filtering here rather than inside the memo
+   *  above keeps the grouping work off the keystroke path, and keeps the
+   *  unfiltered count available for the empty state below. */
+  const shown = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return needle ? sessions.filter((g) => g.title.toLowerCase().includes(needle)) : sessions;
+  }, [sessions, q]);
+
   // Null until a row is clicked. It used to fall back to the first chat, so
   // the page always opened mid-conversation in something you had not asked
   // for; with a table the list IS the landing state.
@@ -259,6 +290,24 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
     }
     return null;
   }, [session]);
+
+  /**
+   * The campaign JSON for the journey this chat built, or null.
+   *
+   * SAME BUILDER AS THE DESIGNER, so a journey copied here and a journey
+   * copied from the screen that made it are the same file. A second
+   * assembler would drift — the designer's used to be inline, and the
+   * `id ?? name` download filename bug lived in exactly that gap.
+   *
+   * `last` is null: a `RunLog` is not a `DesignerResponse`, so rather than
+   * cast one into the other the export simply carries no suggested
+   * messaging or claim block. The campaign, its graph and the bank fields
+   * are the part anyone importing it needs.
+   */
+  const exportable = useMemo(
+    () => buildExportPayload({ campaign: built, graph: built?.root ?? null, last: null, tenantId: current?.tenantId }),
+    [built, current],
+  );
 
   /**
    * The journey's own proportions, so the panel is the shape of the graph.
@@ -298,15 +347,20 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
           Every conversation you have had with the agent. Open one to pick it up where you left off, or to read what
           the agent did on each turn.
         </p>
-        <div className="cd-empty-panel">
-          <div className="cd-empty-title">No chats yet</div>
-          <p>Design a campaign and it appears here, ready to continue whenever you come back.</p>
-          {onStartDesigning && (
-            <button className="cd-btn pri" onClick={onStartDesigning}>
-              Start designing a campaign
-            </button>
-          )}
-        </div>
+        <EmptyState
+          icon={<MessagesSquare size={18} />}
+          title="No chats yet"
+          action={
+            onStartDesigning && (
+              <button className="cd-btn pri" onClick={onStartDesigning}>
+                Start designing a campaign
+              </button>
+            )
+          }
+        >
+          Describe an outcome on the Design screen. Every conversation lands here, ready to continue whenever you
+          come back.
+        </EmptyState>
       </div>
     );
   }
@@ -332,7 +386,9 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
           <p className="cd-lede">
             {session
               ? `${session.turns.length} turn${session.turns.length === 1 ? '' : 's'}${session.at ? ` · ${fmtStamp(session.at)}` : ''}`
-              : `${sessions.length} chat${sessions.length === 1 ? '' : 's'}, newest first. Stored in this browser.`}
+              : q.trim()
+                ? `${shown.length} of ${sessions.length} chat${sessions.length === 1 ? '' : 's'} match "${q.trim()}".`
+                : `${sessions.length} chat${sessions.length === 1 ? '' : 's'}, newest first. Stored in this browser.`}
           </p>
         </div>
         <div className="cd-logs-actions">
@@ -353,12 +409,28 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
               {copied ? 'Copied' : 'Copy this chat'}
             </button>
           )}
-          {/* Clears the LOGS, not the chats. A chat you can still continue
-              must not disappear because you tidied up the event history. */}
           {!session && (
-            <button className="cd-btn" onClick={() => { clearRunLogs(); setSel(null); onCleared(); }}>
-              Clear logs
-            </button>
+            <>
+              {/* The cap is 40 chats, so a list with no way to narrow it is
+                  a wall by the time anyone needs this page. */}
+              <input
+                className="cd-search"
+                type="search"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search chats"
+                aria-label="Search chats"
+              />
+              <button className="cd-btn pri" onClick={onStartDesigning}>
+                New chat
+              </button>
+              {/* Clears the LOGS, not the chats, and it is the destructive
+                  control on a page about resuming work — so it is last and
+                  it is not the primary. */}
+              <button className="cd-btn" onClick={() => { clearRunLogs(); setSel(null); onCleared(); }}>
+                Clear logs
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -375,14 +447,14 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
             </tr>
           </thead>
           <tbody>
-            {sessions.map((g) => {
+            {shown.map((g) => {
               // A chat is labelled by what it set out to do, which is its
               // FIRST message, and judged by where it ended up, which is its
               // last turn's outcome.
               const first = g.turns[0];
               const last = g.turns[g.turns.length - 1];
               const o = last
-                ? OUTCOME[last.status] ?? { label: last.status, cls: 'info' }
+                ? outcomeOf(last)
                 : { label: 'Not run yet', cls: 'info' };
               return (
                 <tr key={g.sessionId} className="cd-row-click" onClick={() => { setSel(g.sessionId); setTab('resume'); setTurnSel(null); }}>
@@ -421,26 +493,20 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
                 {/* The title is in the page head now that a chat opens full
                     width. Printing it again here was the split-pane layout
                     showing through. */}
-                <dl className="cd-deflist compact">
-                  <dt>When</dt>
-                  <dd>{session.at ? fmtStamp(session.at) : 'Not run yet'}</dd>
-                  <dt>Tenant</dt>
-                  <dd>{current?.tenantId ?? 'not recorded'}</dd>
-                  <dt>Outcome</dt>
-                  <dd>{current ? (OUTCOME[current.status] ?? { label: current.status }).label : 'Not run yet'}</dd>
-                  {current?.validationOutcome && (
-                    <>
-                      <dt>Validation</dt>
-                      <dd>
-                        {current.validationOutcome === 'failed'
-                          ? 'Blocked. Information is missing'
-                          : current.validationOutcome === 'incomplete'
-                            ? 'Passed. Some checks still need a person to confirm'
-                            : 'All checks passed'}
-                      </dd>
-                    </>
-                  )}
-                </dl>
+                {/* ONE LINE, NOT A DEFINITION LIST. Three stacked rows, two
+                    of them reading "not recorded" or blank, is most of why
+                    this page had five bands of chrome before any content.
+                    Every item goes through `Fact`, which this file already
+                    defines for exactly this — "Never a bare label over a
+                    blank" — and which the list below it was not using: the
+                    Outcome caption printed over an empty value whenever the
+                    status was one this build has not heard of. */}
+                <div className="cd-metaline">
+                  <span className={`cd-pill ${outcomeOf(current).cls}`}>{outcomeOf(current).label}</span>
+                  <Fact label="When">{session.at ? fmtStamp(session.at) : null}</Fact>
+                  <Fact label="Tenant">{current?.tenantId}</Fact>
+                  <Fact label="Checks">{validationLine(current?.validationOutcome)}</Fact>
+                </div>
 
               {/* RESUME IS THE PRIMARY ACTION on this page, which is why it
                   sits in the header rather than under the transcript. The
@@ -454,6 +520,39 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
                 >
                   Continue this chat
                 </button>
+                {/* WHEREVER THERE IS A JOURNEY, IT CAN BE TAKEN. The chat
+                    that produced a campaign could be opened, read and looked
+                    at on the Journey tab, and the only way to get the file
+                    was to go back to Design and rebuild it. "Copy this chat"
+                    is the transcript, which is a different artefact for a
+                    different reader. */}
+                {exportable && (
+                  <>
+                    <button
+                      className="cd-btn"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(JSON.stringify(exportable, null, 2));
+                        setCopiedJson(true);
+                        setTimeout(() => setCopiedJson(false), 1800);
+                      }}
+                    >
+                      {copiedJson ? 'Copied' : 'Copy JSON'}
+                    </button>
+                    <button
+                      className="cd-btn"
+                      onClick={() => {
+                        const blob = new Blob([JSON.stringify(exportable, null, 2)], { type: 'application/json' });
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(blob);
+                        a.download = exportFileName(exportable);
+                        a.click();
+                        URL.revokeObjectURL(a.href);
+                      }}
+                    >
+                      Download JSON
+                    </button>
+                  </>
+                )}
                 <button
                   className="cd-btn"
                   onClick={() => {
@@ -525,7 +624,9 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
                     {session.messages.map((m, i) => (
                       <div className={`cd-msg ${m.role}`} key={i}>
                         <div className="cd-msg-role">{m.role === 'user' ? 'You' : 'Agent'}</div>
-                        <div className="cd-msg-bubble">{m.content}</div>
+                        <div className="cd-msg-bubble">
+                          <RichText text={m.content} />
+                        </div>
                       </div>
                     ))}
                   </>
@@ -630,44 +731,64 @@ export function RunLogsView({ logs, onCleared, onStartDesigning, onResume }: Pro
                 </div>
               )}
               {tab === 'logs' && current && (
-              <div className="cd-timeline">
+              <div className="cd-steps">
                 {/* Text deltas are the streaming transport, not history —
                     hundreds of them would bury the meaningful events. The
                     assistant's finished message is already in the campaign
                     record. */}
                 {current.events
                   .filter((e) => e.type !== 'model.text.delta')
-                  .map((e) => {
+                  .map((e, i) => {
                   const isError = e.status === 'failed';
+                  const running = false;
+                  const ms = e.durationMs ?? 0;
+                  // SLOW IS VISIBLE WITHOUT READING. agent360's `QueryRow`
+                  // puts a 1px bar under the row tinted by threshold, so a
+                  // 105-second model call and a 0.1-second record read are
+                  // told apart at a glance rather than by comparing two
+                  // numbers in a column. 30s is full width: the longest
+                  // call in any recorded run is ~106s, and scaling to that
+                  // would make everything else invisible.
+                  const pct = ms ? Math.min(100, (ms / 30000) * 100) : 0;
+                  const tone = ms > 20000 ? 'bad' : ms > 5000 ? 'warn' : 'ok';
                   return (
-                    <div className={`cd-event ${isError ? 'bad' : ''}`} key={e.seq}>
-                      {/* The event's own title wins; `friendlyEvent` is the
-                          fallback for events that carry none. Two maps kept
-                          in step by hand is how this tab and the Design
-                          panel came to name the same run differently. */}
-                      <div className="cd-event-k">{e.title?.trim() || friendlyEvent(e.type)}</div>
-                      <div className="cd-event-s">
-                        {e.detail?.trim() || friendlyEvent(e.type)}
-                      </div>
-                      <div className="cd-event-foot">
-                        <span className="cd-event-t">
+                    <div className={`cd-step${running ? ' running' : isError ? ' failed' : ''}`} key={e.seq}>
+                      {i > 0 && <span className="cd-step-tick" aria-hidden="true" />}
+                      <button
+                        className="cd-step-head"
+                        onClick={() => e.data != null && setRawFor(rawFor === e.seq ? null : e.seq)}
+                        disabled={e.data == null}
+                        aria-expanded={e.data != null ? rawFor === e.seq : undefined}
+                      >
+                        <span className="cd-step-dot" aria-hidden="true">
+                          {running ? <Loader2 size={12} className="spin-slow" /> : isError ? <AlertCircle size={12} /> : <Check size={12} strokeWidth={2.5} />}
+                        </span>
+                        <span className="cd-step-label">{e.title?.trim() || friendlyEvent(e.type)}</span>
+                        {e.detail?.trim() && <span className="cd-step-sum">· {e.detail.trim()}</span>}
+                        <span className="cd-act-ms">
                           {fmtTime(e.at)}
                           {e.durationMs !== undefined ? ` · ${(e.durationMs / 1000).toFixed(1)}s` : ''}
                         </span>
                         {e.data != null && (
-                          <button className="cd-link" onClick={() => setRawFor(rawFor === e.seq ? null : e.seq)}>
-                            {rawFor === e.seq ? 'Hide details' : 'Details'}
-                          </button>
+                          <span className="cd-step-chev">
+                            {rawFor === e.seq ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                          </span>
                         )}
-                      </div>
+                      </button>
+                      {pct > 0 && (
+                        <span className="cd-lat" aria-hidden="true">
+                          <span className={`cd-lat-fill ${tone}`} style={{ width: `${pct}%` }} />
+                        </span>
+                      )}
                       {/* A sentence, then the payload. The JSON stays —
-                          it is why Details exists — but it is never the only
-                          thing in the panel. */}
+                          it is why Details exists, and it is the record this
+                          product is sold on — but it is never the only thing
+                          in the panel. */}
                       {rawFor === e.seq && e.data != null && (
-                        <>
-                          <p className="cd-event-lead">{detailsText(e)}</p>
-                          <pre>{JSON.stringify(e.data, null, 1)}</pre>
-                        </>
+                        <div className="cd-step-body">
+                          <p className="cd-act-lead">{detailsText(e)}</p>
+                          <pre className="cd-act-pre">{JSON.stringify(e.data, null, 1)}</pre>
+                        </div>
                       )}
                     </div>
                   );

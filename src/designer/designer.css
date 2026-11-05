@@ -1,3 +1,18 @@
+/* THE SIX RAW HEX VALUES IN THIS FILE ARE DELIBERATE. Everything else
+   goes through `src/tokens.css`, so the palette moves in one edit.
+   The exceptions, and why a token would be wrong for each:
+
+     #25d366  WhatsApp's green. Someone else's brand, and it must not
+     #e7ffdb  drift when ours does — the point of the message mock is
+     #c5ecb4  that it looks like the app the customer will see it in.
+     #6941c6  the function colour in highlighted code, which is a
+              syntax role rather than a product colour.
+     #8FB9F8  the focus border. agent360 writes this literal too: the
+              system names it only inside `--shadow-focus-ring`, and the
+              border beside that shadow has to match it exactly.
+
+   Anything else added here should be a token. */
+
 /* Campaign Designer — two panels. The canvas is the primary visual focus,
    so it takes the larger share and the chat is a fixed-width column. */
 /* 100% not 100vh: this sits inside the app shell, below its 56px header.
@@ -8,24 +23,64 @@
 .cd-top {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 18px; border-bottom: 1px solid var(--gray-200);
-  background: #fff; flex: 0 0 auto;
+  background: var(--surface); flex: 0 0 auto;
 }
-.cd-top h1 { font-size: 14.5px; font-weight: 640; margin: 0; letter-spacing: -0.01em; color: var(--gray-800, #1f2937); }
+.cd-top h1 { font-size: 14.5px; font-weight: 600; margin: 0; letter-spacing: -0.01em; color: var(--gray-800, var(--text)); }
 .cd-top .cd-sub { font-size: 12px; color: var(--gray-600); margin-top: 2px; }
 .cd-tabs { display: flex; gap: 2px; margin-left: auto; }
 .cd-tab {
-  font-size: 12.5px; font-weight: 550; padding: 6px 12px; border-radius: 7px;
+  font-size: 12.5px; font-weight: 500; padding: 6px 12px; border-radius: 7px;
   border: 1px solid transparent; background: none; cursor: pointer; color: var(--gray-600);
 }
 .cd-tab:hover { background: var(--gray-100); }
-.cd-tab.on { background: var(--blue-50, #eff4ff); color: var(--blue-cta); border-color: var(--blue-200, #c7d8fe); }
+.cd-tab.on { background: var(--blue-50, var(--accent-tint)); color: var(--blue-cta); border-color: var(--blue-200, var(--accent-edge)); }
 
+/* CHAT LEFT, WORK SURFACE RIGHT — the agent360 arrangement, and the one
+   every other Hyperface console uses. This app had it the other way round.
+   Two surfaces, two tones: the conversation is read, so it sits on white;
+   the journey is the work product, so it sits on the subtle grey. A single
+   tone across both is what made every element read at the same weight. */
 .cd-body { display: flex; flex: 1 1 auto; min-height: 0; }
-.cd-canvas { flex: 1 1 auto; min-width: 0; position: relative; background: var(--gray-50, #fafafa); }
-.cd-chat {
-  flex: 0 0 var(--chat-w); display: flex; flex-direction: column;
-  border-left: 1px solid var(--gray-200); background: #fff; min-height: 0;
+.cd-canvas {
+  order: 1; flex: 1 1 auto; min-width: 0; position: relative;
+  background: var(--surface-sunken);
 }
+
+/* The collapsing wrapper, and the reason it is two elements.
+   The OUTER one animates to zero width with `overflow: hidden`; the INNER
+   one keeps its full width throughout. Without the inner element the chat
+   reflows narrower on every frame of the animation, and because the pane
+   stays mounted rather than unmounting, anything that scrolls it while
+   collapsed would scroll something nobody can see. */
+.cd-chatwrap {
+  order: 0; flex: 0 0 auto; position: relative; z-index: 0;
+  min-height: 0; overflow: hidden;
+  width: var(--chat-w);
+  transition: width 0.3s ease-in-out;
+}
+.cd-chatwrap.collapsed { width: 0; }
+.cd-chatwrap > .cd-chat { width: var(--chat-w); }
+@media (prefers-reduced-motion: reduce) { .cd-chatwrap { transition: none; } }
+
+.cd-chat {
+  height: 100%; display: flex; flex-direction: column;
+  border-right: 1px solid var(--border); background: var(--surface); min-height: 0;
+}
+
+/* A 28px disc straddling the seam, moving inboard once the chat is gone so
+   it stays reachable. Rendered inside the work column and positioned
+   absolutely, so it costs nothing in the layout. */
+.cd-chattoggle {
+  position: absolute; top: 50%; left: 0; transform: translate(-50%, -50%);
+  z-index: 20; display: grid; place-items: center;
+  width: 28px; height: 28px; padding: 0;
+  border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text-faint);
+  box-shadow: var(--shadow-dropdown); cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+.cd-chattoggle:hover { background: var(--surface-sunken); color: var(--text-muted); }
+.cd-chatwrap.collapsed + .cd-canvas .cd-chattoggle { left: 12px; transform: translate(0, -50%); }
 
 /* --- canvas states --- */
 .cd-state {
@@ -46,45 +101,103 @@
 .cd-msgs { flex: 1 1 auto; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .cd-msg { font-size: 13px; line-height: 1.6; }
 .cd-msg-role { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gray-400); margin-bottom: 4px; }
-.cd-msg.user .cd-msg-bubble { background: var(--blue-50, #eff4ff); border: 1px solid var(--blue-200, #c7d8fe); }
-.cd-msg-bubble { background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; }
-.cd-msg-bubble strong { font-weight: 650; }
+.cd-msg.user .cd-msg-bubble {
+  background: var(--accent-tint); border-color: var(--accent-edge);
+  border-radius: var(--r-lg) var(--r-lg) var(--r-xs) var(--r-lg);
+}
+.cd-msg-bubble {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg) var(--r-lg) var(--r-lg) var(--r-xs);
+  box-shadow: var(--e-1); padding: 11px 13px; white-space: pre-wrap; font-size: 14px;
+}
+.cd-msg-bubble strong { font-weight: 600; }
 .cd-msg-bubble ul { margin: 6px 0 0; padding-left: 18px; }
 .cd-msg-bubble li { margin: 2px 0; }
 
 .cd-qs { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-.cd-q { font-size: 12.5px; background: #fff; border: 1px solid var(--gray-200); border-radius: 8px; padding: 8px 10px; }
+.cd-q { font-size: 12.5px; background: var(--surface); border: 1px solid var(--gray-200); border-radius: 8px; padding: 8px 10px; }
 .cd-q-n { font-weight: 700; color: var(--blue-cta); margin-right: 6px; }
 
-.cd-compose { flex: 0 0 auto; border-top: 1px solid var(--gray-200); padding: 12px; background: #fff; }
-.cd-compose textarea {
-  width: 100%; box-sizing: border-box; resize: vertical; min-height: 64px;
-  font: inherit; font-size: 13px; padding: 9px 10px;
-  border: 1px solid var(--gray-300); border-radius: 8px;
+.cd-compose { flex: 0 0 auto; border-top: 1px solid var(--border); padding: 14px; background: var(--surface); }
+.cd-confirm + .cd-compose { border-top: 0; padding-top: 12px; }
+
+/* ONE FIELD. The send control sits inside the box and the whole box takes
+   the focus ring, so the composer reads as a single thing to type into
+   rather than a form control with a button parked under it. */
+.cd-field {
+  display: flex; align-items: flex-end; gap: 8px;
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  background: var(--surface); box-shadow: var(--e-1);
+  transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
 }
-.cd-compose textarea:focus-visible { outline: 2px solid var(--blue-cta); outline-offset: 1px; border-color: var(--blue-cta); }
+.cd-field:focus-within { border-color: #8FB9F8; box-shadow: var(--ring); }
+.cd-field.locked { background: var(--surface-sunken); }
+.cd-field textarea {
+  flex: 1 1 auto; min-width: 0;
+  box-sizing: border-box; resize: none; overflow-y: auto;
+  min-height: 24px; max-height: 40vh;
+  font: inherit; font-size: 14px; line-height: 1.5; padding: 5px 0;
+  border: 0; background: transparent; color: var(--text);
+  /* The field opens up on focus, which says "you can write a lot here"
+     before anyone has typed a word. */
+  transition: min-height 0.2s ease-out;
+}
+.cd-field textarea:focus { min-height: 72px; outline: none; }
+.cd-field textarea:disabled { color: var(--text-faint); cursor: not-allowed; }
+.cd-field textarea::placeholder { color: var(--text-faint); }
+
+.cd-composesend {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 32px; height: 32px; padding: 0;
+  border: 0; border-radius: var(--radius-button, 10px);
+  background: var(--accent); color: var(--accent-ink);
+  box-shadow: var(--e-3); cursor: pointer;
+  transition: box-shadow 0.15s, opacity 0.15s;
+}
+.cd-composesend:hover:not(:disabled) { box-shadow: var(--shadow-button-hover-primary, 0 1px 8px 0 rgba(10,102,240,0.3)); }
+.cd-composesend:disabled {
+  background: var(--n-200); color: var(--text-faint);
+  box-shadow: none; cursor: default;
+}
+
+/* Doubles as the status line while a turn is running. */
+.cd-composehint {
+  margin: 8px 0 0; font-size: 11.5px; color: var(--text-faint);
+}
 .cd-actions { display: flex; gap: 8px; align-items: center; margin-top: 9px; flex-wrap: wrap; }
 .cd-hint { font-size: 11.5px; color: var(--gray-500); }
-.cd-rounds { font-size: 11.5px; color: var(--gray-500); margin-left: auto; font-variant-numeric: tabular-nums; }
+/* `.cd-rounds` is gone with the "Question round N of 8" meter it styled. */
 
 .cd-btn {
-  font: inherit; font-size: 12.5px; font-weight: 600; padding: 7px 13px; border-radius: 8px;
-  border: 1px solid var(--gray-300); background: #fff; cursor: pointer; color: var(--gray-700);
+  font: inherit; font-size: 13px; font-weight: 500; padding: 8px 14px;
+  border-radius: var(--radius-button, 10px);
+  border: 1px solid var(--border-strong); background: var(--surface);
+  box-shadow: var(--shadow-button-secondary, 0 1px 3px 0 rgba(129,129,129,0.15));
+  cursor: pointer; color: var(--text-muted);
+  transition: background-color 0.15s, box-shadow 0.15s;
 }
-.cd-btn:hover:not(:disabled) { background: var(--gray-50, #fafafa); }
+.cd-btn:hover:not(:disabled) { background: var(--gray-50, var(--surface-sunken)); }
 .cd-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.cd-btn.pri { background: var(--blue-cta); border-color: var(--blue-cta); color: #fff; }
+.cd-btn.pri {
+  background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+  box-shadow: var(--e-3);
+}
+.cd-btn.pri:hover:not(:disabled) {
+  box-shadow: var(--shadow-button-hover-primary, 0 1px 8px 0 rgba(10,102,240,0.3));
+}
+.cd-btn.pri:disabled { box-shadow: none; }
 /* A real colour change, not a 5% filter. brightness(0.95) on a saturated
    blue is close to imperceptible, so the primary button read as having no
    hover state at all when measured. */
-.cd-btn.pri:hover:not(:disabled) { background: #0a57cc; }
+.cd-btn.pri:hover:not(:disabled) { background: var(--accent-hover); }
 
 /* --- config error --- */
 .cd-configerr {
-  margin: 18px; border: 1px solid #fecaca; background: #fef2f2; color: #991b1b;
+  margin: 18px; border: 1px solid var(--bad-edge); background: var(--bad-bg); color: var(--bad);
   border-radius: 10px; padding: 14px 16px; font-size: 13px; line-height: 1.6;
 }
-.cd-configerr code { background: #fff; border: 1px solid #fecaca; border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+.cd-configerr code { background: var(--surface); border: 1px solid var(--bad-edge); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
 
 /* --- Knowledge Base + Run Logs --- */
 /* `.cd-page` was declared TWICE, here and again 40 lines down, with
@@ -97,8 +210,8 @@
 .cd-logs { display: flex; gap: 18px; height: calc(100vh - 150px); min-height: 0; }
 .cd-loglist { flex: 0 0 300px; overflow-y: auto; border-right: 1px solid var(--gray-200); padding-right: 12px; }
 .cd-logrow { padding: 9px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
-.cd-logrow:hover { background: var(--gray-50, #fafafa); }
-.cd-logrow.on { background: var(--blue-50, #eff4ff); border-color: var(--blue-200, #c7d8fe); }
+.cd-logrow:hover { background: var(--gray-50, var(--surface-sunken)); }
+.cd-logrow.on { background: var(--blue-50, var(--accent-tint)); border-color: var(--blue-200, var(--accent-edge)); }
 .cd-logrow-t { font-size: 12.5px; font-weight: 600; color: var(--gray-700); }
 .cd-logrow-m { font-size: 11px; color: var(--gray-500); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .cd-logdetail { flex: 1 1 auto; overflow-y: auto; min-width: 0; }
@@ -106,17 +219,20 @@
 .cd-event-k { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--blue-cta); }
 .cd-event-s { font-size: 12.5px; color: var(--gray-700); margin: 2px 0; line-height: 1.5; }
 .cd-event-t { font-size: 11px; color: var(--gray-400); font-variant-numeric: tabular-nums; }
-.cd-event pre { font-size: 11px; background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200); border-radius: 7px; padding: 8px 10px; overflow-x: auto; margin: 6px 0 0; max-height: 240px; }
-.cd-empty { font-size: 13px; color: var(--gray-500); padding: 30px 0; }
+.cd-event pre { font-size: 11px; background: var(--gray-50, var(--surface-sunken)); border: 1px solid var(--gray-200); border-radius: 7px; padding: 8px 10px; overflow-x: auto; margin: 6px 0 0; max-height: 240px; }
+/* NOT `.cd-empty` — that is an existing modifier on `.cd-body`
+   (`!messages.length && !busy`), so styling it as flex-centre laid the
+   whole two-column body out as one centred row. */
+.cd-emptystate { font-size: 13px; color: var(--gray-500); padding: 30px 0; }
 
 /* --- Send steps awaiting the bank's real account / template id --- */
-.cd-sends { flex: 0 0 auto; max-height: 42vh; overflow-y: auto; border-top: 1px solid var(--gray-200); padding: 12px; background: #fffdf7; }
-.cd-sends-h { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #92400e; margin-bottom: 9px; }
-.cd-send { border: 1px solid #fde68a; background: #fff; border-radius: 9px; padding: 10px; margin-bottom: 9px; }
-.cd-send-t { font-size: 12.5px; font-weight: 650; color: var(--gray-700); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.cd-sends { flex: 0 0 auto; max-height: 42vh; overflow-y: auto; border-top: 1px solid var(--gray-200); padding: 12px; background: var(--warn-bg); }
+.cd-sends-h { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--warn); margin-bottom: 9px; }
+.cd-send { border: 1px solid var(--warn-edge); background: var(--surface); border-radius: 9px; padding: 10px; margin-bottom: 9px; }
+.cd-send-t { font-size: 12.5px; font-weight: 600; color: var(--gray-700); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .cd-send-meta { font-size: 11px; font-weight: 500; color: var(--gray-500); }
-.cd-send-why { font-size: 11.5px; color: #92400e; margin: 5px 0 7px; line-height: 1.5; }
-.cd-send-copy { background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200); border-radius: 7px; padding: 8px; font-size: 12px; line-height: 1.5; }
+.cd-send-why { font-size: 11.5px; color: var(--warn); margin: 5px 0 7px; line-height: 1.5; }
+.cd-send-copy { background: var(--gray-50, var(--surface-sunken)); border: 1px solid var(--gray-200); border-radius: 7px; padding: 8px; font-size: 12px; line-height: 1.5; }
 .cd-send-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--gray-400); margin-bottom: 4px; }
 .cd-send-cta { font-size: 11px; color: var(--gray-500); margin-top: 5px; }
 .cd-send-fields { display: flex; gap: 9px; margin-top: 9px; }
@@ -174,66 +290,58 @@
 /* --- status strip: the five campaign states, one row --- */
 .cd-status {
   position: absolute; left: 16px; right: 16px; top: 14px; z-index: 5;
-  background: #fff; border: 1px solid var(--gray-200); border-radius: 10px;
+  background: var(--surface); border: 1px solid var(--gray-200); border-radius: 10px;
   padding: 10px 14px; box-shadow: 0 1px 3px rgba(16, 24, 40, 0.05);
   display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
 }
-.cd-stage { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 550; color: var(--gray-400); }
-.cd-stage-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gray-300); flex: none; }
-.cd-stage.done { color: #15803d; }
-.cd-stage.done .cd-stage-dot { background: #16a34a; }
-.cd-stage.partial { color: #a16207; }
-.cd-stage.partial .cd-stage-dot { background: #ca8a04; }
-.cd-stage.blocked { color: #b91c1c; }
-.cd-stage.blocked .cd-stage-dot { background: #dc2626; }
 .cd-status-detail {
   flex: 1 1 100%; font-size: 12.5px; line-height: 1.55; color: var(--gray-600);
-  border-top: 1px solid var(--gray-100, #f3f4f6); padding-top: 9px;
+  border-top: 1px solid var(--gray-100, var(--n-100)); padding-top: 9px;
 }
-.cd-status-detail b { color: var(--gray-800, #1f2937); font-weight: 620; }
-.cd-status-next { color: var(--blue-cta); font-weight: 550; }
+.cd-status-detail b { color: var(--gray-800, var(--text)); font-weight: 600; }
+.cd-status-next { color: var(--blue-cta); font-weight: 500; }
 
 /* --- status pills, shared --- */
 .cd-pill {
-  display: inline-block; font-size: 11px; font-weight: 620; padding: 2.5px 9px;
+  display: inline-block; font-size: 11px; font-weight: 600; padding: 2.5px 9px;
   border-radius: 20px; white-space: nowrap; letter-spacing: 0.01em;
 }
-.cd-pill.ok { background: #f0fdf4; color: #15803d; }
-.cd-pill.info { background: #eff6ff; color: #1d4ed8; }
-.cd-pill.warn { background: #fffbeb; color: #a16207; }
-.cd-pill.bad { background: #fef2f2; color: #b91c1c; }
+.cd-pill.ok { background: var(--ok-bg); color: var(--ok); }
+.cd-pill.info { background: var(--accent-wash); color: var(--accent); }
+.cd-pill.warn { background: var(--warn-bg); color: var(--warn); }
+.cd-pill.bad { background: var(--bad-bg); color: var(--bad); }
 
 /* --- alerts: one per concern, not one per field --- */
 .cd-alert { border-radius: 9px; padding: 11px 14px; font-size: 13px; line-height: 1.6; margin: 0 0 18px; border: 1px solid; }
-.cd-alert.note { background: var(--gray-50, #fafafa); border-color: var(--gray-200); color: var(--gray-600); }
-.cd-alert.bad { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+.cd-alert.note { background: var(--gray-50, var(--surface-sunken)); border-color: var(--gray-200); color: var(--gray-600); }
+.cd-alert.bad { background: var(--bad-bg); border-color: var(--bad-edge); color: var(--bad); }
 .cd-alert ul { margin: 7px 0 0; padding-left: 18px; }
 .cd-alert li { margin: 3px 0; }
 
 /* --- empty states --- */
 .cd-empty-panel {
   border: 1px dashed var(--gray-300); border-radius: 12px; padding: 36px 30px;
-  text-align: center; background: var(--gray-50, #fafafa); max-width: 620px;
+  text-align: center; background: var(--gray-50, var(--surface-sunken)); max-width: 620px;
 }
-.cd-empty-title { font-size: 15px; font-weight: 620; color: var(--gray-700); margin-bottom: 6px; }
+.cd-empty-title { font-size: 15px; font-weight: 600; color: var(--gray-700); margin-bottom: 6px; }
 .cd-empty-panel p { font-size: 13px; color: var(--gray-600); line-height: 1.65; margin: 0 auto 18px; max-width: 440px; }
 
 /* --- upload bar --- */
 .cd-upload-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
 .cd-upload-bar label { font-size: 12px; font-weight: 600; color: var(--gray-600); display: flex; align-items: center; gap: 8px; }
-.cd-upload-bar select { font: inherit; font-size: 13px; padding: 6px 9px; border: 1px solid var(--gray-300); border-radius: 7px; background: #fff; }
+.cd-upload-bar select { font: inherit; font-size: 13px; padding: 6px 9px; border: 1px solid var(--gray-300); border-radius: 7px; background: var(--surface); }
 .cd-upload-bar select:focus-visible { outline: 2px solid var(--blue-cta); outline-offset: 1px; }
 
 /* --- tables --- */
 .cd-table-meta { font-size: 12.5px; color: var(--gray-500); margin-bottom: 9px; }
 .cd-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .cd-table th {
-  text-align: left; font-size: 11px; font-weight: 680; letter-spacing: 0.05em; text-transform: uppercase;
+  text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
   color: var(--gray-500); padding: 0 12px 9px; border-bottom: 1px solid var(--gray-200);
 }
-.cd-table td { padding: 12px; border-bottom: 1px solid var(--gray-100, #f3f4f6); vertical-align: middle; color: var(--gray-700); }
-.cd-table tr:hover td { background: var(--gray-50, #fafafa); }
-.cd-doc-name { font-weight: 580; color: var(--gray-800, #1f2937); }
+.cd-table td { padding: 12px; border-bottom: 1px solid var(--gray-100, var(--n-100)); vertical-align: middle; color: var(--gray-700); }
+.cd-table tr:hover td { background: var(--gray-50, var(--surface-sunken)); }
+.cd-doc-name { font-weight: 580; color: var(--gray-800, var(--text)); }
 .cd-doc-sub { font-size: 11.5px; color: var(--gray-500); margin-top: 2px; }
 .cd-row-actions { text-align: right; white-space: nowrap; }
 
@@ -241,11 +349,11 @@
   font: inherit; font-size: 12.5px; font-weight: 580; background: none; border: none;
   color: var(--blue-cta); cursor: pointer; padding: 3px 6px; border-radius: 5px;
 }
-.cd-link:hover:not(:disabled) { background: var(--blue-50, #eff4ff); }
+.cd-link:hover:not(:disabled) { background: var(--blue-50, var(--accent-tint)); }
 .cd-link:disabled { color: var(--gray-400); cursor: not-allowed; }
-.cd-link.danger { color: #b91c1c; }
-.cd-link.danger:hover { background: #fef2f2; }
-.cd-btn.danger { background: #dc2626; border-color: #dc2626; color: #fff; }
+.cd-link.danger { color: var(--bad); }
+.cd-link.danger:hover { background: var(--bad-bg); }
+.cd-btn.danger { background: var(--bad); border-color: var(--bad); color: var(--surface); }
 
 /* --- disclosure + definition lists --- */
 .cd-disclosure {
@@ -261,80 +369,123 @@
 
 /* --- modal --- */
 .cd-modal-back { position: fixed; inset: 0; background: rgba(16, 24, 40, 0.42); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 30px; }
-.cd-modal { background: #fff; border-radius: 12px; width: min(760px, 100%); max-height: 80vh; display: flex; flex-direction: column; padding: 18px; box-shadow: 0 12px 32px rgba(16, 24, 40, 0.18); }
+.cd-modal { background: var(--surface); border-radius: 12px; width: min(760px, 100%); max-height: 80vh; display: flex; flex-direction: column; padding: 18px; box-shadow: 0 12px 32px rgba(16, 24, 40, 0.18); }
 .cd-modal.small { width: min(430px, 100%); }
 .cd-modal-h { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin-bottom: 12px; }
-.cd-modal-body { flex: 1; overflow: auto; font-size: 12px; line-height: 1.6; background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200); border-radius: 8px; padding: 12px; white-space: pre-wrap; margin: 0; }
+.cd-modal-body { flex: 1; overflow: auto; font-size: 12px; line-height: 1.6; background: var(--gray-50, var(--surface-sunken)); border: 1px solid var(--gray-200); border-radius: 8px; padding: 12px; white-space: pre-wrap; margin: 0; }
 
 /* --- run logs --- */
 .cd-logs { display: flex; gap: 22px; align-items: flex-start; }
 .cd-loglist { flex: 0 0 290px; display: flex; flex-direction: column; gap: 3px; max-height: calc(100vh - 210px); overflow-y: auto; }
 .cd-logrow { text-align: left; font: inherit; background: none; border: 1px solid transparent; padding: 10px 11px; border-radius: 9px; cursor: pointer; width: 100%; }
-.cd-logrow:hover { background: var(--gray-50, #fafafa); }
-.cd-logrow.on { background: var(--blue-50, #eff4ff); border-color: var(--blue-200, #c7d8fe); }
-.cd-logrow-t { font-size: 12.5px; font-weight: 580; color: var(--gray-800, #1f2937); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cd-logrow:hover { background: var(--gray-50, var(--surface-sunken)); }
+.cd-logrow.on { background: var(--blue-50, var(--accent-tint)); border-color: var(--blue-200, var(--accent-edge)); }
+.cd-logrow-t { font-size: 12.5px; font-weight: 580; color: var(--gray-800, var(--text)); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .cd-logrow-m { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11.5px; color: var(--gray-500); }
 .cd-logrow-s { font-size: 11px; color: var(--gray-400); margin-top: 3px; }
 .cd-logdetail { flex: 1 1 auto; min-width: 0; max-height: calc(100vh - 210px); overflow-y: auto; }
 .cd-logdetail-h { border-bottom: 1px solid var(--gray-200); padding-bottom: 14px; margin-bottom: 18px; }
-.cd-logdetail-t { font-size: 15px; font-weight: 620; color: var(--gray-800, #1f2937); line-height: 1.45; }
+.cd-logdetail-t { font-size: 15px; font-weight: 600; color: var(--gray-800, var(--text)); line-height: 1.45; }
 .cd-timeline { display: flex; flex-direction: column; }
 .cd-event { border-left: 2px solid var(--gray-200); padding: 0 0 16px 16px; position: relative; }
-.cd-event.bad { border-left-color: #fecaca; }
-.cd-event-k { font-size: 11px; font-weight: 680; letter-spacing: 0.04em; text-transform: uppercase; color: var(--gray-500); }
-.cd-event.bad .cd-event-k { color: #b91c1c; }
+.cd-event.bad { border-left-color: var(--bad-edge); }
+.cd-event-k { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--gray-500); }
+.cd-event.bad .cd-event-k { color: var(--bad); }
 .cd-event-s { font-size: 13px; color: var(--gray-700); margin: 3px 0 5px; line-height: 1.55; }
 .cd-event-foot { display: flex; align-items: center; gap: 10px; }
 .cd-event-t { font-size: 11.5px; color: var(--gray-400); font-variant-numeric: tabular-nums; }
-.cd-event pre { font-size: 11.5px; background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200); border-radius: 8px; padding: 10px; overflow-x: auto; margin: 8px 0 0; max-height: 260px; line-height: 1.5; }
+.cd-event pre { font-size: 11.5px; background: var(--gray-50, var(--surface-sunken)); border: 1px solid var(--gray-200); border-radius: 8px; padding: 10px; overflow-x: auto; margin: 8px 0 0; max-height: 260px; line-height: 1.5; }
 
 /* --- chat examples --- */
 .cd-examples { margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
-.cd-examples-h { font-size: 11px; font-weight: 680; letter-spacing: 0.05em; text-transform: uppercase; color: var(--gray-400); margin-bottom: 2px; }
-.cd-example { text-align: left; font: inherit; background: #fff; border: 1px solid var(--gray-200); border-radius: 9px; padding: 10px 12px; cursor: pointer; display: block; width: 100%; }
-.cd-example:hover { border-color: var(--blue-200, #c7d8fe); background: var(--blue-50, #eff4ff); }
-.cd-example-t { display: block; font-size: 12.5px; font-weight: 620; color: var(--gray-800, #1f2937); margin-bottom: 3px; }
+.cd-examples-h { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--gray-400); margin-bottom: 2px; }
+.cd-example {
+  text-align: left; font: inherit; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: var(--e-1); padding: 12px 14px; cursor: pointer; display: block; width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cd-example:hover { border-color: var(--accent-edge); box-shadow: var(--e-4); }
+.cd-example-t { display: block; font-size: 12.5px; font-weight: 600; color: var(--gray-800, var(--text)); margin-bottom: 3px; }
 .cd-example-s { display: block; font-size: 12px; color: var(--gray-600); line-height: 1.5; }
 
 /* --- contrast + focus --- */
 .cd-hint { font-size: 12px; color: var(--gray-600); }
 .cd-state-sub { font-size: 13px; color: var(--gray-600); max-width: 400px; line-height: 1.65; }
-.cd-state-title { font-size: 14.5px; font-weight: 620; color: var(--gray-700); }
+.cd-state-title { font-size: 14.5px; font-weight: 600; color: var(--gray-700); }
 button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible {
   outline: 2px solid var(--blue-cta); outline-offset: 2px;
 }
 @media (max-width: 1280px) {
-  .cd-chat { flex-basis: 370px; }
+  .cd-chatwrap { width: max(340px, 40vw); }
   .cd-loglist { flex-basis: 250px; }
   .cd-deflist { grid-template-columns: 150px 1fr; }
 }
 
 /* --- live activity timeline: what the agent is doing, as it happens --- */
-.cd-activity {
-  border: 1px solid var(--gray-200); border-radius: 10px; background: #fff;
-  padding: 4px 2px; display: flex; flex-direction: column;
+/* ── The work timeline ────────────────────────────────────────────────
+   agent360's `WorkTimeline`, ported. The rows were a flat list separated by
+   hairlines, with a duration on every line and a Details link on rows that
+   had nothing behind them — a log, in the middle of a conversation. This is
+   a connected set of steps on a recessed surface: the run reads as one
+   thing that happened in order, and a running step lifts out of it. */
+.cd-steps {
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  background: var(--surface-sunken);
+  padding: 6px; display: flex; flex-direction: column; gap: 2px;
+  margin: 2px 0;
 }
-.cd-act {
-  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
-  padding: 6px 10px; font-size: 12.5px; line-height: 1.5; color: var(--gray-700);
+.cd-act-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  font: inherit; font-size: 13px; font-weight: 500; color: var(--text-muted);
+  background: none; border: 0; padding: 6px 8px; cursor: pointer; text-align: left;
+  border-radius: var(--r-md);
 }
-.cd-act + .cd-act { border-top: 1px solid var(--gray-100, #f3f4f6); }
-.cd-act-icon { flex: none; width: 14px; text-align: center; font-size: 11px; color: var(--gray-400); }
-.cd-act.done .cd-act-icon { color: #16a34a; }
-.cd-act.failed .cd-act-icon { color: #dc2626; }
-.cd-act.running .cd-act-title { color: var(--gray-500); }
-.cd-act-title { font-weight: 560; }
-.cd-act-detail { color: var(--gray-500); font-size: 12px; }
-.cd-act-ms { color: var(--gray-400); font-size: 11.5px; font-variant-numeric: tabular-nums; margin-left: auto; }
-/* The Details panel: a sentence, then the payload. Full-width inside the
-   row's flex line so the lead sentence sits above the <pre> rather than
-   beside the title. */
-.cd-act-body { flex: 1 1 100%; }
+.cd-act-head:hover { background: rgba(16, 24, 40, 0.03); }
+
+.cd-step { position: relative; border-radius: var(--r-md); border: 1px solid transparent; }
+/* A running step lifts onto white and breathes. Both are the system's. */
+.cd-step.running { background: var(--surface); border-color: var(--accent-edge); }
+/* The connector between one step and the next. */
+.cd-step-tick {
+  position: absolute; left: 17px; top: -5px;
+  width: 1.5px; height: 6px; background: var(--n-300);
+}
+.cd-step-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  font: inherit; background: none; border: 0; padding: 7px 8px; text-align: left;
+  color: var(--text-muted); cursor: pointer;
+}
+.cd-step-head:disabled { cursor: default; }
+.cd-step-dot {
+  flex: none; display: grid; place-items: center;
+  width: 20px; height: 20px; border-radius: 999px;
+  background: var(--ok-bg); color: var(--ok);
+}
+.cd-step.running .cd-step-dot { background: var(--accent-tint); color: var(--accent); }
+.cd-step.failed .cd-step-dot { background: var(--bad-bg); color: var(--bad); }
+.cd-step-label {
+  flex: 0 0 auto; white-space: nowrap;
+  font-size: 13px; font-weight: 500; color: var(--n-700);
+}
+.cd-step.running .cd-step-label { font-weight: 600; }
+.cd-step-sum {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 12.5px; color: var(--text-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cd-step-chev { margin-left: 4px; color: var(--text-faint); display: inline-grid; place-items: center; }
+.cd-step-body { padding: 0 10px 8px 38px; }
+
+.cd-act-icon { flex: none; display: inline-grid; place-items: center; color: var(--ok); }
+.cd-act-title { font-weight: 500; }
+.cd-act-chev { margin-left: 4px; color: var(--text-faint); display: inline-grid; place-items: center; }
+.cd-act-ms { color: var(--text-faint); font-size: 11.5px; font-variant-numeric: tabular-nums; margin-left: auto; flex: none; padding-left: 8px; }
 .cd-act-lead { font-size: 12.5px; color: var(--gray-700); line-height: 1.5; margin: 6px 0 0; }
 .cd-event-lead { font-size: 12.5px; color: var(--gray-700); line-height: 1.5; margin: 8px 0 0; }
 .cd-act-pre {
   font-size: 11px; line-height: 1.5; margin: 6px 0 2px;
-  background: var(--gray-50, #fafafa); border: 1px solid var(--gray-200);
+  background: var(--gray-50, var(--surface-sunken)); border: 1px solid var(--gray-200);
   border-radius: 7px; padding: 8px; max-height: 220px; overflow: auto;
 }
 .cd-spinner.tiny { width: 11px; height: 11px; border-width: 1.6px; display: inline-block; vertical-align: middle; }
@@ -350,10 +501,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 
 /* --- the confirmation gate --- */
 .cd-confirm {
-  border: 1px solid var(--blue-200, #c7d8fe); background: var(--blue-50, #eff4ff);
-  border-radius: 10px; padding: 13px 14px;
+  flex: 0 0 auto;
+  margin: 0 14px 0; padding: 16px 18px;
+  border: 1px solid var(--accent-edge); background: var(--accent-tint);
+  border-radius: var(--r-xl); box-shadow: var(--e-3);
 }
-.cd-confirm-t { font-size: 13px; font-weight: 640; color: var(--gray-800, #1f2937); }
+.cd-confirm-t { font-size: 15px; font-weight: 600; color: var(--text); letter-spacing: -0.01em; }
 .cd-confirm p { font-size: 12.5px; color: var(--gray-600); line-height: 1.55; margin: 5px 0 11px; }
 .cd-confirm-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .cd-event-d { color: var(--gray-500); }
@@ -361,17 +514,17 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
   display: flex; align-items: center; gap: 8px; width: 100%; font: inherit; font-size: 12.5px;
   background: none; border: none; cursor: pointer; padding: 7px 10px; color: var(--gray-600); text-align: left;
 }
-.cd-act-head:hover { background: var(--gray-50, #fafafa); }
-.cd-act-head + .cd-act { border-top: 1px solid var(--gray-100, #f3f4f6); }
+.cd-act-head:hover { background: var(--gray-50, var(--surface-sunken)); }
+.cd-act-head + .cd-act { border-top: 1px solid var(--gray-100, var(--n-100)); }
 .cd-act-chev { margin-left: 6px; color: var(--gray-400); font-size: 10px; }
 .cd-act-head .cd-act-ms { margin-left: auto; }
 
 /* --- data request: structured, and visibly optional --- */
-.cd-evidence { border: 1px solid var(--blue-200, #c7d8fe); background: var(--blue-50, #eff4ff); border-radius: 10px; padding: 12px; }
-.cd-evidence-h { font-size: 11px; font-weight: 680; letter-spacing: 0.05em; text-transform: uppercase; color: var(--blue-cta); margin-bottom: 9px; }
-.cd-ev { background: #fff; border: 1px solid var(--gray-200); border-radius: 8px; padding: 10px; }
+.cd-evidence { border: 1px solid var(--blue-200, var(--accent-edge)); background: var(--blue-50, var(--accent-tint)); border-radius: 10px; padding: 12px; }
+.cd-evidence-h { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--blue-cta); margin-bottom: 9px; }
+.cd-ev { background: var(--surface); border: 1px solid var(--gray-200); border-radius: 8px; padding: 10px; }
 .cd-ev + .cd-ev { margin-top: 8px; }
-.cd-ev-q { font-size: 12.5px; font-weight: 620; color: var(--gray-800, #1f2937); margin-bottom: 7px; line-height: 1.45; }
+.cd-ev-q { font-size: 12.5px; font-weight: 600; color: var(--gray-800, var(--text)); margin-bottom: 7px; line-height: 1.45; }
 .cd-ev-fields { display: grid; grid-template-columns: 78px 1fr; gap: 3px 10px; margin: 0; font-size: 12px; }
 .cd-ev-fields dt { color: var(--gray-500); font-weight: 600; }
 .cd-ev-fields dd { margin: 0; color: var(--gray-700); line-height: 1.5; }
@@ -419,25 +572,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 
 
 
-/* A quick reply under the agent's questions. Quiet by default, because it
-   is a shortcut and not the main path: typing a real answer is. */
-.cd-quick {
-  align-self: flex-start;
-  margin-top: 2px;
-  padding: 5px 11px;
-  font: inherit;
-  font-size: 12.5px;
-  color: var(--gray-700, #374151);
-  background: #fff;
-  border: 1px solid var(--gray-300, #d1d5db);
-  border-radius: 999px;
-  cursor: pointer;
-}
-.cd-quick:hover:not(:disabled) { background: var(--gray-50, #f9fafb); border-color: var(--gray-400, #9ca3af); }
-.cd-quick:disabled { opacity: 0.5; cursor: default; }
-
-
-
 /* The opening state used to be vertically CENTRED in the chat column, to stop
    the input being stranded three hundred pixels below the examples. That was
    right when the chat was the whole screen; in a 420px right rail it floats
@@ -454,12 +588,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .cd-transcript { margin: 18px 0 8px; }
 .cd-transcript-h {
   font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
-  color: var(--gray-500, #6b7280); margin-bottom: 10px;
+  color: var(--gray-500, var(--text-muted)); margin-bottom: 10px;
 }
-.cd-tturn { border-left: 2px solid var(--gray-200, #e5e7eb); padding: 2px 0 14px 14px; margin-bottom: 4px; }
-.cd-tturn-n { font-size: 11px; color: var(--gray-400, #9ca3af); margin-bottom: 6px; }
+.cd-tturn { border-left: 2px solid var(--gray-200, var(--border)); padding: 2px 0 14px 14px; margin-bottom: 4px; }
+.cd-tturn-n { font-size: 11px; color: var(--gray-400, var(--text-faint)); margin-bottom: 6px; }
 .cd-tturn .cd-msg-bubble { white-space: pre-wrap; }
-.cd-tturn-missing { font-size: 12.5px; color: var(--gray-500, #6b7280); font-style: italic; }
+.cd-tturn-missing { font-size: 12.5px; color: var(--gray-500, var(--text-muted)); font-style: italic; }
 
 /* ===================================================================
  * THE WORK SURFACE — what the centre shows before a journey exists.
@@ -476,22 +610,24 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 }
 .cd-work-head h2 {
   margin: 0;
-  font-size: var(--t-lg);
-  font-weight: 640;
-  letter-spacing: -0.01em;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 32px;
+  letter-spacing: -0.02em;
   color: var(--text);
+  text-wrap: balance;
 }
 .cd-work-head p {
   margin: 6px 0 0;
-  font-size: var(--t-sm);
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.6;
   color: var(--text-muted);
   max-width: 62ch;
 }
 
 .cd-work-cap {
   font-size: var(--t-micro);
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -504,9 +640,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 }
 .cd-workcard {
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-xl);
   background: var(--surface);
-  padding: 12px 14px;
+  box-shadow: var(--e-1);
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -558,7 +695,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 }
 .cd-work-dims li.on .cd-work-dname {
   color: var(--text);
-  font-weight: 550;
+  font-weight: 500;
 }
 .cd-work-dnote {
   color: var(--text-faint);
@@ -588,7 +725,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
   font-size: var(--t-xs);
 }
 .cd-row-click { cursor: pointer; }
-.cd-row-title { font-weight: 560; color: var(--text); max-width: 540px; }
+.cd-row-title { font-weight: 500; color: var(--text); max-width: 540px; }
 
 /* --- a chat's two halves: the conversation, and what the agent did ----
  * Stacked on one scrolling page before, so reading what was said meant
@@ -613,7 +750,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .cd-subtab {
   font: inherit;
   font-size: var(--t-sm);
-  font-weight: 560;
+  font-weight: 500;
   color: var(--text-muted);
   background: none;
   border: none;
@@ -646,7 +783,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .cd-briefstrip span { display: flex; gap: 6px; min-width: 0; }
 .cd-briefstrip b {
   font-size: var(--t-micro);
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -657,7 +794,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .cd-preview-banner {
   align-self: flex-start;
   font-size: var(--t-micro);
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--warn);
@@ -683,7 +820,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .cd-pv-node.exit { background: var(--surface-sunken); }
 .cd-pv-kind {
   font-size: var(--t-micro);
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -719,7 +856,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .cd-pv-fork { display: flex; flex-direction: column; gap: 8px; }
 .cd-pv-forkq {
   font-size: var(--t-sm);
-  font-weight: 560;
+  font-weight: 500;
   color: var(--text);
   border: 1px dashed var(--border-strong);
   border-radius: var(--r-lg);
@@ -735,7 +872,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 }
 .cd-pv-plabel {
   font-size: var(--t-micro);
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--accent);
@@ -744,17 +881,43 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .cd-pv-path .cd-pv-row:first-child .cd-pv-link { display: none; }
 .cd-pv-stop { font-size: var(--t-xs); color: var(--text-muted); margin-top: 10px; }
 
-.cd-skeleton {
-  margin-top: auto;
+/* The empty state CENTRES in the pane rather than sinking to the bottom of
+   it. `margin-top: auto` put the only content on the screen as far from the
+   heading as the column was tall, which is what made the pane read as
+   half-finished. */
+.cd-emptystate {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 24px 0;
+}
+.cd-emptystate-card {
   border: 1px dashed var(--border-strong);
   border-radius: var(--r-xl);
-  background: var(--surface-sunken);
-  padding: 26px 22px 18px;
+  background: var(--surface);
+  padding: 36px 32px 32px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   align-items: center;
-  opacity: 0.75;
+  text-align: center;
+  max-width: 440px;
+}
+.cd-emptystate-card h3 {
+  margin: 10px 0 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.cd-emptystate-card p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  max-width: 380px;
 }
 .cd-sk-row {
   display: flex;
@@ -786,10 +949,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
   width: 2px;
   height: 20px;
 }
-.cd-sk-caption {
-  font-size: var(--t-xs);
-  color: var(--text-faint);
-}
+/* `.cd-sk-caption` is gone: the grey one-liner became the headline and
+   sentence inside `.cd-emptystate-card`. */
 
 .cd-upload-choice {
   display: flex;
@@ -870,7 +1031,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 }
 .cd-know-list dt {
   font-size: var(--t-sm);
-  font-weight: 550;
+  font-weight: 500;
   color: var(--text);
   display: flex;
   align-items: center;
@@ -1200,7 +1361,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .cd-turnpick {
   appearance: none;
   border: 1px solid var(--gray-200);
-  background: #fff;
+  background: var(--surface);
   color: var(--gray-600);
   border-radius: 999px;
   padding: 4px 11px;
@@ -1213,9 +1374,9 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
   color: var(--gray-800);
 }
 .cd-turnpick.on {
-  background: var(--navy-700, #1f2a5b);
-  border-color: var(--navy-700, #1f2a5b);
-  color: #fff;
+  background: var(--navy-700, var(--accent));
+  border-color: var(--navy-700, var(--accent));
+  color: var(--surface);
 }
 
 /* A chat whose logs were evicted still has its conversation. Said once, at
@@ -1229,3 +1390,220 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
   padding: 8px 11px;
   margin-bottom: 12px;
 }
+
+/* One line of facts beside the title, replacing a three-row definition
+   list whose middle rows usually read "not recorded". Items that have no
+   value are not rendered at all (see `Fact`), so the line never shows a
+   caption over a blank. */
+.cd-metaline {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 8px 16px; margin: 0 0 14px;
+  font-size: 13px; color: var(--text-muted);
+}
+.cd-metaline .cd-fact { display: flex; align-items: baseline; gap: 6px; }
+.cd-metaline .cd-work-cap { font-size: 11px; }
+.cd-metaline .cd-fact-body { font-size: 13px; color: var(--text-muted); }
+
+/* The list's own filter. Sized to the action row beside it. */
+.cd-search {
+  font: inherit; font-size: 13px; height: 36px; padding: 0 12px;
+  min-width: 200px;
+  border: 1px solid var(--border); border-radius: var(--radius-button, 10px);
+  background: var(--surface); color: var(--text);
+  box-shadow: var(--e-1);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cd-search:focus { outline: none; border-color: #8FB9F8; box-shadow: var(--ring); }
+.cd-search::placeholder { color: var(--text-faint); }
+
+/* ── The message, as a device ─────────────────────────────────────────
+   agent360's channel identity table and MessageMock. A send card used to
+   be one grey rectangle whatever it carried; the channel changes how the
+   words land, so it changes the card. */
+.cd-pv-node.ch-whatsapp { border-left: 3px solid #25d366; }
+.cd-pv-node.ch-sms { border-left: 3px solid var(--n-400); }
+.cd-pv-node.ch-email { border-left: 3px solid var(--accent); }
+.cd-pv-node.ch-push { border-left: 3px solid var(--warn); }
+.cd-pv-node.ch-rcs { border-left: 3px solid #6941c6; }
+
+.cd-mock { margin-top: 10px; display: flex; }
+.cd-mock-bubble {
+  position: relative;
+  max-width: 320px; padding: 9px 12px 20px;
+  font-size: 12.5px; line-height: 1.5; color: var(--text);
+  background: var(--surface-sunken); border: 1px solid var(--border);
+  /* The asymmetric corner is what makes it read as a received message
+     rather than as another panel. */
+  border-radius: var(--r-lg) var(--r-lg) var(--r-lg) var(--r-xs);
+}
+.cd-mock.whatsapp .cd-mock-bubble { background: #e7ffdb; border-color: #c5ecb4; }
+.cd-mock.email .cd-mock-bubble {
+  border-radius: var(--r-md); background: var(--surface); max-width: 420px;
+}
+.cd-mock-cta {
+  display: inline-block; margin-top: 8px; padding: 4px 10px;
+  font-size: 11.5px; font-weight: 600;
+  color: var(--accent); background: var(--accent-tint);
+  border-radius: var(--radius-button, 10px);
+}
+.cd-mock-meta {
+  position: absolute; right: 10px; bottom: 5px;
+  font-size: 10px; color: var(--text-faint);
+}
+/* A placeholder is not addressed to anyone — mono so it reads as a slot. */
+.cd-mock-token {
+  font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+  color: var(--accent); background: var(--accent-tint);
+  border-radius: var(--r-xs); padding: 0 3px;
+}
+
+/* ── Pinned run status ────────────────────────────────────────────────
+   The timeline says this too, and it scrolls. A long tool call leaves the
+   last thing on screen looking frozen, so the live step is also held in
+   the header. Status only — stopping is the composer's job. */
+.cd-runbadge {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-left: auto; padding: 5px 11px;
+  border: 1px solid var(--accent-edge); background: var(--accent-tint);
+  border-radius: var(--r-pill);
+  font-size: 11.5px; font-weight: 600; color: var(--accent);
+}
+.cd-runbadge + .cd-tabs { margin-left: 12px; }
+.cd-runbadge-text { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The double-ping dot: a solid core with an expanding ghost behind it. */
+.cd-runbadge-dot {
+  position: relative; flex: none; width: 7px; height: 7px;
+  border-radius: 999px; background: var(--accent);
+}
+.cd-runbadge-dot::before {
+  content: ''; position: absolute; inset: 0;
+  border-radius: 999px; background: var(--accent);
+  animation: cd-ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes cd-ping { 75%, 100% { transform: scale(2.4); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .cd-runbadge-dot::before { animation: none; opacity: 0.4; } }
+
+/* ── A failed turn, stated and kept ───────────────────────────────────
+   Its own row above the composer rather than a message in the transcript:
+   every render site in the thread gates on `busy`, which flips false in
+   the same tick the error arrives, so the message unmounted before it
+   painted. Dismissible, and it outlives the stream. */
+.cd-turnerror {
+  flex: 0 0 auto;
+  display: flex; align-items: flex-start; gap: 10px;
+  margin: 0 14px 10px; padding: 10px 12px;
+  border: 1px solid var(--bad-edge); background: var(--bad-bg);
+  border-radius: var(--radius-input, 8px);
+}
+.cd-turnerror-i { flex: none; margin-top: 2px; color: var(--bad); }
+.cd-turnerror-body { flex: 1 1 auto; min-width: 0; }
+.cd-turnerror-body p { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--bad); }
+.cd-turnerror-x {
+  flex: none; display: grid; place-items: center;
+  width: 22px; height: 22px; padding: 0;
+  border: 0; border-radius: var(--r-sm); background: none;
+  color: var(--bad); opacity: 0.7; cursor: pointer;
+}
+.cd-turnerror-x:hover { opacity: 1; background: rgba(180, 35, 24, 0.08); }
+
+/* The campaign's state, as one chip beside its own explanation. The five
+   dots it replaces are kept on the chip's `title`. */
+.cd-statepill {
+  flex: none; display: inline-flex; align-items: center;
+  padding: 3px 10px; border-radius: var(--r-pill);
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-edge);
+}
+.cd-statepill.blocked { background: var(--bad-bg); color: var(--bad); border-color: var(--bad-edge); }
+.cd-statepill.partial { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-edge); }
+
+/* ── The shared states (src/designer/States.tsx) ──────────────────────
+   One recipe. There were three: a dashed card on the designer, a
+   `.cd-empty-panel` on Chats, and a bare centred sentence elsewhere. */
+.cd-blank, .cd-loaderr, .cd-boundary {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 12px; text-align: center;
+  padding: 36px 32px; margin: 0 auto; max-width: 440px;
+}
+/* Dashed is "nothing here yet". A failure and a crash are not nothing —
+   something was expected and did not arrive — so those get a solid edge. */
+.cd-blank { border: 1px dashed var(--border-strong); border-radius: var(--r-xl); background: var(--surface); }
+.cd-loaderr, .cd-boundary {
+  border: 1px solid var(--border); border-radius: var(--r-xl);
+  background: var(--surface); box-shadow: var(--e-1);
+}
+.cd-blank-chip {
+  display: grid; place-items: center; width: 44px; height: 44px;
+  border-radius: var(--r-lg); background: var(--accent-tint); color: var(--accent);
+}
+.cd-loaderr .cd-blank-chip, .cd-boundary .cd-blank-chip {
+  background: var(--surface-sunken); color: var(--text-faint);
+  border: 1px solid var(--border);
+}
+.cd-blank-h { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
+.cd-blank-p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--text-muted); max-width: 380px; }
+.cd-btn svg { margin-right: 5px; vertical-align: -2px; }
+
+/* Shaped like the rows it stands in for, so nothing jumps on arrival. */
+.cd-skel { display: flex; flex-direction: column; gap: 2px; }
+.cd-skel-row {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+}
+.cd-skel-bar { height: 10px; border-radius: var(--r-xs); background: var(--surface-sunken); }
+.cd-skel-bar.w1 { width: 200px; }
+.cd-skel-bar.w2 { width: 320px; height: 8px; }
+@media (prefers-reduced-motion: no-preference) {
+  .cd-skel-bar { animation: cd-pulse 1.6s ease-in-out infinite; }
+}
+@keyframes cd-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/* ── Narrow ───────────────────────────────────────────────────────────
+   One rule, the same one agent360 takes: below this the conversation is
+   the whole screen and the work surface waits. Deliberately not a stack
+   and not tabs — a twenty-node journey at 600px is not a journey, and a
+   canvas squeezed under a transcript is worse than one that is absent.
+   The collapse handle goes with it: there is nothing to collapse. */
+@media (max-width: 900px) {
+  .cd-chatwrap { width: 100%; }
+  .cd-chatwrap.collapsed { width: 100%; }
+  .cd-canvas { display: none; }
+  .cd-chattoggle { display: none; }
+  .cd-chat { border-right: 0; }
+}
+
+/* ── Where a finding came from ────────────────────────────────────────
+   Theirs and ours do not look alike. The server has recorded `basis` on
+   every barrier since findings existed, and verifies the quote against
+   what the manager actually typed — none of which reached the screen, so
+   a theory the agent invented read exactly like a sentence they said.
+   Dashed is the same "not settled" signal the empty states use. */
+.cd-basis {
+  display: inline-block; vertical-align: 1px;
+  margin-left: 6px; padding: 1px 7px;
+  border-radius: var(--r-pill); font-size: 10.5px; font-weight: 600;
+  white-space: nowrap;
+}
+.cd-basis.theirs { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-edge); }
+.cd-basis.ours {
+  background: var(--surface-sunken); color: var(--text-muted);
+  border: 1px dashed var(--border-strong);
+}
+.cd-basislist { list-style: none; margin: 0; padding: 0; }
+.cd-basislist li { margin: 0 0 6px; line-height: 1.55; }
+.cd-basislist li:last-child { margin-bottom: 0; }
+
+/* ── How long a step took, without reading a number ───────────────────
+   agent360's `QueryRow` puts a hairline under the row, tinted by
+   threshold. A 105-second model call and a 0.1-second record read are the
+   same two digits in a column and nothing alike in practice.
+
+   30s is full width. The longest call in any recorded run is ~106s, and
+   scaling to that would flatten everything else to invisible — the bar is
+   for "is this one slow", not for exact comparison, which is what the
+   number beside it is already for. */
+.cd-lat { display: block; height: 2px; margin: 0 10px 6px 38px; background: var(--surface-sunken); border-radius: 2px; }
+.cd-lat-fill { display: block; height: 100%; border-radius: 2px; }
+.cd-lat-fill.ok { background: var(--ok); opacity: 0.45; }
+.cd-lat-fill.warn { background: var(--warn); opacity: 0.6; }
+.cd-lat-fill.bad { background: var(--bad); opacity: 0.6; }

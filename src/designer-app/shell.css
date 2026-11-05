@@ -67,183 +67,14 @@
   background: var(--surface);
 }
 
-.hf-rail {
-  width: var(--rail-w);
-  flex: 0 0 auto;
-  background: var(--rail);
-  color: var(--rail-text);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.hf-rail.collapsed {
-  width: var(--rail-w-collapsed);
-}
+/* THE RAIL IS TAILWIND NOW, in DesignerShell.tsx — a port of agent360's
+ * `Sidebar`. The ~185 lines that stood here styled a navy rail: its own
+ * width variables, hover and active fills, a wordmark, a tenant select on
+ * navy, and a 900px breakpoint that hid every label. None of it survives
+ * the move to white, and leaving it would mean two sources of truth for
+ * one component. `--rail-*` in tokens.css still exists and is now white,
+ * for anything outside this app that reads it. */
 
-.hf-rail-top {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 12px;
-  border-bottom: 1px solid var(--rail-line);
-  min-height: var(--topbar-h);
-}
-.hf-rail-logo {
-  flex: 0 0 auto;
-  display: block;
-  border-radius: var(--r-sm);
-}
-.hf-rail-wordmark {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.25;
-  font-size: var(--t-sm);
-  font-weight: 600;
-  color: var(--rail-text-active);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.hf-rail-wordmark small {
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--rail-text);
-}
-.hf-rail-toggle {
-  margin-left: auto;
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--rail-text);
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-}
-.hf-rail-toggle:hover {
-  background: var(--rail-hover);
-  color: var(--rail-text-active);
-}
-.hf-rail.collapsed .hf-rail-top {
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 8px;
-}
-
-.hf-rail-items {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 10px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.hf-railitem {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--r-md);
-  background: transparent;
-  color: var(--rail-text);
-  font: inherit;
-  font-size: var(--t-base);
-  text-align: left;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.12s, color 0.12s;
-}
-.hf-railitem svg {
-  flex: 0 0 auto;
-  width: 17px;
-  height: 17px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.hf-railitem:hover {
-  background: var(--rail-hover);
-  color: var(--rail-text-active);
-}
-/* Active state is the tinted row plus a teal icon. The teal appears here and
- * in the logo and nowhere else in the chrome, which is what keeps it reading
- * as the brand rather than as another status colour. */
-.hf-railitem.on {
-  background: var(--rail-active);
-  color: var(--rail-text-active);
-  font-weight: 550;
-}
-.hf-railitem.on svg {
-  stroke: var(--hf-teal);
-}
-.hf-rail.collapsed .hf-railitem {
-  justify-content: center;
-  padding: 10px 0;
-}
-
-.hf-rail-foot {
-  flex: 0 0 auto;
-  border-top: 1px solid var(--rail-line);
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.hf-rail-cap {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--rail-text);
-}
-.hf-rail-foot select {
-  width: 100%;
-  padding: 6px 8px;
-  border: 1px solid var(--rail-line);
-  border-radius: var(--r-sm);
-  background: var(--hf-navy-soft);
-  color: var(--rail-text-active);
-  font: inherit;
-  font-size: var(--t-sm);
-}
-.hf-rail-foot select:focus-visible {
-  outline: 2px solid var(--hf-teal);
-  outline-offset: 1px;
-}
-.hf-rail-chip {
-  align-self: flex-start;
-  padding: 2px 7px;
-  border-radius: var(--r-pill);
-  background: rgba(11, 208, 181, 0.14);
-  color: var(--hf-teal);
-  font-size: 10px;
-  font-weight: 600;
-}
-.hf-rail-initial {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  margin: 0 auto;
-  border-radius: var(--r-md);
-  background: var(--hf-navy-soft);
-  color: var(--rail-text-active);
-  font-size: var(--t-micro);
-  font-weight: 650;
-}
-
-/* The work area. Scrolls nothing itself; its children do. */
 .hf-main {
   flex: 1 1 auto;
   min-width: 0;
@@ -258,21 +89,6 @@
   overflow: hidden;
 }
 
-@media (max-width: 900px) {
-  .hf-rail {
-    width: var(--rail-w-collapsed);
-  }
-  .hf-rail-wordmark,
-  .hf-rail-foot select,
-  .hf-rail-cap,
-  .hf-rail-chip,
-  .hf-railitem span {
-    display: none;
-  }
-  .hf-railitem {
-    justify-content: center;
-  }
-}
 
 
 /* ===================================================================

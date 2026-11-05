@@ -1,27 +1,31 @@
 /* Inter, self-hosted. Loaded, not merely named — see the note on --font. */
 @import '@fontsource-variable/inter';
 
-/* The design tokens, derived from the Hyperface brand rather than picked ad hoc.
+/* The design tokens — now the company's, not this app's own.
  *
- * WHY THIS FILE EXISTS. There were 32 variables spread across index.css and
- * designer/designer.css, almost all of them a flat grey ramp plus one-off
- * semantic pairs, and two accent colours (--blue-cta, --indigo) that came from
- * nowhere in particular. Nothing tied any of it to Hyperface, and a value used
- * thirteen times (--gray-700) was never defined at all.
+ * WHAT CHANGED, AND WHY. This file used to derive a palette from the logo:
+ * a navy accent, greys biased a few degrees blue to sit beside it, and a
+ * navy navigation rail. All of it was internally consistent and all of it
+ * was ours alone. `hyperface-tech/agent360` is themed to the actual
+ * Hyperface Dashboard design system (`design_handoff_v2_theme`), so two
+ * Hyperface consoles sitting side by side read as two different products.
  *
- * THE BRAND, read off the logo (src/assets/hfLogo.svg):
- *   #080a36  the navy the mark sits in
- *   #0ae0bc -> #07bbba -> #0380b6  the teal-to-blue gradient inside it
+ * Every value below now resolves to `src/designer/theme.css`, which is a
+ * verbatim copy of agent360's token layer. THE NAMES ARE ALL KEPT and
+ * repointed, so 1,659 lines of existing CSS move to the new palette in one
+ * edit rather than in a thousand.
  *
- * MIGRATION, deliberately non-breaking. Every old variable name is kept and
- * redefined against the new scale, so 450 lines of existing CSS keep working
- * and the whole palette shifts in one edit. New work should use the semantic
- * names at the bottom, not the raw ramp.
+ * Three substantive changes a reader will notice:
+ *   - THE ACCENT IS BLUE (#0A66F0), not navy. The old note below was right
+ *     that the brand teal fails contrast as a primary; the company had
+ *     already answered that with this blue, and we had not used it.
+ *   - THE GREYS ARE THE UNTITLED UI RAMP, true neutrals. They no longer need
+ *     a blue bias, because there is no navy slab for them to sit against.
+ *   - THE RAIL IS WHITE. See `--rail` below.
  *
- * LIGHT CONTENT, ONE DARK SURFACE. Content surfaces stay light. The navigation
- * rail is navy, which is a deliberate exception and the same choice the
- * propensity agent makes — its sidebar is the only dark region in an otherwise
- * entirely light app, and it reads as product chrome rather than as a theme.
+ * New work should use the `--color-*` names from theme.css directly, or
+ * Tailwind utilities over them. The scale here exists for the CSS that
+ * predates the port.
  */
 
 :root {
@@ -34,41 +38,41 @@
   --hf-blue: #0380b6;
   --hf-gradient: linear-gradient(135deg, #0ae0bc 0%, #07bbba 45%, #0380b6 100%);
 
-  /* --- accent ---------------------------------------------------------
-   * The teal is the brand's, and it is a poor primary for actions: on white
-   * it fails contrast at small sizes, and "confirm" in the same hue as
-   * "success" removes the distinction. So the teal stays decorative — the
-   * logo, a live indicator, a progress fill — and actions use the navy. That
-   * also means the accent and the nav rail are the same family, which is why
-   * the chrome reads as one product rather than two.
+  /* --- accent ----------------------------------------------------------
+   * The company's brand blue, from agent360's `--color-primary`. The teal
+   * stays exactly where it was: decorative only — the logo, a live dot, a
+   * progress fill — because it still fails contrast at small sizes and still
+   * collides with "success".
    */
-  --accent: #1b2a6b;
-  --accent-hover: #142053;
+  --accent: var(--color-primary, #0a66f0);
+  --accent-hover: var(--color-primary-hover, #0857ce);
   --accent-ink: #ffffff;
-  /* Tints, which do most of the work. Propensity leans on alpha-over-primary
-   * (/5, /10, /20) for every selected row, icon tile and panel header; these
-   * are the opaque equivalents, so they composite predictably over white. */
-  --accent-wash: #f4f6fc;
-  --accent-tint: #e7ebf7;
-  --accent-edge: #c9d2ea;
+  /* Tints. `--accent-tint` is the system's own `primary-light`; the wash is a
+   * half-step above it for the few surfaces that want a hint rather than a
+   * fill, and the edge is the border that reads against both. */
+  --accent-wash: #f5f8ff;
+  --accent-tint: var(--color-primary-light, #e7f0fe);
+  --accent-edge: #9dc3fb;
 
-  /* --- neutrals, biased toward the navy ------------------------------
-   * Not a pure grey ramp. A true neutral next to a navy rail reads as a
-   * different, slightly dirty colour; a few degrees of blue in the greys makes
-   * the two sit together.
+  /* --- neutrals: the Untitled UI grey ramp ----------------------------
+   * True neutrals now. The old ramp carried a few degrees of blue so it would
+   * sit against the navy rail; the rail is white, so the bias is gone. The
+   * four values agent360 names (200 border, 400 tertiary, 600 secondary,
+   * 900 primary) are its own tokens — the rest of the ramp is the same
+   * Untitled UI scale they come from.
    */
   --n-0: #ffffff;
-  --n-25: #fbfbfd;
-  --n-50: #f7f8fb;
-  --n-100: #eff1f6;
-  --n-200: #e2e5ee;
-  --n-300: #cbd0de;
-  --n-400: #9aa1b5;
-  --n-500: #6e7689;
-  --n-600: #525a6d;
-  --n-700: #3c4356;
-  --n-800: #262c3c;
-  --n-900: #161a27;
+  --n-25: #fcfcfd;
+  --n-50: var(--color-surface-subtle, #f9fafb);
+  --n-100: #f2f4f7;
+  --n-200: var(--color-border, #e4e7ec);
+  --n-300: #d0d5dd;
+  --n-400: var(--color-text-tertiary, #98a2b3);
+  --n-500: #667085;
+  --n-600: var(--color-text-secondary, #475467);
+  --n-700: #344054;
+  --n-800: #1d2939;
+  --n-900: var(--color-text-primary, #101828);
 
   /* --- semantic surfaces ----------------------------------------------
    * THE PAGE IS WHITE. Not a grey canvas with white cards floating on it.
@@ -93,17 +97,26 @@
   --border: var(--n-200);
   --hairline-soft: rgba(226, 229, 238, 0.55);
   --border-strong: var(--n-300);
-  --text: var(--n-900);
-  --text-muted: var(--n-500);
-  --text-faint: var(--n-400);
+  --text: var(--color-text-primary, #101828);
+  --text-muted: var(--color-text-secondary, #475467);
+  --text-faint: var(--color-text-tertiary, #98a2b3);
 
-  /* --- navigation rail, the one dark surface -------------------------- */
-  --rail: var(--hf-navy);
-  --rail-hover: #171b4a;
-  --rail-active: #1f2458;
-  --rail-text: #9ba2c4;
-  --rail-text-active: #ffffff;
-  --rail-line: var(--hf-navy-line);
+  /* --- navigation rail ------------------------------------------------
+   * WHITE, as of the agent360 port. This file used to argue for one dark
+   * surface as "product chrome rather than a theme", and that argument was
+   * sound in isolation — but agent360 is the company's console pattern and
+   * its rail is white, 60px, collapsible. An app cannot both match the
+   * house style and keep its own chrome, so the chrome goes.
+   *
+   * Active state is a tint plus a 3px blue bar at the left edge, not a
+   * filled row: on white, a filled row at rail width reads as a button.
+   */
+  --rail: var(--color-surface, #ffffff);
+  --rail-hover: var(--color-surface-subtle, #f9fafb);
+  --rail-active: var(--color-primary-light, #e7f0fe);
+  --rail-text: var(--color-text-secondary, #475467);
+  --rail-text-active: var(--color-primary, #0a66f0);
+  --rail-line: var(--color-border, #e4e7ec);
 
   /* --- status --------------------------------------------------------
    * Used as a tint + text pair, never as a bare colour. Propensity declares
@@ -111,37 +124,42 @@
    * raw text-green-500 instead — so the token layer there is half-wired. These
    * are defined as pairs precisely so there is no reason to reach past them.
    */
-  --ok: #047857;
-  --ok-bg: #e8f6f0;
-  --ok-edge: #b7e2d2;
-  --warn: #92610a;
-  --warn-bg: #fdf4e3;
-  --warn-edge: #f0dcae;
-  --bad: #b42318;
-  --bad-bg: #fdecea;
-  --bad-edge: #f6c9c4;
-  --info: #0b5d8a;
-  --info-bg: #e8f2f9;
-  --info-edge: #bcdcee;
+  --ok: var(--color-success, #027a48);
+  --ok-bg: #ecfdf3;
+  --ok-edge: #a6f4c5;
+  --warn: var(--color-warning, #d58f15);
+  --warn-bg: #fffcf5;
+  --warn-edge: #fec84b;
+  --bad: var(--color-error, #b42318);
+  --bad-bg: #fef3f2;
+  --bad-edge: #fda29b;
+  --info: var(--color-primary, #0a66f0);
+  --info-bg: var(--color-primary-light, #e7f0fe);
+  --info-edge: var(--accent-edge);
   --live: var(--hf-teal-deep);
 
-  /* --- shape ---------------------------------------------------------- */
+  /* --- shape ----------------------------------------------------------
+   * The system's five radii, by role: input, button, panel, card, pill.
+   * One radius used everywhere is most of why this product read flat.
+   */
   --r-xs: 4px;
   --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 12px;
-  --r-xl: 16px;
+  --r-md: var(--radius-input, 8px);
+  --r-lg: var(--radius-panel, 12px);
+  --r-xl: var(--radius-card, 16px);
   --r-pill: 999px;
 
-  /* --- elevation -----------------------------------------------------
-   * Shadows carry a navy tint rather than neutral black, so a raised card on
-   * the sunken background does not go grey at the edges.
+  /* --- elevation ------------------------------------------------------
+   * The system's shadows, which are feather-light on purpose and applied by
+   * role — buttons get `--shadow-button`, menus `--shadow-dropdown`, focus
+   * `--shadow-focus-ring`. The old set carried a navy tint to sit against a
+   * navy rail; with neutral greys the system's neutral shadows are correct.
    */
-  --e-1: 0 1px 2px rgba(8, 10, 54, 0.06);
-  --e-2: 0 1px 3px rgba(8, 10, 54, 0.08), 0 1px 2px rgba(8, 10, 54, 0.04);
-  --e-3: 0 4px 12px rgba(8, 10, 54, 0.08), 0 1px 3px rgba(8, 10, 54, 0.06);
-  --e-4: 0 12px 32px rgba(8, 10, 54, 0.12), 0 2px 8px rgba(8, 10, 54, 0.06);
-  --ring: 0 0 0 3px rgba(27, 42, 107, 0.18);
+  --e-1: var(--shadow-xs, 0 1px 2px 0 rgba(16,24,40,0.05));
+  --e-2: 0px 1px 3px 0px rgba(16, 24, 40, 0.1), 0px 1px 2px 0px rgba(16, 24, 40, 0.06);
+  --e-3: var(--shadow-button, 0 1px 3px 0 rgba(129,129,129,0.25));
+  --e-4: var(--shadow-dropdown, 0 4px 6px -2px rgba(16,24,40,0.03), 0 12px 16px -4px rgba(16,24,40,0.08));
+  --ring: var(--shadow-focus-ring, 0 1px 2px 0 rgba(16,24,40,0.05), 0 0 0 4px #e7f0fe);
 
   /* --- type ----------------------------------------------------------
    * 14px body, matching the propensity chat, which is the size this kind of
@@ -155,7 +173,9 @@
    * taller x-height and more even rhythm than a system face, which is most of
    * why the propensity agent reads as cleaner at the same sizes. */
   --font: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  /* Source Code Pro, the system's mono. Self-hosted in the designer and
+   * named-only elsewhere, so the stack keeps its fallbacks. */
+  --mono: 'Source Code Pro Variable', 'Source Code Pro', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
   --t-micro: 11px;
   --t-xs: 12px;
   --t-sm: 13px;
@@ -212,7 +232,9 @@
   --info-text: var(--info);
   --purple-bg: var(--accent-tint);
   --purple-text: var(--accent);
-  --shadow-sm: var(--e-1);
+  /* NOT aliased to --e-1: theme.css defines --shadow-sm as the system
+   * small shadow, and pointing it at --e-1 here would silently downgrade
+   * it for the seven places that read it, three of them outside this app. */
   --shadow-card: var(--e-2);
 }
 

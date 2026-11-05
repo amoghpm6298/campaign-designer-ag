@@ -16,9 +16,12 @@ import { getHealth, type HealthResult } from './api';
 import { runDesignerStream } from './stream';
 import { appendRunLog, loadSession, loadSessionById, saveSession, type DesignerSession } from './storage';
 import { campaignStages, detailsText, friendlyConstraint } from './status';
-import { previewFromBlueprint, type JourneyPreview, type PreviewRow } from './preview';
+import { previewFromBlueprint, templateSegments, type JourneyPreview, type PreviewRow } from './preview';
 import { buildExportPayload, exportFileName } from './exportPayload';
+import { PaneBoundary } from './States';
+import { RichText } from './RichText';
 import type { ChatTurn, DesignerResponse, KnowledgeBase, Phase, RunEvent, Tenant } from './types';
+import { AlertCircle, AlertTriangle, ArrowUp, Check, ChevronDown, ChevronRight, Loader2, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
 import './designer.css';
 
 interface Props {
@@ -83,39 +86,6 @@ const EXAMPLES = [
   },
 ];
 
-/** Minimal markdown: **bold** and "- " bullets. The agent writes both. */
-function RichText({ text }: { text: string }) {
-  const blocks = text.split('\n');
-  const out: React.ReactNode[] = [];
-  let list: string[] = [];
-  const flush = (key: string) => {
-    if (!list.length) return;
-    out.push(
-      <ul key={key}>
-        {list.map((li, i) => (
-          <li key={i}>{inline(li)}</li>
-        ))}
-      </ul>,
-    );
-    list = [];
-  };
-  function inline(s: string): React.ReactNode[] {
-    return s.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-      part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : <span key={i}>{part}</span>,
-    );
-  }
-  blocks.forEach((line, i) => {
-    if (line.startsWith('- ')) {
-      list.push(line.slice(2));
-      return;
-    }
-    flush(`l${i}`);
-    if (line.trim()) out.push(<div key={i}>{inline(line)}</div>);
-  });
-  flush('lend');
-  return <>{out}</>;
-}
-
 /**
  * The tenant the platform would pass in. In production the user picks a
  * tenant before the conversation starts and it arrives with the request;
@@ -123,6 +93,48 @@ function RichText({ text }: { text: string }) {
  * SYNTHETIC one. It is surfaced in the header rather than hidden, because a
  * campaign's issuer is not something to quietly assume.
  */
+
+/**
+ * The message as the customer would see it.
+ *
+ * PORTED from agent360's `EngagementFlowDiagram.MessageMock`, and it is the
+ * fix for the worst thing on the proposal screen: every send card read
+ * "A message", because `preview.ts` never carried `copy` at all. Nobody
+ * approves copy from a `describe` field, and five identical grey cards is
+ * what a manager was being asked to sign off.
+ *
+ * A fake device rather than a styled quote, because the channel changes how
+ * the words land — a hundred characters is a glance on WhatsApp and a wall
+ * on SMS, and that is a judgement the manager should be able to make by
+ * looking.
+ */
+function MessageMock({ channel, copy, cta }: { channel: string; copy: string; cta?: string }) {
+  const c = channel.toLowerCase();
+  return (
+    <div className={`cd-mock ${c}`}>
+      <div className="cd-mock-bubble">
+        {renderTemplate(copy)}
+        {cta && <span className="cd-mock-cta">{cta}</span>}
+        <span className="cd-mock-meta">{c === 'email' ? 'Inbox' : '9:41 AM'}</span>
+      </div>
+    </div>
+  );
+}
+
+/** `{placeholders}` as chips, so copy reads as a template rather than as
+ *  something literally addressed to "customerFirstName". The split itself
+ *  lives in `preview.ts` and is tested there. */
+function renderTemplate(text: string) {
+  return templateSegments(text).map((seg, i) =>
+    seg.token ? (
+      <span className="cd-mock-token" key={i}>
+        {seg.text}
+      </span>
+    ) : (
+      <span key={i}>{seg.text}</span>
+    ),
+  );
+}
 
 export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: openId, onSessionChange }: Props) {
   const initial = useRef(stateFrom(openId ? loadSessionById(openId) : loadSession())).current;
@@ -142,14 +154,37 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
   // Node-edit drawer state. The drawer is a controlled component in the real
   // builder, so the same state it expects is held here rather than
   // re-implementing the forms.
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.4))}px`;
+  }, [draft]);
+
+  /** Whether the conversation column is showing. Persisted, like the rail. */
+  const [chatOpen, setChatOpen] = useState(() => localStorage.getItem('cd-chat') !== 'collapsed');
+  useEffect(() => {
+    localStorage.setItem('cd-chat', chatOpen ? 'open' : 'collapsed');
+  }, [chatOpen]);
   const [editing, setEditing] = useState<string | null>(null);
   /** Real account/template ids the user types in, keyed by step name. */
-  const [resolvedSends, setResolvedSends] = useState<Record<string, { account?: string; templateId?: string }>>({});
+  /** Was typed into the retired template panel. The drawer writes template
+   *  ids onto the node itself now, so this is always empty — kept so the
+   *  request shape the server reads does not change with a UI removal. */
+  const [resolvedSends] = useState<Record<string, { account?: string; templateId?: string }>>({});
   // Live run state. `phase` comes from the server — never inferred from
   // whether a graph happens to exist.
   const [phase, setPhase] = useState<Phase>(initial.phase);
   const [liveEvents, setLiveEvents] = useState<RunEvent[]>([]);
   const [liveText, setLiveText] = useState('');
+
+  /** What the agent is doing right now, for the pinned header badge. */
+  const liveStep = useMemo(() => {
+    const running = [...liveEvents].reverse().find((e) => e.status === 'running' && e.title);
+    return running?.title ?? 'Working…';
+  }, [liveEvents]);
+
   const [pendingBlueprint, setPendingBlueprint] = useState<unknown>(initial.pendingBlueprint);
   const [pendingStrategy, setPendingStrategy] = useState<unknown>(initial.pendingStrategy);
   // The server owns discovery state; the client just carries it forward.
@@ -222,7 +257,6 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
     async (
       text: string,
       opts?: {
-        forceProposal?: boolean;
         intent?: 'converse' | 'confirm';
         silent?: boolean;
         attempt?: number;
@@ -277,7 +311,6 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
           tenantId: tenant.tenantId,
           currentCampaign: campaign,
           resolvedSends,
-          forceProposal: opts?.forceProposal,
           intent: opts?.intent ?? 'converse',
           confirmedBlueprint: opts?.intent === 'confirm' ? pendingBlueprint : null,
           confirmedStrategy: opts?.intent === 'confirm' ? pendingStrategy : null,
@@ -525,7 +558,6 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
       setPendingStrategy(next.pendingStrategy);
       setErr(null);
       setErrDetail(null);
-      setResolvedSends({});
       setLiveEvents([]);
       setLiveText('');
       setEditing(null);
@@ -599,6 +631,18 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
             {tenant.displayName}
           </div>
         </div>
+        {/* WHAT IT IS DOING, WHERE IT CANNOT SCROLL AWAY.
+            The in-thread timeline already says this, and it scrolls — a
+            105-second tool call leaves the last thing on screen looking
+            frozen. agent360 pins the live step in the pane header for
+            exactly that, and deliberately puts no Stop on it: interrupting
+            is the composer's job, and this is status. */}
+        {busy && (
+          <span className="cd-runbadge">
+            <span className="cd-runbadge-dot" aria-hidden="true" />
+            <span className="cd-runbadge-text">{liveStep}</span>
+          </span>
+        )}
         <div className="cd-tabs">
           <button className="cd-tab" onClick={startNew} disabled={busy || !messages.length}>
             New chat
@@ -608,14 +652,34 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
 
       <div className={`cd-body ${graph ? 'cd-has-journey' : 'cd-no-journey'}${!messages.length && !busy ? ' cd-empty' : ''}`}>
         <div className="cd-canvas">
+          {/* The seam control. Rendered here rather than in the chat column
+              so it survives the chat collapsing to zero width, and placed
+              before the pane's content so it comes first in tab order. */}
+          <button
+            className="cd-chattoggle"
+            onClick={() => setChatOpen((v) => !v)}
+            aria-expanded={chatOpen}
+            aria-label={chatOpen ? 'Collapse the conversation' : 'Show the conversation'}
+            title={chatOpen ? 'Collapse the conversation' : 'Show the conversation'}
+          >
+            {chatOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
+          </button>
           {v && (
             <div className="cd-status" role="status">
-              {stages.map((st) => (
-                <div key={st.key} className={`cd-stage ${st.state}`} title={st.detail}>
-                  <span className="cd-stage-dot" aria-hidden="true" />
-                  <span className="cd-stage-label">{st.label}</span>
-                </div>
-              ))}
+              {/* ONE PILL, NOT FIVE DOTS.
+                  A row of five coloured dots — three green, one amber, one
+                  red — reads as a CI pipeline, and it put five verdicts in
+                  front of the manager when only the first one that stops
+                  progress is worth acting on. That one is already spelled
+                  out in full underneath; the dots were a second, worse copy
+                  of it.
+
+                  The detail is not lost: every stage and its reason is on
+                  the pill's `title`, which is where a reader who wants the
+                  whole list can find it. */}
+              <span className={`cd-statepill ${blocking ? blocking.state : 'ok'}`} title={stages.map((st) => `${st.label}: ${st.detail}`).join('\n')}>
+                {blocking ? blocking.label : 'Ready to export'}
+              </span>
               <div className="cd-status-detail">
                 {blocking ? (
                   <>
@@ -663,10 +727,10 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
                 </h2>
                 <p>
                   {preview
-                    ? 'Not built yet. Confirm on the right, or say what to change.'
+                    ? 'Not built yet. Confirm on the left, or say what to change.'
                     : messages.length
                       ? 'This fills in as you talk. Everything here came from your answers, and you can correct any of it.'
-                      : 'Describe the outcome you want on the right. What the agent learns appears here, and becomes the journey once you approve a plan.'}
+                      : 'Describe the outcome you want on the left. What the agent learns appears here, and becomes the journey once you approve a plan.'}
                 </p>
               </div>
 
@@ -684,11 +748,19 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
                   </span>
                   <span>
                     <b>Who converts</b>
-                    {briefView.converters?.shape || 'Not established'}
+                    {briefView.converters?.shape || 'Not established'}{' '}
+                    {briefView.converters?.shape && <Basis basis={briefView.converters.basis} />}
                   </span>
                   <span>
                     <b>What is stopping them</b>
-                    {briefView.barriers?.length ? briefView.barriers.map((b) => b.statement).join(' ') : 'Not established'}
+                    {briefView.barriers?.length
+                      ? briefView.barriers.map((b, i) => (
+                          <span key={i}>
+                            {i > 0 ? ' ' : ''}
+                            {b.statement} <Basis basis={b.basis} quote={b.quote} />
+                          </span>
+                        ))
+                      : 'Not established'}
                   </span>
                 </div>
               )}
@@ -702,15 +774,24 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
                     {briefView.successCriteria?.length ? briefView.successCriteria.join(' ') : 'Still to settle'}
                   </WorkCard>
                   <WorkCard label="Who converts today" filled={Boolean(briefView.converters?.shape)}>
-                    {briefView.converters?.shape || 'Not established'}
+                    {briefView.converters?.shape || 'Not established'}{' '}
+                    {briefView.converters?.shape && <Basis basis={briefView.converters.basis} />}
                   </WorkCard>
                   <WorkCard
                     label={`What is stopping the rest${briefView.barriers?.length ? ` (${briefView.barriers.length})` : ''}`}
                     filled={Boolean(briefView.barriers?.length)}
                   >
-                    {briefView.barriers?.length
-                      ? briefView.barriers.map((b) => b.statement).join(' ')
-                      : 'Not established'}
+                    {briefView.barriers?.length ? (
+                      <ul className="cd-basislist">
+                        {briefView.barriers.map((b, i) => (
+                          <li key={i}>
+                            {b.statement} <Basis basis={b.basis} quote={b.quote} />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      'Not established'
+                    )}
                   </WorkCard>
                 </div>
               )}
@@ -736,51 +817,58 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
                   with grey boxes is the defect this fixes. */}
               {preview && <JourneySchematic preview={preview} busy={busy} />}
 
-              {/* The skeleton. Deliberately not a spinner: it shows the SHAPE
-                  of a journey, so the wait is legible rather than blank. */}
+              {/* THE EMPTY STATE IS COMPOSED, not a wireframe pinned to the
+                  bottom of a blank pane.
+
+                  It was a skeleton at the foot of the column with one grey
+                  caption, so more than half the work surface was dead white
+                  on the first screen a client sees. The shape is agent360's
+                  and is used everywhere in that product: a dashed frame \u2014
+                  dashed means "nothing here yet" \u2014 a tinted icon chip, a
+                  bold headline, and ONE sentence that says what will appear
+                  and how to make it appear. */}
               {!preview && (
-              <div className="cd-skeleton" aria-hidden="true">
-                <div className="cd-sk-row">
-                  <span className="cd-sk-node entry" />
-                  <span className="cd-sk-line" />
-                  <span className="cd-sk-node" />
-                  <span className="cd-sk-line" />
-                  <span className="cd-sk-node" />
-                </div>
-                <div className="cd-sk-row indent">
-                  <span className="cd-sk-line v" />
-                  <span className="cd-sk-node small" />
-                  <span className="cd-sk-line" />
-                  <span className="cd-sk-node small" />
-                </div>
-                <div className="cd-sk-caption">
-                  {busy ? 'Working\u2026' : 'The journey appears here once you approve a plan'}
+              <div className="cd-emptystate">
+                <div className="cd-emptystate-card">
+                  <div className="cd-sk-row" aria-hidden="true">
+                    <span className="cd-sk-node entry" />
+                    <span className="cd-sk-line" />
+                    <span className="cd-sk-node" />
+                    <span className="cd-sk-line" />
+                    <span className="cd-sk-node" />
+                  </div>
+                  <div className="cd-sk-row indent" aria-hidden="true">
+                    <span className="cd-sk-line v" />
+                    <span className="cd-sk-node small" />
+                    <span className="cd-sk-line" />
+                    <span className="cd-sk-node small" />
+                  </div>
+                  <h3>{busy ? 'Working on it' : 'The journey builds here'}</h3>
+                  <p>
+                    {busy
+                      ? 'The agent is reading your brief and working out what the campaign should be.'
+                      : messages.length
+                        ? 'Every message, wait and branch appears here once you approve a plan.'
+                        : 'Describe an outcome on the left. The messages, waits and branches appear here once you approve a plan.'}
+                  </p>
                 </div>
               </div>
               )}
             </div>
           )}
 
-          {!busy && !graph && err && (
-            <div className="cd-state">
-              <div className="cd-state-title" style={{ color: 'var(--bad)' }}>
-                No campaign was produced
-              </div>
-              <div className="cd-state-sub">{err}</div>
-              {errDetail && (
-                <details className="cd-errdetail">
-                  <summary>Technical detail</summary>
-                  <pre>{errDetail}</pre>
-                </details>
-              )}
-            </div>
-          )}
+          {/* THE ERROR MOVED TO THE CHAT COLUMN, above the composer.
+              It was rendered here and gated on `!graph`, so a turn that
+              failed while a campaign was already on the canvas reported
+              nothing at all — the one case where the manager most needs to
+              know the change did not land. See `.cd-turnerror`. */}
 
           {graph && (
             <div style={{ position: 'absolute', inset: 0, paddingTop: v ? 84 : 0, boxSizing: 'border-box' }}>
               {/* The real canvas. Editable so the existing interactions that
                   it supports (open a node, rename a path, remove an edge)
                   keep working on a generated campaign. */}
+              <PaneBoundary label="the journey">
               <DripCanvas
                 graph={graph}
                 editable
@@ -791,10 +879,12 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
                 }}
                 onRenameEdge={(edgeId, label) => setGraph((g) => (g ? dcRenameEdge(g, edgeId, label) : g))}
               />
+              </PaneBoundary>
             </div>
           )}
         </div>
 
+        <div className={`cd-chatwrap${chatOpen ? '' : ' collapsed'}`}>
         <div className="cd-chat">
           <div className="cd-msgs" ref={msgsRef}>
             {!messages.length && (
@@ -832,9 +922,6 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
               // under "Worth settling before this is built".
               const latest = i === messages.length - 1;
               const qs = latest && planOnScreen ? [] : stored;
-              // The shortcut belongs only on the questions still waiting for
-              // an answer, which is the last message if nothing follows it.
-              const awaiting = qs.length > 0 && latest && !busy;
               return (
                 <div key={i} className={`cd-msg ${m.role}`}>
                   <div className="cd-msg-role">{m.role === 'user' ? 'You' : 'Agent'}</div>
@@ -849,14 +936,6 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
                           {q}
                         </div>
                       ))}
-                      {awaiting && (
-                        <button
-                          className="cd-quick"
-                          onClick={() => send('I am not sure about that. Say what you would assume, and why.')}
-                        >
-                          I am not sure
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>
@@ -944,27 +1023,6 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
               </div>
             )}
 
-            {/* The gate: nothing is built until this is confirmed. */}
-            {!busy && phase === 'awaiting-confirmation' && (
-              <div className="cd-confirm">
-                <div className="cd-confirm-t">Generate this campaign?</div>
-                <p>
-                  Nothing has been built yet. Confirm to create the journey, or say what you would change.
-                  {preview ? ' The proposed path is on the left.' : ''}
-                </p>
-                <div className="cd-confirm-actions">
-                  <button
-                    className="cd-btn pri"
-                    onClick={() => send('Confirmed. Build this campaign.', { intent: 'confirm' })}
-                  >
-                    Confirm and generate
-                  </button>
-                  <button className="cd-btn" onClick={() => document.querySelector<HTMLTextAreaElement>('.cd-compose textarea')?.focus()}>
-                    Request a change
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Communication steps the agent designed but cannot complete:
@@ -975,116 +1033,139 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
               asking for them beside a plan nobody has approved reads as
               though the campaign already exists — and wastes the one decision
               this turn is for. */}
-          {/* THE OPTIONAL CHAIN COVERS THE ARRAY TOO, not just `last`.
-              The chain used to stop one step short, so a stored response without
-              the field — a legacy session, or one written before the field
-              existed — took the WHOLE designer down with "Cannot read
-              properties of undefined". Every live response carries it, which
-              is exactly why this went unnoticed: the type says required and
-              the restore path reads whatever is in localStorage. Same lesson
-              as the two server crashes today — a declared type is not a
-              guarantee about data that crosses a boundary. */}
-          {last?.sendProposals?.length && !planOnScreen ? (
-            <div className="cd-sends">
-              <div className="cd-sends-h">
-                Needs your input — {last.sendProposals.length} message step
-                {last.sendProposals.length > 1 ? 's' : ''}
+          {/* THE TEMPLATE PANEL IS GONE, and nothing can be done here that
+              could not be done better one click away.
+
+              It listed every send as an amber card with two free-text boxes
+              and the SAME paragraph of explanation repeated verbatim on each
+              one, so a five-message campaign filled the conversation column
+              with a wall of identical warnings. Meanwhile `NodeForms`'
+              `AccountTemplateFields` has always offered the same two fields
+              on the Send node's own drawer — as real dropdowns over
+              `COMMS_TEMPLATES`, filtered by the send's channel, rather than
+              as free text.
+
+              So this was a second, worse way to do one thing: the failure
+              mode this repo named when Condition's "Goal" source and the
+              Goal Check node both answered one question and built different
+              graphs. Click the step, fill it in the drawer. What is missing
+              is marked on the step itself. */}
+
+          {/* ONE FIELD, agent360's composer. The send control lives inside
+              the box rather than under it, the whole box takes the focus
+              ring, and the line underneath doubles as the status line.
+
+              "Question round 3 of 8" used to sit beside the button. It is a
+              budget of ours, not a fact about their campaign, and putting a
+              meter next to the thing they are trying to do says the
+              conversation is rationed. The budget still exists and still
+              releases the plan; it is simply not theirs to watch. */}
+          {/* A FAILED TURN SAYS SO, AND KEEPS SAYING IT.
+              Appending this to the transcript does not work: every render
+              site gates on `busy`, which flips false in the same tick the
+              error arrives, so the message was unmounted before it painted.
+              It is its own row with its own state, dismissible, and it
+              survives the stream ending.
+
+              Not gated on `graph`: a refinement that fails over an existing
+              campaign is exactly when this matters. */}
+          {err && (
+            <div className="cd-turnerror" role="alert">
+              <AlertTriangle size={14} className="cd-turnerror-i" aria-hidden="true" />
+              <div className="cd-turnerror-body">
+                <p>{err}</p>
+                {errDetail && (
+                  <details className="cd-errdetail">
+                    <summary>Technical detail</summary>
+                    <pre>{errDetail}</pre>
+                  </details>
+                )}
               </div>
-              {(last.sendProposals ?? []).map((p) => {
-                const entry = resolvedSends[p.stepName] ?? {};
-                return (
-                  <div className="cd-send" key={p.stepName}>
-                    <div className="cd-send-t">
-                      {p.stepName}
-                      <span className="cd-send-meta">
-                        {p.channel} · {p.timing}
-                      </span>
-                    </div>
-                    <div className="cd-send-why">{p.explanation}</div>
-                    <div className="cd-send-copy">
-                      <div className="cd-send-lbl">Proposed message. Not a registered template yet.</div>
-                      <div>{p.sampleCopy}</div>
-                      <div className="cd-send-cta">
-                        CTA: {p.cta}
-                        {p.personalisationFields.length ? ` · Tokens: ${p.personalisationFields.join(', ')}` : ''}
-                      </div>
-                    </div>
-                    <div className="cd-send-fields">
-                      <label>
-                        Account
-                        <input
-                          value={entry.account ?? ''}
-                          placeholder="from the bank's ecosystem"
-                          onChange={(e) =>
-                            setResolvedSends((r) => ({ ...r, [p.stepName]: { ...r[p.stepName], account: e.target.value } }))
-                          }
-                        />
-                      </label>
-                      <label>
-                        Template ID
-                        <input
-                          value={entry.templateId ?? ''}
-                          placeholder="the bank's real template id"
-                          onChange={(e) =>
-                            setResolvedSends((r) => ({
-                              ...r,
-                              [p.stepName]: { ...r[p.stepName], templateId: e.target.value },
-                            }))
-                          }
-                        />
-                      </label>
-                    </div>
-                  </div>
-                );
-              })}
               <button
-                className="cd-btn"
-                disabled={busy || !Object.values(resolvedSends).some((v) => v.account || v.templateId)}
-                onClick={() => send('I have added the account and template IDs. Build the campaign again.')}
+                className="cd-turnerror-x"
+                onClick={() => {
+                  setErr(null);
+                  setErrDetail(null);
+                }}
+                aria-label="Dismiss"
               >
-                Apply and revalidate
+                <X size={14} />
               </button>
             </div>
-          ) : null}
+          )}
+
+          {/* THE DECISION DOES NOT SCROLL AWAY.
+              This sat inside `.cd-msgs`, so on a long turn the one thing the
+              manager is here to do was below a telemetry list and had to be
+              scrolled to. It is a sibling of the transcript now, pinned above
+              the composer — which is also where "Request a change" sends
+              them, so the two moves a propose turn offers are together.
+
+              Still gated on the phase and nothing else: a drawing is not a
+              decision, and a held plan must show no button. */}
+{/* The gate: nothing is built until this is confirmed. */}
+          {!busy && phase === 'awaiting-confirmation' && (
+            <div className="cd-confirm">
+              <div className="cd-confirm-t">Generate this campaign?</div>
+              <p>
+                Nothing has been built yet. Confirm to create the journey, or say what you would change.
+                {preview ? ' The proposed path is on the right.' : ''}
+              </p>
+              <div className="cd-confirm-actions">
+                <button
+                  className="cd-btn pri"
+                  onClick={() => send('Confirmed. Build this campaign.', { intent: 'confirm' })}
+                >
+                  Confirm and generate
+                </button>
+                <button className="cd-btn" onClick={() => document.querySelector<HTMLTextAreaElement>('.cd-compose textarea')?.focus()}>
+                  Request a change
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="cd-compose">
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={
-                graph ? 'Ask for a change. For example, "add a WhatsApp reminder after 3 days".' : 'Describe your campaign objective…'
-              }
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && draft.trim() && !busy) send(draft.trim());
-              }}
-              disabled={busy}
-            />
-            <div className="cd-actions">
-              <button className="cd-btn pri" disabled={busy || !draft.trim()} onClick={() => send(draft.trim())}>
-                {graph ? 'Apply change' : 'Design campaign'}
+            <div className={`cd-field${busy ? ' locked' : ''}`}>
+              <textarea
+                ref={composerRef}
+                rows={1}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={
+                  busy
+                    ? 'The agent is working…'
+                    : graph
+                      ? 'Ask for a change. For example, "add a WhatsApp reminder after 3 days".'
+                      : 'Describe the outcome you want…'
+                }
+                onKeyDown={(e) => {
+                  // Enter sends. The modifier form stays, because it is what
+                  // this app taught people and muscle memory is not free.
+                  if (e.key === 'Enter' && !e.shiftKey && draft.trim() && !busy) {
+                    e.preventDefault();
+                    send(draft.trim());
+                  }
+                }}
+                disabled={busy}
+              />
+              <button
+                className="cd-composesend"
+                disabled={busy || !draft.trim()}
+                onClick={() => send(draft.trim())}
+                title={graph ? 'Apply change' : 'Design campaign'}
+                aria-label={graph ? 'Apply change' : 'Design campaign'}
+              >
+                <ArrowUp size={16} strokeWidth={2.5} />
               </button>
-              {/* NOT WHILE A PLAN IS ON SCREEN, either waiting to be approved
-                  or waiting for a change. "Skip & propose" offers to produce
-                  the recommendation that is already there, which reads as
-                  though the plan were provisional and gives the turn a second,
-                  competing primary action.
-                  SKIP IS A BRIEF ESCAPE. It exists so a manager can cut
-                  discovery short and see something; on `revising` the plan
-                  already exists and the next move is a change to it, so the
-                  message box is the primary action and this would be noise.
-                  Gated on `questions` as well, which `revising` never has. */}
-              {last?.questions?.length && !planOnScreen ? (
-                <button
-                  className="cd-btn"
-                  disabled={busy}
-                  onClick={() => send('Proceed with your best recommendation and list what is still unknown.', { forceProposal: true })}
-                  title="Skip remaining questions and get a provisional recommendation"
-                >
-                  Skip &amp; propose
-                </button>
-              ) : null}
-              {rounds > 0 && <span className="cd-rounds">Question round {rounds} of 8</span>}
             </div>
+            <p className="cd-composehint">
+              {busy ? (
+                <span className="txt-shimmer">The agent is working. The box unlocks when it finishes.</span>
+              ) : (
+                'Enter to send · Shift+Enter for a new line'
+              )}
+            </p>
             {graph && (
             <div className="cd-actions">
               <button
@@ -1115,6 +1196,7 @@ export function CampaignDesigner({ knowledge, onLogsChanged, tenant, sessionId: 
             </div>
             )}
           </div>
+        </div>
         </div>
       </div>
 
@@ -1184,17 +1266,22 @@ function ActivityTimeline({ events, live }: { events: RunEvent[]; live: boolean 
   const total = events.reduce((n, e) => n + (e.durationMs ?? 0), 0);
 
   return (
-    <div className="cd-activity">
+    <div className="cd-steps">
       <button className="cd-act-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <span className="cd-act-icon">{live ? <span className="cd-spinner tiny" /> : failed ? '✕' : '✓'}</span>
-        <span className="cd-act-title">
+        <span className="cd-act-icon">
+          {live ? <Loader2 size={13} className="spin-slow" /> : failed ? <AlertCircle size={13} /> : <Check size={13} strokeWidth={2.5} />}
+        </span>
+        <span className={`cd-act-title${live ? ' txt-shimmer' : ''}`}>
           {live ? 'Working…' : `${events.length} step${events.length === 1 ? '' : 's'} in this run`}
           {lookups > 0 && !live ? `, ${lookups} lookup${lookups === 1 ? '' : 's'}` : ''}
         </span>
         {!live && total > 0 && <span className="cd-act-ms">{(total / 1000).toFixed(1)}s</span>}
-        <span className="cd-act-chev">{open ? '▾' : '▸'}</span>
+        <span className="cd-act-chev">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
       </button>
-      {open && events.map((e) => <ActivityRow key={e.correlationId ?? `${e.seq}`} event={e} />)}
+      {open &&
+        events.map((e, i) => (
+          <ActivityRow key={e.correlationId ?? `${e.seq}`} event={e} first={i === 0} live={live} />
+        ))}
     </div>
   );
 }
@@ -1204,31 +1291,46 @@ function ActivityTimeline({ events, live }: { events: RunEvent[]; live: boolean 
  * behind a toggle — the detail matters when you want it and is noise when
  * you don't.
  */
-function ActivityRow({ event }: { event: RunEvent }) {
+function ActivityRow({ event, first, live }: { event: RunEvent; first: boolean; live: boolean }) {
   const [open, setOpen] = useState(false);
-  const running = event.status === 'running';
+  // See the note on the timeline: a step the stream never closed is not
+  // still running once the run is over.
+  const running = event.status === 'running' && live;
   const failed = event.status === 'failed';
+  // ONLY A ROW WITH SOMETHING BEHIND IT IS CLICKABLE. A disclosure arrow on
+  // a row that opens into nothing is a promise the row cannot keep, and the
+  // old layout put one on every row regardless.
+  const hasDetail = event.data != null;
   return (
-    <div className={`cd-act ${running ? 'running' : failed ? 'failed' : 'done'}`}>
-      <span className="cd-act-icon" aria-hidden="true">
-        {running ? <span className="cd-spinner tiny" /> : failed ? '✕' : '✓'}
-      </span>
-      <span className="cd-act-title">{event.title}</span>
-      {event.detail && <span className="cd-act-detail">{event.detail}</span>}
-      {event.durationMs !== undefined && <span className="cd-act-ms">{(event.durationMs / 1000).toFixed(1)}s</span>}
-      {event.data != null && (
-        <button className="cd-link" onClick={() => setOpen((v) => !v)}>
-          {open ? 'Hide' : 'Details'}
-        </button>
-      )}
+    <div className={`cd-step${running ? ' running' : failed ? ' failed' : ''}`}>
+      {/* The connector. A 1.5px tick between one step and the next is the
+          whole "these happened in order" affordance — no library, no SVG. */}
+      {!first && <span className="cd-step-tick" aria-hidden="true" />}
+      <button
+        className="cd-step-head"
+        onClick={() => hasDetail && setOpen((v) => !v)}
+        aria-expanded={hasDetail ? open : undefined}
+        disabled={!hasDetail}
+      >
+        {/* Status is a tinted disc, not a glyph in the text flow: three
+            states readable at a glance without reading the words. */}
+        <span className="cd-step-dot" aria-hidden="true">
+          {running ? <Loader2 size={12} className="spin-slow" /> : failed ? <AlertCircle size={12} /> : <Check size={12} strokeWidth={2.5} />}
+        </span>
+        <span className="cd-step-label">{event.title}</span>
+        {event.detail && <span className="cd-step-sum">· {event.detail}</span>}
+        {event.durationMs !== undefined && <span className="cd-act-ms">{(event.durationMs / 1000).toFixed(1)}s</span>}
+        {hasDetail && <span className="cd-step-chev">{open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>}
+      </button>
       {/* A SENTENCE, THEN THE PAYLOAD. This was the payload alone, so
           expanding a row traded the one human line for raw state. The JSON is
-          kept deliberately — it is the reason Details exists — but a panel
-          that opens into nothing but a data dump cannot be read by the person
-          the run is for. `detailsText` is shared with the Logs tab so the two
-          cannot describe the same event differently. */}
-      {open && event.data != null && (
-        <div className="cd-act-body">
+          kept deliberately — it is the reason Details exists, and it is the
+          auditability this product is sold on — but a panel that opens into
+          nothing but a data dump cannot be read by the person the run is for.
+          `detailsText` is shared with the Logs tab so the two cannot describe
+          the same event differently. */}
+      {open && hasDetail && (
+        <div className="cd-step-body">
           <p className="cd-act-lead">{detailsText(event)}</p>
           <pre className="cd-act-pre">{JSON.stringify(event.data, null, 1)}</pre>
         </div>
@@ -1320,7 +1422,7 @@ function PreviewRows({ rows }: { rows: PreviewRow[] }) {
               </div>
             </div>
           ) : (
-            <div className={`cd-pv-node ${row.kind}`}>
+            <div className={`cd-pv-node ${row.kind}${row.kind === 'send' ? ` ch-${row.channel.toLowerCase().replace(/[^a-z]/g, '')}` : ''}`}>
               <span className="cd-pv-kind">
                 {row.kind === 'send'
                   ? `${row.channel}${row.fallback ? ` · ${row.fallback} if it fails` : ''}`
@@ -1328,7 +1430,8 @@ function PreviewRows({ rows }: { rows: PreviewRow[] }) {
                     ? 'Ends'
                     : 'Step'}
               </span>
-              <span className="cd-pv-text">{row.text}</span>
+              {row.text && <span className="cd-pv-text">{row.text}</span>}
+              {row.kind === 'send' && row.copy && <MessageMock channel={row.channel} copy={row.copy} cta={row.cta} />}
             </div>
           )}
         </div>
@@ -1364,7 +1467,36 @@ function WorkCard({ label, filled, children }: { label: string; filled: boolean;
 interface BriefView {
   objective?: string;
   successCriteria?: string[];
-  converters?: { shape?: string } | null;
-  barriers?: { statement: string }[];
+  converters?: { shape?: string; basis?: string } | null;
+  /**
+   * `basis` and `quote` are on every barrier the server records and had
+   * never been read here. They are the whole provenance story — whether a
+   * finding is the manager's or the agent's — and the screen showed the
+   * statements with no way to tell them apart.
+   */
+  barriers?: { statement: string; basis?: string; quote?: string }[];
   dimensions?: { name: string; status?: string; note?: string }[];
+}
+
+/**
+ * Where a finding came from.
+ *
+ * THE DATA WAS ALREADY THERE. `server/findings.ts` has recorded
+ * `basis: 'user' | 'user-belief' | 'assumption'` since it was written, and
+ * `recordBarriers` VERIFIES the quote against what the manager actually
+ * typed, downgrading one that does not check out. None of that reached the
+ * screen, so a theory the agent invented and a sentence the manager said
+ * looked identical.
+ *
+ * That distinction is what this product is sold on. It is a chip, not a
+ * footnote.
+ */
+function Basis({ basis, quote }: { basis?: string; quote?: string }) {
+  if (!basis) return null;
+  const theirs = basis === 'user' || basis === 'user-belief';
+  return (
+    <span className={`cd-basis ${theirs ? 'theirs' : 'ours'}`} title={quote ? `"${quote}"` : undefined}>
+      {basis === 'user' ? 'You said this' : basis === 'user-belief' ? 'Your read on it' : 'Our assumption, untested'}
+    </span>
+  );
 }
