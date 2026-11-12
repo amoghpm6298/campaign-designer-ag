@@ -1,7 +1,7 @@
 name: Deploy to product server
 
-# Live at https://campaign-designer.product.hyperface.co (nginx basic-auth gate -> 127.0.0.1:5174, pm2 "campaign-designer").
-# The app's API only exists inside the Vite dev server (server/apiPlugin.ts), so the box runs vite itself (see
+# Live at https://ai.product.hyperface.co/campaigndesigneragent/ (nginx basic-auth gate -> 127.0.0.1:5174, pm2 "campaign-designer").
+# The app's API only exists inside the Vite dev server (server/apiPlugin.ts), so the box runs vite itself with --base /campaigndesigneragent/ (see
 # ~/campaign-designer-ecosystem.config.js there). The server keeps its own .env (ANTHROPIC_API_KEY, ANTHROPIC_MODEL)
 # and the run records it writes under agent-proto/runs/ - neither is synced over or deleted here.
 
@@ -74,5 +74,5 @@ jobs:
 
       - name: Verify public URL (expect 401 = password gate up)
         run: |
-          code=$(curl -s -o /dev/null -w "%{http_code}" https://campaign-designer.product.hyperface.co/designer.html)
+          code=$(curl -s -o /dev/null -w "%{http_code}" https://ai.product.hyperface.co/campaigndesigneragent/designer.html)
           echo "HTTP $code"; [ "$code" = "401" ]

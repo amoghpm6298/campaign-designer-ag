@@ -3,8 +3,14 @@
 import type { Capabilities, DesignerResponse, KnowledgeBase, ChatTurn, Tenant } from './types';
 import type { DripCampaign } from '../data/graphTypes';
 
+/**
+ * '/api/x' under the app's base path. Base is '/' locally and
+ * '/campaigndesigneragent/' when hosted under a sub-path (`vite --base`).
+ */
+export const apiUrl = (path: string) => import.meta.env.BASE_URL.replace(/\/$/, '') + path;
+
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

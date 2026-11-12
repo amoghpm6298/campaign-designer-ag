@@ -4,6 +4,7 @@
 // a POST body. Events are delivered in the order the server emitted them, and
 // a partial frame at a chunk boundary is held back until it completes.
 import type { DesignerResponse, RunEvent } from './types';
+import { apiUrl } from './api';
 
 export interface StreamHandlers {
   onEvent: (e: RunEvent) => void;
@@ -35,7 +36,7 @@ export async function runDesignerStream(
 ): Promise<void> {
   let res: Response;
   try {
-    res = await fetch('/api/designer/stream', {
+    res = await fetch(apiUrl('/api/designer/stream'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),

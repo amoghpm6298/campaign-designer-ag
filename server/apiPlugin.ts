@@ -249,8 +249,12 @@ export function agentApiPlugin(): Plugin {
     name: 'drip-agent-api',
     configureServer(server: ViteDevServer) {
       const load = viteLoader(server);
+      // Hosted under a sub-path (`vite --base /x/`), requests arrive as
+      // /x/api/...; this middleware runs before Vite strips the base.
+      const base = server.config.base.replace(/\/$/, '');
       server.middlewares.use(async (req, res, next) => {
-        const url = (req.url ?? '').split('?')[0];
+        let url = (req.url ?? '').split('?')[0];
+        if (base && url.startsWith(base + '/')) url = url.slice(base.length);
         if (!url.startsWith('/api/')) return next();
         try {
           // The streaming route owns its own response lifecycle.
