@@ -7,7 +7,7 @@ name: Deploy to product server
 
 on:
   push:
-    branches: [designer-standalone]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
