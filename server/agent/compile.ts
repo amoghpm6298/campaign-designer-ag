@@ -1,4 +1,4 @@
-// Plan file → one campaign recipe.
+// Campaign object → one campaign recipe for the builder.
 //
 // The agent never writes the bucket chain. It writes buckets (rule + journey)
 // and a campaign shell; this turns them into one campaign:
@@ -11,7 +11,7 @@
 // First match wins, which is what keeps the buckets mutually exclusive.
 
 import type { BpStep, CampaignBlueprint } from '../blueprint';
-import type { PlanFile } from './types';
+import type { CampaignObject } from './types';
 
 export interface CompileResult {
   blueprint: CampaignBlueprint | null;
@@ -20,12 +20,13 @@ export interface CompileResult {
   bucketsIncluded: string[];
 }
 
-export function planToBlueprint(pf: PlanFile): CompileResult {
+export function planToBlueprint(campaign: CampaignObject): CompileResult {
   const problems: string[] = [];
-  const shell = pf.campaign;
-  if (!shell) return { blueprint: null, problems: ['There is no campaign shell yet. Write it with edit_campaign (entry, goal, membership).'], bucketsIncluded: [] };
+  const shell = campaign;
+  if (!shell.goal && !shell.entry && !shell.membership && !shell.buckets.length)
+    return { blueprint: null, problems: ['There is no campaign yet. Write it with edit_campaign (entry, goal, membership) and edit_bucket.'], bucketsIncluded: [] };
 
-  const ready = pf.buckets
+  const ready = campaign.buckets
     .slice()
     .sort((a, b) => a.priority - b.priority)
     .filter((b) => {

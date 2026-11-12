@@ -1,6 +1,6 @@
 // SSE client for the v2 agent endpoint.
 import { apiUrl } from '../api';
-import type { AgentResponse, AgentState, PlanFile, V2Event } from './types';
+import type { AgentResponse, AgentState, CampaignContext, CampaignObject, V2Event } from './types';
 
 export interface AgentStreamBody {
   sessionId: string;
@@ -74,10 +74,15 @@ export async function runAgentStream(
   }
 }
 
-/** The campaign this chat has on file on the server (null if none yet). */
-export async function fetchCampaign(sessionId: string): Promise<PlanFile | null> {
+export interface Stores {
+  campaign: CampaignObject | null;
+  context: CampaignContext | null;
+}
+
+/** The campaign object and its context, as this chat has them on file on the server. */
+export async function fetchStores(sessionId: string): Promise<Stores> {
   const res = await fetch(apiUrl(`/api/campaign?sessionId=${encodeURIComponent(sessionId)}`));
-  if (!res.ok) return null;
-  const body = (await res.json()) as { campaign?: PlanFile | null };
-  return body.campaign ?? null;
+  if (!res.ok) return { campaign: null, context: null };
+  const body = (await res.json()) as Partial<Stores>;
+  return { campaign: body.campaign ?? null, context: body.context ?? null };
 }

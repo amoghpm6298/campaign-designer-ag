@@ -1,8 +1,12 @@
 // Campaign Designer: behavioural buckets, an isolated journey per bucket.
 // Questions, then a built campaign, then changes through chat. No approvals.
 //
-// One agent, one prompt, every tool. The backend keeps:
-//   - the PLAN FILE: brief, campaign shell, buckets (each with its own journey);
+// One agent, one prompt, every tool. Two stores on disk per chat:
+//   - the CAMPAIGN OBJECT: what the core engine executes (goal, entry,
+//     membership, buckets with rule + journey, everyone else);
+//   - the CAMPAIGN CONTEXT: everything that supports it (answers, brief,
+//     bucket reasoning, sizing, research, later metrics), append-only.
+// And with the conversation:
 //   - the FLAGS: progress booleans that all start false and turn true along the way;
 //   - the TIMELINE: an append-only log of what changed and who changed it.
 // Nothing here blocks the agent. The flags are guidance it reads, not gates.
@@ -45,41 +49,24 @@ export interface AgentQuestion {
   skipped?: boolean;
 }
 
-export interface BriefFinding {
-  /** Short aspect label the agent chose, e.g. "Goal", "Timing", "Offer". */
-  aspect: string;
-  text: string;
-  source: 'manager' | 'assumption' | 'data';
-}
-
 export type Evidence = 'measured' | 'manager' | 'hypothesis';
 
-export interface Bucket {
+// --- the campaign object: what the core engine executes --------------------------
+
+export interface CampaignBucket {
   id: string;
   name: string;
   /** Priority: lower is checked first. First match wins. */
   priority: number;
-  /** Plain-language definition of the behaviour. */
-  behaviour: string;
-  /** The rule the builder evaluates: ANDed entity blocks. */
+  /** The rule the engine evaluates: ANDed entity blocks. */
   rule: BpAudienceGroup[];
-  /** Warehouse only: SQL selecting this bucket's customer_ids, used to size it. */
-  sql?: string;
-  evidence: Evidence;
-  /** The numbers or quotes behind the bucket. */
-  evidenceNotes: string;
-  size?: number;
-  sizeError?: string;
-  /** Why these customers are stuck, and the lever that will move them. */
-  thesis: string;
-  metric: string;
+  /** A no-message share held back to measure this bucket's journey. */
   holdoutPct?: number;
   /** This bucket's isolated journey, from the building blocks. */
   journey: BpStep[] | null;
-  updatedAt: string;
 }
 
-export interface CampaignShell {
+export interface CampaignObject {
   name?: string;
   description?: string;
   /** The event that proves success. Exits anyone who reaches it. */
@@ -88,18 +75,39 @@ export interface CampaignShell {
   entry: { kind: 'audience'; entity: string; conditions?: BpCondition[]; groups?: BpAudienceGroup[] } | null;
   /** Locked: membership fixed at launch. Open: newly matching customers join on the refresh cadence. */
   membership: { type: 'locked' | 'open'; refresh?: 'daily' | 'weekly' | 'monthly' } | null;
-  segmentationLogic?: string;
-  guardrails?: string;
-  measurement?: string;
+  buckets: CampaignBucket[];
   /** What customers in no bucket get: a journey, or deliberately nothing. */
-  everyoneElse?: { approach: 'journey' | 'none'; why?: string; journey?: BpStep[] } | null;
-  updatedAt?: string;
+  everyoneElse: { approach: 'journey' | 'none'; journey?: BpStep[] } | null;
 }
 
-export interface PlanFile {
-  brief: { findings: BriefFinding[]; summary?: string; updatedAt?: string };
-  campaign: CampaignShell | null;
-  buckets: Bucket[];
+// --- the campaign context: everything that supports it ---------------------------
+
+/**
+ * answer: the manager's answer to a question (filed by the app). brief: what the
+ * agent concluded or assumed, by aspect. bucket: a bucket's reasoning (topic
+ * behaviour / thesis / evidence / metric). sizing: a bucket's size from the
+ * warehouse. research: what the data showed. note: campaign-level reasoning
+ * (segmentation, measurement, guardrails, everyone else). metric: results later.
+ */
+export type ContextKind = 'answer' | 'brief' | 'bucket' | 'research' | 'sizing' | 'note' | 'metric';
+export type ContextSource = 'manager' | 'data' | 'assumption' | 'agent';
+
+export interface ContextEntry {
+  id: string;
+  at: string;
+  kind: ContextKind;
+  /** What it is about, e.g. "Incentive", "thesis", "segmentation". */
+  topic: string;
+  bucketId?: string;
+  text: string;
+  source: ContextSource;
+  /** Structured detail, e.g. { level } for evidence, { sql, size } for sizing. */
+  data?: Record<string, unknown>;
+}
+
+/** Append-only. The current value of a (kind, bucket, topic) is its latest entry; history is kept. */
+export interface CampaignContext {
+  entries: ContextEntry[];
 }
 
 export type TimelineActor = 'agent' | 'user' | 'app';
@@ -114,7 +122,8 @@ export type TimelineType =
   | 'bucket_sized'
   | 'journey_edited'
   | 'campaign_built'
-  | 'build_failed';
+  | 'build_failed'
+  | 'context_added';
 
 export interface TimelineEntry {
   at: string;
@@ -126,7 +135,10 @@ export interface TimelineEntry {
 }
 
 export interface AgentState {
-  planFile: PlanFile;
+  /** What the engine executes. Loaded from and saved to disk by the server. */
+  campaign: CampaignObject;
+  /** Everything that supports it. Loaded from and saved to disk by the server. */
+  context: CampaignContext;
   flags: Flags;
   timeline: TimelineEntry[];
   questions: AgentQuestion[];

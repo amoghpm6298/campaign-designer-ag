@@ -84,31 +84,35 @@ function SendCard({ data }: { data: CdNodeData }) {
 
 function BucketCard({ data }: { data: CdNodeData }) {
   const b = data.bucket!;
+  // Execution (name, holdout, journey) comes from the campaign object; the
+  // reasoning and size come from the context.
+  const info = data.info ?? {};
+  const evidence = info.evidence ?? 'hypothesis';
   const size =
-    typeof b.size === 'number'
-      ? `${b.size.toLocaleString('en-IN')} customers`
-      : b.sizeError
+    typeof info.size === 'number'
+      ? `${info.size.toLocaleString('en-IN')} customers`
+      : info.sizeError
         ? 'Not sized'
-        : b.evidence === 'measured'
+        : evidence === 'measured'
           ? 'Sizing…'
           : 'Size unknown (no data warehouse)';
   return (
-    <div className={`dc-node-card size-standard cv-card cv-bucket ev-${b.evidence}`} style={{ width: data.width }}>
+    <div className={`dc-node-card size-standard cv-card cv-bucket ev-${evidence}`} style={{ width: data.width }}>
       <div className="dc-node-type">
         <Icon name="users" />
         <span>Bucket {(data.bucketIndex ?? 0) + 1} · who goes here</span>
-        <span className={`cv-ev ${b.evidence}`}>{EVIDENCE[b.evidence]}</span>
+        <span className={`cv-ev ${evidence}`}>{EVIDENCE[evidence]}</span>
       </div>
       <div className="dc-node-label cv-bucket-name">{b.name}</div>
       <div className="cv-bucket-meta">
         {size}
         {b.holdoutPct ? ` · ${b.holdoutPct}% held back to measure` : ''}
       </div>
-      <p className="cv-bucket-p">{b.behaviour}</p>
-      {b.thesis && (
+      {info.behaviour && <p className="cv-bucket-p">{info.behaviour}</p>}
+      {info.thesis && (
         <p className="cv-bucket-p">
           <b>Why they're stuck: </b>
-          {b.thesis}
+          {info.thesis}
         </p>
       )}
       {!b.journey?.length && <div className="cv-bucket-pending">Journey not designed yet</div>}
@@ -146,7 +150,7 @@ export function CdNode({ data }: { data: CdNodeData }) {
       body = (
         <Card cat="flow" icon="users" data={data} type="Everyone else">
           <div className="dc-node-label">Customers who match no bucket</div>
-          <p className="cv-bucket-p">{ee ? (ee.approach === 'journey' ? 'Get their own journey' : 'Get no messages') : 'Not decided yet'}{ee?.why ? `: ${ee.why}` : ''}</p>
+          <p className="cv-bucket-p">{ee ? (ee.approach === 'journey' ? 'Get their own journey' : 'Get no messages') : 'Not decided yet'}{data.why ? `: ${data.why}` : ''}</p>
         </Card>
       );
       return (

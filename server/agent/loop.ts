@@ -10,8 +10,8 @@ import { issuerContext } from '../blueprint';
 import type { Channel } from '../../src/data/sharedConstants';
 import { systemPrompt, statusBlock } from './prompt';
 import { TOOL_TITLES, runToolCall, toolsFor, type ToolEnv } from './tools';
-import { normaliseState, recordAnswers, recordSkips } from './state';
-import { loadCampaign, saveCampaign } from '../campaignFiles';
+import { emptyCampaign, emptyContext, normaliseState, recordAnswers, recordSkips } from './state';
+import { loadStores, saveCampaignObject, saveContext } from '../campaignFiles';
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
 
@@ -38,27 +38,33 @@ function toApiMessages(messages: AgentRequest['messages']): ApiMessage[] {
   return out;
 }
 
-/** The conversation state with the campaign as it is on disk (empty if this chat has none yet). */
-export function withCampaignFromDisk(state: AgentState, sessionId: string, dir?: string): AgentState {
-  let onDisk = null;
+/** The conversation state with both stores as they are on disk (empty if this chat has none yet). */
+export function withStoresFromDisk(state: AgentState, sessionId: string, dir?: string): AgentState {
+  let stores: { campaign: AgentState['campaign'] | null; context: AgentState['context'] | null } = { campaign: null, context: null };
   try {
-    onDisk = loadCampaign(sessionId, dir);
+    stores = loadStores(sessionId, dir);
   } catch {
     /* not a valid session id: start empty, and nothing will be saved */
   }
-  return { ...state, planFile: onDisk ?? normaliseState(null).planFile };
+  return { ...state, campaign: stores.campaign ?? emptyCampaign(), context: stores.context ?? emptyContext() };
 }
 
-/** Writes the campaign through to disk the moment a tool changes it. */
-export function persistIfChanged(before: AgentState, after: AgentState, sessionId: string, tenantId: string, dir?: string): boolean {
-  if (after.planFile === before.planFile) return false;
+/** Writes whichever store changed through to disk, the moment it changes. Returns which were saved. */
+export function persistIfChanged(before: AgentState, after: AgentState, sessionId: string, tenantId: string, dir?: string): { campaign: boolean; context: boolean } {
+  const saved = { campaign: false, context: false };
   try {
-    saveCampaign(sessionId, tenantId, after.planFile, dir);
-    return true;
+    if (after.campaign !== before.campaign) {
+      saveCampaignObject(sessionId, tenantId, after.campaign, dir);
+      saved.campaign = true;
+    }
+    if (after.context !== before.context) {
+      saveContext(sessionId, tenantId, after.context, dir);
+      saved.context = true;
+    }
   } catch (e) {
     console.error(`[campaign] could not save ${sessionId}: ${(e as Error).message}`);
-    return false;
   }
+  return saved;
 }
 
 export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, AgentResponse> {
@@ -76,7 +82,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
 
   // The campaign itself lives on disk, keyed by this chat's session id. The
   // request carries only the conversation; whatever campaign it sends is ignored.
-  let state: AgentState = withCampaignFromDisk(normaliseState(req.state), req.sessionId);
+  let state: AgentState = withStoresFromDisk(normaliseState(req.state), req.sessionId);
   const base = (extra: Partial<AgentResponse>): AgentResponse => ({
     sessionId: req.sessionId,
     runId,
@@ -96,8 +102,13 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
 
   // --- the manager's answers since the last turn ----------------------------
   const latestUser = [...(req.messages ?? [])].reverse().find((m) => m.role === 'user')?.content ?? '';
-  state = recordAnswers(state, req.answers, req.skipped?.length ? '' : latestUser);
-  state = recordSkips(state, req.skipped);
+  {
+    // The app files the manager's answers (and skips) in the context itself.
+    const before = state;
+    state = recordAnswers(state, req.answers, req.skipped?.length ? '' : latestUser);
+    state = recordSkips(state, req.skipped);
+    persistIfChanged(before, state, req.sessionId, tenant.tenantId);
+  }
 
   // --- context: fixed per tenant, so the system prompt stays cacheable --------
   const knowledge = (req.knowledge as KnowledgeBase | undefined) ?? (seedKnowledgeBase() as KnowledgeBase);
@@ -183,7 +194,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       for (const tu of toolUses) {
         const t0 = Date.now();
         const out = runToolCall(tu.name, tu.input ?? {}, state, env);
-        const planChanged = out.state.planFile !== state.planFile || out.state.flags !== state.flags;
+        const planChanged = out.state.campaign !== state.campaign || out.state.context !== state.context || out.state.flags !== state.flags;
         persistIfChanged(state, out.state, req.sessionId, tenant.tenantId);
         state = out.state;
         if (out.asked) asked.push(...out.asked);
@@ -198,7 +209,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
           data: { tool: tu.name, input: tu.input, result: out.result, round },
         });
         // The canvas fills in live: a snapshot of the plan file after each change.
-        if (planChanged) em.emit('state.updated', 'generating', '', { data: { planFile: state.planFile, flags: state.flags, graph: out.build?.graph ?? null } });
+        if (planChanged) em.emit('state.updated', 'generating', '', { data: { campaign: state.campaign, context: state.context, flags: state.flags, graph: out.build?.graph ?? null } });
         yield* drain();
         results.push({ type: 'tool_result', tool_use_id: tu.id, content: out.forModel, ...(out.ok ? {} : { is_error: true }) });
       }

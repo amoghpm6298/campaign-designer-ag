@@ -21,15 +21,15 @@ import {
   log,
   MAX_QUESTIONS_PER_CALL,
   outline,
+  addContext,
   removeBucket,
-  setBucketSize,
   setFlag,
-  updateBrief,
   updateCampaign,
   upsertBucket,
 } from './state';
 import { AGENT_FLAGS, type AgentQuestion, type AgentState } from './types';
 import type { BpStep } from '../blueprint';
+import { contextKey, currentEntries, entryHistory } from '../../src/designer/v2/contextView';
 
 const STEPS = { type: 'array', items: { $ref: '#/$defs/step' } } as const;
 const GROUP = {
@@ -75,14 +75,14 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'get_campaign',
     title: 'Reading the campaign',
     description:
-      'Read the campaign as it is saved on file. part: "all" (default: brief, campaign shell and every bucket with its journey outline), "brief", "shell", "everyone_else", or a bucket id (that bucket in full, with its journey and each step\'s address). Read before you change something you have not looked at this turn.',
+      'Read the CAMPAIGN OBJECT as it is saved: what the engine will execute, nothing else. part: "all" (default: settings and every bucket with its journey outline), "shell" (settings only), "everyone_else", or a bucket id (that bucket in full, with its journey and each step\'s address for edit_journey).',
     input_schema: { type: 'object', properties: { part: { type: 'string' } } },
   },
   {
     name: 'edit_campaign',
     title: 'Editing the campaign',
     description:
-      'Change campaign-level settings, saved straight to file. Send only what you are changing. brief: what you have learned {findings: [{aspect, text, source: "manager" | "data" | "assumption"}], summary}. name, description; goal {eventCategory, eventType} = the event that proves success (it exits anyone who reaches it); entry = who is eligible at all (everyone who has not reached the goal yet), as {entity, conditions[], groups[]} using real attributes; membership {type: "locked" (fixed as of launch) | "open" (newly matching customers join), refresh: daily|weekly|monthly}; segmentationLogic (why these buckets, in this priority order); guardrails; measurement; everyoneElse {approach: "journey" | "none", why, journey: steps[]} for customers who match no bucket.',
+      'Change campaign settings in the CAMPAIGN OBJECT, saved straight to file. Execution fields only; send only what you are changing. name, description; goal {eventCategory, eventType} = the event that proves success (it exits anyone who reaches it); entry = who is eligible at all (everyone who has not reached the goal yet), as {entity, conditions[], groups[]} using real attributes; membership {type: "locked" (fixed as of launch) | "open" (newly matching customers join), refresh: daily|weekly|monthly}; everyoneElse {approach: "journey" | "none", journey: steps[]} for customers who match no bucket. Reasons and notes go in the context (add_context), not here.',
     input_schema: {
       type: 'object',
       properties: {
@@ -91,26 +91,7 @@ const BASE_TOOLS: ToolDef[] = [
         goal: { type: 'object', properties: { eventCategory: { type: 'string' }, eventType: { type: 'string' }, conditions: { type: 'array', items: CONDITION } }, required: ['eventCategory', 'eventType'] },
         entry: { type: 'object', properties: { entity: { type: 'string' }, conditions: { type: 'array', items: CONDITION }, groups: { type: 'array', items: GROUP } }, required: ['entity'] },
         membership: { type: 'object', properties: { type: { type: 'string', enum: ['locked', 'open'] }, refresh: { type: 'string', enum: ['daily', 'weekly', 'monthly'] } }, required: ['type'] },
-        segmentationLogic: { type: 'string' },
-        guardrails: { type: 'string' },
-        measurement: { type: 'string' },
-        brief: {
-          type: 'object',
-          description: 'What you have learned, filed by aspect. A finding for an aspect replaces the previous one for that aspect.',
-          properties: {
-            findings: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: { aspect: { type: 'string' }, text: { type: 'string' }, source: { type: 'string', enum: ['manager', 'data', 'assumption'] } },
-                required: ['aspect', 'text', 'source'],
-              },
-            },
-            replaceFindings: { type: 'boolean' },
-            summary: { type: 'string' },
-          },
-        },
-        everyoneElse: { type: 'object', properties: { approach: { type: 'string', enum: ['journey', 'none'] }, why: { type: 'string' }, journey: STEPS }, required: ['approach'] },
+        everyoneElse: { type: 'object', properties: { approach: { type: 'string', enum: ['journey', 'none'] }, journey: STEPS }, required: ['approach'] },
       },
       $defs: { step: STEP_DEF },
     },
@@ -119,20 +100,14 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'edit_bucket',
     title: 'Editing a bucket',
     description:
-      'Add, change or remove ONE behavioural bucket, saved straight to file. Match by id; when changing, send only the fields you are changing. remove: true deletes it (with a reason). Fields: id (short slug), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), behaviour (plain-language definition), rule (ANDed entity blocks the builder evaluates, using real attributes from list_audience_attributes), sql (warehouse only: a SELECT returning the bucket\'s customer_id values, used to size it), evidence ("measured" from data, "manager" said it, "hypothesis" your judgement), evidenceNotes (the numbers or quotes behind it), thesis (why they are stuck and the lever that moves them), metric, holdoutPct (0-30, a no-message arm to measure this journey), journey (this bucket\'s own steps). Changing a bucket\'s definition normally means re-thinking its thesis and journey too; for a small change to a journey use edit_journey instead.',
+      'Add, change or remove ONE bucket in the CAMPAIGN OBJECT, saved straight to file. Execution fields only: id (short slug), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0-30, a no-message share to measure this journey), journey (this bucket\'s own steps). Match by id; when changing, send only what changes. remove: true deletes it. The bucket\'s reasoning (behaviour, thesis, evidence, metric) and its sizing go in the context with add_context. For a small change to a journey use edit_journey.',
     input_schema: {
       type: 'object',
       properties: {
         id: { type: 'string' },
         name: { type: 'string' },
         priority: { type: 'number' },
-        behaviour: { type: 'string' },
         rule: { type: 'array', items: GROUP },
-        sql: { type: 'string' },
-        evidence: { type: 'string', enum: ['measured', 'manager', 'hypothesis'] },
-        evidenceNotes: { type: 'string' },
-        thesis: { type: 'string' },
-        metric: { type: 'string' },
         holdoutPct: { type: 'number' },
         journey: STEPS,
         remove: { type: 'boolean', description: 'true = delete this bucket.' },
@@ -140,6 +115,48 @@ const BASE_TOOLS: ToolDef[] = [
       },
       required: ['id'],
       $defs: { step: STEP_DEF },
+    },
+  },
+  {
+    name: 'get_context',
+    title: 'Reading the context',
+    description:
+      'Read the CAMPAIGN CONTEXT: everything behind the campaign that does not execute — the manager\'s answers, the brief (findings and assumptions by aspect, including any incentive), each bucket\'s reasoning and size, research, notes, later results. Returns the current entries (the latest per kind + bucket + topic). Filter by kind, bucketId or topic; history: true returns every version.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['answer', 'brief', 'bucket', 'research', 'sizing', 'note', 'metric'] },
+        bucketId: { type: 'string' },
+        topic: { type: 'string' },
+        history: { type: 'boolean' },
+      },
+    },
+  },
+  {
+    name: 'add_context',
+    title: 'Adding to the context',
+    description:
+      'Add entries to the CAMPAIGN CONTEXT, saved straight to file. Nothing is overwritten: a newer entry on the same kind + bucket + topic becomes the current one and the old one is kept as history. Each entry: {kind, topic, bucketId?, text, source: "manager" | "data" | "assumption" | "agent", data?}. Kinds: "brief" (what you concluded or assumed, topic = aspect such as Goal, Success, Incentive, Timing, Guardrails, Membership); "bucket" (with bucketId; topic "behaviour" = plain-language definition, "thesis" = why stuck and the lever, "evidence" with data {level: "measured" | "manager" | "hypothesis"} and the numbers or quotes as text, "metric"); "sizing" (with bucketId, topic "size", data {sql}: warehouse only, a SELECT returning the bucket\'s customer_id values; the app counts it); "research" (what the data showed); "note" (campaign-level reasoning, topic "segmentation", "measurement", "guardrails" or "everyone_else"). The manager\'s answers are filed by the app as kind "answer".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        entries: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['brief', 'bucket', 'research', 'sizing', 'note', 'metric'] },
+              topic: { type: 'string' },
+              bucketId: { type: 'string' },
+              text: { type: 'string' },
+              source: { type: 'string', enum: ['manager', 'data', 'assumption', 'agent'] },
+              data: { type: 'object' },
+            },
+            required: ['kind', 'topic', 'text'],
+          },
+        },
+      },
+      required: ['entries'],
     },
   },
   {
@@ -233,6 +250,8 @@ export const TOOL_TITLES: Record<string, { running: string; done: string }> = {
   get_campaign: { running: 'Reading the campaign', done: 'Read the campaign' },
   edit_campaign: { running: 'Editing the campaign', done: 'Edited the campaign' },
   edit_bucket: { running: 'Editing a bucket', done: 'Edited a bucket' },
+  get_context: { running: 'Reading the context', done: 'Read the context' },
+  add_context: { running: 'Adding to the context', done: 'Added to the context' },
   set_flags: { running: 'Updating progress', done: 'Updated progress' },
   edit_journey: { running: 'Editing a journey', done: 'Edited a journey' },
   get_table_schema: { running: 'Reading the data warehouse', done: 'Read the data warehouse' },
@@ -273,26 +292,49 @@ const flagLine = (s: AgentState) =>
 
 
 /**
- * The campaign as get_campaign returns it. Journeys come with each step's
- * address, which is what edit_journey takes.
+ * The campaign object as get_campaign returns it. Journeys come with each
+ * step's address, which is what edit_journey takes.
  */
 export function campaignView(state: AgentState, part: string): unknown | null {
-  const pf = state.planFile;
-  const c = pf.campaign;
+  const c = state.campaign;
   const withOutline = (steps: BpStep[] | null | undefined) => (steps?.length ? { journey: steps, outline: outline(steps) } : { journey: null });
-  const shell = c ? { ...c, everyoneElse: c.everyoneElse ? { approach: c.everyoneElse.approach, why: c.everyoneElse.why, outline: outline(c.everyoneElse.journey ?? []) } : null } : null;
-  if (part === 'brief') return pf.brief;
-  if (part === 'shell') return shell;
-  if (part === 'everyone_else') return c?.everyoneElse ? { approach: c.everyoneElse.approach, why: c.everyoneElse.why, ...withOutline(c.everyoneElse.journey) } : null;
+  const { buckets, everyoneElse, ...shell } = c;
+  if (part === 'shell') return { ...shell, everyoneElse: everyoneElse ? { approach: everyoneElse.approach, outline: outline(everyoneElse.journey ?? []) } : null };
+  if (part === 'everyone_else') return everyoneElse ? { approach: everyoneElse.approach, ...withOutline(everyoneElse.journey) } : null;
   if (part === 'all')
     return {
-      brief: pf.brief,
-      campaign: shell,
-      buckets: pf.buckets.map(({ journey, ...b }) => ({ ...b, outline: journey?.length ? outline(journey) : null })),
+      ...shell,
+      everyoneElse: everyoneElse ? { approach: everyoneElse.approach, outline: outline(everyoneElse.journey ?? []) } : null,
+      buckets: buckets.map(({ journey, ...b }) => ({ ...b, outline: journey?.length ? outline(journey) : null })),
       built: state.flags.campaignBuilt,
     };
-  const b = pf.buckets.find((x) => x.id === part);
+  const b = buckets.find((x) => x.id === part);
   return b ? { ...b, ...withOutline(b.journey) } : null;
+}
+
+/** Counts a sizing entry's SQL against the warehouse and records the size (or why it failed) in its data. */
+function sizeEntries(raw: unknown, env: ToolEnv): { entries: unknown[]; lines: string[] } {
+  const list = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? [raw] : [];
+  const lines: string[] = [];
+  const entries = list.map((item) => {
+    const e = (item ?? {}) as { kind?: unknown; bucketId?: unknown; data?: Record<string, unknown> };
+    const sql = typeof e.data?.sql === 'string' ? e.data.sql : undefined;
+    if (e.kind !== 'sizing' || !sql) return item;
+    if (!env.warehouseBank) {
+      lines.push(`${String(e.bucketId ?? '?')}: not sized (no data warehouse for this bank).`);
+      return { ...e, data: { ...e.data, error: 'No data warehouse for this bank' } };
+    }
+    try {
+      const n = countCustomers(env.warehouseBank, sql);
+      lines.push(`${String(e.bucketId ?? '?')}: ${n.toLocaleString('en-IN')} customers.`);
+      return { ...e, data: { ...e.data, size: n } };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      lines.push(`${String(e.bucketId ?? '?')}: the SQL failed (${msg}); fix it and add the sizing again.`);
+      return { ...e, data: { ...e.data, error: msg } };
+    }
+  });
+  return { entries, lines };
 }
 
 export function runToolCall(name: string, input: Record<string, unknown>, state: AgentState, env: ToolEnv): ToolOutcome {
@@ -316,72 +358,70 @@ export function runToolCall(name: string, input: Record<string, unknown>, state:
     case 'get_campaign': {
       const part = typeof input.part === 'string' && input.part.trim() ? input.part.trim() : 'all';
       const view = campaignView(state, part);
-      if (!view) return { state, ok: false, forModel: `No part "${part}". Use all, brief, shell, everyone_else, or one of these bucket ids: ${state.planFile.buckets.map((b) => b.id).join(', ') || '(none yet)'}.`, summary: `No part "${part}"` };
+      if (!view) return { state, ok: false, forModel: `No part "${part}". Use all, shell, everyone_else, or one of these bucket ids: ${state.campaign.buckets.map((b) => b.id).join(', ') || '(none yet)'}.`, summary: `No part "${part}"` };
       return { state, ok: true, doneTitle: part === 'all' ? 'Read the campaign' : `Read the campaign (${part})`, summary: part, result: view, forModel: JSON.stringify(view) };
     }
 
     case 'edit_campaign': {
-      const { brief, ...shell } = input as { brief?: Record<string, unknown> } & Record<string, unknown>;
-      const hasShell = Object.values(shell).some((v) => v !== undefined);
-      if (!brief && !hasShell) return { state, ok: false, forModel: 'Nothing to change: send brief and/or the campaign fields you are changing.', summary: 'Nothing to change' };
-      let next = state;
-      const said: string[] = [];
-      if (brief) {
-        const res = updateBrief(next, brief);
-        if (res.error) return { state, ok: false, forModel: `Not saved: ${res.error}`, summary: res.error };
-        next = res.state;
-        said.push(res.said);
-      }
-      if (hasShell) {
-        const res = updateCampaign(next, shell);
-        if (res.error) return { state, ok: false, forModel: `Not saved: ${res.error}`, summary: res.error };
-        next = res.state;
-        said.push(res.said);
-      }
-      return {
-        state: next,
-        ok: true,
-        doneTitle: hasShell ? 'Edited the campaign' : 'Updated the brief',
-        summary: said.join(' '),
-        result: { ...(brief ? { brief: next.planFile.brief } : {}), ...(hasShell ? { campaign: next.planFile.campaign } : {}) },
-        forModel: `Saved. ${said.join(' ')} Flags now: ${flagLine(next)}.`,
-      };
+      const res = updateCampaign(state, input);
+      if (res.error) return { state, ok: false, forModel: `Not saved: ${res.error}`, summary: res.error };
+      const { buckets: _b, ...shell } = res.state.campaign;
+      void _b;
+      return { state: res.state, ok: true, doneTitle: 'Edited the campaign', summary: res.said, result: shell, forModel: `Saved. ${res.said} Flags now: ${flagLine(res.state)}.` };
     }
 
     case 'edit_bucket': {
       if (input.remove === true) {
         const res = removeBucket(state, String(input.id ?? ''), typeof input.reason === 'string' ? input.reason : '');
         if (res.error) return { state, ok: false, forModel: res.error, summary: res.error };
-        return { state: res.state, ok: true, doneTitle: 'Removed a bucket', summary: String(input.id), forModel: `Removed and saved. Buckets now: ${res.state.planFile.buckets.map((x) => x.id).join(', ') || 'none'}.` };
+        return { state: res.state, ok: true, doneTitle: 'Removed a bucket', summary: String(input.id), forModel: `Removed and saved. Buckets now: ${res.state.campaign.buckets.map((x) => x.id).join(', ') || 'none'}. Its context is kept as history.` };
       }
       const { remove: _r, reason: _why, ...fields } = input;
       void _r;
       void _why;
-      const isNew = !state.planFile.buckets.some((b) => b.id === fields.id);
-      let next = state;
-      const res = upsertBucket(next, fields);
+      const isNew = !state.campaign.buckets.some((b) => b.id === fields.id);
+      const res = upsertBucket(state, fields);
       if (res.error || !res.bucket) return { state, ok: false, forModel: `Not saved: ${res.error}`, summary: res.error ?? 'Not saved' };
-      next = res.state;
-      let sizeLine = '';
-      if (env.warehouseBank && res.bucket.sql && res.bucket.size === undefined) {
-        try {
-          const n = countCustomers(env.warehouseBank, res.bucket.sql);
-          next = setBucketSize(next, res.bucket.id, n);
-          sizeLine = ` Sized from your SQL: ${n.toLocaleString('en-IN')} customers.`;
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          next = setBucketSize(next, res.bucket.id, null, msg);
-          sizeLine = ` Its SQL failed, so it is not sized: ${msg}. Fix the sql and edit the bucket again.`;
-        }
-      }
-      const b = next.planFile.buckets.find((x) => x.id === res.bucket!.id)!;
+      const b = res.bucket;
       return {
-        state: next,
+        state: res.state,
         ok: true,
         doneTitle: `${isNew ? 'Added' : 'Updated'} bucket "${b.name}"`,
-        summary: [b.size !== undefined ? `${b.size.toLocaleString('en-IN')} customers` : '', b.evidence, b.journey?.length ? `${b.journey.length}-step journey` : ''].filter(Boolean).join(' · '),
-        result: { name: b.name, priority: b.priority, behaviour: b.behaviour, evidence: b.evidence, size: b.size, thesis: b.thesis, rule: b.rule, journeySteps: b.journey?.length ?? 0 },
-        forModel: `Saved. ${res.said}${sizeLine} Buckets now: ${next.planFile.buckets.map((x) => `${x.priority}. ${x.id}${x.size !== undefined ? ` (${x.size})` : ''}${x.journey?.length ? ' [journey]' : ''}`).join('; ')}.`,
+        summary: [b.journey?.length ? `${b.journey.length}-step journey` : 'no journey yet', b.holdoutPct ? `${b.holdoutPct}% holdout` : ''].filter(Boolean).join(' · '),
+        result: { id: b.id, name: b.name, priority: b.priority, rule: b.rule, holdoutPct: b.holdoutPct, journeySteps: b.journey?.length ?? 0 },
+        forModel: `Saved. ${res.said} Buckets now: ${res.state.campaign.buckets.map((x) => `${x.priority}. ${x.id}${x.journey?.length ? ' [journey]' : ''}`).join('; ')}.${isNew ? ' File its reasoning (behaviour, thesis, evidence, metric) with add_context.' : ''}`,
+      };
+    }
+
+    case 'get_context': {
+      const filter = {
+        ...(typeof input.kind === 'string' ? { kind: input.kind } : {}),
+        ...(typeof input.bucketId === 'string' ? { bucketId: input.bucketId } : {}),
+        ...(typeof input.topic === 'string' ? { topic: input.topic } : {}),
+      };
+      const list = input.history === true ? entryHistory(state.context.entries, filter) : currentEntries(state.context.entries, filter);
+      const view = list.map(({ id, at, kind, topic, bucketId, text, source, data }) => ({ id, at, kind, topic, ...(bucketId ? { bucketId } : {}), text, source, ...(data ? { data } : {}) }));
+      return { state, ok: true, doneTitle: 'Read the context', summary: `${view.length} entr${view.length === 1 ? 'y' : 'ies'}`, result: view, forModel: view.length ? JSON.stringify(view) : 'Nothing in the context matches.' };
+    }
+
+    case 'add_context': {
+      const sized = sizeEntries(input.entries, env);
+      const res = addContext(state, sized.entries);
+      if (!res.added.length) return { state, ok: false, forModel: 'Nothing added: each entry needs kind, topic and text.', summary: 'Nothing added' };
+      // Say plainly when an entry took over a slot that already had a current value.
+      const before = new Map(currentEntries(state.context.entries).map((e) => [contextKey(e), e]));
+      const replaced = res.added
+        .map((e) => before.get(contextKey(e)))
+        .filter((e): e is NonNullable<typeof e> => !!e && e.kind !== 'sizing')
+        .map((e) => `${e.kind}${e.bucketId ? `/${e.bucketId}` : ''} "${e.topic}" (was: "${e.text.slice(0, 120)}")`);
+      const kinds = [...new Set(res.added.map((e) => e.kind))];
+      return {
+        state: res.state,
+        ok: true,
+        doneTitle: `Added to the context (${kinds.join(', ')})`,
+        summary: res.added.map((e) => `${e.bucketId ? `${e.bucketId} · ` : ''}${e.topic}`).join('; ').slice(0, 160),
+        result: res.added,
+        forModel: `Saved ${res.added.length} entr${res.added.length === 1 ? 'y' : 'ies'}${res.dropped ? ` (${res.dropped} dropped: missing kind, topic or text)` : ''}.${sized.lines.length ? ` Sizing: ${sized.lines.join(' ')}` : ''}${replaced.length ? ` These REPLACED the current entry on the same topic (the old one is kept only as history): ${replaced.join('; ')}. If you meant to add a new fact rather than update that one, add the old text back and give the new fact its own topic.` : ''}`,
       };
     }
 
@@ -464,7 +504,7 @@ export function runToolCall(name: string, input: Record<string, unknown>, state:
 
 function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
   let next = state;
-  const compiled = planToBlueprint(next.planFile);
+  const compiled = planToBlueprint(next.campaign);
   if (!compiled.blueprint) {
     next = log(next, 'app', 'build_failed', compiled.problems.join(' '));
     return { state: next, ok: false, forModel: `Nothing to build: ${compiled.problems.join(' ')}`, summary: 'Nothing to build', result: compiled.problems };

@@ -1,6 +1,6 @@
-// The campaign agent: backend record (flags, timeline, brief, campaign shell,
-// buckets, sign-offs), the toolkit, the plan → campaign compiler, the
-// warehouse tools and the prompt. Nothing here calls a model.
+// The campaign agent: the campaign object and its context, flags, timeline,
+// questions, the toolkit, the campaign → builder compiler, the warehouse tools
+// and the prompt. Nothing here calls a model.
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import {
@@ -57,11 +57,7 @@ function twoBuckets(): AgentState {
     id: 'electronics',
     name: 'Electronics spenders',
     priority: 1,
-    behaviour: 'Recent electronics purchases, no EMI',
     rule: [{ entity: 'Transaction', conditions: [], lookbackDays: 30, existence: 'exists' }],
-    evidence: 'hypothesis',
-    thesis: 'Unaware the purchase qualifies',
-    metric: 'EMI conversions',
     holdoutPct: 10,
     journey,
   }).state;
@@ -69,11 +65,7 @@ function twoBuckets(): AgentState {
     id: 'dormant',
     name: 'Dormant',
     priority: 2,
-    behaviour: 'No spend in 90 days',
     rule: [{ entity: 'Transaction', conditions: [], lookbackDays: 90, existence: 'none' }],
-    evidence: 'manager',
-    thesis: 'Forgot the card',
-    metric: 'First spend',
     journey,
   }).state;
   return s;
@@ -118,16 +110,16 @@ describe('flags and questions', () => {
 describe('buckets, rebuilds and precise edits', () => {
   it('keeps buckets in priority order', () => {
     let s = twoBuckets();
-    s = upsertBucket(s, { id: 'travel', name: 'Travel', priority: 0, behaviour: 'Travel spenders', rule: [], evidence: 'hypothesis' }).state;
-    expect(s.planFile.buckets.map((b) => b.id)).toEqual(['travel', 'electronics', 'dormant']);
+    s = upsertBucket(s, { id: 'travel', name: 'Travel', priority: 0, rule: [] }).state;
+    expect(s.campaign.buckets.map((b) => b.id)).toEqual(['travel', 'electronics', 'dormant']);
   });
 
   it('there are no approvals: changing a bucket after a build only marks the campaign out of date', () => {
     let s = runToolCall('build_campaign', {}, twoBuckets(), env()).state;
     expect(s.flags.campaignBuilt).toBe(true);
-    s = upsertBucket(s, { id: 'dormant', behaviour: 'No spend in 120 days' }).state;
+    s = upsertBucket(s, { id: 'dormant', rule: [{ entity: 'Transaction', conditions: [], lookbackDays: 120, existence: 'none' }] }).state;
     expect(s.flags.campaignBuilt).toBe(false);
-    expect(s.planFile.buckets.find((b) => b.id === 'electronics')!.journey).toEqual(journey);
+    expect(s.campaign.buckets.find((b) => b.id === 'electronics')!.journey).toEqual(journey);
   });
 
   it('the outline gives every step an address, including inside forks', () => {
@@ -163,10 +155,10 @@ describe('buckets, rebuilds and precise edits', () => {
     s = runToolCall('build_campaign', {}, s, env()).state;
     const out = runToolCall('edit_journey', { bucketId: 'dormant', operations: [{ op: 'replace', path: '0.arms.1.steps.0', step: send('B1 new', 'SMS') }] }, s, env());
     expect(out.ok).toBe(true);
-    const b = out.state.planFile.buckets.find((x) => x.id === 'dormant')!;
+    const b = out.state.campaign.buckets.find((x) => x.id === 'dormant')!;
     const arm = (b.journey![0] as Extract<BpStep, { kind: 'experiment' }>).arms[1];
     expect((arm.steps[0] as { name: string }).name).toBe('B1 new');
-    expect(out.state.planFile.buckets.find((x) => x.id === 'electronics')!.journey).toEqual(journey);
+    expect(out.state.campaign.buckets.find((x) => x.id === 'electronics')!.journey).toEqual(journey);
     expect(out.state.flags.campaignBuilt).toBe(false);
   });
 
@@ -178,7 +170,7 @@ describe('buckets, rebuilds and precise edits', () => {
 
 describe('plan → one campaign', () => {
   it('compiles a first-match chain of Audience-rule conditions, with a holdout split, that the builder accepts', () => {
-    const { blueprint, bucketsIncluded } = planToBlueprint(twoBuckets().planFile);
+    const { blueprint, bucketsIncluded } = planToBlueprint(twoBuckets().campaign);
     expect(bucketsIncluded).toEqual(['Electronics spenders', 'Dormant']);
     expect(blueprint!.entry).toMatchObject({ kind: 'audience', repeat: { every: 'weekly' } });
     const first = blueprint!.steps[0] as Extract<BpStep, { kind: 'condition' }>;
@@ -199,12 +191,12 @@ describe('plan → one campaign', () => {
 
   it('locked membership is a single pull at launch', () => {
     const s = updateCampaign(twoBuckets(), { membership: { type: 'locked' } }).state;
-    expect(planToBlueprint(s.planFile).blueprint!.entry).not.toHaveProperty('repeat');
+    expect(planToBlueprint(s.campaign).blueprint!.entry).not.toHaveProperty('repeat');
   });
 
   it('reports buckets it cannot build instead of guessing', () => {
-    const s = upsertBucket(twoBuckets(), { id: 'nojourney', name: 'No journey yet', behaviour: 'x', rule: [{ entity: 'Customer', conditions: [] }] }).state;
-    expect(planToBlueprint(s.planFile).problems.join(' ')).toMatch(/No journey yet/);
+    const s = upsertBucket(twoBuckets(), { id: 'nojourney', name: 'No journey yet', rule: [{ entity: 'Customer', conditions: [] }] }).state;
+    expect(planToBlueprint(s.campaign).problems.join(' ')).toMatch(/No journey yet/);
   });
 });
 
@@ -246,12 +238,13 @@ describe('the warehouse', () => {
     const q = runToolCall('run_sql_query', { sql: 'SELECT category, COUNT(*) AS n FROM transactions GROUP BY category ORDER BY n DESC', purpose: 'categories' }, initialState(), env(true));
     expect(q.ok).toBe(true);
     const sized = runToolCall(
-      'edit_bucket',
-      { id: 'elec', name: 'Electronics', behaviour: 'x', evidence: 'measured', sql: "SELECT DISTINCT customer_id FROM transactions WHERE category = 'electronics'" },
+      'add_context',
+      { entries: [{ kind: 'sizing', bucketId: 'elec', topic: 'size', text: '', data: { sql: "SELECT DISTINCT customer_id FROM transactions WHERE category = 'electronics'" } }] },
       initialState(),
       env(true),
     );
-    expect(sized.state.planFile.buckets[0].size).toBeGreaterThan(1000);
+    expect(sized.ok).toBe(true);
+    expect(sized.state.context.entries[0].data?.size).toBeGreaterThan(1000);
   });
 });
 

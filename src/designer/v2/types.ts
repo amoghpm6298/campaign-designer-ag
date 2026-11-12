@@ -26,12 +26,6 @@ export interface AgentQuestion {
   answer?: string;
 }
 
-export interface BriefFinding {
-  aspect: string;
-  text: string;
-  source: 'manager' | 'assumption' | 'data';
-}
-
 export interface AudienceGroup {
   entity: string;
   conditions?: { attribute: string; operator: string; value?: string }[];
@@ -39,39 +33,41 @@ export interface AudienceGroup {
   existence?: 'exists' | 'none';
 }
 
-export interface Bucket {
+/** One bucket in the campaign object: execution fields only. */
+export interface CampaignBucket {
   id: string;
   name: string;
   priority: number;
-  behaviour: string;
   rule: AudienceGroup[];
-  sql?: string;
-  evidence: 'measured' | 'manager' | 'hypothesis';
-  evidenceNotes: string;
-  size?: number;
-  sizeError?: string;
-  thesis: string;
-  metric: string;
   holdoutPct?: number;
   journey: unknown[] | null;
 }
 
-export interface CampaignShell {
+/** What the core engine executes. Saved on the server, per chat. */
+export interface CampaignObject {
   name?: string;
   description?: string;
   goal: { eventCategory: string; eventType: string } | null;
   entry: { kind: 'audience'; entity: string; conditions?: unknown[]; groups?: AudienceGroup[] } | null;
   membership: { type: 'locked' | 'open'; refresh?: 'daily' | 'weekly' | 'monthly' } | null;
-  segmentationLogic?: string;
-  guardrails?: string;
-  measurement?: string;
-  everyoneElse?: { approach: 'journey' | 'none'; why?: string; journey?: unknown[] } | null;
+  buckets: CampaignBucket[];
+  everyoneElse: { approach: 'journey' | 'none'; journey?: unknown[] } | null;
 }
 
-export interface PlanFile {
-  brief: { findings: BriefFinding[]; summary?: string };
-  campaign: CampaignShell | null;
-  buckets: Bucket[];
+export interface ContextEntry {
+  id: string;
+  at: string;
+  kind: 'answer' | 'brief' | 'bucket' | 'research' | 'sizing' | 'note' | 'metric';
+  topic: string;
+  bucketId?: string;
+  text: string;
+  source: 'manager' | 'data' | 'assumption' | 'agent';
+  data?: Record<string, unknown>;
+}
+
+/** Everything that supports the campaign. Append-only, saved on the server, per chat. */
+export interface CampaignContext {
+  entries: ContextEntry[];
 }
 
 export interface TimelineEntry {
@@ -82,7 +78,8 @@ export interface TimelineEntry {
 }
 
 export interface AgentState {
-  planFile: PlanFile;
+  campaign: CampaignObject;
+  context: CampaignContext;
   flags: Record<FlagName, boolean>;
   timeline: TimelineEntry[];
   questions: AgentQuestion[];

@@ -1,14 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { buildCanvasModel, diffChangedSteps, fmtWait, waitHours } from '../../src/designer/v2/canvasModel';
-import type { Bucket, PlanFile } from '../../src/designer/v2/types';
+import type { CampaignBucket, CampaignObject } from '../../src/designer/v2/types';
+import { planToBlueprint } from '../../server/agent/compile';
+import { buildFromBlueprint } from '../../server/blueprint';
 
 const send = (name: string, extra: Record<string, unknown> = {}) => ({ kind: 'send', name, stage: 'first-touch', describe: name, channelPreference: ['WHATSAPP'], ...extra });
-const bucket = (id: string, priority: number, journey: unknown[] | null, extra: Partial<Bucket> = {}): Bucket => ({
-  id, name: id, priority, behaviour: '', rule: [], evidence: 'hypothesis', evidenceNotes: '', thesis: '', metric: '', journey, ...extra,
+const bucket = (id: string, priority: number, journey: unknown[] | null, extra: Partial<CampaignBucket> = {}): CampaignBucket => ({
+  id, name: id, priority, rule: [{ entity: 'Card', conditions: [] }], journey, ...extra,
 });
-const plan = (buckets: Bucket[], ee: unknown = { approach: 'none' }): PlanFile => ({
-  brief: { findings: [] },
-  campaign: { name: 'C', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: null, membership: { type: 'open', refresh: 'daily' }, everyoneElse: ee as never },
+const plan = (buckets: CampaignBucket[], ee: unknown = { approach: 'none' }): CampaignObject => ({
+  name: 'C',
+  goal: { eventCategory: 'Card Events', eventType: 'Card Activated' },
+  entry: { kind: 'audience', entity: 'Card' },
+  membership: { type: 'open', refresh: 'daily' },
+  everyoneElse: ee as never,
   buckets,
 });
 
@@ -49,7 +54,8 @@ describe('canvas model', () => {
     expect(labels).toEqual(expect.arrayContaining(['Benefit · 50%', 'Simple · 50%', 'Read, no action', 'Anything else', 'Yes', 'No']));
     const ids = m.nodes.map((n) => n.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(expect.arrayContaining(['b1:0.arms.0.steps.0', 'b1:0.arms.1.steps.0', 'b1:1.paths.0.steps.0', 'b1:2.yes.0']));
+    // The branch and condition follow the experiment, so the builder puts them on each arm, and so does the canvas.
+    expect(ids).toEqual(expect.arrayContaining(['b1:0.arms.0.steps.0', 'b1:0.arms.1.steps.0', 'b1:1.paths.0.steps.0#1', 'b1:1.paths.0.steps.0#2', 'b1:2.yes.0#1']));
   });
 
   it('gives everyone else its own journey when it has one', () => {
@@ -59,7 +65,7 @@ describe('canvas model', () => {
 
   it('is empty before there is anything to draw', () => {
     expect(buildCanvasModel(null).nodes).toHaveLength(0);
-    expect(buildCanvasModel({ brief: { findings: [] }, campaign: null, buckets: [] }).nodes).toHaveLength(0);
+    expect(buildCanvasModel({ goal: null, entry: null, membership: null, buckets: [], everyoneElse: null }).nodes).toHaveLength(0);
   });
 
   it('flags only the step that changed', () => {
@@ -76,5 +82,53 @@ describe('canvas model', () => {
     expect(fmtWait(waitHours({ durationHours: 48 }))).toBe('Wait 2 days');
     expect(fmtWait(waitHours({ delayDays: 3 }))).toBe('Wait 3 days');
     expect(fmtWait(waitHours({ durationHours: 6 }))).toBe('Wait 6 hours');
+  });
+});
+
+describe('the canvas draws what the builder builds', () => {
+  const builderSends = (c: CampaignObject) => {
+    const bp = planToBlueprint(c as never).blueprint!;
+    const g = buildFromBlueprint(bp, { availableChannels: ['SMS', 'WHATSAPP'], templateLibraryAccess: 'unavailable' }).graph as { nodes: Record<string, { type: string }> };
+    return Object.values(g.nodes).filter((n) => n.type === 'SEND').length;
+  };
+  const canvasSends = (c: CampaignObject) => buildCanvasModel(c).nodes.filter((n) => n.data.kind === 'send').length;
+
+  it('a final reminder after a branch is on each open path, as built', () => {
+    const c = plan([
+      bucket('b1', 1, [
+        send('First'),
+        { kind: 'wait', durationHours: 48 },
+        { kind: 'branch', label: 'What did they do', paths: [{ label: 'Read, no action', statuses: ['READ'], steps: [send('Different angle')] }, { label: 'Not opened', statuses: ['DELIVERED'], steps: [send('Same fact again', { channelPreference: ['SMS'] })] }] },
+        { kind: 'wait', durationHours: 72 },
+        send('Final reminder'),
+      ]),
+    ]);
+    expect(canvasSends(c)).toBe(5);
+    expect(canvasSends(c)).toBe(builderSends(c));
+    const finals = buildCanvasModel(c).nodes.filter((n) => n.data.kind === 'send' && n.data.path === '4');
+    expect(finals.map((n) => n.id)).toEqual(['b1:4#1', 'b1:4#2']);
+  });
+
+  it('the same after an experiment and after a condition', () => {
+    const c = plan([
+      bucket('b1', 1, [
+        { kind: 'experiment', label: 'Wording', tests: 'wording', arms: [{ label: 'A', pct: 50, steps: [send('A')] }, { label: 'B', pct: 50, steps: [send('B')] }] },
+        send('After the test'),
+      ]),
+      bucket('b2', 2, [{ kind: 'condition', label: 'Has a card?', audience: { name: 'Card holders', groups: [{ entity: 'Card', conditions: [] }] }, yes: [send('Yes')], no: [send('No')] }, send('After the check')]),
+    ]);
+    expect(canvasSends(c)).toBe(8);
+    expect(canvasSends(c)).toBe(builderSends(c));
+  });
+
+  it('a change after a fork lights up every copy', () => {
+    const j = (ch: string) => [
+      { kind: 'branch', label: 'x', paths: [{ label: 'Read', statuses: ['READ'], steps: [send('R')] }, { label: 'Not read', statuses: ['DELIVERED'], steps: [send('N')] }] },
+      send('Final', { channelPreference: [ch] }),
+    ];
+    const changed = diffChangedSteps(plan([bucket('b1', 1, j('SMS'))]), plan([bucket('b1', 1, j('WHATSAPP'))]));
+    expect([...changed]).toEqual(['b1:1']);
+    const lit = buildCanvasModel(plan([bucket('b1', 1, j('WHATSAPP'))]), null, changed).nodes.filter((n) => n.data.changed);
+    expect(lit.map((n) => n.id)).toEqual(['b1:1#1', 'b1:1#2']);
   });
 });

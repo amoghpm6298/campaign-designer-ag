@@ -8,7 +8,7 @@ import '../../canvas/dripCanvas.css';
 import { dripEdgeTypes } from '../../canvas/DripEdge';
 import { buildCanvasModel, type CNodeKind } from './canvasModel';
 import { cdNodeTypes, type CdNodeData } from './canvasNodes';
-import type { PlanFile } from './types';
+import type { CampaignContext, CampaignObject } from './types';
 
 const MINI: Partial<Record<CNodeKind, string>> = {
   entry: '#0a66ef',
@@ -23,20 +23,21 @@ const MINI: Partial<Record<CNodeKind, string>> = {
 };
 
 interface Props {
-  planFile: PlanFile | null | undefined;
+  campaign: CampaignObject | null | undefined;
+  context: CampaignContext | null | undefined;
   changed: Set<string>;
   /** Centre on this node; `n` changes on every request so the same node can be asked for twice. */
   focus?: { id: string; n: number } | null;
   onOpenNode?: (id: string) => void;
 }
 
-function Inner({ planFile, changed, focus, onOpenNode }: Props) {
+function Inner({ campaign, context, changed, focus, onOpenNode }: Props) {
   const measured = useRef<Record<string, number>>({});
   const [tick, setTick] = useState(0);
-  const model = useMemo(() => buildCanvasModel(planFile, changed, measured.current),
+  const model = useMemo(() => buildCanvasModel(campaign, context, changed, measured.current),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [planFile, changed, tick]);
-  const goalText = planFile?.campaign?.goal ? `${planFile.campaign.goal.eventType}?` : undefined;
+    [campaign, context, changed, tick]);
+  const goalText = campaign?.goal ? `${campaign.goal.eventType}?` : undefined;
 
   const modelNodes: Node[] = useMemo(
     () =>

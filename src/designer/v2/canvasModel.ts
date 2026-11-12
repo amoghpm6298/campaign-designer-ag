@@ -1,13 +1,17 @@
-// Plan file → canvas nodes and edges, laid out as bucket columns.
+// Campaign object (+ its context, for the bucket cards' text) → canvas nodes
+// and edges, laid out as bucket columns.
 //
 // The built campaign is one graph: entry → bucket 1 rule? → … (first match
 // wins). Drawn as a plain top-to-bottom graph that chain becomes a deepening
 // staircase, so the canvas draws it the way a manager thinks about it: the
 // entry on top, then one column per bucket (checked left to right), each with
-// its own flow below. Pure: no React, unit-tested.
+// its own flow below. It draws exactly what the builder builds: a step that
+// follows a fork with several open paths appears once on each path.
+// Pure: no React, unit-tested.
 
 import dagre from '@dagrejs/dagre';
-import type { Bucket, PlanFile } from './types';
+import { bucketContext, noteText, type BucketView } from './contextView';
+import type { CampaignBucket, CampaignContext, CampaignObject } from './types';
 
 export type CNodeKind =
   | 'entry'
@@ -54,9 +58,13 @@ export interface CNodeData extends Record<string, unknown> {
   /** The step's address inside its bucket journey, e.g. "2.paths.1.steps.0". */
   path?: string;
   step?: CStep;
-  bucket?: Bucket;
+  bucket?: CampaignBucket;
+  /** The bucket's reasoning and size, from the context. */
+  info?: BucketView;
   bucketIndex?: number;
-  campaign?: PlanFile['campaign'];
+  campaign?: CampaignObject;
+  /** Everyone else: why, from the context. */
+  why?: string;
   holdoutPct?: number;
   changed?: boolean;
   /** Short text for exits and the everyone-else card. */
@@ -120,21 +128,24 @@ interface LaneBuild {
   edges: CEdge[];
 }
 
-/** Adds a sequence of steps; returns the ids the next step should connect from. */
-function addSeq(
-  lane: string,
-  steps: CStep[] | undefined,
-  from: { id: string; label?: string }[],
-  prefix: string,
-  out: LaneBuild,
-  changed: Set<string>,
-): { id: string; label?: string }[] {
+type Tail = { id: string; label?: string };
+
+/**
+ * Adds a sequence of steps; returns the ids the next step should connect from.
+ * `copy` marks a duplicate made because the sequence follows a fork: the
+ * builder cannot join paths back together, so it puts the rest of the
+ * sequence on each open path, and so does the canvas.
+ */
+function addSeq(lane: string, steps: CStep[] | undefined, from: Tail[], prefix: string, out: LaneBuild, changed: Set<string>, copy = '', start = 0): Tail[] {
   let tails = from;
-  (steps ?? []).forEach((st, i) => {
+  const list = steps ?? [];
+  for (let i = start; i < list.length; i++) {
+    if (tails.length > 1) return tails.flatMap((t, k) => addSeq(lane, list, [t], prefix, out, changed, `${copy}#${k + 1}`, i));
+    const st = list[i];
     const path = `${prefix}${i}`;
-    const id = `${lane}:${path}`;
+    const id = `${lane}:${path}${copy}`;
     const kind = (['send', 'wait', 'waitForEvent', 'branch', 'experiment', 'condition', 'exit'].includes(String(st.kind)) ? st.kind : 'exit') as CNodeKind;
-    out.nodes.push({ id, data: { kind, lane, path, step: st, changed: changed.has(id), ...(kind === 'exit' ? { text: st.reason ?? '' } : {}) } });
+    out.nodes.push({ id, data: { kind, lane, path, step: st, changed: changed.has(`${lane}:${path}`), ...(kind === 'exit' ? { text: st.reason ?? '' } : {}) } });
     for (const t of tails) out.edges.push({ id: `e:${t.id}->${id}`, source: t.id, target: id, ...(t.label ? { label: t.label } : {}) });
 
     if (kind === 'send') {
@@ -148,13 +159,13 @@ function addSeq(
       tails = (st.arms ?? []).flatMap((a, ai) => {
         const label = `${a.label ?? `Arm ${ai + 1}`}${typeof a.pct === 'number' ? ` · ${a.pct}%` : ''}`;
         if (!a.steps?.length) return [{ id, label }];
-        return addSeq(lane, a.steps, [{ id, label }], `${path}.arms.${ai}.steps.`, out, changed);
+        return addSeq(lane, a.steps, [{ id, label }], `${path}.arms.${ai}.steps.`, out, changed, copy);
       });
     } else if (kind === 'branch') {
       const armTails = (st.paths ?? []).flatMap((p, pi) => {
         const label = p.label ?? `Path ${pi + 1}`;
         if (!p.steps?.length) return [{ id, label }];
-        return addSeq(lane, p.steps, [{ id, label }], `${path}.paths.${pi}.steps.`, out, changed);
+        return addSeq(lane, p.steps, [{ id, label }], `${path}.paths.${pi}.steps.`, out, changed, copy);
       });
       // The builder's catch-all arm: anyone whose status matched no path.
       const ex = `${id}:else`;
@@ -162,13 +173,13 @@ function addSeq(
       out.edges.push({ id: `e:${id}->${ex}`, source: id, target: ex, label: 'Anything else' });
       tails = armTails;
     } else if (kind === 'condition') {
-      const y = st.yes?.length ? addSeq(lane, st.yes, [{ id, label: 'Yes' }], `${path}.yes.`, out, changed) : [{ id, label: 'Yes' }];
-      const n = st.no?.length ? addSeq(lane, st.no, [{ id, label: 'No' }], `${path}.no.`, out, changed) : [{ id, label: 'No' }];
+      const y = st.yes?.length ? addSeq(lane, st.yes, [{ id, label: 'Yes' }], `${path}.yes.`, out, changed, copy) : [{ id, label: 'Yes' }];
+      const n = st.no?.length ? addSeq(lane, st.no, [{ id, label: 'No' }], `${path}.no.`, out, changed, copy) : [{ id, label: 'No' }];
       tails = [...y, ...n];
     } else {
       tails = [{ id }];
     }
-  });
+  }
   return tails;
 }
 
@@ -197,16 +208,22 @@ function layoutLane(lane: LaneBuild, measured: Record<string, number>): { pos: R
 }
 
 /** Builds the whole canvas. `measured` are real card heights once the browser has drawn them. */
-export function buildCanvasModel(pf: PlanFile | null | undefined, changed: Set<string> = new Set(), measured: Record<string, number> = {}): { nodes: CNode[]; edges: CEdge[] } {
-  if (!pf || (!pf.buckets.length && !pf.campaign)) return { nodes: [], edges: [] };
-  const buckets = [...pf.buckets].sort((a, b) => a.priority - b.priority);
+export function buildCanvasModel(
+  campaign: CampaignObject | null | undefined,
+  context: CampaignContext | null | undefined = null,
+  changed: Set<string> = new Set(),
+  measured: Record<string, number> = {},
+): { nodes: CNode[]; edges: CEdge[] } {
+  if (!campaign || (!campaign.buckets.length && !campaign.goal && !campaign.entry && !campaign.membership && !campaign.everyoneElse)) return { nodes: [], edges: [] };
+  const info = bucketContext(context?.entries ?? []);
+  const buckets = [...campaign.buckets].sort((a, b) => a.priority - b.priority);
   const lanes: LaneBuild[] = [];
   const crossEdges: CEdge[] = [];
 
   buckets.forEach((b, i) => {
     const lane: LaneBuild = { nodes: [], edges: [] };
     const head = `${b.id}:head`;
-    lane.nodes.push({ id: head, data: { kind: 'bucket', lane: b.id, bucket: b, bucketIndex: i } });
+    lane.nodes.push({ id: head, data: { kind: 'bucket', lane: b.id, bucket: b, info: info[b.id] ?? {}, bucketIndex: i } });
     let from: { id: string; label?: string }[] = [{ id: head, label: 'Matches' }];
     if (b.holdoutPct && b.holdoutPct > 0 && b.journey?.length) {
       const h = `${b.id}:holdout`;
@@ -226,10 +243,10 @@ export function buildCanvasModel(pf: PlanFile | null | undefined, changed: Set<s
     if (i > 0) crossEdges.push({ id: `e:${buckets[i - 1].id}:head->${head}`, source: `${buckets[i - 1].id}:head`, target: head, label: 'Not matched', sideways: true });
   });
 
-  const ee = pf.campaign?.everyoneElse;
-  if (pf.campaign) {
+  const ee = campaign.everyoneElse;
+  {
     const lane: LaneBuild = { nodes: [], edges: [] };
-    lane.nodes.push({ id: 'everyone_else:head', data: { kind: 'everyone', lane: 'everyone_else', campaign: pf.campaign } });
+    lane.nodes.push({ id: 'everyone_else:head', data: { kind: 'everyone', lane: 'everyone_else', campaign, why: noteText(context?.entries ?? [], 'everyone_else') } });
     if (ee?.approach === 'journey' && ee.journey?.length) {
       const tails = addSeq('everyone_else', ee.journey as CStep[], [{ id: 'everyone_else:head' }], '', lane, changed);
       if (tails.length) {
@@ -257,18 +274,19 @@ export function buildCanvasModel(pf: PlanFile | null | undefined, changed: Set<s
     x += l.width + LANE_GAP;
   }
   const totalW = Math.max(0, x - LANE_GAP);
-  nodes.unshift({ id: 'entry', data: { kind: 'entry', lane: '', campaign: pf.campaign }, x: totalW / 2 - NODE_W.entry / 2, y: 0, width: NODE_W.entry, height: entryH });
+  nodes.unshift({ id: 'entry', data: { kind: 'entry', lane: '', campaign }, x: totalW / 2 - NODE_W.entry / 2, y: 0, width: NODE_W.entry, height: entryH });
   if (buckets.length) edges.push({ id: `e:entry->${buckets[0].id}:head`, source: 'entry', target: `${buckets[0].id}:head`, label: 'Check buckets in order' });
-  else if (pf.campaign) edges.push({ id: 'e:entry->everyone_else:head', source: 'entry', target: 'everyone_else:head' });
+  else edges.push({ id: 'e:entry->everyone_else:head', source: 'entry', target: 'everyone_else:head' });
   return { nodes, edges };
 }
 
 /**
- * Which steps changed between two versions of the plan file, as canvas node
- * ids. Only buckets that already had a journey count — a first build is not
- * a "change".
+ * Which steps changed between two versions of the campaign object, as
+ * "<lane>:<path>" (a step drawn twice after a fork lights up in both places).
+ * Only buckets that already had a journey count — a first build is not a
+ * "change".
  */
-export function diffChangedSteps(prev: PlanFile | null | undefined, next: PlanFile | null | undefined): Set<string> {
+export function diffChangedSteps(prev: CampaignObject | null | undefined, next: CampaignObject | null | undefined): Set<string> {
   const out = new Set<string>();
   if (!prev || !next) return out;
   const index = (lane: string, steps: CStep[] | undefined, prefix: string, m: Map<string, string>) => {
@@ -282,9 +300,9 @@ export function diffChangedSteps(prev: PlanFile | null | undefined, next: PlanFi
       index(lane, no, `${path}.no.`, m);
     });
   };
-  const lanesOf = (pf: PlanFile) => [
-    ...pf.buckets.map((b) => ({ lane: b.id, journey: b.journey as CStep[] | null })),
-    { lane: 'everyone_else', journey: (pf.campaign?.everyoneElse?.journey as CStep[] | undefined) ?? null },
+  const lanesOf = (c: CampaignObject) => [
+    ...c.buckets.map((b) => ({ lane: b.id, journey: b.journey as CStep[] | null })),
+    { lane: 'everyone_else', journey: (c.everyoneElse?.journey as CStep[] | undefined) ?? null },
   ];
   const before = new Map(lanesOf(prev).map((l) => [l.lane, l.journey]));
   for (const l of lanesOf(next)) {

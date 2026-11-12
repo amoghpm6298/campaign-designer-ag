@@ -201,3 +201,21 @@ Flags (all start false): `goalClear`, `successClear`, `membershipClear`,
    on the right with a cue card, message preview drawer, timeline behind
    "Activity".
 7. Verify live on both a warehouse-ON (IBL) and a warehouse-OFF tenant.
+
+## 9. Storage: campaign object vs campaign context (2026-11-12)
+
+One chat is one campaign, stored as two files keyed by the chat's session id:
+
+- `campaign.json`, the **campaign object**: what the core engine executes and
+  nothing else (name, goal, entry, membership, buckets with rule, holdout and
+  journey, everyone else). Changed only through `edit_campaign`, `edit_bucket`
+  and `edit_journey`; compiled by `build_campaign`.
+- `context.json`, the **campaign context**: an append-only list of dated
+  entries (answer, brief, bucket reasoning, sizing, research, note, metric).
+  The latest entry per kind + bucket + topic is current and history is kept,
+  so the context can keep being enriched after launch without touching the
+  campaign. Read with `get_context`, added to with `add_context`.
+
+Not yet engine fields (kept as context text for now): the window and the
+message cap. Each message's "why" note stays on the step.
+

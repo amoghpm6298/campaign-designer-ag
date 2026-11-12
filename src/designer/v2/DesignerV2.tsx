@@ -8,22 +8,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MoreHorizontal, RotateCcw, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
-import { fetchCampaign, runAgentStream } from './api';
+import { fetchStores, runAgentStream, type Stores } from './api';
 import { CampaignCanvas } from './CampaignCanvas';
 import { buildCanvasModel, diffChangedSteps, type CStep } from './canvasModel';
 import { ChatPanel, type Cue } from './ChatPanel';
 import { mergeEvent } from './logic';
 import { NodeDrawer } from './NodeDrawer';
 import { QuestionOverlay } from './QuestionOverlay';
-import { FLAG_LABELS, FLAG_ORDER, type AgentState, type PlanFile, type V2Event, type V2Turn } from './types';
+import { FLAG_LABELS, FLAG_ORDER, type AgentState, type CampaignContext, type CampaignObject, type V2Event, type V2Turn } from './types';
 import '../designer.css';
 import './v2.css';
 
 const STORE_KEY = 'cd-v3-session';
-const EMPTY_PLAN: PlanFile = { brief: { findings: [] }, campaign: null, buckets: [] };
+const EMPTY_CAMPAIGN: CampaignObject = { goal: null, entry: null, membership: null, buckets: [], everyoneElse: null };
+const EMPTY_CONTEXT: CampaignContext = { entries: [] };
 
-/** The browser keeps the conversation only. The campaign itself is on the server. */
-const withoutCampaign = (s: AgentState | null): AgentState | null => (s ? { ...s, planFile: EMPTY_PLAN } : null);
+/** The browser keeps the conversation only. The campaign object and its context live on the server. */
+const withoutCampaign = (s: AgentState | null): AgentState | null => (s ? { ...s, campaign: EMPTY_CAMPAIGN, context: EMPTY_CONTEXT } : null);
 
 interface Stored {
   sessionId: string;
@@ -59,12 +60,12 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
   const [sessionId, setSessionId] = useState(fresh?.sessionId ?? newId());
   const [turns, setTurns] = useState<V2Turn[]>(fresh?.turns ?? []);
   const [state, setState] = useState<AgentState | null>(withoutCampaign(fresh?.state ?? null));
-  // The campaign as saved on the server for this chat.
-  const [campaign, setCampaign] = useState<PlanFile | null>(null);
+  // The campaign object and its context, as saved on the server for this chat.
+  const [stores, setStores] = useState<Stores>({ campaign: null, context: null });
   useEffect(() => {
     let live = true;
-    fetchCampaign(sessionId)
-      .then((c) => live && setCampaign((cur) => cur ?? c))
+    fetchStores(sessionId)
+      .then((st) => live && setStores((cur) => (cur.campaign || cur.context ? cur : st)))
       .catch(() => {
         /* offline: the canvas stays empty until the next turn */
       });
@@ -75,7 +76,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
   const [changed, setChanged] = useState<string[]>(fresh?.changed ?? []);
   const [lastBuilt, setLastBuilt] = useState(!!fresh?.lastBuilt);
   const [live, setLive] = useState<V2Event[]>([]);
-  const [livePlan, setLivePlan] = useState<PlanFile | null>(null);
+  const [liveStores, setLiveStores] = useState<Stores | null>(null);
   const [busy, setBusy] = useState(false);
   const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
   const [pulse, setPulse] = useState(0);
@@ -87,19 +88,20 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
     saveStored({ sessionId, tenantId: tenant.tenantId, turns, state, changed, lastBuilt });
   }, [sessionId, tenant.tenantId, turns, state, changed, lastBuilt]);
 
-  const plan = livePlan ?? campaign;
+  const shown = liveStores ?? stores;
+  const plan = shown.campaign;
   const changedSet = useMemo(() => new Set(changed), [changed]);
-  const model = useMemo(() => buildCanvasModel(plan), [plan]);
+  const model = useMemo(() => buildCanvasModel(plan, shown.context, changedSet), [plan, shown.context, changedSet]);
   const sends = model.nodes.filter((n) => n.data.kind === 'send').length;
   const buckets = plan?.buckets.length ?? 0;
 
   const send = (text: string, opts: { answers?: Record<string, string>; skipped?: string[] } = {}) => {
     if (busy || !text.trim()) return;
-    const before = campaign;
+    const before = stores.campaign;
     const next: V2Turn[] = [...turns, { role: 'user', content: text }];
     setTurns(next);
     setLive([]);
-    setLivePlan(null);
+    setLiveStores(null);
     setDrawerId(null);
     setBusy(true);
     const ctrl = new AbortController();
@@ -118,18 +120,18 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
       {
         onEvent: (e) => {
           if (e.type === 'state.updated') {
-            const pf = (e.data as { planFile?: PlanFile } | undefined)?.planFile;
-            if (pf) setLivePlan(pf);
+            const d = e.data as Partial<Stores> | undefined;
+            if (d?.campaign || d?.context) setLiveStores({ campaign: d.campaign ?? null, context: d.context ?? null });
             return;
           }
           events = mergeEvent(events, e);
           setLive(events);
         },
         onResult: (r) => {
-          const diff = diffChangedSteps(before, r.state.planFile);
-          setCampaign(r.state.planFile);
+          const diff = diffChangedSteps(before, r.state.campaign);
+          setStores({ campaign: r.state.campaign, context: r.state.context });
           setState(withoutCampaign(r.state));
-          setLivePlan(null);
+          setLiveStores(null);
           setChanged([...diff]);
           setLastBuilt(!!r.graph);
           setTurns((t) => [
@@ -142,7 +144,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
         onError: (m) => {
           setTurns((t) => [...t, { role: 'assistant', content: '', events, error: m }]);
           setLive([]);
-          setLivePlan(null);
+          setLiveStores(null);
           setBusy(false);
         },
       },
@@ -155,11 +157,11 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
     setSessionId(newId());
     setTurns([]);
     setState(null);
-    setCampaign(null);
+    setStores({ campaign: null, context: null });
     setChanged([]);
     setLastBuilt(false);
     setLive([]);
-    setLivePlan(null);
+    setLiveStores(null);
     setBusy(false);
     setDrawerId(null);
   };
@@ -170,7 +172,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
   const built = !!state?.flags.campaignBuilt;
 
   const showMe = () => {
-    const first = model.nodes.find((n) => changedSet.has(n.id));
+    const first = model.nodes.find((n) => n.data.changed);
     if (first) setFocus({ id: first.id, n: Date.now() });
   };
   const viewAll = () => setFocus({ id: '__fit__', n: Date.now() });
@@ -214,7 +216,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
     <div className="cv-wrap">
       <header className="cv-top">
         <div className="cv-title">
-          <b>{plan?.campaign?.name || 'New campaign'}</b>
+          <b>{plan?.name || 'New campaign'}</b>
           <span className="cv-sub">
             {opening ? `“${opening.length > 80 ? `${opening.slice(0, 80)}…` : opening}” · ` : ''}
             {tenant.displayName}
@@ -238,7 +240,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
       <div className="cv-main">
         <section className="cv-stage">
           {hasCanvas ? (
-            <CampaignCanvas planFile={plan} changed={changedSet} focus={focus} onOpenNode={setDrawerId} />
+            <CampaignCanvas campaign={plan} context={shown.context} changed={changedSet} focus={focus} onOpenNode={setDrawerId} />
           ) : (
             <div className="cv-canvas-empty dc-graph-wrap">
               <div>

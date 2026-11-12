@@ -1,6 +1,6 @@
-// Pure state transitions for the agent: flags, timeline, plan file (brief,
-// campaign shell, buckets), questions and sign-offs. No I/O, no model calls,
-// so every rule here is unit-testable.
+// Pure state transitions for the agent: the campaign object (what executes),
+// the campaign context (what supports it), flags, timeline and questions.
+// No I/O, no model calls, so every rule here is unit-testable.
 
 import type { BpAudienceGroup, BpStep } from '../blueprint';
 import {
@@ -10,10 +10,12 @@ import {
   type AgentQuestion,
   type AgentState,
   type AnswerType,
-  type Bucket,
-  type BriefFinding,
-  type CampaignShell,
-  type Evidence,
+  type CampaignBucket,
+  type CampaignContext,
+  type CampaignObject,
+  type ContextEntry,
+  type ContextKind,
+  type ContextSource,
   type FlagName,
   type Flags,
   type TimelineActor,
@@ -29,9 +31,18 @@ export function initialFlags(): Flags {
   return Object.fromEntries(FLAG_ORDER.map((f) => [f, false])) as Flags;
 }
 
+export function emptyCampaign(): CampaignObject {
+  return { goal: null, entry: null, membership: null, buckets: [], everyoneElse: null };
+}
+
+export function emptyContext(): CampaignContext {
+  return { entries: [] };
+}
+
 export function initialState(): AgentState {
   return {
-    planFile: { brief: { findings: [] }, campaign: null, buckets: [] },
+    campaign: emptyCampaign(),
+    context: emptyContext(),
     flags: initialFlags(),
     timeline: [],
     questions: [],
@@ -46,13 +57,10 @@ export function normaliseState(raw: unknown): AgentState {
   const s = raw as Partial<AgentState>;
   const flags = { ...base.flags };
   for (const f of FLAG_ORDER) if (typeof s.flags?.[f] === 'boolean') flags[f] = s.flags[f];
-  const pf = s.planFile;
+  const c = s.campaign;
   return {
-    planFile: {
-      brief: { findings: Array.isArray(pf?.brief?.findings) ? pf!.brief.findings : [], summary: pf?.brief?.summary, updatedAt: pf?.brief?.updatedAt },
-      campaign: pf?.campaign ?? null,
-      buckets: Array.isArray(pf?.buckets) ? pf!.buckets : [],
-    },
+    campaign: c && typeof c === 'object' ? { ...emptyCampaign(), ...c, buckets: Array.isArray(c.buckets) ? c.buckets : [] } : emptyCampaign(),
+    context: { entries: Array.isArray(s.context?.entries) ? s.context.entries : [] },
     flags,
     timeline: Array.isArray(s.timeline) ? s.timeline : [],
     questions: Array.isArray(s.questions) ? s.questions : [],
@@ -84,7 +92,7 @@ export function syncQuestionsAnswered(state: AgentState): AgentState {
   return setFlag(state, 'questionsAnswered', all, 'app', all ? 'every question has an answer' : 'a question is still open');
 }
 
-/** App-owned: any change to the campaign after a build means the canvas is out of date until rebuilt. */
+/** App-owned: any change to the campaign object after a build means it is out of date until rebuilt. Context never does this. */
 export function markStale(state: AgentState, what: string): AgentState {
   return setFlag(state, 'campaignBuilt', false, 'app', `${what} changed since the last build`);
 }
@@ -216,6 +224,7 @@ export function recordAnswers(state: AgentState, answers: Record<string, string>
   }
   if (!answeredIds.length) return state;
   let next: AgentState = { ...state, questions };
+  next = fileAnswers(next, answeredIds);
   const stillOpen = questions.filter((q) => !q.answer?.trim()).length;
   next = log(next, 'user', 'answers_received', `Answered ${answeredIds.length} question${answeredIds.length === 1 ? '' : 's'}${stillOpen ? `; ${stillOpen} still open` : ''}`);
   return syncQuestionsAnswered(next);
@@ -238,47 +247,88 @@ export function recordSkips(state: AgentState, ids: string[] | undefined): Agent
   });
   if (!n) return state;
   let next: AgentState = { ...state, questions };
+  next = fileAnswers(next, questions.filter((q) => q.skipped && want.has(q.id)).map((q) => q.id));
   next = log(next, 'user', 'answers_received', `Skipped ${n} question${n === 1 ? '' : 's'}: the agent will assume and say so`);
   return syncQuestionsAnswered(next);
 }
 
-// --- brief ------------------------------------------------------------------
+// --- context ------------------------------------------------------------------
 
-const cleanFindings = (v: unknown): BriefFinding[] => {
-  const list = Array.isArray(v) ? v : v && typeof v === 'object' ? [v] : [];
-  return list
-    .map((f) => (f ?? {}) as Record<string, unknown>)
-    .filter((f) => typeof f.text === 'string' && f.text.trim())
-    .map((f) => ({
-      aspect: typeof f.aspect === 'string' && f.aspect.trim() ? titleCase(f.aspect).slice(0, 40) : 'General',
-      text: String(f.text).trim(),
-      source: f.source === 'assumption' ? 'assumption' : f.source === 'data' ? 'data' : 'manager',
-    }));
-};
+const KINDS: ContextKind[] = ['answer', 'brief', 'bucket', 'research', 'sizing', 'note', 'metric'];
+const SOURCES: ContextSource[] = ['manager', 'data', 'assumption', 'agent'];
 
-export function updateBrief(state: AgentState, input: { findings?: unknown; replaceFindings?: unknown; summary?: unknown }): { state: AgentState; said: string; error?: string } {
-  const incoming = cleanFindings(input.findings);
-  const summary = str(input.summary) ?? state.planFile.brief.summary;
-  if (!incoming.length && summary === state.planFile.brief.summary) return { state, said: '', error: 'Send at least one finding ({aspect, text, source}) or a summary.' };
-  let findings: BriefFinding[];
-  if (input.replaceFindings === true) findings = incoming;
-  else {
-    const byAspect = new Map(state.planFile.brief.findings.map((f) => [f.aspect.toLowerCase(), f]));
-    for (const f of incoming) byAspect.set(f.aspect.toLowerCase(), f);
-    findings = [...byAspect.values()];
+export interface RawContextEntry {
+  kind?: unknown;
+  topic?: unknown;
+  bucketId?: unknown;
+  text?: unknown;
+  source?: unknown;
+  data?: unknown;
+}
+
+/**
+ * Adds entries to the context. Nothing is ever overwritten: a newer entry on
+ * the same (kind, bucket, topic) becomes the current one, and the older one
+ * stays as history. Never marks the campaign stale — context is not execution.
+ */
+export function addContext(state: AgentState, raw: unknown, actor: TimelineActor = 'agent'): { state: AgentState; added: ContextEntry[]; dropped: number } {
+  const list = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? [raw] : [];
+  const at = now();
+  const added: ContextEntry[] = [];
+  let dropped = 0;
+  let seq = state.context.entries.length;
+  for (const item of list) {
+    const r = (item ?? {}) as RawContextEntry;
+    const kind = KINDS.includes(r.kind as ContextKind) ? (r.kind as ContextKind) : undefined;
+    const topic = str(r.topic);
+    const text = typeof r.text === 'string' ? r.text.trim() : '';
+    if (!kind || !topic || (!text && !(r.data && typeof r.data === 'object'))) {
+      dropped++;
+      continue;
+    }
+    seq++;
+    added.push({
+      id: `c${seq}`,
+      at,
+      kind,
+      topic: kind === 'brief' ? titleCase(topic).slice(0, 40) : topic.slice(0, 80),
+      ...(str(r.bucketId) ? { bucketId: str(r.bucketId) } : {}),
+      text,
+      source: SOURCES.includes(r.source as ContextSource) ? (r.source as ContextSource) : 'agent',
+      ...(r.data && typeof r.data === 'object' && !Array.isArray(r.data) ? { data: r.data as Record<string, unknown> } : {}),
+    });
   }
-  let next: AgentState = { ...state, planFile: { ...state.planFile, brief: { findings, summary, updatedAt: now() } } };
-  next = log(next, 'agent', 'plan_section_updated', `Updated the brief (${incoming.map((f) => f.aspect).join(', ') || 'summary'})`);
-  return { state: next, said: `Brief: ${findings.length} finding${findings.length === 1 ? '' : 's'} on file.` };
+  if (!added.length) return { state, added, dropped };
+  let next: AgentState = { ...state, context: { entries: [...state.context.entries, ...added] } };
+  const kinds = [...new Set(added.map((e) => e.kind))];
+  next = log(next, actor, 'context_added', `Context: ${added.length} entr${added.length === 1 ? 'y' : 'ies'} (${kinds.join(', ')})`);
+  return { state: next, added, dropped };
+}
+
+/** The app files every answer (or skip) in the context itself, so nothing the manager said depends on the agent remembering to. */
+function fileAnswers(state: AgentState, ids: string[]): AgentState {
+  const qs = state.questions.filter((q) => ids.includes(q.id));
+  if (!qs.length) return state;
+  return addContext(
+    state,
+    qs.map((q) => ({
+      kind: 'answer',
+      topic: `${q.aspect}: ${q.text}`,
+      text: q.skipped ? '(skipped)' : q.answer ?? '',
+      source: 'manager',
+      data: { questionId: q.id, ...(q.skipped ? { skipped: true } : {}) },
+    })),
+    'user',
+  ).state;
 }
 
 // --- campaign shell -------------------------------------------------------------
 
 export function updateCampaign(state: AgentState, input: Record<string, unknown>): { state: AgentState; said: string; error?: string } {
-  const prev: CampaignShell = state.planFile.campaign ?? { goal: null, entry: null, membership: null };
-  const next: CampaignShell = { ...prev, updatedAt: now() };
+  const prev: CampaignObject = state.campaign;
+  const next: CampaignObject = { ...prev };
   const changed: string[] = [];
-  for (const k of ['name', 'description', 'segmentationLogic', 'guardrails', 'measurement'] as const) {
+  for (const k of ['name', 'description'] as const) {
     const v = str(input[k]);
     if (v !== undefined) {
       next[k] = v;
@@ -320,14 +370,14 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
     if (ee.approach === 'journey' || ee.approach === 'none') {
       next.everyoneElse = {
         approach: ee.approach,
-        ...(str(ee.why) ? { why: str(ee.why) } : {}),
         ...(ee.approach === 'journey' && Array.isArray(ee.journey) ? { journey: normaliseSteps(ee.journey as BpStep[]) } : {}),
       };
       changed.push('everyoneElse');
     }
   }
-  if (!changed.length) return { state, said: '', error: 'Nothing to update. Send any of: name, description, goal, entry, membership, segmentationLogic, guardrails, measurement, everyoneElse.' };
-  let out: AgentState = { ...state, planFile: { ...state.planFile, campaign: next } };
+  if (!changed.length)
+    return { state, said: '', error: 'Nothing to update. The campaign takes: name, description, goal, entry, membership, everyoneElse. Reasoning (why, guardrails, measurement) goes in the context with add_context.' };
+  let out: AgentState = { ...state, campaign: next };
   out = log(out, 'agent', 'plan_section_updated', `Updated the campaign (${changed.join(', ')})`);
   if (state.flags.campaignBuilt && changed.some((c) => ['goal', 'entry', 'membership', 'everyoneElse', 'name'].includes(c))) out = markStale(out, 'The campaign');
   return { state: out, said: `Campaign updated: ${changed.join(', ')}.` };
@@ -375,91 +425,53 @@ export interface BucketInput {
   id?: unknown;
   name?: unknown;
   priority?: unknown;
-  behaviour?: unknown;
   rule?: unknown;
-  sql?: unknown;
-  evidence?: unknown;
-  evidenceNotes?: unknown;
-  thesis?: unknown;
-  metric?: unknown;
   holdoutPct?: unknown;
   journey?: unknown;
 }
 
-const DEFINITION_KEYS = ['name', 'behaviour', 'rule', 'sql', 'evidence', 'priority'] as const;
+const DEFINITION_KEYS = ['name', 'rule', 'priority'] as const;
 
 /**
  * Creates or updates one bucket. Any change after a build marks the campaign
  * out of date until it is rebuilt.
  */
-export function upsertBucket(state: AgentState, input: BucketInput): { state: AgentState; bucket?: Bucket; said: string; error?: string; definitionChanged: boolean } {
-  const buckets = state.planFile.buckets;
+export function upsertBucket(state: AgentState, input: BucketInput): { state: AgentState; bucket?: CampaignBucket; said: string; error?: string; definitionChanged: boolean } {
+  const buckets = state.campaign.buckets;
   const id = str(input.id) ?? (str(input.name) ? slug(String(input.name)) : undefined);
   if (!id) return { state, said: '', error: 'A bucket needs an id or a name.', definitionChanged: false };
   const prev = buckets.find((b) => b.id === id);
-  if (!prev && (!str(input.name) || !str(input.behaviour))) {
-    return { state, said: '', error: 'A new bucket needs at least name and behaviour (and normally rule, evidence, thesis, metric).', definitionChanged: false };
-  }
-  const evidence: Evidence | undefined = input.evidence === 'measured' || input.evidence === 'manager' || input.evidence === 'hypothesis' ? input.evidence : undefined;
+  if (!prev && !str(input.name)) return { state, said: '', error: 'A new bucket needs at least a name (and normally a rule and a journey).', definitionChanged: false };
   const rule = Array.isArray(input.rule) ? (input.rule as BpAudienceGroup[]).filter((g) => g && typeof g.entity === 'string') : undefined;
   const journey = Array.isArray(input.journey) ? normaliseSteps(input.journey as BpStep[]) : input.journey === null ? null : undefined;
   const holdout = typeof input.holdoutPct === 'number' && input.holdoutPct >= 0 && input.holdoutPct < 50 ? Math.round(input.holdoutPct) : undefined;
 
-  const merged: Bucket = {
+  const merged: CampaignBucket = {
     id,
     name: str(input.name) ?? prev?.name ?? id,
     priority: typeof input.priority === 'number' ? input.priority : prev?.priority ?? (buckets.length ? Math.max(...buckets.map((b) => b.priority)) + 1 : 1),
-    behaviour: str(input.behaviour) ?? prev?.behaviour ?? '',
     rule: rule ?? prev?.rule ?? [],
-    ...(str(input.sql) ? { sql: str(input.sql) } : prev?.sql ? { sql: prev.sql } : {}),
-    evidence: evidence ?? prev?.evidence ?? 'hypothesis',
-    evidenceNotes: str(input.evidenceNotes) ?? prev?.evidenceNotes ?? '',
-    ...(prev?.size !== undefined ? { size: prev.size } : {}),
-    thesis: str(input.thesis) ?? prev?.thesis ?? '',
-    metric: str(input.metric) ?? prev?.metric ?? '',
     ...(holdout !== undefined ? { holdoutPct: holdout } : prev?.holdoutPct !== undefined ? { holdoutPct: prev.holdoutPct } : {}),
     journey: journey !== undefined ? journey : prev?.journey ?? null,
-    updatedAt: now(),
   };
-  const sameAs = (k: (typeof DEFINITION_KEYS)[number]) =>
-    JSON.stringify((prev as unknown as Record<string, unknown> | undefined)?.[k]) === JSON.stringify((merged as unknown as Record<string, unknown>)[k]);
+  const sameAs = (k: (typeof DEFINITION_KEYS)[number]) => JSON.stringify(prev?.[k]) === JSON.stringify(merged[k]);
   const definitionChanged = !prev || DEFINITION_KEYS.some((k) => !sameAs(k));
   const journeyChanged = journey !== undefined && JSON.stringify(prev?.journey ?? null) !== JSON.stringify(journey);
-  const anyChange = !prev || definitionChanged || journeyChanged || JSON.stringify({ ...prev, updatedAt: '' }) !== JSON.stringify({ ...merged, updatedAt: '' });
-  if (str(input.sql) && str(input.sql) !== prev?.sql) {
-    delete merged.size;
-    delete merged.sizeError;
-  }
+  const anyChange = !prev || JSON.stringify(prev) !== JSON.stringify(merged);
 
   const list = prev ? buckets.map((b) => (b.id === id ? merged : b)) : [...buckets, merged];
   list.sort((a, b) => a.priority - b.priority);
-  let next: AgentState = { ...state, planFile: { ...state.planFile, buckets: list } };
-  const what = !prev ? 'added' : [journeyChanged ? 'journey updated' : '', definitionChanged ? 'definition updated' : ''].filter(Boolean).join(', ') || 'updated';
+  let next: AgentState = { ...state, campaign: { ...state.campaign, buckets: list } };
+  const what = !prev ? 'added' : [journeyChanged ? 'journey updated' : '', definitionChanged ? 'definition updated' : ''].filter(Boolean).join(', ') || (anyChange ? 'updated' : 'unchanged');
   next = log(next, 'agent', 'bucket_updated', `Bucket "${merged.name}" ${what}`);
   if (anyChange && state.flags.campaignBuilt) next = markStale(next, `Bucket "${merged.name}"`);
   return { state: next, bucket: merged, said: `Bucket "${merged.name}" ${what}.`, definitionChanged };
 }
 
-export function setBucketSize(state: AgentState, id: string, size: number | null, error?: string): AgentState {
-  const list = state.planFile.buckets.map((b) => {
-    if (b.id !== id) return b;
-    if (size !== null) {
-      const { sizeError: _drop, ...rest } = b;
-      void _drop;
-      return { ...rest, size };
-    }
-    return { ...b, sizeError: error };
-  });
-  const b = list.find((x) => x.id === id);
-  let next: AgentState = { ...state, planFile: { ...state.planFile, buckets: list } };
-  if (b) next = log(next, 'app', 'bucket_sized', size !== null ? `"${b.name}": ${size.toLocaleString('en-IN')} customers` : `"${b.name}" could not be sized: ${error}`);
-  return next;
-}
-
 export function removeBucket(state: AgentState, id: string, reason: string): { state: AgentState; error?: string } {
-  const b = state.planFile.buckets.find((x) => x.id === id);
+  const b = state.campaign.buckets.find((x) => x.id === id);
   if (!b) return { state, error: `No bucket "${id}".` };
-  let next: AgentState = { ...state, planFile: { ...state.planFile, buckets: state.planFile.buckets.filter((x) => x.id !== id) } };
+  let next: AgentState = { ...state, campaign: { ...state.campaign, buckets: state.campaign.buckets.filter((x) => x.id !== id) } };
   next = log(next, 'agent', 'bucket_removed', `Removed bucket "${b.name}"${reason ? `: ${reason}` : ''}`);
   if (state.flags.campaignBuilt) next = markStale(next, `Bucket "${b.name}" (removed)`);
   return { state: next };
@@ -544,18 +556,17 @@ export function applyJourneyOps(journey: BpStep[], ops: JourneyOp[]): { journey:
 
 export function editJourney(state: AgentState, target: string, ops: JourneyOp[]): { state: AgentState; said: string; error?: string } {
   const isEveryone = target === 'everyone_else';
-  const bucket = isEveryone ? null : state.planFile.buckets.find((b) => b.id === target);
-  const journey = isEveryone ? state.planFile.campaign?.everyoneElse?.journey : bucket?.journey;
+  const bucket = isEveryone ? null : state.campaign.buckets.find((b) => b.id === target);
+  const journey = isEveryone ? state.campaign.everyoneElse?.journey : bucket?.journey;
   if (!isEveryone && !bucket) return { state, said: '', error: `No bucket "${target}".` };
   if (!journey?.length) return { state, said: '', error: 'That journey is empty; write it with edit_bucket (or edit_campaign for everyone else) first.' };
   const res = applyJourneyOps(journey, ops);
   if (!res.applied.length) return { state, said: '', error: res.errors.join('; ') || 'No operations applied.' };
   let next: AgentState;
   if (isEveryone) {
-    const c = state.planFile.campaign!;
-    next = { ...state, planFile: { ...state.planFile, campaign: { ...c, everyoneElse: { ...c.everyoneElse!, journey: res.journey } } } };
+    next = { ...state, campaign: { ...state.campaign, everyoneElse: { ...state.campaign.everyoneElse!, journey: res.journey } } };
   } else {
-    next = { ...state, planFile: { ...state.planFile, buckets: state.planFile.buckets.map((b) => (b.id === target ? { ...b, journey: res.journey, updatedAt: now() } : b)) } };
+    next = { ...state, campaign: { ...state.campaign, buckets: state.campaign.buckets.map((b) => (b.id === target ? { ...b, journey: res.journey } : b)) } };
   }
   const name = isEveryone ? 'Everyone else' : bucket!.name;
   next = log(next, 'agent', 'journey_edited', `Edited "${name}" journey: ${res.applied.join(', ')}`);

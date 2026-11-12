@@ -246,13 +246,13 @@ export function agentApiPlugin(): Plugin {
             });
             return void (await streamSse(res, gen));
           }
-          // The campaign this chat has on file, so the canvas survives a reload.
+          // The campaign object and context this chat has on file, so the canvas survives a reload.
           if (url === '/api/campaign' && req.method === 'GET') {
             const files = await load('campaignFiles.ts');
             const sessionId = new URL(req.url ?? '', 'http://x').searchParams.get('sessionId') ?? '';
             try {
-              const f = (files.loadCampaignFile as (id: string) => unknown)(sessionId);
-              return send(res, 200, { campaign: (f as { campaign?: unknown } | null)?.campaign ?? null });
+              const stores = (files.loadStores as (id: string) => { campaign: unknown; context: unknown })(sessionId);
+              return send(res, 200, { campaign: stores.campaign ?? null, context: stores.context ?? null });
             } catch {
               return send(res, 400, { error: 'Not a valid session id.' });
             }
