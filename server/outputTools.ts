@@ -123,7 +123,7 @@ const CONDITION = {
   required: ['attribute', 'operator'],
 } as const;
 
-const STEP_DEF = {
+export const STEP_DEF = {
   type: 'object',
   description: 'One step. "kind" decides which other fields apply.',
   properties: {
@@ -222,7 +222,7 @@ const STRING_LIST = { type: 'array', items: { type: 'string' } } as const;
  * was a second copy of this object — which is how the architecture fields and
  * the two event-label maps drifted. One definition, referenced twice.
  */
-const BLUEPRINT_SCHEMA = {
+export const BLUEPRINT_SCHEMA = {
   type: 'object' as const,
   properties: {
     campaignName: { type: 'string' },

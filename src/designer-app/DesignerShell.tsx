@@ -10,6 +10,7 @@ import {
   type KnowledgeOverrides,
 } from '../designer/knowledgeStore';
 import { CampaignDesigner } from '../designer/CampaignDesigner';
+import { DesignerV2 } from '../designer/v2/DesignerV2';
 import { KnowledgeBaseView } from '../designer/KnowledgeBaseView';
 import { RunLogsView } from '../designer/RunLogsView';
 import { listTenants, seedKnowledge } from '../designer/api';
@@ -53,6 +54,22 @@ export function DesignerShell() {
   // Persisted, because a collapsed rail that springs back open on every
   // reload is a preference the product keeps overruling.
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem('hf-rail') !== 'collapsed');
+  // Which agent the Design page runs. v2 (one agent, one prompt) is the default;
+  // v1 stays available for comparison while v2 is being tested.
+  const [agentVersion, setAgentVersion] = useState<'v1' | 'v2'>(() => {
+    try {
+      return localStorage.getItem('cd-agent') === 'v1' ? 'v1' : 'v2';
+    } catch {
+      return 'v2';
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('cd-agent', agentVersion);
+    } catch {
+      /* preference only */
+    }
+  }, [agentVersion]);
   useEffect(() => {
     localStorage.setItem('hf-rail', railOpen ? 'open' : 'collapsed');
   }, [railOpen]);
@@ -191,6 +208,21 @@ export function DesignerShell() {
             <div className="px-1">
               <label
                 className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary"
+                htmlFor="hf-agent"
+              >
+                Agent
+              </label>
+              <select
+                id="hf-agent"
+                value={agentVersion}
+                onChange={(e) => setAgentVersion(e.target.value === 'v1' ? 'v1' : 'v2')}
+                className="w-full h-9 mb-3 px-2.5 text-[13px] rounded-[var(--radius-input)] border border-border bg-white text-text-primary focus:outline-none focus:border-[#8FB9F8] focus:shadow-[var(--shadow-focus-ring)]"
+              >
+                <option value="v2">v2 · one agent (new)</option>
+                <option value="v1">v1 · staged (old)</option>
+              </select>
+              <label
+                className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary"
                 htmlFor="hf-tenant"
               >
                 Tenant
@@ -249,7 +281,10 @@ export function DesignerShell() {
             </p>
           </div>
         )}
-        {!bootError && page === 'designer' && knowledge && tenant && (
+        {!bootError && page === 'designer' && knowledge && tenant && agentVersion === 'v2' && (
+          <DesignerV2 key={tenant.tenantId} knowledge={knowledge} tenant={tenant} />
+        )}
+        {!bootError && page === 'designer' && knowledge && tenant && agentVersion === 'v1' && (
           <CampaignDesigner
             // Remounts when the open chat changes, so every piece of
             // conversation state is rebuilt from the stored session rather

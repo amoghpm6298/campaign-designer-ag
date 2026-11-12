@@ -1372,7 +1372,7 @@ function streamingText(text: string, fallback = 'Writing a reply…'): string {
  * Vertical and capped at a reading width rather than a pannable canvas,
  * because the job here is to be scannable in ten seconds, not navigable.
  */
-function JourneySchematic({ preview, busy }: { preview: JourneyPreview; busy: boolean }) {
+export function JourneySchematic({ preview, busy }: { preview: JourneyPreview; busy: boolean }) {
   return (
     <div className="cd-preview">
       <div className="cd-preview-banner">{busy ? 'Building the journey…' : 'Proposed — not built yet.'}</div>

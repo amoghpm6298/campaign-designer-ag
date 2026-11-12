@@ -51,3 +51,7 @@ llm-prompt.html
 # Screenshots from scripts/ux-shots.mjs — local review artefacts, not source.
 .ux-shots/
 .ux-shots-*/
+
+# A/B run outputs
+eval/ab/results-*.json
+eval/ab/report-*.html

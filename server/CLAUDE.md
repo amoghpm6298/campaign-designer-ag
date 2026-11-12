@@ -13,6 +13,39 @@ validators, and share nothing of the UI shell. A campaign this agent produces
 is the same kind of object as one built by hand, because it is constructed
 through the builder's own `dcConfirmAddNode` rather than assembled separately.
 
+## 2026-11-12 — v2: one agent, one prompt, every tool (server/agent/)
+
+Decided by Nimit (head of product). v1 stays available behind the Agent selector
+in the rail (localStorage `cd-agent`); v2 is the default.
+
+**Why.** v1 re-briefs the model every round: `turnPhase()` picks a stage from
+`decide()`, `systemForPhase()` sends only that stage's manual, and the tool list
+changes with it. The agent never saw the whole journey, moved stages silently
+(sometimes mid-reply) and the manager never signed off the brief. The per-phase
+split was a fix for real failures (a Confirm turn re-planning, contradictory
+turn instructions, the 33.5k cap) whose root cause was no "you are here" signal
+plus tools that contradicted the prompt.
+
+**What v2 does instead.**
+- ONE fixed system prompt (`agent/prompt.ts`, under 15k chars) describing all
+  three phases (Brief, Plan, Build) as guidance, not rules.
+- EVERY tool on EVERY round, none refused (`agent/tools.ts`). New:
+  `update_plan_file`, `set_flags`, `request_signoff`, `record_user_acceptance`.
+  Reworked: `ask_questions` (aspect-grouped form questions, single/multi/open,
+  the UI adds "Other"), `build_campaign` (same `buildFromBlueprint` engine).
+  Kept: the five lookups.
+- The backend keeps a PLAN FILE, PROGRESS FLAGS (all start false; goalClear …
+  planSignedOff, campaignBuilt) and a TIMELINE (`agent/state.ts`). The app
+  writes a status block with all of them onto the latest user message every
+  turn, so the system prompt never changes. Sign-offs come from the UI button
+  or the agent recording chat approval. Acting ahead of the flags is allowed
+  and logged as `acted_ahead_of_flags`.
+- Endpoint `/api/agent/stream`; client `src/designer/v2/`.
+
+**Measuring it.** `node eval/ab/ab.mjs` runs both pipelines on the same
+scenarios with an LLM-simulated manager and a blind LLM judge, and writes an
+HTML report. Tests: `tests/unit/agentV2.test.ts`.
+
 ## The one thing to know before changing anything
 
 Behavioural rules added to the prompt have reliably produced more honest

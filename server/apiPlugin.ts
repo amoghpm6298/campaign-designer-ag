@@ -16,7 +16,7 @@ import { dirname } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 import type { Plugin, ViteDevServer } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { passwordGate } from './passwordGate';
+import { passwordGate } from './passwordGate.ts';
 
 type Handler = (body: unknown) => Promise<{ status: number; json: unknown }>;
 
@@ -271,6 +271,22 @@ export function agentApiPlugin(): Plugin {
             const gen = (orch.orchestrateStream as (r: unknown) => AsyncGenerator<unknown, unknown>)(
               toRequest(body, know.seedKnowledgeBase as () => unknown),
             );
+            return void (await streamSse(res, gen));
+          }
+          // v2: one agent, one prompt, every tool. See server/agent/.
+          if (url === '/api/agent/stream' && req.method === 'POST') {
+            const agent = await load('agent/loop.ts');
+            const body = (await readBody(req)) as Record<string, unknown>;
+            if (!Array.isArray(body?.messages)) return send(res, 400, { error: 'messages[] is required' });
+            const gen = (agent.agentStream as (r: unknown) => AsyncGenerator<unknown, unknown>)({
+              sessionId: String(body.sessionId ?? `s-${Date.now()}`),
+              messages: body.messages,
+              tenantId: body.tenantId,
+              knowledge: body.knowledge,
+              state: body.state ?? null,
+              answers: body.answers,
+              action: body.action ?? null,
+            });
             return void (await streamSse(res, gen));
           }
           const table = await routes(load);
