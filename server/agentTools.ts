@@ -1,7 +1,7 @@
 // Tools the model can actually call, executed server-side.
 //
 // Every tool here returns REAL data from the application's own source or the
-// resolved tenant. None of them is a stub, and the orchestrator never
+// resolved tenant. None of them is a stub, and the agent never
 // fabricates a call or a result: a tool event is emitted only when the model
 // genuinely requested it and the function below genuinely ran.
 import {

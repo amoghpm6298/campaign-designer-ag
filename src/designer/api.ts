@@ -1,7 +1,6 @@
 // The only transport to the server. No key, no provider detail, no prompt
 // construction happens on the client.
-import type { Capabilities, DesignerResponse, KnowledgeBase, ChatTurn, Tenant } from './types';
-import type { DripCampaign } from '../data/graphTypes';
+import type { Capabilities, KnowledgeBase, Tenant } from './types';
 
 /**
  * '/api/x' under the app's base path. Base is '/' locally and
@@ -40,16 +39,3 @@ export const listTenants = () => post<{ tenants: Tenant[] }>('/api/tenants', {})
 
 export const seedKnowledge = () =>
   post<{ knowledge: KnowledgeBase; capabilities: Capabilities }>('/api/knowledge/seed', {});
-
-export const runDesigner = (body: {
-  sessionId: string;
-  messages: ChatTurn[];
-  knowledge: KnowledgeBase;
-  discoveryRounds: number;
-  currentCampaign?: DripCampaign | null;
-  /** Only the id is sent; the server resolves the tenant's configuration. */
-  tenantId: string;
-  /** Real account/template ids the user has supplied, keyed by step name. */
-  resolvedSends?: Record<string, { account?: string; templateId?: string }>;
-  forceProposal?: boolean;
-}) => post<DesignerResponse>('/api/designer', body);

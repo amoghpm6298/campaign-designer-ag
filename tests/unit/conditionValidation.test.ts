@@ -19,7 +19,6 @@ import {
   conditionValues,
   describeIssue,
 } from '../../src/data/conditionValidation';
-import { detectStatedValues, mergeStatedValues, unresolvedConflicts } from '../../server/conflicts';
 import { buildFromBlueprint, type CampaignBlueprint } from '../../server/blueprint';
 import { validateCampaignGraph } from '../../agent-proto/validate';
 import { ELIGIBILITY_META, DC_EVENT_ENTITY, type Channel } from '../../src/data/sharedConstants';
@@ -305,56 +304,6 @@ describe('the graph validator catches what the builder would have let through', 
     };
     const check = validateCampaignGraph(graph, { fanOut: [] }).checks.find((c) => c.id === 'condition-validity')!;
     expect(check.status).toBe('pass');
-  });
-});
-
-describe('a value the user states is never silently replaced', () => {
-  // The live transcript, verbatim.
-  const CLARIFY =
-    'Entry comes from a Transaction event. Initiated By = customer_initiated, Transaction Type = authorize, ' +
-    'Transaction Status = approved. Product type is Auth and new status is successful.';
-
-  it('matches the values the platform does define, whatever the casing', () => {
-    const stated = detectStatedValues(CLARIFY);
-    const byAttr = Object.fromEntries(stated.map((s) => [s.attribute, s]));
-    expect(byAttr['Initiated By'].status).toBe('matches');
-    expect(byAttr['Initiated By'].canonical).toBe('CUSTOMER_INITIATED');
-    expect(byAttr['Transaction Status'].canonical).toBe('APPROVED');
-    expect(byAttr['New Status'].canonical).toBe('Successful');
-    // The user's own words are kept, not overwritten by the canonical form.
-    expect(byAttr['Transaction Status'].statement).toMatch(/approved/);
-  });
-
-  it('flags the one value the platform cannot hold, with the real alternatives', () => {
-    const conflicts = unresolvedConflicts(detectStatedValues(CLARIFY));
-    expect(conflicts).toHaveLength(1);
-    const c = conflicts[0];
-    expect(c.attribute).toBe('Product Type');
-    expect(c.value).toBe('Auth');
-    expect(c.entities).toEqual(['EMI Request']);
-    expect(c.allowedValues).toEqual(EMI_PRODUCT);
-    // Preserved verbatim, explained, alternatives offered — and no
-    // substitute attribute anywhere in the explanation.
-    expect(c.statement).toMatch(/Product type is Auth/i);
-    expect(c.explanation).toContain(EMI_PRODUCT.join(', '));
-    expect(c.explanation).not.toMatch(/EMI Eligible/);
-  });
-
-  it('a conflict is resolved by the user restating it, not by the agent choosing', () => {
-    let stated = detectStatedValues(CLARIFY);
-    expect(unresolvedConflicts(stated)).toHaveLength(1);
-    stated = mergeStatedValues(stated, detectStatedValues(`Product Type = ${EMI_PRODUCT[0]}`));
-    expect(unresolvedConflicts(stated)).toHaveLength(0);
-  });
-
-  it('ignores ordinary prose rather than guessing at it', () => {
-    expect(detectStatedValues('The problem is silent non-conversion and the goal is more conversions.')).toEqual([]);
-  });
-
-  it('says so when the platform cannot verify a stated value', () => {
-    const stated = detectStatedValues('Smart Tag = VIP-GOLD');
-    expect(stated[0].status).toBe('unverifiable');
-    expect(stated[0].explanation).toMatch(/cannot be verified/i);
   });
 });
 

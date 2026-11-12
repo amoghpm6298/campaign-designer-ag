@@ -1,7 +1,7 @@
 // The standalone application shell: its own header, navigation and global
 // tenant selector. Nothing here comes from the ib-face-mock chrome.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, Library, MessagesSquare, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Activity, Library, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import logo from '../assets/hfLogo.svg';
 import {
   applyOverrides,
@@ -9,33 +9,16 @@ import {
   resetAll,
   type KnowledgeOverrides,
 } from '../designer/knowledgeStore';
-import { CampaignDesigner } from '../designer/CampaignDesigner';
 import { DesignerV2 } from '../designer/v2/DesignerV2';
 import { KnowledgeBaseView } from '../designer/KnowledgeBaseView';
-import { RunLogsView } from '../designer/RunLogsView';
 import { listTenants, seedKnowledge } from '../designer/api';
-import {
-  clearSession,
-  loadRunLogs,
-  loadSession,
-  loadTenantId,
-  saveTenantId,
-} from '../designer/storage';
-import type { Capabilities, KnowledgeBase, RunLog, Tenant } from '../designer/types';
+import { loadTenantId, saveTenantId } from '../designer/storage';
+import type { Capabilities, KnowledgeBase, Tenant } from '../designer/types';
 
-type Page = 'designer' | 'knowledge' | 'logs';
+type Page = 'designer' | 'knowledge';
 
 export function DesignerShell() {
   const [page, setPage] = useState<Page>('designer');
-  /**
-   * Which chat the designer is showing.
-   *
-   * Held here rather than inside `CampaignDesigner` because the Chats page is
-   * what changes it: resuming is a navigation, and navigation belongs to the
-   * shell. The designer reads it as a prop and keys off it, so the same one
-   * component serves both the live chat and a resumed one.
-   */
-  const [openChat, setOpenChat] = useState<string | undefined>(undefined);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [tenantId, setTenantId] = useState<string>(loadTenantId() ?? '');
   // THE SEED IS RECOMPUTED EVERY LOAD, and the user's changes are applied on
@@ -47,29 +30,10 @@ export function DesignerShell() {
   const [overrides, setOverrides] = useState<KnowledgeOverrides>(() => loadOverrides());
   const knowledge = useMemo(() => (seed ? applyOverrides(seed, overrides) : null), [seed, overrides]);
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
-  const [logs, setLogs] = useState<RunLog[]>(loadRunLogs());
   const [bootError, setBootError] = useState<string | null>(null);
-  /** Set when the chosen tenant differs from the one the open session began with. */
-  const [tenantMismatch, setTenantMismatch] = useState<string | null>(null);
   // Persisted, because a collapsed rail that springs back open on every
   // reload is a preference the product keeps overruling.
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem('hf-rail') !== 'collapsed');
-  // Which agent the Design page runs. v2 (one agent, one prompt) is the default;
-  // v1 stays available for comparison while v2 is being tested.
-  const [agentVersion, setAgentVersion] = useState<'v1' | 'v2'>(() => {
-    try {
-      return localStorage.getItem('cd-agent') === 'v1' ? 'v1' : 'v2';
-    } catch {
-      return 'v2';
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem('cd-agent', agentVersion);
-    } catch {
-      /* preference only */
-    }
-  }, [agentVersion]);
   useEffect(() => {
     localStorage.setItem('hf-rail', railOpen ? 'open' : 'collapsed');
   }, [railOpen]);
@@ -98,15 +62,6 @@ export function DesignerShell() {
   useEffect(() => {
     if (tenantId) saveTenantId(tenantId);
   }, [tenantId]);
-
-  // A session belongs to the tenant it was designed for. Switching tenants
-  // must not silently reinterpret an existing campaign as the new tenant's —
-  // the user is told, and chooses.
-  useEffect(() => {
-    const session = loadSession();
-    if (!session?.tenantId || !tenantId) return setTenantMismatch(null);
-    setTenantMismatch(session.tenantId !== tenantId ? session.tenantId : null);
-  }, [tenantId, page]);
 
   const tenant = tenants.find((t) => t.tenantId === tenantId) ?? null;
 
@@ -171,7 +126,6 @@ export function DesignerShell() {
             [
               ['designer', 'Design', Activity],
               ['knowledge', 'Knowledge Base', Library],
-              ['logs', 'Chats', MessagesSquare],
             ] as [Page, string, typeof Activity][]
           ).map(([k, label, Icon]) => {
             const on = page === k;
@@ -208,21 +162,6 @@ export function DesignerShell() {
             <div className="px-1">
               <label
                 className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary"
-                htmlFor="hf-agent"
-              >
-                Agent
-              </label>
-              <select
-                id="hf-agent"
-                value={agentVersion}
-                onChange={(e) => setAgentVersion(e.target.value === 'v1' ? 'v1' : 'v2')}
-                className="w-full h-9 mb-3 px-2.5 text-[13px] rounded-[var(--radius-input)] border border-border bg-white text-text-primary focus:outline-none focus:border-[#8FB9F8] focus:shadow-[var(--shadow-focus-ring)]"
-              >
-                <option value="v2">v2 · one agent (new)</option>
-                <option value="v1">v1 · staged (old)</option>
-              </select>
-              <label
-                className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary"
                 htmlFor="hf-tenant"
               >
                 Tenant
@@ -253,24 +192,6 @@ export function DesignerShell() {
       </aside>
 
       <div className="hf-main">
-        {tenantMismatch && (
-          <div className="ds-switch-warn">
-            <span>
-              The open session was designed for <b>{tenantMismatch}</b>, not the selected tenant. It is kept as it is \u2014
-              new runs will use <b>{tenant?.displayName ?? tenantId}</b>.
-            </span>
-            <button
-              onClick={() => {
-                clearSession();
-                setTenantMismatch(null);
-                window.location.reload();
-              }}
-            >
-              Start a new campaign for this tenant
-            </button>
-          </div>
-        )}
-
       <div className="ds-body">
         {bootError && (
           <div className="cd-configerr">
@@ -281,21 +202,8 @@ export function DesignerShell() {
             </p>
           </div>
         )}
-        {!bootError && page === 'designer' && knowledge && tenant && agentVersion === 'v2' && (
+        {!bootError && page === 'designer' && knowledge && tenant && (
           <DesignerV2 key={tenant.tenantId} knowledge={knowledge} tenant={tenant} />
-        )}
-        {!bootError && page === 'designer' && knowledge && tenant && agentVersion === 'v1' && (
-          <CampaignDesigner
-            // Remounts when the open chat changes, so every piece of
-            // conversation state is rebuilt from the stored session rather
-            // than half-updated in place.
-            key={openChat ?? 'current'}
-            knowledge={knowledge}
-            tenant={tenant}
-            sessionId={openChat}
-            onSessionChange={setOpenChat}
-            onLogsChanged={() => setLogs(loadRunLogs())}
-          />
         )}
         {!bootError && page === 'designer' && (!knowledge || !tenant) && (
           <div style={{ padding: 30, fontSize: 13, color: 'var(--gray-600)' }}>Loading tenant and knowledge base…</div>
@@ -309,17 +217,6 @@ export function DesignerShell() {
             onOverrides={setOverrides}
             onReset={resetKnowledge}
             tenant={tenant}
-          />
-        )}
-        {!bootError && page === 'logs' && (
-          <RunLogsView
-            logs={logs}
-            onCleared={() => setLogs(loadRunLogs())}
-            onStartDesigning={() => setPage('designer')}
-            onResume={(id) => {
-              setOpenChat(id);
-              setPage('designer');
-            }}
           />
         )}
       </div>

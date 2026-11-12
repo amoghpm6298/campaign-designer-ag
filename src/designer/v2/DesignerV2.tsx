@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ArrowUp, Check, ChevronDown, ChevronRight, Circle, Loader2, RotateCcw } from 'lucide-react';
 import { DripCanvas } from '../../canvas/DripCanvas';
 import type { DripGraph } from '../../data/graphTypes';
-import { JourneySchematic } from '../CampaignDesigner';
+import { JourneySchematic } from '../JourneySchematic';
 import { previewFromBlueprint } from '../preview';
 import { RichText } from '../RichText';
 import type { KnowledgeBase, Tenant } from '../types';

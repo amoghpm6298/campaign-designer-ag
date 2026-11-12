@@ -309,7 +309,7 @@ export function previewFromBlueprint(bp: unknown): JourneyPreview | null {
  *
  * Pure, and here rather than in the component, so it can be tested on its
  * own — the first version of this was pinned by matching a regex against
- * `CampaignDesigner.tsx`, which passed against a file the revert had failed
+ * the UI component, which passed against a file the revert had failed
  * to change.
  */
 export function templateSegments(text: string): { text: string; token: boolean }[] {

@@ -1,6 +1,6 @@
 {
-  // Typechecks everything OUTSIDE src: the agent server, the eval harness, the
-  // agent-proto validators and the tests.
+  // Typechecks everything OUTSIDE src: the agent server, the agent-proto
+  // validators and the tests.
   //
   // WHY THIS EXISTS. tsconfig.app.json has `include: ["src"]` and
   // tsconfig.node.json has `include: ["vite.config.ts"]`, so `tsc --noEmit`
@@ -31,5 +31,5 @@
     "noUnusedParameters": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["server/**/*.ts", "eval/**/*.ts", "agent-proto/**/*.ts", "tests/**/*.ts", "docs/**/*.ts"]
+  "include": ["server/**/*.ts", "agent-proto/**/*.ts", "tests/**/*.ts"]
 }

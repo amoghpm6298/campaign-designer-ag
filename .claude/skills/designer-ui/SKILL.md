@@ -1,6 +1,6 @@
 ---
 name: designer-ui
-description: Design, review or change any Campaign Designer / Drip Campaigns screen — layout, copy, states, canvas, or anything a client sees in a demo. Use before editing designer.css, CampaignDesigner.tsx, preview.ts, RunLogsView, KnowledgeBaseView or any wizard surface, and whenever asked whether a screen is demo-worthy.
+description: Design, review or change any Campaign Designer / Drip Campaigns screen — layout, copy, states, canvas, or anything a client sees in a demo. Use before editing src/designer/v2/*, designer.css, JourneySchematic.tsx, preview.ts, KnowledgeBaseView or any wizard surface, and whenever asked whether a screen is demo-worthy.
 ---
 
 # Designing this product's screens

@@ -3,7 +3,7 @@
 // fits when; the agent decides.
 
 import { AGENT_TOOLS, runTool, type ToolDef } from '../agentTools';
-import { BLUEPRINT_SCHEMA, STEP_DEF } from '../outputTools';
+import { BLUEPRINT_SCHEMA, STEP_DEF } from './journeySchema';
 import { buildFromBlueprint, type CampaignBlueprint } from '../blueprint';
 import { buildCampaignProposal } from '../../agent-proto/campaignFields';
 import { validateCampaignGraph } from '../../agent-proto/validate';

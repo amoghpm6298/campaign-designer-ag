@@ -180,12 +180,10 @@ async function routes(loadModule: ModuleLoader): Promise<Record<string, Handler>
   // Loaded inside the handler so an edit is picked up without restarting the
   // dev server, and so a load error surfaces as a 500 with a message rather
   // than killing the server at boot.
-  const orch = await loadModule('orchestrator.ts');
   const anth = await loadModule('anthropic.ts');
   const know = await loadModule('knowledge.ts');
   const ten = await loadModule('tenants.ts');
 
-  const orchestrateStream = orch.orchestrateStream as (req: unknown) => AsyncGenerator<unknown, unknown>;
   const verifyModel = anth.verifyModel as () => Promise<unknown>;
   const hasApiKey = anth.hasApiKey as () => boolean;
   const resolveModel = anth.resolveModel as () => string;
@@ -211,39 +209,9 @@ async function routes(loadModule: ModuleLoader): Promise<Record<string, Handler>
       status: 200,
       json: { knowledge: seedKnowledgeBase(), capabilities: loadCapabilities() },
     }),
-    // Non-streaming kept for tests and any caller that just wants the result.
-    '/api/designer': async (body) => {
-      const b = body as Record<string, unknown>;
-      if (!b || typeof b !== 'object' || !Array.isArray(b.messages)) {
-        return { status: 400, json: { error: 'messages[] is required' } };
-      }
-      const gen = orchestrateStream(toRequest(b, seedKnowledgeBase));
-      let out = await gen.next();
-      while (!out.done) out = await gen.next();
-      return { status: 200, json: out.value };
-    },
   };
 }
 
-/** Shared request shaping, so both routes interpret a body identically. */
-function toRequest(b: Record<string, unknown>, seed: () => unknown) {
-  return {
-    sessionId: String(b.sessionId ?? `s-${Date.now()}`),
-    messages: b.messages,
-    knowledge: b.knowledge ?? seed(),
-    discoveryRounds: Number(b.discoveryRounds ?? 0),
-    currentCampaign: b.currentCampaign ?? null,
-    tenantId: b.tenantId,
-    resolvedSends: b.resolvedSends,
-    forceProposal: Boolean(b.forceProposal),
-    intent: b.intent ?? 'converse',
-    confirmedBlueprint: b.confirmedBlueprint ?? null,
-    confirmedStrategy: b.confirmedStrategy ?? null,
-    // The accumulated brief and state machine, carried between turns.
-    brief: b.brief ?? null,
-    session: b.session ?? null,
-  };
-}
 
 export function agentApiPlugin(): Plugin {
   return {
@@ -262,17 +230,6 @@ export function agentApiPlugin(): Plugin {
         if (base && url.startsWith(base + '/')) url = url.slice(base.length);
         if (!url.startsWith('/api/')) return next();
         try {
-          // The streaming route owns its own response lifecycle.
-          if (url === '/api/designer/stream' && req.method === 'POST') {
-            const orch = await load('orchestrator.ts');
-            const know = await load('knowledge.ts');
-            const body = (await readBody(req)) as Record<string, unknown>;
-            if (!Array.isArray(body?.messages)) return send(res, 400, { error: 'messages[] is required' });
-            const gen = (orch.orchestrateStream as (r: unknown) => AsyncGenerator<unknown, unknown>)(
-              toRequest(body, know.seedKnowledgeBase as () => unknown),
-            );
-            return void (await streamSse(res, gen));
-          }
           // v2: one agent, one prompt, every tool. See server/agent/.
           if (url === '/api/agent/stream' && req.method === 'POST') {
             const agent = await load('agent/loop.ts');
