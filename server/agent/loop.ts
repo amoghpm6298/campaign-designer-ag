@@ -11,6 +11,7 @@ import type { Channel } from '../../src/data/sharedConstants';
 import { systemPrompt, statusBlock } from './prompt';
 import { TOOL_TITLES, runToolCall, toolsFor, type ToolEnv } from './tools';
 import { normaliseState, recordAnswers, recordSkips } from './state';
+import { loadCampaign, saveCampaign } from '../campaignFiles';
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
 
@@ -37,6 +38,29 @@ function toApiMessages(messages: AgentRequest['messages']): ApiMessage[] {
   return out;
 }
 
+/** The conversation state with the campaign as it is on disk (empty if this chat has none yet). */
+export function withCampaignFromDisk(state: AgentState, sessionId: string, dir?: string): AgentState {
+  let onDisk = null;
+  try {
+    onDisk = loadCampaign(sessionId, dir);
+  } catch {
+    /* not a valid session id: start empty, and nothing will be saved */
+  }
+  return { ...state, planFile: onDisk ?? normaliseState(null).planFile };
+}
+
+/** Writes the campaign through to disk the moment a tool changes it. */
+export function persistIfChanged(before: AgentState, after: AgentState, sessionId: string, tenantId: string, dir?: string): boolean {
+  if (after.planFile === before.planFile) return false;
+  try {
+    saveCampaign(sessionId, tenantId, after.planFile, dir);
+    return true;
+  } catch (e) {
+    console.error(`[campaign] could not save ${sessionId}: ${(e as Error).message}`);
+    return false;
+  }
+}
+
 export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, AgentResponse> {
   const runId = `run-${Date.now().toString(36)}`;
   const pending: RunEvent[] = [];
@@ -50,7 +74,9 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
     while (pending.length) yield pending.shift()!;
   };
 
-  let state: AgentState = normaliseState(req.state);
+  // The campaign itself lives on disk, keyed by this chat's session id. The
+  // request carries only the conversation; whatever campaign it sends is ignored.
+  let state: AgentState = withCampaignFromDisk(normaliseState(req.state), req.sessionId);
   const base = (extra: Partial<AgentResponse>): AgentResponse => ({
     sessionId: req.sessionId,
     runId,
@@ -158,6 +184,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
         const t0 = Date.now();
         const out = runToolCall(tu.name, tu.input ?? {}, state, env);
         const planChanged = out.state.planFile !== state.planFile || out.state.flags !== state.flags;
+        persistIfChanged(state, out.state, req.sessionId, tenant.tenantId);
         state = out.state;
         if (out.asked) asked.push(...out.asked);
         if (out.build) built = out.build;

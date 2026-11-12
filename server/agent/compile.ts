@@ -23,7 +23,7 @@ export interface CompileResult {
 export function planToBlueprint(pf: PlanFile): CompileResult {
   const problems: string[] = [];
   const shell = pf.campaign;
-  if (!shell) return { blueprint: null, problems: ['There is no campaign shell yet. Write it with update_campaign (entry, goal, membership).'], bucketsIncluded: [] };
+  if (!shell) return { blueprint: null, problems: ['There is no campaign shell yet. Write it with edit_campaign (entry, goal, membership).'], bucketsIncluded: [] };
 
   const ready = pf.buckets
     .slice()
@@ -46,7 +46,7 @@ export function planToBlueprint(pf: PlanFile): CompileResult {
     ee?.approach === 'journey' && ee.journey?.length
       ? ee.journey
       : [{ kind: 'exit', reason: ee?.approach === 'none' ? 'In no bucket: no messages, by design' : 'In no bucket' }];
-  if (!ee) problems.push('What customers in no bucket get is not decided; they exit without messages. Set everyoneElse in update_campaign.');
+  if (!ee) problems.push('What customers in no bucket get is not decided; they exit without messages. Set everyoneElse in edit_campaign.');
 
   for (const b of [...ready].reverse()) {
     const h = typeof b.holdoutPct === 'number' && b.holdoutPct > 0 ? Math.round(b.holdoutPct) : 0;
@@ -67,7 +67,7 @@ export function planToBlueprint(pf: PlanFile): CompileResult {
   }
 
   const entry = shell.entry ?? { kind: 'audience' as const, entity: 'Customer' };
-  if (!shell.entry) problems.push('No entry audience set; everyone eligible enters. Set entry in update_campaign if that is wrong.');
+  if (!shell.entry) problems.push('No entry audience set; everyone eligible enters. Set entry in edit_campaign if that is wrong.');
   const open = shell.membership?.type === 'open';
   if (!shell.membership) problems.push('Locked or open buckets is not decided; built as locked (membership fixed at launch).');
 

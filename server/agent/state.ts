@@ -547,7 +547,7 @@ export function editJourney(state: AgentState, target: string, ops: JourneyOp[])
   const bucket = isEveryone ? null : state.planFile.buckets.find((b) => b.id === target);
   const journey = isEveryone ? state.planFile.campaign?.everyoneElse?.journey : bucket?.journey;
   if (!isEveryone && !bucket) return { state, said: '', error: `No bucket "${target}".` };
-  if (!journey?.length) return { state, said: '', error: 'That journey is empty; write it with upsert_bucket (or update_campaign for everyone else) first.' };
+  if (!journey?.length) return { state, said: '', error: 'That journey is empty; write it with edit_bucket (or edit_campaign for everyone else) first.' };
   const res = applyJourneyOps(journey, ops);
   if (!res.applied.length) return { state, said: '', error: res.errors.join('; ') || 'No operations applied.' };
   let next: AgentState;

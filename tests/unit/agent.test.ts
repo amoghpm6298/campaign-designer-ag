@@ -212,8 +212,11 @@ describe('the toolkit', () => {
   it('offers the warehouse tools only to a tenant with a warehouse', () => {
     expect(toolsFor(false).map((t) => t.name)).not.toContain('run_sql_query');
     expect(toolsFor(true).map((t) => t.name)).toContain('run_sql_query');
-    for (const n of ['ask_questions', 'update_brief', 'update_campaign', 'upsert_bucket', 'edit_journey', 'build_campaign']) {
+    for (const n of ['ask_questions', 'get_campaign', 'edit_campaign', 'edit_bucket', 'edit_journey', 'build_campaign']) {
       expect(toolsFor(false).map((t) => t.name)).toContain(n);
+    }
+    for (const n of ['update_brief', 'update_campaign', 'upsert_bucket', 'remove_bucket']) {
+      expect(toolsFor(false).map((t) => t.name)).not.toContain(n);
     }
   });
 
@@ -243,7 +246,7 @@ describe('the warehouse', () => {
     const q = runToolCall('run_sql_query', { sql: 'SELECT category, COUNT(*) AS n FROM transactions GROUP BY category ORDER BY n DESC', purpose: 'categories' }, initialState(), env(true));
     expect(q.ok).toBe(true);
     const sized = runToolCall(
-      'upsert_bucket',
+      'edit_bucket',
       { id: 'elec', name: 'Electronics', behaviour: 'x', evidence: 'measured', sql: "SELECT DISTINCT customer_id FROM transactions WHERE category = 'electronics'" },
       initialState(),
       env(true),

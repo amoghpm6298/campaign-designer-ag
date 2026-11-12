@@ -56,5 +56,5 @@ llm-prompt.html
 eval/ab/results-*.json
 eval/ab/report-*.html
 
-# Mock data warehouses (built by scripts/build-warehouse.mjs, not committed)
-data/warehouse/
+# Local data: mock warehouses (scripts/build-warehouse.mjs) and campaign files, never committed
+data/

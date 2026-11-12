@@ -1,6 +1,6 @@
 // SSE client for the v2 agent endpoint.
 import { apiUrl } from '../api';
-import type { AgentResponse, AgentState, V2Event } from './types';
+import type { AgentResponse, AgentState, PlanFile, V2Event } from './types';
 
 export interface AgentStreamBody {
   sessionId: string;
@@ -72,4 +72,12 @@ export async function runAgentStream(
   } catch (e) {
     handlers.onError((e as Error).name === 'AbortError' ? 'Cancelled.' : (e as Error).message);
   }
+}
+
+/** The campaign this chat has on file on the server (null if none yet). */
+export async function fetchCampaign(sessionId: string): Promise<PlanFile | null> {
+  const res = await fetch(apiUrl(`/api/campaign?sessionId=${encodeURIComponent(sessionId)}`));
+  if (!res.ok) return null;
+  const body = (await res.json()) as { campaign?: PlanFile | null };
+  return body.campaign ?? null;
 }

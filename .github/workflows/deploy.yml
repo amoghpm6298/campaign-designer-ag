@@ -3,7 +3,8 @@ name: Deploy to product server
 # Live at https://ai.product.hyperface.co/campaigndesigneragent/ (nginx basic-auth gate -> 127.0.0.1:5174, pm2 "campaign-designer").
 # The app's API only exists inside the Vite dev server (server/apiPlugin.ts), so the box runs vite itself with --base /campaigndesigneragent/ (see
 # ~/campaign-designer-ecosystem.config.js there). The server keeps its own .env (ANTHROPIC_API_KEY, ANTHROPIC_MODEL)
-# and the run records it writes under agent-proto/runs/ - neither is synced over or deleted here.
+# and what it writes at runtime - run records (agent-proto/runs/, eval/runs/) and campaign files plus mock
+# warehouses (data/) - none of it is synced over or deleted here.
 
 on:
   push:
@@ -48,6 +49,8 @@ jobs:
             --exclude='.env' --exclude='dist' --exclude='dist-designer' \
             --exclude='test-results' --exclude='playwright-report' \
             --filter='P agent-proto/runs/***' \
+            --filter='P data/***' \
+            --filter='P eval/runs/***' \
             ./ $SERVER:/home/ec2-user/campaign-designer/
 
       - name: Install deps & restart
