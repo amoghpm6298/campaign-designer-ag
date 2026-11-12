@@ -1,0 +1,78 @@
+name: Deploy to product server
+
+# Live at https://campaign-designer.product.hyperface.co (nginx basic-auth gate -> 127.0.0.1:5174, pm2 "campaign-designer").
+# The app's API only exists inside the Vite dev server (server/apiPlugin.ts), so the box runs vite itself (see
+# ~/campaign-designer-ecosystem.config.js there). The server keeps its own .env (ANTHROPIC_API_KEY, ANTHROPIC_MODEL)
+# and the run records it writes under agent-proto/runs/ - neither is synced over or deleted here.
+
+on:
+  push:
+    branches: [designer-standalone]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-campaign-designer
+  cancel-in-progress: false
+
+env:
+  SERVER: ec2-user@15.207.98.103
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Unit tests
+        run: |
+          npm ci --ignore-scripts --silent
+          npm test
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Add server to known hosts
+        run: ssh-keyscan -H 15.207.98.103 >> ~/.ssh/known_hosts
+
+      - name: Sync app to server
+        run: |
+          rsync -az --delete \
+            --exclude='.git' --exclude='.github' --exclude='node_modules' \
+            --exclude='.env' --exclude='dist' --exclude='dist-designer' \
+            --exclude='test-results' --exclude='playwright-report' \
+            --filter='P agent-proto/runs/***' \
+            ./ $SERVER:/home/ec2-user/campaign-designer/
+
+      - name: Install deps & restart
+        run: |
+          ssh $SERVER 'bash -s' << 'ENDSSH'
+            set -e
+            cd ~/campaign-designer
+            npm ci --ignore-scripts --no-audit --no-fund --silent
+            pm2 startOrReload ~/campaign-designer-ecosystem.config.js
+            pm2 save
+            code=""
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5174/api/health || true)
+              [ "$code" = "200" ] && break
+              sleep 2
+            done
+            if [ "$code" != "200" ]; then
+              echo "App unhealthy after restart (HTTP $code)"
+              pm2 logs campaign-designer --lines 40 --nostream || true
+              exit 1
+            fi
+            echo "Deploy complete - app healthy"
+          ENDSSH
+
+      - name: Verify public URL (expect 401 = password gate up)
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" https://campaign-designer.product.hyperface.co/designer.html)
+          echo "HTTP $code"; [ "$code" = "401" ]
