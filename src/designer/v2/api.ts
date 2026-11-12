@@ -1,6 +1,6 @@
 // SSE client for the v2 agent endpoint.
 import { apiUrl } from '../api';
-import type { AgentResponse, AgentState, V2Action, V2Event } from './types';
+import type { AgentResponse, AgentState, V2Event } from './types';
 
 export interface AgentStreamBody {
   sessionId: string;
@@ -9,7 +9,8 @@ export interface AgentStreamBody {
   knowledge?: unknown;
   state: AgentState | null;
   answers?: Record<string, string>;
-  action?: V2Action | null;
+  /** Question ids the manager skipped: the agent assumes and says so. */
+  skipped?: string[];
 }
 
 export async function runAgentStream(

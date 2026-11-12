@@ -43,7 +43,7 @@ export const STEP_DEF = {
     atTime: { type: 'string', description: 'Clock time this send fires, e.g. "11:00". The Send node already has absTime.' },
     fallbackChannel: { type: 'string', description: 'Fallback on THIS send if delivery fails, e.g. SMS. Not a second step.' },
     // wait
-    durationHours: { type: 'number' },
+    durationHours: { type: 'number', description: 'Wait steps only, and required for them: how long to wait, in HOURS (48 = 2 days). Do not use delayDays on a wait.' },
     why: { type: 'string' },
     // waitForEvent
     eventCategory: { type: 'string' },

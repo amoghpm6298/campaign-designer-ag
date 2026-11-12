@@ -188,6 +188,11 @@ export function dcRecomputeLabelMeta(type: DcNodeType, p: any, goal: DripGoal | 
     }
     if (p.customSource === 'Transaction history') return { label: dcTxnHistorySummary(p.txnHistory) + '?', meta: '' };
     if (p.customSource === 'Milestone') return { label: dcMilestoneSummary(p.milestone) + '?', meta: '' };
+    if (p.customSource === 'Audience rule') {
+      const n = Array.isArray(p.audienceGroups) ? p.audienceGroups.length : 0;
+      const name = typeof p.audienceName === 'string' && p.audienceName.trim() ? p.audienceName.trim() : 'In this audience';
+      return { label: `${name}?`, meta: n > 1 ? `${n} filters` : '' };
+    }
     const conds = (p.customConditions || []).filter((c: DripGoalCondition) => c.attribute);
     // One simple condition gets to be the label itself (a short, real
     // business question) — two or more collapse to a count-only meta

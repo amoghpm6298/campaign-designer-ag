@@ -66,7 +66,7 @@ export function dcDefaultConfig(type: DcNodeType, goal: DripGoal | null): any {
     // separate GOAL_CHECK node type, which has no config of its own).
     // outcome (singular) kept only for back-compat with journeys saved
     // before multi-outcome matching — new picks always write `outcomes`.
-    SPLIT: { customSource: 'Previous step outcome', outcome: '', outcomes: [], customConditions: [], txnHistory: dcDefaultTxnHistory() },
+    SPLIT: { customSource: 'Previous step outcome', outcome: '', outcomes: [], customConditions: [], txnHistory: dcDefaultTxnHistory(), audienceName: '', audienceGroups: [] },
     DECISION_SPLIT: {
       name: 'Decision', source: 'Account attribute', attribute: '', outcome: '',
       branches: [
@@ -145,6 +145,11 @@ export function dcAddFormValid(t: DcNodeType, p: any): boolean {
     // required, same as Pause's duration.
     if (p.customSource === 'Transaction history') return Number(p.txnHistory?.lookbackDuration) > 0;
     if (p.customSource === 'Milestone') return dcMilestoneConditionValid(p.milestone);
+    // Audience rule: the same entity blocks Entry · Audience uses, ANDed.
+    // Each block must check something real — a lookback for Transaction, a
+    // complete milestone for Milestone, at least one filled condition
+    // otherwise — or the question would match everyone.
+    if (p.customSource === 'Audience rule') return dcAudienceRuleValid(p.audienceGroups);
     return (p.customConditions || []).some((c: { attribute: string }) => c.attribute);
   }
   // Entry · Audience: a lookback window is only required of a block
@@ -181,4 +186,14 @@ export function dcDefaultExitReason(graph: DripGraph, addingAt: DcAddingAt | nul
   if (!src) return fallback;
   const baseLabel = src.label.replace(/\?$/, '');
   return `${baseLabel} — ${edge.branchLabel}`;
+}
+
+/** An Audience rule (Condition source): every entity block is complete. */
+export function dcAudienceRuleValid(groups: unknown): boolean {
+  if (!Array.isArray(groups) || groups.length === 0) return false;
+  return groups.every((g: { entity?: string; conditions?: { attribute?: string }[]; lookbackDuration?: number; milestone?: DripMilestoneCondition }) => {
+    if (g?.entity === 'Transaction') return Number(g.lookbackDuration) > 0;
+    if (g?.entity === 'Milestone') return dcMilestoneConditionValid(g.milestone);
+    return (g?.conditions ?? []).some((c) => !!c?.attribute);
+  });
 }

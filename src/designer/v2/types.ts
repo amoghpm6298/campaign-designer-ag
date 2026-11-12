@@ -1,42 +1,17 @@
 // Client-side mirror of server/agent/types.ts. Kept separate so the browser
 // bundle never imports server modules.
 
-export type FlagName =
-  | 'goalClear'
-  | 'successClear'
-  | 'audienceClear'
-  | 'barriersClear'
-  | 'questionsAnswered'
-  | 'briefReady'
-  | 'briefSignedOff'
-  | 'planReady'
-  | 'planSignedOff'
-  | 'campaignBuilt';
+export type FlagName = 'goalClear' | 'successClear' | 'membershipClear' | 'questionsAnswered' | 'readyToDesign' | 'campaignBuilt';
 
-export const FLAG_ORDER: FlagName[] = [
-  'goalClear',
-  'successClear',
-  'audienceClear',
-  'barriersClear',
-  'questionsAnswered',
-  'briefReady',
-  'briefSignedOff',
-  'planReady',
-  'planSignedOff',
-  'campaignBuilt',
-];
+export const FLAG_ORDER: FlagName[] = ['goalClear', 'successClear', 'membershipClear', 'questionsAnswered', 'readyToDesign', 'campaignBuilt'];
 
 export const FLAG_LABELS: Record<FlagName, string> = {
   goalClear: 'Goal',
   successClear: 'Success measure',
-  audienceClear: 'Audience',
-  barriersClear: 'Barriers',
+  membershipClear: 'Locked / open',
   questionsAnswered: 'Questions answered',
-  briefReady: 'Brief ready',
-  briefSignedOff: 'Brief signed off',
-  planReady: 'Plan ready',
-  planSignedOff: 'Plan signed off',
-  campaignBuilt: 'Built',
+  readyToDesign: 'Ready to design',
+  campaignBuilt: 'Built & up to date',
 };
 
 export type AnswerType = 'single' | 'multi' | 'open';
@@ -54,20 +29,49 @@ export interface AgentQuestion {
 export interface BriefFinding {
   aspect: string;
   text: string;
-  source: 'manager' | 'assumption';
+  source: 'manager' | 'assumption' | 'data';
+}
+
+export interface AudienceGroup {
+  entity: string;
+  conditions?: { attribute: string; operator: string; value?: string }[];
+  lookbackDays?: number;
+  existence?: 'exists' | 'none';
+}
+
+export interface Bucket {
+  id: string;
+  name: string;
+  priority: number;
+  behaviour: string;
+  rule: AudienceGroup[];
+  sql?: string;
+  evidence: 'measured' | 'manager' | 'hypothesis';
+  evidenceNotes: string;
+  size?: number;
+  sizeError?: string;
+  thesis: string;
+  metric: string;
+  holdoutPct?: number;
+  journey: unknown[] | null;
+}
+
+export interface CampaignShell {
+  name?: string;
+  description?: string;
+  goal: { eventCategory: string; eventType: string } | null;
+  entry: { kind: 'audience'; entity: string; conditions?: unknown[]; groups?: AudienceGroup[] } | null;
+  membership: { type: 'locked' | 'open'; refresh?: 'daily' | 'weekly' | 'monthly' } | null;
+  segmentationLogic?: string;
+  guardrails?: string;
+  measurement?: string;
+  everyoneElse?: { approach: 'journey' | 'none'; why?: string; journey?: unknown[] } | null;
 }
 
 export interface PlanFile {
   brief: { findings: BriefFinding[]; summary?: string };
-  strategy: {
-    hypothesis?: string;
-    approach?: string;
-    alternative?: string;
-    whyNotAlternative?: string;
-    measurement?: string;
-    risks?: string[];
-  } | null;
-  journey: { blueprint: unknown } | null;
+  campaign: CampaignShell | null;
+  buckets: Bucket[];
 }
 
 export interface TimelineEntry {
@@ -82,7 +86,6 @@ export interface AgentState {
   flags: Record<FlagName, boolean>;
   timeline: TimelineEntry[];
   questions: AgentQuestion[];
-  pendingSignoff: 'brief' | 'plan' | null;
   questionSeq: number;
 }
 
@@ -111,6 +114,7 @@ export interface AgentResponse {
   campaign: unknown | null;
   buildNotes: string[];
   events: V2Event[];
+  warehouseAccess: boolean;
 }
 
 export interface V2Turn {
@@ -123,4 +127,3 @@ export interface V2Turn {
   error?: string;
 }
 
-export type V2Action = { type: 'signoff'; section: 'brief' | 'plan' } | { type: 'request_changes'; section: 'brief' | 'plan'; note?: string };

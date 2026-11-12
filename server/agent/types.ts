@@ -1,54 +1,30 @@
-// Campaign Designer v2: one agent, one prompt, every tool on every turn.
+// Campaign Designer: behavioural buckets, an isolated journey per bucket.
+// Questions, then a built campaign, then changes through chat. No approvals.
 //
-// The backend keeps three things and passes them back to the agent each turn:
-//   - the PLAN FILE: the living document the agent writes (brief, strategy, journey);
+// One agent, one prompt, every tool. The backend keeps:
+//   - the PLAN FILE: brief, campaign shell, buckets (each with its own journey);
 //   - the FLAGS: progress booleans that all start false and turn true along the way;
-//   - the TIMELINE: an append-only log of everything that changed, and who changed it.
+//   - the TIMELINE: an append-only log of what changed and who changed it.
 // Nothing here blocks the agent. The flags are guidance it reads, not gates.
 
-import type { CampaignBlueprint } from '../blueprint';
+import type { BpAudienceGroup, BpCondition, BpStep } from '../blueprint';
 
-export type FlagName =
-  | 'goalClear'
-  | 'successClear'
-  | 'audienceClear'
-  | 'barriersClear'
-  | 'questionsAnswered'
-  | 'briefReady'
-  | 'briefSignedOff'
-  | 'planReady'
-  | 'planSignedOff'
-  | 'campaignBuilt';
+export type FlagName = 'goalClear' | 'successClear' | 'membershipClear' | 'questionsAnswered' | 'readyToDesign' | 'campaignBuilt';
 
 export type Flags = Record<FlagName, boolean>;
 
-export const FLAG_ORDER: FlagName[] = [
-  'goalClear',
-  'successClear',
-  'audienceClear',
-  'barriersClear',
-  'questionsAnswered',
-  'briefReady',
-  'briefSignedOff',
-  'planReady',
-  'planSignedOff',
-  'campaignBuilt',
-];
+export const FLAG_ORDER: FlagName[] = ['goalClear', 'successClear', 'membershipClear', 'questionsAnswered', 'readyToDesign', 'campaignBuilt'];
 
-/** Flags the agent may set with `set_flags`. The rest belong to the user or the app. */
-export const AGENT_FLAGS: FlagName[] = ['goalClear', 'successClear', 'audienceClear', 'barriersClear', 'briefReady', 'planReady'];
+/** Flags the agent may set with `set_flags`. The rest belong to the app. */
+export const AGENT_FLAGS: FlagName[] = ['goalClear', 'successClear', 'membershipClear', 'readyToDesign'];
 
 export const FLAG_LABELS: Record<FlagName, string> = {
   goalClear: 'Goal clear',
   successClear: 'Success measure clear',
-  audienceClear: 'Audience clear',
-  barriersClear: 'Barriers clear',
+  membershipClear: 'Locked or open buckets decided',
   questionsAnswered: 'All questions answered',
-  briefReady: 'Brief ready',
-  briefSignedOff: 'Brief signed off',
-  planReady: 'Plan ready',
-  planSignedOff: 'Plan signed off',
-  campaignBuilt: 'Campaign built',
+  readyToDesign: 'Enough to design the campaign',
+  campaignBuilt: 'Campaign built and up to date',
 };
 
 export type AnswerType = 'single' | 'multi' | 'open';
@@ -65,29 +41,65 @@ export interface AgentQuestion {
   askedAt: string;
   answer?: string;
   answeredAt?: string;
+  /** The manager chose not to answer: the agent assumes, and says so. */
+  skipped?: boolean;
 }
 
 export interface BriefFinding {
   /** Short aspect label the agent chose, e.g. "Goal", "Timing", "Offer". */
   aspect: string;
-  /** What we now know, in plain words. */
   text: string;
-  /** Who said it: the manager, or the agent's own assumption. */
-  source: 'manager' | 'assumption';
+  source: 'manager' | 'assumption' | 'data';
+}
+
+export type Evidence = 'measured' | 'manager' | 'hypothesis';
+
+export interface Bucket {
+  id: string;
+  name: string;
+  /** Priority: lower is checked first. First match wins. */
+  priority: number;
+  /** Plain-language definition of the behaviour. */
+  behaviour: string;
+  /** The rule the builder evaluates: ANDed entity blocks. */
+  rule: BpAudienceGroup[];
+  /** Warehouse only: SQL selecting this bucket's customer_ids, used to size it. */
+  sql?: string;
+  evidence: Evidence;
+  /** The numbers or quotes behind the bucket. */
+  evidenceNotes: string;
+  size?: number;
+  sizeError?: string;
+  /** Why these customers are stuck, and the lever that will move them. */
+  thesis: string;
+  metric: string;
+  holdoutPct?: number;
+  /** This bucket's isolated journey, from the building blocks. */
+  journey: BpStep[] | null;
+  updatedAt: string;
+}
+
+export interface CampaignShell {
+  name?: string;
+  description?: string;
+  /** The event that proves success. Exits anyone who reaches it. */
+  goal: { eventCategory: string; eventType: string; conditions?: BpCondition[] } | null;
+  /** Who is eligible at all: everyone who has not reached the goal yet. */
+  entry: { kind: 'audience'; entity: string; conditions?: BpCondition[]; groups?: BpAudienceGroup[] } | null;
+  /** Locked: membership fixed at launch. Open: newly matching customers join on the refresh cadence. */
+  membership: { type: 'locked' | 'open'; refresh?: 'daily' | 'weekly' | 'monthly' } | null;
+  segmentationLogic?: string;
+  guardrails?: string;
+  measurement?: string;
+  /** What customers in no bucket get: a journey, or deliberately nothing. */
+  everyoneElse?: { approach: 'journey' | 'none'; why?: string; journey?: BpStep[] } | null;
+  updatedAt?: string;
 }
 
 export interface PlanFile {
   brief: { findings: BriefFinding[]; summary?: string; updatedAt?: string };
-  strategy: {
-    hypothesis?: string;
-    approach?: string;
-    alternative?: string;
-    whyNotAlternative?: string;
-    measurement?: string;
-    risks?: string[];
-    updatedAt?: string;
-  } | null;
-  journey: { blueprint: CampaignBlueprint; updatedAt?: string } | null;
+  campaign: CampaignShell | null;
+  buckets: Bucket[];
 }
 
 export type TimelineActor = 'agent' | 'user' | 'app';
@@ -97,12 +109,12 @@ export type TimelineType =
   | 'questions_asked'
   | 'answers_received'
   | 'plan_section_updated'
-  | 'signoff_requested'
-  | 'signed_off'
-  | 'changes_requested'
+  | 'bucket_updated'
+  | 'bucket_removed'
+  | 'bucket_sized'
+  | 'journey_edited'
   | 'campaign_built'
-  | 'build_failed'
-  | 'acted_ahead_of_flags';
+  | 'build_failed';
 
 export interface TimelineEntry {
   at: string;
@@ -113,15 +125,11 @@ export interface TimelineEntry {
   value?: boolean;
 }
 
-/** Everything the backend keeps between turns. The client carries it; the server owns the logic. */
 export interface AgentState {
   planFile: PlanFile;
   flags: Flags;
   timeline: TimelineEntry[];
   questions: AgentQuestion[];
-  /** Which section the agent last asked the manager to sign off, if still pending. */
-  pendingSignoff: 'brief' | 'plan' | null;
-  /** Monotonic counter for question ids. */
   questionSeq: number;
 }
 
@@ -138,8 +146,8 @@ export interface AgentRequest {
   state?: AgentState | null;
   /** Per-question answers from the form, keyed by question id. */
   answers?: Record<string, string>;
-  /** A UI action rather than (or alongside) a typed message. */
-  action?: { type: 'signoff'; section: 'brief' | 'plan' } | { type: 'request_changes'; section: 'brief' | 'plan'; note?: string } | null;
+  /** Question ids the manager skipped (the Skip button, or left blank on Send). */
+  skipped?: string[];
 }
 
 export interface AgentResponse {
@@ -155,4 +163,5 @@ export interface AgentResponse {
   campaign: unknown | null;
   buildNotes: string[];
   events: unknown[];
+  warehouseAccess: boolean;
 }

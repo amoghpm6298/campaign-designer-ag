@@ -53,6 +53,8 @@ export const EXPERIMENT_CLAIMS = [
   'timing',
   /** Who responds. Arms must differ in who they reach. */
   'audience',
+  /** Does the journey work at all: one arm gets nothing, to measure against. */
+  'holdout',
 ] as const;
 
 export type ExperimentClaim = (typeof EXPERIMENT_CLAIMS)[number];
@@ -171,6 +173,12 @@ export type BpStep =
       outcomes?: string[];
       /** A customer attribute checked at this point. Needs no preceding Send. */
       on?: { entity: string; attribute: string; operator: string; value?: string };
+      /**
+       * An Audience rule: the same ANDed entity blocks Entry · Audience
+       * takes, checked at this point. This is how one campaign routes each
+       * customer into their behavioural bucket.
+       */
+      audience?: { name: string; groups: BpAudienceGroup[] };
       yes: BpStep[];
       no: BpStep[];
     }
@@ -214,6 +222,16 @@ export type BpStep =
       }[];
     };
 
+/** One ANDed entity block, as Entry · Audience and an Audience-rule condition take it. */
+export interface BpAudienceGroup {
+  entity: string;
+  conditions?: BpCondition[];
+  /** Transaction only: how far back to look. */
+  lookbackDays?: number;
+  /** Transaction only: a matching record must exist, or must NOT. */
+  existence?: 'exists' | 'none';
+}
+
 export interface CampaignBlueprint {
   campaignName: string;
   description: string;
@@ -237,6 +255,8 @@ export interface CampaignBlueprint {
          * entry (that lives on Customer)" — and offered that as a trade-off
          * to accept. The platform does exactly this, and has done all along.
          */
+        /** Re-run the audience on a schedule, so newly matching customers join. Absent = a single pull at launch. */
+        repeat?: { every: 'daily' | 'weekly' | 'monthly' };
         groups?: {
           entity: string;
           conditions?: BpCondition[];
@@ -765,6 +785,40 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
     graph = dcConfirmAddNode(graph, 'ENTRY_SEGMENT', cfg, { kind: 'root' }, goal);
   };
 
+  // ONE TRANSLATION FOR ENTITY BLOCKS. Entry · Audience's extra groups and an
+  // Audience-rule condition take the same blocks, validated the same way: an
+  // unknown entity or a condition the builder cannot express is reported,
+  // never built.
+  const toConfigGroups = (groups: BpAudienceGroup[] | undefined, path: string, label: string): Record<string, unknown>[] => {
+    for (const g of groups ?? []) {
+      if (g && typeof g.entity === 'string' && !ELIGIBILITY_META[g.entity as keyof typeof ELIGIBILITY_META]) {
+        issues.push({ path, problem: `"${g.entity}" is not a real entity. Known: ${Object.keys(ELIGIBILITY_META).join(', ')}` });
+      }
+    }
+    return (groups ?? [])
+      .filter((g) => g && typeof g.entity === 'string' && ELIGIBILITY_META[g.entity as keyof typeof ELIGIBILITY_META])
+      .map((g, i) => {
+        const gc = validateAudienceConditions(g.entity, conditions(g.conditions));
+        issues.push(...conditionIssues(gc, `${path}[${i}].conditions`));
+        limitations.push(...gc.limitations);
+        const groupFilter = expressible(g.conditions, g.entity, `${label} filter on ${g.entity}`);
+        limitations.push(...groupFilter.limitations);
+        const base: Record<string, unknown> = { entity: g.entity, conditions: conditions(groupFilter.kept, g.entity) };
+        if (g.entity === 'Transaction') {
+          base.lookbackDuration = typeof g.lookbackDays === 'number' && g.lookbackDays > 0 ? g.lookbackDays : 30;
+          base.lookbackUnit = 'days';
+          base.existence = g.existence === 'none' ? 'none' : 'exists';
+          if (g.existence === 'none') {
+            limitations.push({
+              attribute: `${g.entity} (absence over ${base.lookbackDuration} days)`,
+              note: `${label} excludes anyone with a matching transaction in the last ${base.lookbackDuration} days. That is a window, not "ever" — someone who qualified earlier than that still matches.`,
+            });
+          }
+        }
+        return base;
+      });
+  };
+
   if (bp.entry.kind === 'event') {
     // RESOLVE FIRST, so a real event under a described name still starts the
     // journey it was written for.
@@ -827,46 +881,21 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
     // Further ANDed entity blocks, mapped onto the node's own
     // `extraEntityGroups`. Each is validated like the primary block, so an
     // unknown entity or a bad operator is reported rather than built.
-    const extraEntityGroups = (bp.entry.groups ?? [])
-      .filter((g) => g && typeof g.entity === 'string' && ELIGIBILITY_META[g.entity as keyof typeof ELIGIBILITY_META])
-      .map((g, i) => {
-        const gc = validateAudienceConditions(g.entity, conditions(g.conditions));
-        issues.push(...conditionIssues(gc, `entry.groups[${i}].conditions`));
-        limitations.push(...gc.limitations);
-        const groupFilter = expressible(g.conditions, g.entity, `Entry filter on ${g.entity}`);
-        limitations.push(...groupFilter.limitations);
-        const base: Record<string, unknown> = { entity: g.entity, conditions: conditions(groupFilter.kept, g.entity) };
-        // Lookback and existence are meaningful only on Transaction, which is
-        // how the real form behaves: the fields appear for that entity and
-        // are silently unused otherwise.
-        if (g.entity === 'Transaction') {
-          base.lookbackDuration = typeof g.lookbackDays === 'number' && g.lookbackDays > 0 ? g.lookbackDays : 30;
-          base.lookbackUnit = 'days';
-          base.existence = g.existence === 'none' ? 'none' : 'exists';
-          if (g.existence === 'none') {
-            // Said out loud rather than left implicit. "No matching
-            // transaction in 180 days" is not "never", and a campaign that
-            // treats it as never will reach someone who converted 200 days
-            // ago.
-            limitations.push({
-              attribute: `${g.entity} (absence over ${base.lookbackDuration} days)`,
-              note: `Entry excludes anyone with a matching transaction in the last ${base.lookbackDuration} days. That is a window, not "ever" — someone who qualified earlier than that will still enter.`,
-            });
-          }
-        }
-        return base;
-      });
-    for (const g of bp.entry.groups ?? []) {
-      if (g && typeof g.entity === 'string' && !ELIGIBILITY_META[g.entity as keyof typeof ELIGIBILITY_META]) {
-        issues.push({ path: 'entry.groups', problem: `"${g.entity}" is not a real entity. Known: ${Object.keys(ELIGIBILITY_META).join(', ')}` });
-      }
-    }
+    const extraEntityGroups = toConfigGroups(bp.entry.groups, 'entry.groups', 'Entry');
 
     const cfg = {
       ...dcDefaultConfig('ENTRY_SEGMENT', goal),
       entity: entryEntity,
       conditions: conditions(entryFilter.kept, entryEntity),
       extraEntityGroups,
+      // Open buckets: the audience re-runs on a schedule and newly matching
+      // customers join. Absent: a single pull at launch (locked).
+      ...(bp.entry.repeat
+        ? {
+            repeat: true,
+            recurrenceType: bp.entry.repeat.every === 'daily' ? 'Daily' : bp.entry.repeat.every === 'weekly' ? 'Weekly' : 'Monthly',
+          }
+        : {}),
     };
     graph = dcConfirmAddNode(graph, 'ENTRY_SEGMENT', cfg, { kind: 'root' }, goal);
   }
@@ -1293,7 +1322,11 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
       }
 
       if (step.kind === 'wait') {
-        const hours = Math.max(0, Math.round(step.durationHours));
+        const raw = Number((step as { durationHours?: unknown }).durationHours);
+        if (!Number.isFinite(raw)) {
+          issues.push({ path, problem: 'A wait has no duration (durationHours), so it was built as 24 hours.' });
+        }
+        const hours = Math.max(0, Math.round(Number.isFinite(raw) ? raw : 24));
         graph = dcConfirmAddNode(graph, 'PAUSE', { duration: hours, unit: 'hours' }, where, goal);
         return;
       }
@@ -1633,6 +1666,30 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         // Two kinds of fork now. An ATTRIBUTE condition reads a customer
         // value at this point in the journey and needs no preceding Send — it
         // is how a cohort split happens anywhere other than at entry.
+        if (step.audience) {
+          const groups = toConfigGroups(step.audience.groups, `${path}.audience.groups`, step.audience.name || 'Audience rule');
+          if (!groups.length) {
+            issues.push({ path, problem: `"${step.audience.name || step.label}" has no audience rule the builder can check, so it is not on the canvas.` });
+            return;
+          }
+          const cfg = {
+            ...dcDefaultConfig('SPLIT', goal),
+            customSource: 'Audience rule',
+            audienceName: step.audience.name || step.label || '',
+            audienceGroups: groups,
+          };
+          const beforeIds = new Set(Object.keys(graph.nodes));
+          graph = dcConfirmAddNode(graph, 'SPLIT', cfg, where, goal);
+          const splitId = Object.keys(graph.nodes).find((id) => !beforeIds.has(id));
+          const arms = graph.edges.filter((e) => e.from === splitId);
+          const yesEdge = arms.find((e) => e.branchLabel === 'Yes') ?? arms[0];
+          const noEdge = arms.find((e) => e.branchLabel === 'No') ?? arms[1];
+          const yesEnd = yesEdge && addSteps(step.yes ?? [], `${path}.yes`, { kind: 'edge', edgeId: yesEdge.id });
+          const noEnd = noEdge && addSteps(step.no ?? [], `${path}.no`, { kind: 'edge', edgeId: noEdge.id });
+          if (yesEnd) armsOpened.push(yesEnd);
+          if (noEnd) armsOpened.push(noEnd);
+          return;
+        }
         const onAttr = step.on;
         if (!onAttr && !step.outcomes?.length) {
           // A NAMELESS CHECK IS SKIPPED, AND ANYTHING INSIDE IT IS KEPT.

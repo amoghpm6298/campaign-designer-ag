@@ -9,6 +9,7 @@
 // Every tenant below is SYNTHETIC. None is a real bank, and none of the
 // values is a real policy, cost or mapping.
 import type { Channel } from '../src/data/sharedConstants';
+import { warehouseAvailable } from './warehouse';
 
 /**
  * Whether the bank's own communication template catalogue is reachable.
@@ -34,6 +35,12 @@ export interface TenantConfig {
   availableChannels: { channel: Channel; relativeCost: number; available: boolean }[];
   /** Which bank-context file supplies this tenant's curated knowledge. */
   bankContextFile: string;
+  /**
+   * The tenant's data warehouse, when it has one. Set → the agent builds
+   * data-backed buckets with SQL tools. Absent → hypothesis and Q&A buckets.
+   * `bank` names the warehouse file (server/warehouse.ts).
+   */
+  warehouse?: { bank: string };
 }
 
 const TENANTS: TenantConfig[] = [
@@ -51,6 +58,8 @@ const TENANTS: TenantConfig[] = [
       { channel: 'RCS', relativeCost: 2, available: false },
     ],
     bankContextFile: '../agent-proto/context/bank-context.json',
+    // IndusInd mock warehouse: 50k customers, ~700k transactions, EMI eligibility, compliance lists.
+    warehouse: { bank: 'indusind' },
   },
   {
     tenantId: 'TEN-YES',
@@ -86,13 +95,15 @@ const TENANTS: TenantConfig[] = [
 
 export const DEFAULT_TENANT_ID = 'TEN-IBL';
 
-export function listTenants(): { tenantId: string; displayName: string; issuer: string; synthetic: true; templateLibraryAccess: TemplateLibraryAccess }[] {
+export function listTenants(): { tenantId: string; displayName: string; issuer: string; synthetic: true; templateLibraryAccess: TemplateLibraryAccess; warehouseAccess: boolean }[] {
   return TENANTS.map((t) => ({
     tenantId: t.tenantId,
     displayName: t.displayName,
     issuer: t.issuer,
     synthetic: t.synthetic,
     templateLibraryAccess: t.templateLibraryAccess,
+    // On only when the bank's data is actually there, same test the agent uses.
+    warehouseAccess: !!t.warehouse && warehouseAvailable(t.warehouse.bank),
   }));
 }
 

@@ -1,4 +1,4 @@
-// The v2 agent loop. One prompt, every tool on every round, the agent decides.
+// The agent loop. One prompt, every tool on every round, the agent decides.
 // The application only keeps the record (plan file, flags, timeline) and
 // reports what happened; it never switches the prompt or hides a tool.
 
@@ -8,12 +8,13 @@ import { resolveTenant } from '../tenants';
 import { bankContext, knowledgeForPrompt, seedKnowledgeBase, type KnowledgeBase } from '../knowledge';
 import { issuerContext } from '../blueprint';
 import type { Channel } from '../../src/data/sharedConstants';
-import { V2_SYSTEM, statusBlock } from './prompt';
-import { V2_TOOLS, V2_TOOL_TITLES, runV2Tool, type ToolEnv } from './tools';
-import { normaliseState, recordAnswers, requestChanges, signOff } from './state';
+import { systemPrompt, statusBlock } from './prompt';
+import { TOOL_TITLES, runToolCall, toolsFor, type ToolEnv } from './tools';
+import { normaliseState, recordAnswers, recordSkips } from './state';
+import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
 
-const MAX_ROUNDS = 10;
+const MAX_ROUNDS = 24;
 const REACH_ORDER: Channel[] = ['WHATSAPP', 'SMS', 'EMAIL', 'RCS'] as Channel[];
 
 function channelsFor(tenant: NonNullable<ReturnType<typeof resolveTenant>>): Channel[] {
@@ -37,12 +38,13 @@ function toApiMessages(messages: AgentRequest['messages']): ApiMessage[] {
 }
 
 export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, AgentResponse> {
-  const runId = `v2-${Date.now().toString(36)}`;
+  const runId = `run-${Date.now().toString(36)}`;
   const pending: RunEvent[] = [];
   const all: RunEvent[] = [];
   const em = new EventEmitterSeq(runId, (e) => {
     pending.push(e);
-    if (e.type !== 'model.text.delta') all.push(e);
+    // Deltas and live state snapshots stream to the browser but are not kept in the turn's record.
+    if (e.type !== 'model.text.delta' && e.type !== 'state.updated') all.push(e);
   });
   const drain = function* () {
     while (pending.length) yield pending.shift()!;
@@ -59,24 +61,24 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
     campaign: null,
     buildNotes: [],
     events: all,
+    warehouseAccess: false,
     ...extra,
   });
 
   const tenant = resolveTenant(req.tenantId);
   if (!tenant) return base({ reply: 'That tenant is not recognised. Pick one from the list and try again.', error: 'unknown-tenant' });
 
-  // --- what the manager did since the last turn ----------------------------
-  const action = req.action ?? null;
-  if (action?.type === 'signoff') state = signOff(state, action.section, 'user', '');
-  if (action?.type === 'request_changes') state = requestChanges(state, action.section, action.note ?? '');
+  // --- the manager's answers since the last turn ----------------------------
   const latestUser = [...(req.messages ?? [])].reverse().find((m) => m.role === 'user')?.content ?? '';
-  if (!action || req.answers) state = recordAnswers(state, req.answers, action ? '' : latestUser);
+  state = recordAnswers(state, req.answers, req.skipped?.length ? '' : latestUser);
+  state = recordSkips(state, req.skipped);
 
   // --- context: fixed per tenant, so the system prompt stays cacheable --------
   const knowledge = (req.knowledge as KnowledgeBase | undefined) ?? (seedKnowledgeBase() as KnowledgeBase);
   const availableChannels = channelsFor(tenant);
+  const warehouseBank = tenant.warehouse && warehouseAvailable(tenant.warehouse.bank) ? tenant.warehouse.bank : undefined;
   const system = [
-    V2_SYSTEM,
+    systemPrompt(!!warehouseBank),
     `# Context\nIssuer: ${tenant.issuer} (synthetic tenant).\n${issuerContext(availableChannels, tenant.templateLibraryAccess === 'synthetic-demo' ? 'synthetic-demo' : 'unavailable')}`,
     `# Knowledge base\n${knowledgeForPrompt(knowledge, tenant.tenantId)}`,
   ].join('\n\n');
@@ -101,9 +103,10 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
     availableChannels,
     goalStatement: req.messages.find((m) => m.role === 'user')?.content ?? '',
     sessionId: req.sessionId,
+    warehouseBank,
     lookupCache: new Map(),
   };
-  const tools = V2_TOOLS.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
+  const tools = toolsFor(!!warehouseBank).map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
 
   const textSegments: string[] = [];
   const asked: AgentQuestion[] = [];
@@ -130,7 +133,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
         }
         if (chunk.toolUse) {
           toolUses.push(chunk.toolUse);
-          const t = V2_TOOL_TITLES[chunk.toolUse.name];
+          const t = TOOL_TITLES[chunk.toolUse.name];
           em.emit('model.tool_call.started', 'understanding', t?.running ?? chunk.toolUse.name, {
             status: 'running',
             correlationId: chunk.toolUse.id,
@@ -153,12 +156,13 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       let endsTurn = false;
       for (const tu of toolUses) {
         const t0 = Date.now();
-        const out = runV2Tool(tu.name, tu.input ?? {}, state, env);
+        const out = runToolCall(tu.name, tu.input ?? {}, state, env);
+        const planChanged = out.state.planFile !== state.planFile || out.state.flags !== state.flags;
         state = out.state;
         if (out.asked) asked.push(...out.asked);
         if (out.build) built = out.build;
         if (out.endsTurn) endsTurn = true;
-        const titles = V2_TOOL_TITLES[tu.name];
+        const titles = TOOL_TITLES[tu.name];
         em.emit(out.ok ? 'model.tool_call.completed' : 'model.tool_call.failed', 'understanding', out.doneTitle ?? titles?.done ?? tu.name, {
           status: out.ok ? 'ok' : 'failed',
           correlationId: tu.id,
@@ -166,6 +170,8 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
           durationMs: Date.now() - t0,
           data: { tool: tu.name, input: tu.input, result: out.result, round },
         });
+        // The canvas fills in live: a snapshot of the plan file after each change.
+        if (planChanged) em.emit('state.updated', 'generating', '', { data: { planFile: state.planFile, flags: state.flags, graph: out.build?.graph ?? null } });
         yield* drain();
         results.push({ type: 'tool_result', tool_use_id: tu.id, content: out.forModel, ...(out.ok ? {} : { is_error: true }) });
       }
@@ -190,6 +196,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       graph: built?.graph ?? null,
       campaign: built?.campaign ?? null,
       buildNotes: built?.notes ?? [],
+      warehouseAccess: !!warehouseBank,
     });
   }
 
@@ -201,5 +208,6 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
     graph: built?.graph ?? null,
     campaign: built?.campaign ?? null,
     buildNotes: built?.notes ?? [],
+    warehouseAccess: !!warehouseBank,
   });
 }

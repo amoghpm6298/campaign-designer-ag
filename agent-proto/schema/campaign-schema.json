@@ -1,7 +1,7 @@
 {
   "schemaArtefactVersion": "1.1.0",
-  "generatedAt": "2026-10-12T12:50:16.247Z",
-  "contentHash": "b2f698e4af658a92",
+  "generatedAt": "2026-11-12T10:20:57.920Z",
+  "contentHash": "b143583b04027fb9",
   "source": {
     "note": "Generated from the application source. Do not edit by hand — regenerate with `npm run agent:schema` after changing node definitions, default configs or shared vocabulary.",
     "modules": [
@@ -228,7 +228,9 @@
           "lookbackDuration": 90,
           "lookbackUnit": "days",
           "existence": "exists"
-        }
+        },
+        "audienceName": "",
+        "audienceGroups": []
       }
     },
     "DECISION_SPLIT": {

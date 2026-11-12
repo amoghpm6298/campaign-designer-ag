@@ -55,3 +55,6 @@ llm-prompt.html
 # A/B run outputs
 eval/ab/results-*.json
 eval/ab/report-*.html
+
+# Mock data warehouses (built by scripts/build-warehouse.mjs, not committed)
+data/warehouse/

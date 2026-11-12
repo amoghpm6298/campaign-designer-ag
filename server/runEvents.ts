@@ -32,7 +32,8 @@ export type RunEventType =
   | 'validation.completed'
   | 'run.completed'
   | 'run.failed'
-  | 'run.cancelled';
+  | 'run.cancelled'
+  | 'state.updated';
 
 export type RunStage = 'understanding' | 'discovery' | 'strategy' | 'generating' | 'validating' | 'review';
 

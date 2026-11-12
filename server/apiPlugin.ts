@@ -242,7 +242,7 @@ export function agentApiPlugin(): Plugin {
               knowledge: body.knowledge,
               state: body.state ?? null,
               answers: body.answers,
-              action: body.action ?? null,
+              skipped: body.skipped,
             });
             return void (await streamSse(res, gen));
           }

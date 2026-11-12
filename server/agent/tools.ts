@@ -1,42 +1,52 @@
-// The v2 toolkit. Every tool is offered on every turn and none is refused
+// The toolkit. Every tool is offered on every round and none is refused
 // because of where the conversation is. The prompt says which tool usually
-// fits when; the agent decides.
+// fits when; the agent decides. The two warehouse tools exist only for a
+// tenant that has a warehouse: that is a capability the tenant lacks, not a
+// stage gate.
 
 import { AGENT_TOOLS, runTool, type ToolDef } from '../agentTools';
-import { BLUEPRINT_SCHEMA, STEP_DEF } from './journeySchema';
-import { buildFromBlueprint, type CampaignBlueprint } from '../blueprint';
+import { CONDITION, STEP_DEF } from './journeySchema';
+import { buildFromBlueprint } from '../blueprint';
 import { buildCampaignProposal } from '../../agent-proto/campaignFields';
 import { validateCampaignGraph } from '../../agent-proto/validate';
 import { bankContext } from '../knowledge';
 import type { TenantConfig } from '../tenants';
 import type { Channel } from '../../src/data/sharedConstants';
+import { countCustomers, runWarehouseQuery, warehouseSchema } from '../warehouse';
+import { planToBlueprint } from './compile';
 import {
   addQuestions,
-  aheadOfFlags,
+  editJourney,
   isAgentFlag,
   log,
-  requestSignoff,
-  setFlag,
-  signOff,
-  updatePlanFile,
   MAX_QUESTIONS_PER_CALL,
+  removeBucket,
+  setBucketSize,
+  setFlag,
+  updateBrief,
+  updateCampaign,
+  upsertBucket,
 } from './state';
 import { AGENT_FLAGS, type AgentQuestion, type AgentState } from './types';
 
-const LOOKUP_DONE: Record<string, string> = {
-  list_event_types: 'Looked up trigger events',
-  list_audience_attributes: 'Looked up customer fields',
-  list_channels: 'Checked channels',
-  check_template_availability: 'Checked message templates',
-  list_step_types: 'Looked up journey step types',
-};
+const STEPS = { type: 'array', items: { $ref: '#/$defs/step' } } as const;
+const GROUP = {
+  type: 'object',
+  properties: {
+    entity: { type: 'string', description: 'Customer, Account, Card, Transaction or Milestone (see list_audience_attributes).' },
+    conditions: { type: 'array', items: CONDITION },
+    lookbackDays: { type: 'number', description: 'Transaction only.' },
+    existence: { type: 'string', enum: ['exists', 'none'], description: 'Transaction only. "none" = NO matching transaction in the lookback window.' },
+  },
+  required: ['entity'],
+} as const;
 
-export const V2_TOOLS: ToolDef[] = [
+const BASE_TOOLS: ToolDef[] = [
   {
     name: 'ask_questions',
     title: 'Putting questions to you',
     description:
-      'Ask the manager questions. They appear as a form, grouped by aspect, with tappable answers. Each question asks ONE thing in one short sentence (no examples inside the question: put them in options). Pick answerType per question: "single" (one answer applies), "multi" (several can apply), "open" (only when the realistic answers cannot be listed). For single/multi give 2-6 short options in the manager\'s voice, including "Not sure" or "We don\'t track this" where it fits. Never write "Other": the form always adds it. For open you may give up to 3 example replies. After calling this, write one or two sentences and end your turn: the manager answers in the form.',
+      'Ask the manager questions. They appear as a form, grouped by aspect, with tappable answers. Each question asks ONE thing in one short sentence (no examples inside the question: put them in options). answerType: "single" (one answer applies), "multi" (several can apply), "open" (only when the realistic answers cannot be listed). For single/multi give 2-6 short options in the manager\'s voice, including "Not sure" or "We don\'t track this" where it fits. Never write "Other": the form always adds it. For open you may give up to 3 example replies. After calling this, file anything outstanding, write one or two sentences and end your turn.',
     input_schema: {
       type: 'object',
       properties: {
@@ -46,7 +56,7 @@ export const V2_TOOLS: ToolDef[] = [
           items: {
             type: 'object',
             properties: {
-              aspect: { type: 'string', description: 'Short label of the campaign aspect this belongs to, 1-3 words, e.g. "Goal", "Success", "Who", "Why not", "Timing", "Offer".' },
+              aspect: { type: 'string', description: 'Short label of the campaign aspect, 1-3 words, e.g. "Goal", "Success", "Incentive", "Timing", "Buckets".' },
               text: { type: 'string', description: 'One short question, one thing.' },
               answerType: { type: 'string', enum: ['single', 'multi', 'open'] },
               options: { type: 'array', items: { type: 'string' }, maxItems: 6 },
@@ -60,44 +70,76 @@ export const V2_TOOLS: ToolDef[] = [
     },
   },
   {
-    name: 'update_plan_file',
-    title: 'Updating the plan file',
+    name: 'update_brief',
+    title: 'Updating the brief',
     description:
-      'Write to the plan file the manager sees. section "brief": findings [{aspect, text, source: "manager"|"assumption"}] — a finding for an aspect replaces the previous one for that aspect — plus an optional one-paragraph summary. section "strategy": {hypothesis, approach, alternative, whyNotAlternative, measurement, risks[]}. section "journey": the full journey recipe {campaignName, description, goal, entry, steps[]} — use real event names, fields and operators from the lookups. Editing a section the manager already signed off re-opens it for sign-off.',
+      'Write what you now know into the brief: findings [{aspect, text, source: "manager" | "data" | "assumption"}]. A finding for an aspect replaces the previous one for that aspect. Optional one-paragraph summary. Editing a signed-off brief re-opens it.',
     input_schema: {
       type: 'object',
       properties: {
-        section: { type: 'string', enum: ['brief', 'strategy', 'journey'] },
         findings: {
           type: 'array',
           items: {
             type: 'object',
-            properties: {
-              aspect: { type: 'string' },
-              text: { type: 'string' },
-              source: { type: 'string', enum: ['manager', 'assumption'] },
-            },
+            properties: { aspect: { type: 'string' }, text: { type: 'string' }, source: { type: 'string', enum: ['manager', 'data', 'assumption'] } },
             required: ['aspect', 'text', 'source'],
           },
         },
-        replaceFindings: { type: 'boolean', description: 'true replaces all findings instead of merging by aspect.' },
+        replaceFindings: { type: 'boolean' },
         summary: { type: 'string' },
-        strategy: {
-          type: 'object',
-          properties: {
-            hypothesis: { type: 'string' },
-            approach: { type: 'string' },
-            alternative: { type: 'string' },
-            whyNotAlternative: { type: 'string' },
-            measurement: { type: 'string' },
-            risks: { type: 'array', items: { type: 'string' } },
-          },
-        },
-        journey: { ...BLUEPRINT_SCHEMA },
       },
-      required: ['section'],
+    },
+  },
+  {
+    name: 'update_campaign',
+    title: 'Updating the campaign',
+    description:
+      'Write the campaign shell shared by every bucket: name, description; goal {eventCategory, eventType} = the event that proves success (it exits anyone who reaches it); entry = who is eligible at all (everyone who has not reached the goal yet), as {entity, conditions[], groups[]} using real attributes; membership {type: "locked" (fixed as of launch) | "open" (newly matching customers join), refresh: daily|weekly|monthly}; segmentationLogic (why these buckets, in this priority order); guardrails; measurement; everyoneElse {approach: "journey" | "none", why, journey: steps[]} for customers who match no bucket. Send only the fields you are changing.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+        goal: { type: 'object', properties: { eventCategory: { type: 'string' }, eventType: { type: 'string' }, conditions: { type: 'array', items: CONDITION } }, required: ['eventCategory', 'eventType'] },
+        entry: { type: 'object', properties: { entity: { type: 'string' }, conditions: { type: 'array', items: CONDITION }, groups: { type: 'array', items: GROUP } }, required: ['entity'] },
+        membership: { type: 'object', properties: { type: { type: 'string', enum: ['locked', 'open'] }, refresh: { type: 'string', enum: ['daily', 'weekly', 'monthly'] } }, required: ['type'] },
+        segmentationLogic: { type: 'string' },
+        guardrails: { type: 'string' },
+        measurement: { type: 'string' },
+        everyoneElse: { type: 'object', properties: { approach: { type: 'string', enum: ['journey', 'none'] }, why: { type: 'string' }, journey: STEPS }, required: ['approach'] },
+      },
       $defs: { step: STEP_DEF },
     },
+  },
+  {
+    name: 'upsert_bucket',
+    title: 'Writing a bucket',
+    description:
+      'Create or update ONE behavioural bucket (send only the fields you are changing when updating; match by id). Fields: id (short slug), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), behaviour (plain-language definition), rule (ANDed entity blocks the builder evaluates, using real attributes from list_audience_attributes), sql (warehouse only: a SELECT returning the bucket\'s customer_id values, used to size it), evidence ("measured" from data, "manager" said it, "hypothesis" your judgement), evidenceNotes (the numbers or quotes behind it), thesis (why they are stuck and the lever that moves them), metric, holdoutPct (0-30, a no-message arm to measure this journey), journey (this bucket\'s own steps). Rewriting a bucket\'s definition normally means re-thinking its thesis and journey too.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        priority: { type: 'number' },
+        behaviour: { type: 'string' },
+        rule: { type: 'array', items: GROUP },
+        sql: { type: 'string' },
+        evidence: { type: 'string', enum: ['measured', 'manager', 'hypothesis'] },
+        evidenceNotes: { type: 'string' },
+        thesis: { type: 'string' },
+        metric: { type: 'string' },
+        holdoutPct: { type: 'number' },
+        journey: STEPS,
+      },
+      $defs: { step: STEP_DEF },
+    },
+  },
+  {
+    name: 'remove_bucket',
+    title: 'Removing a bucket',
+    description: 'Remove a bucket by id, with a one-line reason.',
+    input_schema: { type: 'object', properties: { id: { type: 'string' }, reason: { type: 'string' } }, required: ['id'] },
   },
   {
     name: 'set_flags',
@@ -110,11 +152,7 @@ export const V2_TOOLS: ToolDef[] = [
           type: 'array',
           items: {
             type: 'object',
-            properties: {
-              flag: { type: 'string', enum: AGENT_FLAGS },
-              value: { type: 'boolean' },
-              reason: { type: 'string' },
-            },
+            properties: { flag: { type: 'string', enum: AGENT_FLAGS }, value: { type: 'boolean' }, reason: { type: 'string' } },
             required: ['flag', 'value', 'reason'],
           },
         },
@@ -123,31 +161,29 @@ export const V2_TOOLS: ToolDef[] = [
     },
   },
   {
-    name: 'request_signoff',
-    title: 'Asking you to sign off',
+    name: 'edit_journey',
+    title: 'Editing a journey',
     description:
-      'Mark the brief or the plan ready and ask the manager to sign it off. They see Sign off / Request changes buttons. After calling this, summarise in a few sentences what they are agreeing to and end your turn.',
+      'Change ONE bucket\'s journey precisely, without rewriting it: a list of operations, each {op: "replace" | "insert_after" | "insert_before" | "remove", path, step}. path is the step\'s address from the journey outline in the status block (e.g. "2", "1.arms.0.steps.3", "4.paths.1.steps.0"). step is a full step for replace/insert. Use bucketId "everyone_else" for the everyone-else journey. Leave every other step as it is. Rebuild afterwards.',
     input_schema: {
       type: 'object',
       properties: {
-        section: { type: 'string', enum: ['brief', 'plan'] },
-        note: { type: 'string', description: 'One line on what is being signed off.' },
+        bucketId: { type: 'string' },
+        operations: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              op: { type: 'string', enum: ['replace', 'insert_after', 'insert_before', 'remove'] },
+              path: { type: 'string' },
+              step: { $ref: '#/$defs/step' },
+            },
+            required: ['op', 'path'],
+          },
+        },
       },
-      required: ['section'],
-    },
-  },
-  {
-    name: 'record_user_acceptance',
-    title: 'Noting your approval',
-    description:
-      'The manager approved the brief or plan in chat instead of clicking Sign off (e.g. "looks good, go ahead"). Record it with their exact words.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        section: { type: 'string', enum: ['brief', 'plan'] },
-        quote: { type: 'string', description: 'Their words, verbatim.' },
-      },
-      required: ['section', 'quote'],
+      required: ['bucketId', 'operations'],
+      $defs: { step: STEP_DEF },
     },
   },
   ...AGENT_TOOLS,
@@ -155,22 +191,52 @@ export const V2_TOOLS: ToolDef[] = [
     name: 'build_campaign',
     title: 'Building the campaign',
     description:
-      'Build the journey in the plan file as a real campaign on the canvas. Optionally pass a journey to save and build in one step. Returns what was built and any problems; fix the journey with update_plan_file and build again if needed.',
-    input_schema: {
-      type: 'object',
-      properties: { journey: { ...BLUEPRINT_SCHEMA } },
-      $defs: { step: STEP_DEF },
-    },
+      'Build the plan file as ONE campaign on the canvas: the entry, then a chain of bucket rules (first match wins) each leading to its holdout split and journey, then everyone else. Returns what was built and any problems; fix the plan and build again if needed.',
+    input_schema: { type: 'object', properties: {} },
   },
 ];
 
-export const V2_TOOL_TITLES: Record<string, { running: string; done: string }> = {
+const WAREHOUSE_TOOLS: ToolDef[] = [
+  {
+    name: 'get_table_schema',
+    title: 'Reading the data warehouse',
+    description: "Lists the bank's warehouse tables, their columns, row counts, example values, and the date the data runs to (treat that date as 'today' for recency).",
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'run_sql_query',
+    title: 'Querying the data',
+    description:
+      'Run ONE read-only SQLite SELECT (or WITH … SELECT) against the warehouse. Returns up to 200 rows. Aggregate in SQL rather than pulling raw rows. Say in `purpose` what you are trying to learn.',
+    input_schema: { type: 'object', properties: { sql: { type: 'string' }, purpose: { type: 'string' } }, required: ['sql', 'purpose'] },
+  },
+];
+
+export function toolsFor(warehouse: boolean): ToolDef[] {
+  if (!warehouse) return BASE_TOOLS;
+  const i = BASE_TOOLS.findIndex((t) => t.name === 'build_campaign');
+  return [...BASE_TOOLS.slice(0, i), ...WAREHOUSE_TOOLS, ...BASE_TOOLS.slice(i)];
+}
+
+const LOOKUP_DONE: Record<string, string> = {
+  list_event_types: 'Looked up trigger events',
+  list_audience_attributes: 'Looked up customer fields',
+  list_channels: 'Checked channels',
+  check_template_availability: 'Checked message templates',
+  list_step_types: 'Looked up journey step types',
+};
+
+export const TOOL_TITLES: Record<string, { running: string; done: string }> = {
   ...Object.fromEntries(AGENT_TOOLS.map((t) => [t.name, { running: t.title, done: LOOKUP_DONE[t.name] ?? t.title }])),
   ask_questions: { running: 'Putting questions to you', done: 'Asked you questions' },
-  update_plan_file: { running: 'Updating the plan file', done: 'Updated the plan file' },
+  update_brief: { running: 'Updating the brief', done: 'Updated the brief' },
+  update_campaign: { running: 'Updating the campaign', done: 'Updated the campaign' },
+  upsert_bucket: { running: 'Writing a bucket', done: 'Wrote a bucket' },
+  remove_bucket: { running: 'Removing a bucket', done: 'Removed a bucket' },
   set_flags: { running: 'Updating progress', done: 'Updated progress' },
-  request_signoff: { running: 'Asking you to sign off', done: 'Asked you to sign off' },
-  record_user_acceptance: { running: 'Noting your approval', done: 'Noted your approval' },
+  edit_journey: { running: 'Editing a journey', done: 'Edited a journey' },
+  get_table_schema: { running: 'Reading the data warehouse', done: 'Read the data warehouse' },
+  run_sql_query: { running: 'Querying the data', done: 'Queried the data' },
   build_campaign: { running: 'Building the campaign', done: 'Built the campaign' },
 };
 
@@ -179,6 +245,8 @@ export interface ToolEnv {
   availableChannels: Channel[];
   goalStatement: string;
   sessionId: string;
+  /** Set when the tenant has a warehouse. */
+  warehouseBank?: string;
   /** Lookup results already fetched this turn, keyed by name+input. */
   lookupCache: Map<string, unknown>;
 }
@@ -189,14 +257,11 @@ export interface ToolOutcome {
   forModel: string;
   /** One line for the activity row. */
   summary: string;
-  /** Overrides the row title, e.g. "Asked you 9 questions". */
   doneTitle?: string;
   ok: boolean;
-  /** Structured result shown in the expanded row. */
   result?: unknown;
-  /** Set when this call asked questions. */
   asked?: AgentQuestion[];
-  /** Set when this call should end the turn (questions asked, sign-off requested). */
+  /** This call means the manager acts next (questions asked, sign-off requested). */
   endsTurn?: boolean;
   build?: { graph: unknown; campaign: unknown; notes: string[] };
 }
@@ -206,7 +271,8 @@ const flagLine = (s: AgentState) =>
     .map(([k, v]) => `${k}=${v}`)
     .join(', ');
 
-export function runV2Tool(name: string, input: Record<string, unknown>, state: AgentState, env: ToolEnv): ToolOutcome {
+
+export function runToolCall(name: string, input: Record<string, unknown>, state: AgentState, env: ToolEnv): ToolOutcome {
   switch (name) {
     case 'ask_questions': {
       const { state: next, added, dropped } = addQuestions(state, input.questions);
@@ -220,27 +286,55 @@ export function runV2Tool(name: string, input: Record<string, unknown>, state: A
         doneTitle: `Asked you ${added.length} question${added.length === 1 ? '' : 's'}`,
         summary: aspects.join(' · '),
         result: added.map((q) => ({ aspect: q.aspect, question: q.text, type: q.answerType, options: q.options ?? q.suggestions ?? [] })),
-        forModel: `${added.length} question(s) are on the manager's form${dropped ? ` (${dropped} dropped: missing text)` : ''}. questionsAnswered is now false. If the manager told you anything this turn that is not in the brief yet, file it now (update_plan_file, set_flags). Then write one or two sentences — what you understood so far — and end your turn. Do not repeat the questions in your message.`,
+        forModel: `${added.length} question(s) are on the manager's form${dropped ? ` (${dropped} dropped: missing text)` : ''}. questionsAnswered is now false. If the manager told you anything this turn that is not filed yet, file it now. Then write one or two sentences — what you understood so far — and end your turn. Do not repeat the questions in your message.`,
       };
     }
 
-    case 'update_plan_file': {
-      const res = updatePlanFile(state, input);
+    case 'update_brief': {
+      const res = updateBrief(state, input);
       if (res.error) return { state, ok: false, forModel: `Not saved: ${res.error}`, summary: res.error };
-      let next = res.state;
-      if (input.section === 'strategy' || input.section === 'journey') {
-        const ahead = aheadOfFlags(state, 'plan');
-        if (ahead && !state.timeline.some((t) => t.type === 'acted_ahead_of_flags' && t.note === ahead)) next = log(next, 'app', 'acted_ahead_of_flags', ahead);
+      return { state: res.state, ok: true, doneTitle: 'Updated the brief', summary: res.said, result: res.state.planFile.brief, forModel: `${res.said} Flags now: ${flagLine(res.state)}.` };
+    }
+
+    case 'update_campaign': {
+      const res = updateCampaign(state, input);
+      if (res.error) return { state, ok: false, forModel: `Not saved: ${res.error}`, summary: res.error };
+      return { state: res.state, ok: true, doneTitle: 'Updated the campaign', summary: res.said, result: res.state.planFile.campaign, forModel: `${res.said} Flags now: ${flagLine(res.state)}.` };
+    }
+
+    case 'upsert_bucket': {
+      const isNew = !state.planFile.buckets.some((b) => b.id === input.id);
+      let next = state;
+      const res = upsertBucket(next, input);
+      if (res.error || !res.bucket) return { state, ok: false, forModel: `Not saved: ${res.error}`, summary: res.error ?? 'Not saved' };
+      next = res.state;
+      let sizeLine = '';
+      if (env.warehouseBank && res.bucket.sql && res.bucket.size === undefined) {
+        try {
+          const n = countCustomers(env.warehouseBank, res.bucket.sql);
+          next = setBucketSize(next, res.bucket.id, n);
+          sizeLine = ` Sized from your SQL: ${n.toLocaleString('en-IN')} customers.`;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          next = setBucketSize(next, res.bucket.id, null, msg);
+          sizeLine = ` Its SQL failed, so it is not sized: ${msg}. Fix the sql and upsert again.`;
+        }
       }
-      const section = String(input.section);
+      const b = next.planFile.buckets.find((x) => x.id === res.bucket!.id)!;
       return {
         state: next,
         ok: true,
-        doneTitle: `Updated the ${section}`,
-        summary: res.said,
-        result: section === 'brief' ? next.planFile.brief : section === 'strategy' ? next.planFile.strategy : { steps: (next.planFile.journey?.blueprint.steps ?? []).length },
-        forModel: `${res.said} Flags now: ${flagLine(next)}.`,
+        doneTitle: `${isNew ? 'Added' : 'Updated'} bucket "${b.name}"`,
+        summary: [b.size !== undefined ? `${b.size.toLocaleString('en-IN')} customers` : '', b.evidence, b.journey?.length ? `${b.journey.length}-step journey` : ''].filter(Boolean).join(' · '),
+        result: { name: b.name, priority: b.priority, behaviour: b.behaviour, evidence: b.evidence, size: b.size, thesis: b.thesis, rule: b.rule, journeySteps: b.journey?.length ?? 0 },
+        forModel: `${res.said}${sizeLine} Buckets now: ${next.planFile.buckets.map((x) => `${x.priority}. ${x.id}${x.size !== undefined ? ` (${x.size})` : ''}${x.journey?.length ? ' [journey]' : ''}`).join('; ')}.`,
       };
+    }
+
+    case 'remove_bucket': {
+      const res = removeBucket(state, String(input.id ?? ''), typeof input.reason === 'string' ? input.reason : '');
+      if (res.error) return { state, ok: false, forModel: res.error, summary: res.error };
+      return { state: res.state, ok: true, doneTitle: 'Removed a bucket', summary: String(input.id), forModel: `Removed. Buckets now: ${res.state.planFile.buckets.map((x) => x.id).join(', ') || 'none'}.` };
     }
 
     case 'set_flags': {
@@ -264,34 +358,48 @@ export function runV2Tool(name: string, input: Record<string, unknown>, state: A
       };
     }
 
-    case 'request_signoff': {
-      const section = input.section === 'plan' ? 'plan' : 'brief';
-      const next = requestSignoff(state, section, typeof input.note === 'string' ? input.note : '');
+    case 'edit_journey': {
+      const ops = Array.isArray(input.operations) ? input.operations : [];
+      const res = editJourney(state, String(input.bucketId ?? ''), ops as never);
+      if (res.error) return { state, ok: false, forModel: `Not changed: ${res.error}`, summary: res.error };
+      return { state: res.state, ok: true, doneTitle: 'Edited a journey', summary: res.said, result: { bucketId: input.bucketId, operations: ops }, forModel: `${res.said} The canvas is out of date until you call build_campaign.` };
+    }
+
+    case 'get_table_schema': {
+      if (!env.warehouseBank) return { state, ok: false, forModel: 'This tenant has no data warehouse.', summary: 'No warehouse' };
+      const cached = env.lookupCache.get('schema');
+      const schema = cached ?? warehouseSchema(env.warehouseBank);
+      env.lookupCache.set('schema', schema);
+      const s = schema as ReturnType<typeof warehouseSchema>;
       return {
-        state: next,
+        state,
         ok: true,
-        endsTurn: true,
-        doneTitle: `Asked you to sign off the ${section}`,
-        summary: typeof input.note === 'string' ? input.note : '',
-        forModel: `The manager now sees Sign off / Request changes for the ${section}. Summarise what they are agreeing to in a few sentences and end your turn. Do not call more tools.`,
+        summary: `${s.tables.length} tables${s.dataAsOf ? `, data to ${s.dataAsOf}` : ''}`,
+        result: s,
+        forModel: cached ? 'You already have the schema above in this turn. Use it.' : JSON.stringify(s),
       };
     }
 
-    case 'record_user_acceptance': {
-      const section = input.section === 'plan' ? 'plan' : 'brief';
-      const quote = typeof input.quote === 'string' ? input.quote.trim() : '';
-      const next = signOff(state, section, 'agent', quote ? `"${quote}"` : '');
-      return {
-        state: next,
-        ok: true,
-        doneTitle: `Noted your approval of the ${section}`,
-        summary: quote,
-        forModel: `${section === 'brief' ? 'briefSignedOff' : 'planSignedOff'} is now true. Flags now: ${flagLine(next)}.`,
-      };
+    case 'run_sql_query': {
+      if (!env.warehouseBank) return { state, ok: false, forModel: 'This tenant has no data warehouse.', summary: 'No warehouse' };
+      const sql = String(input.sql ?? '');
+      try {
+        const r = runWarehouseQuery(env.warehouseBank, sql);
+        return {
+          state,
+          ok: true,
+          summary: `${typeof input.purpose === 'string' ? input.purpose : 'Query'} · ${r.rows.length}${r.truncated ? '+' : ''} rows`,
+          result: { sql, purpose: input.purpose, rows: r.rows.slice(0, 50), truncated: r.truncated || r.rows.length > 50, ms: r.ms },
+          forModel: JSON.stringify({ columns: r.columns, rows: r.rows, truncated: r.truncated }),
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { state, ok: false, summary: msg, result: { sql, error: msg }, forModel: `Query failed: ${msg}` };
+      }
     }
 
     case 'build_campaign':
-      return buildCampaign(input, state, env);
+      return buildCampaign(state, env);
 
     default: {
       if (!AGENT_TOOLS.some((t) => t.name === name)) return { state, ok: false, forModel: `Unknown tool ${name}.`, summary: 'Unknown tool' };
@@ -306,29 +414,26 @@ export function runV2Tool(name: string, input: Record<string, unknown>, state: A
   }
 }
 
-function buildCampaign(input: Record<string, unknown>, state: AgentState, env: ToolEnv): ToolOutcome {
+function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
   let next = state;
-  if (input.journey && typeof input.journey === 'object') {
-    const saved = updatePlanFile(next, { section: 'journey', journey: input.journey });
-    if (saved.error) return { state, ok: false, forModel: `Not built: ${saved.error}`, summary: saved.error };
-    next = saved.state;
+  const compiled = planToBlueprint(next.planFile);
+  if (!compiled.blueprint) {
+    next = log(next, 'app', 'build_failed', compiled.problems.join(' '));
+    return { state: next, ok: false, forModel: `Nothing to build: ${compiled.problems.join(' ')}`, summary: 'Nothing to build', result: compiled.problems };
   }
-  const bp = next.planFile.journey?.blueprint as CampaignBlueprint | undefined;
-  if (!bp) return { state: next, ok: false, forModel: 'There is no journey in the plan file yet. Write one with update_plan_file(section: "journey") or pass it here.', summary: 'No journey to build' };
-
-  const ahead = aheadOfFlags(next, 'build');
-  if (ahead) next = log(next, 'app', 'acted_ahead_of_flags', ahead);
-
   let built;
   try {
-    built = buildFromBlueprint(bp, { availableChannels: env.availableChannels, templateLibraryAccess: env.tenant.templateLibraryAccess === 'synthetic-demo' ? 'synthetic-demo' : 'unavailable' });
+    built = buildFromBlueprint(compiled.blueprint, {
+      availableChannels: env.availableChannels,
+      templateLibraryAccess: env.tenant.templateLibraryAccess === 'synthetic-demo' ? 'synthetic-demo' : 'unavailable',
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     next = log(next, 'app', 'build_failed', msg);
-    return { state: next, ok: false, forModel: `The build engine failed: ${msg}. Check the journey and try again.`, summary: 'Build failed' };
+    return { state: next, ok: false, forModel: `The build engine failed: ${msg}. Check the buckets' rules and journeys and try again.`, summary: 'Build failed' };
   }
-  const nodeCount = Object.keys(built.graph.nodes ?? {}).length;
-  const sends = Object.values(built.graph.nodes ?? {}).filter((n) => (n as { type?: string }).type === 'SEND').length;
+  const nodes = Object.values(built.graph.nodes ?? {}) as { type?: string }[];
+  const sends = nodes.filter((n) => n.type === 'SEND').length;
 
   const proposal = buildCampaignProposal({
     scenarioId: env.sessionId,
@@ -337,6 +442,7 @@ function buildCampaign(input: Record<string, unknown>, state: AgentState, env: T
     graph: built.graph,
     tenantContext: { tenantId: env.tenant.tenantId, issuer: env.tenant.issuer },
   });
+  const bp = compiled.blueprint;
   const campaign = proposal.usable && bp.campaignName ? { ...proposal.campaign, name: bp.campaignName, description: bp.description ?? proposal.campaign.description } : proposal.campaign;
   const bank = bankContext() as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   let validationLines: string[] = [];
@@ -353,25 +459,27 @@ function buildCampaign(input: Record<string, unknown>, state: AgentState, env: T
   }
 
   const notes = [
+    ...compiled.problems,
     ...built.issues.map((i) => `${i.path}: ${i.problem}`),
     ...built.limitations.map((l) => `Cannot express ${l.attribute}: ${l.note}`),
     ...validationLines,
     ...(built.sendProposals.length ? [`${built.sendProposals.length} message step(s) need the bank's real template id before export.`] : []),
   ];
 
-  if (nodeCount <= 1) {
+  if (nodes.length <= 1) {
     next = log(next, 'app', 'build_failed', 'The build produced no journey');
-    return { state: next, ok: false, forModel: `Nothing was built. Problems: ${notes.join(' | ') || 'none reported'}. Fix the journey and build again.`, summary: 'Nothing built', result: notes };
+    return { state: next, ok: false, forModel: `Nothing was built. Problems: ${notes.join(' | ') || 'none reported'}. Fix the plan and build again.`, summary: 'Nothing built', result: notes };
   }
-  next = setFlag(next, 'campaignBuilt', true, 'app', `${sends} messages, ${nodeCount} steps`);
-  next = log(next, 'app', 'campaign_built', `Built: ${sends} messages, ${nodeCount} steps${notes.length ? `, ${notes.length} note(s)` : ''}`);
+  const summary = `${compiled.bucketsIncluded.length} buckets, ${sends} messages, ${nodes.length} steps`;
+  next = setFlag(next, 'campaignBuilt', true, 'app', summary);
+  next = log(next, 'app', 'campaign_built', `Built: ${summary}${notes.length ? `, ${notes.length} note(s)` : ''}`);
   return {
     state: next,
     ok: true,
     doneTitle: 'Built the campaign',
-    summary: `${sends} messages, ${nodeCount} steps${notes.length ? ` · ${notes.length} note(s)` : ''}`,
-    result: { messages: sends, steps: nodeCount, notes },
+    summary: `${summary}${notes.length ? ` · ${notes.length} note(s)` : ''}`,
+    result: { buckets: compiled.bucketsIncluded, messages: sends, steps: nodes.length, notes },
     build: { graph: built.graph, campaign, notes },
-    forModel: `Built on the canvas: ${sends} message steps, ${nodeCount} steps in total.${notes.length ? ` Notes: ${notes.join(' | ')}` : ' No problems reported.'} Tell the manager plainly what was built and anything that needs their attention.`,
+    forModel: `Built on the canvas as one campaign: ${summary} (buckets: ${compiled.bucketsIncluded.join(', ')}).${notes.length ? ` Notes: ${notes.join(' | ')}` : ' No problems reported.'} Tell the manager plainly what was built, anything that needs their attention, and that they can ask you to change any bucket or any step.`,
   };
 }

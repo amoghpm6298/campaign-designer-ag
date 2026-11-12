@@ -59,4 +59,6 @@ export interface Tenant {
   issuer: string;
   synthetic: true;
   templateLibraryAccess: 'unavailable' | 'synthetic-demo';
+  /** The tenant has a data warehouse: buckets are data-backed. */
+  warehouseAccess?: boolean;
 }

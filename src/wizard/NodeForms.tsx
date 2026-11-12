@@ -598,6 +598,41 @@ export function SplitForm({
         <ConditionRows conditions={p.customConditions} entity="Account" onChange={(customConditions) => onChange({ customConditions })} />
       </div>
     );
+  } else if (p.customSource === 'Audience rule') {
+    const groups: any[] = p.audienceGroups || [];
+    const setGroup = (i: number, patch: any) => onChange({ audienceGroups: groups.map((g: any, idx: number) => (idx === i ? { ...g, ...patch } : g)) });
+    sourceBody = (
+      <>
+        <div className="f-group">
+          <label className="f-label">Audience name</label>
+          <input className="f-input" type="text" placeholder="e.g. Electronics spenders, no EMI yet" value={p.audienceName || ''} onChange={(e) => onChange({ audienceName: e.target.value })} />
+        </div>
+        {groups.map((g: any, i: number) => (
+          <EntityConditionBlock
+            key={i}
+            entity={g.entity}
+            conditions={g.conditions || []}
+            lookbackDuration={g.lookbackDuration}
+            lookbackUnit={g.lookbackUnit}
+            existence={g.existence}
+            milestone={g.milestone}
+            onEntityChange={(entity) =>
+              setGroup(i, { entity, conditions: [{ attribute: '', operator: '', value: '' }], lookbackDuration: 90, lookbackUnit: 'days', existence: 'exists', milestone: dcDefaultMilestone() })
+            }
+            onConditionsChange={(conditions) => setGroup(i, { conditions })}
+            onTxnFieldsChange={(patch) => setGroup(i, patch)}
+            onMilestoneChange={(milestone) => setGroup(i, { milestone })}
+            onRemove={groups.length > 1 ? () => onChange({ audienceGroups: groups.filter((_: any, idx: number) => idx !== i) }) : undefined}
+          />
+        ))}
+        <div className="add-link" onClick={() => onChange({ audienceGroups: [...groups, { entity: 'Customer', conditions: [{ attribute: '', operator: '', value: '' }] }] })}>
+          + Add another entity filter
+        </div>
+        <p className="f-hint" style={{ margin: '4px 0 0' }}>
+          The same filters as Entry · Audience, checked when a customer reaches this step. Every filter is AND'd: match all of them → Yes, otherwise → No.
+        </p>
+      </>
+    );
   } else if (p.customSource === 'Transaction history') {
     sourceBody = (
       <div className="f-group">
@@ -636,8 +671,23 @@ export function SplitForm({
     <>
       <div className="f-group">
         <label className="f-label">Source</label>
-        <select className="f-input" value={p.customSource} onChange={(e) => onChange({ customSource: e.target.value, outcome: '', customConditions: [], milestone: dcDefaultMilestone() })}>
+        <select
+          className="f-input"
+          value={p.customSource}
+          onChange={(e) =>
+            onChange({
+              customSource: e.target.value,
+              outcome: '',
+              customConditions: [],
+              milestone: dcDefaultMilestone(),
+              ...(e.target.value === 'Audience rule' && !(p.audienceGroups || []).length
+                ? { audienceGroups: [{ entity: 'Customer', conditions: [{ attribute: '', operator: '', value: '' }] }] }
+                : {}),
+            })
+          }
+        >
           <option>Previous step outcome</option>
+          <option>Audience rule</option>
           <option>Account attribute</option>
           <option>Entry event attribute</option>
           <option>Transaction history</option>
