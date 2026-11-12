@@ -16,6 +16,7 @@ import { dirname } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 import type { Plugin, ViteDevServer } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { passwordGate } from './passwordGate';
 
 type Handler = (body: unknown) => Promise<{ status: number; json: unknown }>;
 
@@ -249,6 +250,10 @@ export function agentApiPlugin(): Plugin {
     name: 'drip-agent-api',
     configureServer(server: ViteDevServer) {
       const load = viteLoader(server);
+      // Hosted copy only (APP_PASSWORD in its .env). First, so it covers
+      // the page, every module and /api.
+      const gate = passwordGate(process.env.APP_PASSWORD, server.config.base);
+      if (gate) server.middlewares.use(gate);
       // Hosted under a sub-path (`vite --base /x/`), requests arrive as
       // /x/api/...; this middleware runs before Vite strips the base.
       const base = server.config.base.replace(/\/$/, '');
