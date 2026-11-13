@@ -22,7 +22,9 @@ describe('canvas model', () => {
     const m = buildCanvasModel(plan([bucket('b2', 2, [send('x')]), bucket('b1', 1, [send('y')])]));
     const heads = m.nodes.filter((n) => n.data.kind === 'bucket' || n.data.kind === 'everyone').sort((a, b) => a.x - b.x);
     expect(heads.map((n) => n.id)).toEqual(['b1:head', 'b2:head', 'everyone_else:head']);
-    expect(m.edges.filter((e) => e.sideways).map((e) => e.label)).toEqual(['Not matched', 'Not matched']);
+    // The entry branches straight into every column; no "not matched" chain, no labels.
+    expect(m.edges.filter((e) => e.source === 'entry').map((e) => [e.target, e.label])).toEqual([['b1:head', undefined], ['b2:head', undefined], ['everyone_else:head', undefined]]);
+    expect(m.edges.some((e) => e.label === 'Not matched' || e.label === 'Matches' || e.label === 'Check buckets in order')).toBe(false);
     expect(m.nodes[0].id).toBe('entry');
   });
 

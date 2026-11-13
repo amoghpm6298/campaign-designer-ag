@@ -2,11 +2,10 @@
 // left to right, first match wins), each bucket's own flow below its card.
 // Pan, zoom, a minimap and fit-to-view come from React Flow.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, useNodesInitialized, useNodesState, useReactFlow, useStore, type Edge, type Node } from '@xyflow/react';
+import { Background, BaseEdge, Controls, EdgeLabelRenderer, getSmoothStepPath, MiniMap, ReactFlow, ReactFlowProvider, useNodesInitialized, useNodesState, useReactFlow, useStore, type Edge, type EdgeProps, type Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import '../../canvas/dripCanvas.css';
-import { dripEdgeTypes } from '../../canvas/DripEdge';
-import { buildCanvasModel, type CNodeKind } from './canvasModel';
+import { buildCanvasModel, FIXED_SHAPES, NODE_H, type CNodeKind } from './canvasModel';
 import { cdNodeTypes, type CdNodeData } from './canvasNodes';
 import type { CampaignContext, CampaignObject } from './types';
 
@@ -21,6 +20,31 @@ const MINI: Partial<Record<CNodeKind, string>> = {
   condition: '#fcb022',
   goalcheck: '#9aa3e6',
 };
+
+/**
+ * A path. Its label sits just above the card it leads to, not at the line's
+ * midpoint: after a branch the lines run sideways, and a midpoint label lands
+ * somewhere unrelated (or on top of another one).
+ */
+function CvEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data }: EdgeProps) {
+  const tx = Math.abs(targetX - sourceX) < 3 ? sourceX : targetX;
+  const [path] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX: tx, targetY, targetPosition, borderRadius: 10 });
+  const label = (data as { label?: string } | undefined)?.label;
+  return (
+    <>
+      <BaseEdge id={id} path={path} style={{ stroke: '#c3c9d3', strokeWidth: 1.5 }} />
+      {label && (
+        <EdgeLabelRenderer>
+          <div className="cv-edge-label" style={{ transform: `translate(-50%, -100%) translate(${tx}px, ${targetY - 6}px)` }}>
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+const cvEdgeTypes = { cv: CvEdge };
 
 interface Props {
   campaign: CampaignObject | null | undefined;
@@ -45,7 +69,7 @@ function Inner({ campaign, context, changed, focus, onOpenNode }: Props) {
         id: n.id,
         type: 'cd',
         position: { x: n.x, y: n.y },
-        data: { ...n.data, width: n.width, goalText } satisfies CdNodeData,
+        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText } satisfies CdNodeData,
         draggable: false,
         connectable: false,
         selectable: n.data.kind === 'send',
@@ -58,10 +82,8 @@ function Inner({ campaign, context, changed, focus, onOpenNode }: Props) {
         id: e.id,
         source: e.source,
         target: e.target,
-        type: 'dcEdge',
-        ...(e.sideways ? { sourceHandle: 'r', targetHandle: 'l' } : {}),
-        data: { branchLabel: e.label ?? '', editable: false },
-        className: e.sideways ? 'cd-edge-side' : undefined,
+        type: 'cv',
+        data: { label: e.label ?? '' },
       })),
     [model],
   );
@@ -138,7 +160,7 @@ function Inner({ campaign, context, changed, focus, onOpenNode }: Props) {
       edges={edges}
       onNodesChange={onNodesChange}
       nodeTypes={cdNodeTypes}
-      edgeTypes={dripEdgeTypes}
+      edgeTypes={cvEdgeTypes}
       nodesDraggable={false}
       nodesConnectable={false}
       minZoom={0.15}

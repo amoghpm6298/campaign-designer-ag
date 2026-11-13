@@ -122,5 +122,14 @@ export interface V2Turn {
   /** Assistant turns: the ordered trace of what the agent did. */
   events?: V2Event[];
   error?: string;
+  /** User turns sent from the question form: each question and what was picked (or skipped). */
+  answerSet?: AnswerItem[];
+}
+
+export interface AnswerItem {
+  aspect: string;
+  question: string;
+  answer?: string;
+  skipped?: boolean;
 }
 

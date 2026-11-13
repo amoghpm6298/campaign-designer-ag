@@ -15,7 +15,7 @@ import { ChatPanel, type Cue } from './ChatPanel';
 import { mergeEvent } from './logic';
 import { NodeDrawer } from './NodeDrawer';
 import { QuestionOverlay } from './QuestionOverlay';
-import { FLAG_LABELS, FLAG_ORDER, type AgentState, type CampaignContext, type CampaignObject, type V2Event, type V2Turn } from './types';
+import { FLAG_LABELS, FLAG_ORDER, type AgentState, type CampaignContext, type CampaignObject, type AnswerItem, type V2Event, type V2Turn } from './types';
 import '../designer.css';
 import './v2.css';
 
@@ -95,10 +95,10 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
   const sends = model.nodes.filter((n) => n.data.kind === 'send').length;
   const buckets = plan?.buckets.length ?? 0;
 
-  const send = (text: string, opts: { answers?: Record<string, string>; skipped?: string[] } = {}) => {
+  const send = (text: string, opts: { answers?: Record<string, string>; skipped?: string[]; answerSet?: AnswerItem[] } = {}) => {
     if (busy || !text.trim()) return;
     const before = stores.campaign;
-    const next: V2Turn[] = [...turns, { role: 'user', content: text }];
+    const next: V2Turn[] = [...turns, { role: 'user', content: text, ...(opts.answerSet ? { answerSet: opts.answerSet } : {}) }];
     setTurns(next);
     setLive([]);
     setLiveStores(null);
@@ -179,28 +179,31 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
 
   let cue: Cue | null = null;
   if (busy) {
+    // The one status indicator while the agent works: what it is doing right now.
+    const running = [...live].reverse().find((e) => e.type === 'model.tool_call.started' || (e.type.startsWith('model.tool_call') && e.status === 'running'));
+    const now = running?.title ?? (live.some((e) => e.type === 'model.text.delta') ? 'Writing its reply' : 'Thinking');
     cue = {
       icon: 'busy',
-      title: buckets ? 'Designing your campaign' : 'Working',
-      text: buckets ? `${buckets} bucket${buckets === 1 ? '' : 's'} on the canvas so far. Watch them fill in.` : 'Reading what you said and checking what the platform supports.',
+      title: `${now}…`,
+      text: buckets ? `${buckets} bucket${buckets === 1 ? '' : 's'} on the canvas so far. Watch them fill in.` : 'The canvas fills in as the campaign takes shape.',
     };
   } else if (formQuestions.length) {
     cue = {
-      icon: 'q',
+      icon: 'question',
       title: `${formQuestions.length} question${formQuestions.length === 1 ? '' : 's'} waiting`,
       text: "They're on the canvas. Answer what you know, or skip and I'll assume.",
       action: { label: 'Go to questions', run: () => setPulse((p) => p + 1) },
     };
   } else if (lastBuilt && changed.length) {
     cue = {
-      icon: 'ok',
+      icon: 'changed',
       title: 'Change applied and rebuilt',
       text: `Only what you asked about changed (${changed.length} step${changed.length === 1 ? '' : 's'}). It's highlighted on the canvas.`,
       action: { label: 'Show me', run: showMe },
     };
   } else if (lastBuilt && built) {
     cue = {
-      icon: 'ok',
+      icon: 'ready',
       title: 'Your campaign is ready',
       text: `${buckets} bucket${buckets === 1 ? '' : 's'} · ${sends} message${sends === 1 ? '' : 's'}. Ask here to change anything.`,
       action: { label: 'View campaign', run: viewAll },
@@ -224,9 +227,9 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
         </div>
         <span
           className={`cv-wh${tenant.warehouseAccess ? ' on' : ''}`}
-          title={tenant.warehouseAccess ? "Buckets are built and sized from this bank's data" : "No data warehouse for this bank: buckets are hypotheses from your answers and the agent's knowledge"}
+          title={tenant.warehouseAccess ? "Live bank data access is ON: buckets are explored and sized from this bank's data" : "Live bank data access is OFF for this bank: buckets are hypotheses from your answers and the agent's knowledge"}
         >
-          Data warehouse: {tenant.warehouseAccess ? 'on' : 'off'}
+          Live bank data access: {tenant.warehouseAccess ? 'ON' : 'OFF'}
         </span>
         <span className="cv-top-gap" />
         <button className="cv-btn" onClick={() => setActivity((v) => !v)}>
@@ -256,18 +259,14 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
               intro={lastAssistant?.content ?? ''}
               questions={formQuestions}
               pulse={pulse}
-              onSubmit={(message, answers, skipped) => send(message, { answers, skipped })}
+              onSubmit={(message, answers, skipped) =>
+                send(message, {
+                  answers,
+                  skipped,
+                  answerSet: formQuestions.map((q) => (answers[q.id] ? { aspect: q.aspect, question: q.text, answer: answers[q.id] } : { aspect: q.aspect, question: q.text, skipped: true })),
+                })
+              }
             />
-          )}
-
-          {built && !busy && !formQuestions.length && !drawerNode && !activity && (
-            <div className="cv-ready">
-              <b>✓ Campaign ready</b>
-              <span>
-                {buckets} bucket{buckets === 1 ? '' : 's'} · {sends} message{sends === 1 ? '' : 's'}
-                {lastBuilt && changed.length ? ` · ${changed.length} step${changed.length === 1 ? '' : 's'} changed in chat (highlighted)` : ''}. Want a change? Ask in the chat.
-              </span>
-            </div>
           )}
 
           {drawerNode?.data.step && <NodeDrawer step={drawerNode.data.step as CStep} bucketName={drawerBucket} onClose={() => setDrawerId(null)} />}

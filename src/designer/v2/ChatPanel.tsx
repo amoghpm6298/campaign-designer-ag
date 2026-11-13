@@ -1,13 +1,13 @@
 // The chat on the right: the conversation, what the agent did on each turn
 // (as compact chips you can open), and a cue card that points at the canvas.
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ArrowUp, Check, Loader2 } from 'lucide-react';
+import { AlertCircle, ArrowRight, ArrowUp, Check, ChevronRight, Highlighter, LayoutDashboard, Loader2, MessageCircleQuestion, X } from 'lucide-react';
 import { RichText } from '../RichText';
 import { buildTrace } from './logic';
-import type { V2Event, V2Turn } from './types';
+import type { AnswerItem, V2Event, V2Turn } from './types';
 
 export interface Cue {
-  icon: 'q' | 'busy' | 'ok';
+  icon: 'question' | 'busy' | 'ready' | 'changed';
   title: string;
   text: string;
   action?: { label: string; run: () => void };
@@ -31,6 +31,7 @@ export function ChatPanel({
   onSend: (text: string) => void;
 }) {
   const [draft, setDraft] = useState('');
+  const [openAnswers, setOpenAnswers] = useState<AnswerItem[] | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });
@@ -62,9 +63,13 @@ export function ChatPanel({
         {turns.map((t, i) =>
           t.role === 'user' ? (
             <div className="cv-msg user" key={i}>
-              <div className="cv-bubble user">
-                <RichText text={t.content} />
-              </div>
+              {t.answerSet ? (
+                <AnswersBubble items={t.answerSet} onOpen={() => setOpenAnswers(t.answerSet!)} />
+              ) : (
+                <div className="cv-bubble user">
+                  <RichText text={t.content} />
+                </div>
+              )}
             </div>
           ) : (
             <div className="cv-msg agent" key={i}>
@@ -89,20 +94,32 @@ export function ChatPanel({
         )}
         {cue && (
           <div className={`cv-cue ${cue.icon}`}>
-            <span className="cv-cue-icon">{cue.icon === 'busy' ? <Loader2 size={16} className="v2-spin" /> : cue.icon === 'ok' ? <Check size={16} /> : '?'}</span>
-            <span className="cv-cue-body">
+            <div className="cv-cue-top">
+              <span className="cv-cue-icon">
+                {cue.icon === 'busy' ? (
+                  <Loader2 size={15} className="v2-spin" />
+                ) : cue.icon === 'question' ? (
+                  <MessageCircleQuestion size={15} />
+                ) : cue.icon === 'changed' ? (
+                  <Highlighter size={15} />
+                ) : (
+                  <LayoutDashboard size={15} />
+                )}
+              </span>
               <b>{cue.title}</b>
-              <span>{cue.text}</span>
-            </span>
+            </div>
+            <p className="cv-cue-text">{cue.text}</p>
             {cue.action && (
               <button className="cv-cue-btn" onClick={cue.action.run}>
                 {cue.action.label}
+                <ArrowRight size={14} />
               </button>
             )}
           </div>
         )}
         <div ref={endRef} />
       </div>
+      {openAnswers && <AnswersModal items={openAnswers} onClose={() => setOpenAnswers(null)} />}
       <div className="cv-compose">
         <textarea
           value={draft}
@@ -136,11 +153,6 @@ function ToolChips({ events, live, finalText }: { events: V2Event[]; live: boole
   const opened = tools.find((t) => t.id === open);
   return (
     <div className="cv-chips-wrap">
-      {live && !items.length && (
-        <div className="cv-thinking">
-          <Loader2 size={13} className="v2-spin" /> Thinking…
-        </div>
-      )}
       {tools.length > 0 && (
         <div className="cv-chips">
           {tools.map((it) => {
@@ -218,5 +230,63 @@ function Readable({ value, depth = 0 }: { value: unknown; depth?: number }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/** Your answers in the chat: just what you picked. Tap for every question. */
+function AnswersBubble({ items, onOpen }: { items: AnswerItem[]; onOpen: () => void }) {
+  const answered = items.filter((x) => !x.skipped);
+  const skipped = items.length - answered.length;
+  return (
+    <button className="cv-bubble user cv-answers" onClick={onOpen} title="See every question and your answer">
+      <span className="cv-answers-head">
+        {answered.length ? `Answered ${answered.length}` : 'Skipped the questions'}
+        {answered.length && skipped ? ` · skipped ${skipped}` : !answered.length ? ` (${skipped})` : ''}
+        <ChevronRight size={14} />
+      </span>
+      {answered.length > 0 && (
+        <span className="cv-answers-pills">
+          {answered.map((x, i) => (
+            <span key={i} className="cv-answer-pill">
+              {x.answer}
+            </span>
+          ))}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function AnswersModal({ items, onClose }: { items: AnswerItem[]; onClose: () => void }) {
+  const groups: { aspect: string; items: AnswerItem[] }[] = [];
+  for (const it of items) {
+    const g = groups.find((x) => x.aspect === it.aspect);
+    if (g) g.items.push(it);
+    else groups.push({ aspect: it.aspect, items: [it] });
+  }
+  return (
+    <div className="cv-modal-scrim" onClick={onClose}>
+      <div className="cv-modal" role="dialog" aria-label="Your answers" onClick={(e) => e.stopPropagation()}>
+        <header>
+          <b>Your answers</b>
+          <button className="cv-icon-btn" onClick={onClose} aria-label="Close">
+            <X size={16} />
+          </button>
+        </header>
+        <div className="cv-modal-body">
+          {groups.map((g) => (
+            <section key={g.aspect}>
+              <div className="cv-modal-aspect">{g.aspect}</div>
+              {g.items.map((x, i) => (
+                <div key={i} className="cv-modal-q">
+                  <div className="cv-modal-qtext">{x.question}</div>
+                  {x.skipped ? <div className="cv-modal-skip">Skipped: the agent assumed this and said so</div> : <div className="cv-modal-ans">{x.answer}</div>}
+                </div>
+              ))}
+            </section>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

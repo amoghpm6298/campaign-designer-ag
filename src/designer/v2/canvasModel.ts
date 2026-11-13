@@ -93,32 +93,35 @@ export const NODE_W: Record<CNodeKind, number> = {
   entry: 420,
   bucket: 340,
   everyone: 280,
-  holdout: 300,
+  holdout: 250,
   send: 300,
-  goalcheck: 300,
-  wait: 300,
-  waitForEvent: 300,
-  branch: 300,
-  experiment: 300,
-  condition: 300,
-  exit: 300,
+  goalcheck: 220,
+  wait: 150,
+  waitForEvent: 250,
+  branch: 260,
+  experiment: 280,
+  condition: 260,
+  exit: 230,
 };
 
-/** Fallback heights until the browser has measured the real cards. */
+/** Heights: fallbacks for cards until measured; the drawn shapes are fixed. */
 export const NODE_H: Record<CNodeKind, number> = {
   entry: 84,
   bucket: 230,
   everyone: 120,
-  holdout: 74,
+  holdout: 58,
   send: 190,
-  goalcheck: 54,
-  wait: 54,
-  waitForEvent: 74,
-  branch: 80,
-  experiment: 86,
-  condition: 74,
-  exit: 54,
+  goalcheck: 104,
+  wait: 38,
+  waitForEvent: 42,
+  branch: 136,
+  experiment: 72,
+  condition: 130,
+  exit: 38,
 };
+
+/** Kinds drawn as fixed shapes (their height never comes from measuring). */
+export const FIXED_SHAPES: CNodeKind[] = ['holdout', 'goalcheck', 'wait', 'waitForEvent', 'branch', 'experiment', 'condition', 'exit'];
 
 const LANE_GAP = 90;
 const ENTRY_GAP = 110;
@@ -185,7 +188,7 @@ function addSeq(lane: string, steps: CStep[] | undefined, from: Tail[], prefix: 
 
 function layoutLane(lane: LaneBuild, measured: Record<string, number>): { pos: Record<string, { x: number; y: number }>; width: number; height: number } {
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: 'TB', nodesep: 28, ranksep: 34, marginx: 0, marginy: 0 });
+  g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 64, marginx: 0, marginy: 0 });
   g.setDefaultEdgeLabel(() => ({}));
   for (const n of lane.nodes) g.setNode(n.id, { width: NODE_W[n.data.kind], height: (measured[n.id] ?? NODE_H[n.data.kind]) + 6 });
   for (const e of lane.edges) if (!e.sideways) g.setEdge(e.source, e.target);
@@ -218,17 +221,16 @@ export function buildCanvasModel(
   const info = bucketContext(context?.entries ?? []);
   const buckets = [...campaign.buckets].sort((a, b) => a.priority - b.priority);
   const lanes: LaneBuild[] = [];
-  const crossEdges: CEdge[] = [];
 
   buckets.forEach((b, i) => {
     const lane: LaneBuild = { nodes: [], edges: [] };
     const head = `${b.id}:head`;
     lane.nodes.push({ id: head, data: { kind: 'bucket', lane: b.id, bucket: b, info: info[b.id] ?? {}, bucketIndex: i } });
-    let from: { id: string; label?: string }[] = [{ id: head, label: 'Matches' }];
+    let from: { id: string; label?: string }[] = [{ id: head }];
     if (b.holdoutPct && b.holdoutPct > 0 && b.journey?.length) {
       const h = `${b.id}:holdout`;
       lane.nodes.push({ id: h, data: { kind: 'holdout', lane: b.id, holdoutPct: b.holdoutPct } });
-      lane.edges.push({ id: `e:${head}->${h}`, source: head, target: h, label: 'Matches' });
+      lane.edges.push({ id: `e:${head}->${h}`, source: head, target: h });
       from = [{ id: h, label: `${100 - b.holdoutPct}% get the journey` }];
     }
     if (b.journey?.length) {
@@ -240,7 +242,6 @@ export function buildCanvasModel(
       }
     }
     lanes.push(lane);
-    if (i > 0) crossEdges.push({ id: `e:${buckets[i - 1].id}:head->${head}`, source: `${buckets[i - 1].id}:head`, target: head, label: 'Not matched', sideways: true });
   });
 
   const ee = campaign.everyoneElse;
@@ -255,14 +256,13 @@ export function buildCanvasModel(
       }
     }
     lanes.push(lane);
-    if (buckets.length) crossEdges.push({ id: `e:${buckets[buckets.length - 1].id}:head->everyone_else:head`, source: `${buckets[buckets.length - 1].id}:head`, target: 'everyone_else:head', label: 'Not matched', sideways: true });
   }
 
   // Place lanes side by side under the entry.
   const entryH = measured.entry ?? NODE_H.entry;
   const laneTop = entryH + ENTRY_GAP;
   const nodes: CNode[] = [];
-  const edges: CEdge[] = [...crossEdges];
+  const edges: CEdge[] = [];
   let x = 0;
   for (const lane of lanes) {
     const l = layoutLane(lane, measured);
@@ -275,8 +275,11 @@ export function buildCanvasModel(
   }
   const totalW = Math.max(0, x - LANE_GAP);
   nodes.unshift({ id: 'entry', data: { kind: 'entry', lane: '', campaign }, x: totalW / 2 - NODE_W.entry / 2, y: 0, width: NODE_W.entry, height: entryH });
-  if (buckets.length) edges.push({ id: `e:entry->${buckets[0].id}:head`, source: 'entry', target: `${buckets[0].id}:head`, label: 'Check buckets in order' });
-  else edges.push({ id: 'e:entry->everyone_else:head', source: 'entry', target: 'everyone_else:head' });
+  // The entry branches straight into every column. The order (first match
+  // wins, left to right) is said on the cards, not drawn as a chain of
+  // "not matched" hops.
+  for (const b of buckets) edges.push({ id: `e:entry->${b.id}:head`, source: 'entry', target: `${b.id}:head` });
+  edges.push({ id: 'e:entry->everyone_else:head', source: 'entry', target: 'everyone_else:head' });
   return { nodes, edges };
 }
 
