@@ -254,7 +254,13 @@ function Readable({ value, depth = 0 }: { value: unknown; depth?: number }) {
   );
 }
 
-/** Your answers in the chat: just what you picked. Tap for every question. */
+/** The first 39 characters of a question, then an ellipsis. */
+export const shortQuestion = (q: string, max = 39) => {
+  const t = q.replace(/\*\*/g, '').trim();
+  return t.length > max ? `${t.slice(0, max).trimEnd()}…` : t;
+};
+
+/** Your answers in the chat: one line per question (its start, then your answer). Tap for the full questions. */
 function AnswersBubble({ items, onOpen }: { items: AnswerItem[]; onOpen: () => void }) {
   const answered = items.filter((x) => !x.skipped);
   const skipped = items.length - answered.length;
@@ -266,10 +272,11 @@ function AnswersBubble({ items, onOpen }: { items: AnswerItem[]; onOpen: () => v
         <ChevronRight size={14} />
       </span>
       {answered.length > 0 && (
-        <span className="cv-answers-pills">
-          {answered.map((x, i) => (
-            <span key={i} className="cv-answer-pill">
-              {x.answer}
+        <span className="cv-answers-rows">
+          {items.map((x, i) => (
+            <span key={i} className={`cv-answer-row${x.skipped ? ' skipped' : ''}`}>
+              <span className="cv-answer-q">{shortQuestion(x.question)}</span>
+              <span className="cv-answer-a">{x.skipped ? 'Skipped' : x.answer}</span>
             </span>
           ))}
         </span>
@@ -301,6 +308,7 @@ function AnswersModal({ items, onClose }: { items: AnswerItem[]; onClose: () => 
               {g.items.map((x, i) => (
                 <div key={i} className="cv-modal-q">
                   <div className="cv-modal-qtext">{x.question}</div>
+                  {x.why && <div className="cv-q-why">{x.why}</div>}
                   {x.skipped ? <div className="cv-modal-skip">Skipped: the agent assumed this and said so</div> : <div className="cv-modal-ans">{x.answer}</div>}
                 </div>
               ))}

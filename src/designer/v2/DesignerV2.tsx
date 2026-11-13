@@ -445,7 +445,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
                 send(message, {
                   answers,
                   skipped,
-                  answerSet: formQuestions.map((q) => (answers[q.id] ? { aspect: q.aspect, question: plainText(q.text), answer: answers[q.id] } : { aspect: q.aspect, question: plainText(q.text), skipped: true })),
+                  answerSet: formQuestions.map((q) => ({ aspect: q.aspect, question: plainText(q.text), ...(q.why ? { why: q.why } : {}), ...(answers[q.id] ? { answer: answers[q.id] } : { skipped: true }) })),
                 })
               }
             />

@@ -50,7 +50,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'ask_questions',
     title: 'Putting questions to you',
     description:
-      'Ask the manager questions. They appear as a form, grouped by aspect, with tappable answers. Each question asks ONE thing in one short sentence (no examples inside the question: put them in options). Every question gets tappable answers; the form always adds "Other" for a custom answer, so never write "Other". answerType: "yesno" for a yes/no question (no options needed), "single" when one answer applies, "multi" when several can. For single/multi give 1-4 short options in the manager\'s voice; one option means "this is what I propose". Even for personal questions (patterns they have seen, reasons), propose your best guesses as options. After calling this, file anything outstanding, write one or two sentences and end your turn.',
+      'Ask the manager questions. They appear as a form, grouped by aspect, with tappable answers. Each question asks ONE thing in one short sentence (no examples inside the question: put them in options). Every question gets tappable answers and a why (what its answer changes in the campaign); the form always adds "Other" for a custom answer, so never write "Other". answerType: "single" when one answer applies, "multi" when several can, "yesno" only when Yes and No each mean one clear thing (never for an A-or-B question; no options needed). For single/multi give 1-4 short options in the manager\'s voice; one option means "this is what I propose". After calling this, file anything outstanding, write one or two sentences and end your turn.',
     input_schema: {
       type: 'object',
       properties: {
@@ -62,10 +62,11 @@ const BASE_TOOLS: ToolDef[] = [
             properties: {
               aspect: { type: 'string', description: 'Short label of the campaign aspect, 1-3 words, e.g. "Goal", "Success", "Incentive", "Timing", "Buckets".' },
               text: { type: 'string', description: 'One short question, one thing.' },
+              why: { type: 'string', description: 'One short sentence: what the answer changes in the campaign. Shown to the manager under the question.' },
               answerType: { type: 'string', enum: ['yesno', 'single', 'multi'] },
               options: { type: 'array', items: { type: 'string' }, maxItems: 4, description: 'single/multi only: 1-4 answers. Leave out for yesno.' },
             },
-            required: ['aspect', 'text', 'answerType'],
+            required: ['aspect', 'text', 'why', 'answerType'],
           },
         },
       },
@@ -385,8 +386,8 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
         endsTurn: true,
         doneTitle: `Asked you ${added.length} question${added.length === 1 ? '' : 's'}`,
         summary: aspects.join(' · '),
-        result: added.map((q) => ({ aspect: q.aspect, question: q.text, type: q.answerType, options: q.options ?? [] })),
-        forModel: `${added.length} question(s) are on the manager's form${dropped ? ` (${dropped} dropped: missing text)` : ''}. questionsAnswered is now false. If the manager told you anything this turn that is not filed yet, file it now. Then write one or two sentences — what you understood so far — and end your turn. Do not repeat the questions in your message.`,
+        result: added.map((q) => ({ aspect: q.aspect, question: q.text, ...(q.why ? { why: q.why } : {}), type: q.answerType, options: q.options ?? [] })),
+        forModel: `${added.length} question(s) are on the manager's form${dropped ? ` (${dropped} dropped: missing text)` : ''}.${added.some((q) => !q.why) ? ` These have no why, so the manager cannot see why you ask: ${added.filter((q) => !q.why).map((q) => q.id).join(', ')}.` : ''} questionsAnswered is now false. If the manager told you anything this turn that is not filed yet, file it now. Then write one or two sentences — what you understood so far — and end your turn. Do not repeat the questions in your message.`,
       };
     }
 

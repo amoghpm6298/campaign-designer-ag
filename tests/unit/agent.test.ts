@@ -11,6 +11,7 @@ import {
   normaliseState,
   outline,
   recordAnswers,
+  recordSkips,
   updateCampaign,
   upsertBucket,
 } from '../../server/agent/state';
@@ -267,7 +268,7 @@ describe('the prompt', () => {
       expect(p).toMatch(/## 3\. Changes, through chat/);
       expect(p).toMatch(/There are no approvals/);
       expect(p).not.toMatch(/request_signoff/);
-      expect(p.length).toBeLessThan(19000); // raised for endings + after-journey guidance
+      expect(p.length).toBeLessThan(19500); // raised for endings + after-journey guidance
     }
     expect(systemPrompt(true)).toMatch(/data warehouse/);
     expect(systemPrompt(false)).toMatch(/your own knowledge and judgement/);
@@ -365,7 +366,7 @@ describe('skipping questions', () => {
     expect(s.flags.questionsAnswered).toBe(true);
     expect(s.questions[1].skipped).toBe(true);
     expect(s.questions[0].skipped).toBeUndefined();
-    expect(statusBlock(s)).toContain('[SKIPPED — assume and state it] (Timing) B?');
+    expect(statusBlock(s)).toContain('[SKIPPED: your call, never ask again] (Timing) B? (no note yet: make the call and note it)');
   });
 
   it('a skip never overwrites an answer', async () => {
@@ -384,5 +385,45 @@ describe('bold keywords in questions', () => {
     const parts = renderInline('Should **lapsed cardholders** get it?') as { type: unknown; props: { children: string } }[];
     expect(parts.map((p) => p.type)).toEqual(['span', 'strong', 'span']);
     expect(parts[1].props.children).toBe('lapsed cardholders');
+  });
+});
+
+describe('the interview: notes are memory, every question has a why', () => {
+  it('the prompt interviews a busy person, stops at the riskiest assumptions, and caps rounds', () => {
+    const p = systemPrompt(false);
+    expect(p).toMatch(/YOUR NOTES ARE YOUR MEMORY/);
+    expect(p).toMatch(/about 80%\) of your riskiest assumptions/);
+    expect(p).toMatch(/beyond 3 rounds/);
+    expect(p).not.toMatch(/two is usually enough/);
+    expect(p).not.toMatch(/whenever you can/);
+  });
+
+  it('the status shows the notes in full, flags missing ones, and points skips at the note', () => {
+    let s = addQuestions(initialState(), [
+      { aspect: 'Goal', text: 'A?', why: 'Sets the goal event.', answerType: 'yesno' },
+      { aspect: 'Guardrails', text: 'B?', answerType: 'yesno' },
+      { aspect: 'Timing', text: 'C?', why: 'Sets the window.', answerType: 'yesno' },
+    ]).state;
+    expect(s.questions[0].why).toBe('Sets the goal event.');
+    s = recordAnswers(s, { q1: 'Yes' }, '');
+    s = recordSkips(s, ['q2']);
+    let st = statusBlock(s);
+    expect(st).toContain('Notes missing or older than the latest answers for: Goal, Guardrails');
+    expect(st).toContain('[OPEN] (Timing) C? (why: Sets the window.)');
+    s = runToolCall('add_context', { entries: [
+      { kind: 'brief', topic: 'Goal', text: 'Milestone-based spend with bonus points.', source: 'manager' },
+      { kind: 'brief', topic: 'Guardrails', text: 'Assume at most 3 messages.', source: 'assumption' },
+    ] }, s, env()).state;
+    st = statusBlock(s);
+    expect(st).toContain('- Goal: Milestone-based spend with bonus points.');
+    expect(st).toContain('- Guardrails (assumption): Assume at most 3 messages.');
+    expect(st).not.toContain('Notes missing');
+    expect(st).toContain('(your call is in your notes)');
+  });
+
+  it('ask_questions tells the agent which questions lack a why', () => {
+    const r = runToolCall('ask_questions', { questions: [{ aspect: 'Goal', text: 'A?', answerType: 'yesno' }, { aspect: 'Goal', text: 'B?', why: 'x', answerType: 'yesno' }] }, initialState(), env());
+    expect(r.forModel).toMatch(/no why.*q1/);
+    expect(r.forModel).not.toMatch(/q2/);
   });
 });

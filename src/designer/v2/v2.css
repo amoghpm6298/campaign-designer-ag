@@ -123,6 +123,9 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-q-text strong { font-weight: 700; }
 .cv-q-skip { flex: none; border: 0; background: none; padding: 2px 4px; font: inherit; font-size: 12.5px; color: var(--v2-text-2); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .cv-q-skip:hover { color: var(--v2-text); }
+.cv-q-line:has(+ .cv-q-why) { margin-bottom: 3px; }
+.cv-q-why { font-size: 12.5px; line-height: 1.4; color: var(--v2-text-3); margin-bottom: 10px; }
+.cv-q.skipped .cv-q-why { text-decoration: line-through; }
 .cv-q.skipped .cv-q-text { text-decoration: line-through; color: var(--v2-text-3); }
 .cv-q .v2-opt { font-size: 14px; padding: 7px 14px; }
 .cv-q .v2-muted { font-size: 12.5px; font-weight: 400; }
@@ -198,8 +201,11 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-answers { border: 0; font: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 7px; }
 .cv-answers:hover { box-shadow: 0 0 0 2px color-mix(in srgb, var(--v2-primary) 30%, transparent); }
 .cv-answers-head { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-size: 13px; color: var(--v2-primary); }
-.cv-answers-pills { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
-.cv-answer-pill { background: var(--v2-surface); border: 1px solid color-mix(in srgb, var(--v2-primary) 25%, var(--v2-border)); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; color: var(--v2-text); }
+.cv-answers-rows { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cv-answer-row { display: flex; flex-direction: column; gap: 1px; background: var(--v2-surface); border: 1px solid color-mix(in srgb, var(--v2-primary) 18%, var(--v2-border)); border-radius: 10px; padding: 6px 10px; font-size: 12.5px; line-height: 1.45; }
+.cv-answer-q { color: var(--v2-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cv-answer-a { color: var(--v2-text); font-weight: 500; }
+.cv-answer-row.skipped .cv-answer-a { color: var(--v2-text-3); font-weight: 400; font-style: italic; }
 .cv-modal-scrim { position: fixed; inset: 0; z-index: 50; background: rgba(16, 24, 40, .35); display: grid; place-items: center; padding: 20px; }
 .cv-modal { width: min(560px, 100%); max-height: 85vh; display: flex; flex-direction: column; background: var(--v2-surface); border-radius: 16px; box-shadow: 0 20px 48px rgba(16, 24, 40, .2); overflow: hidden; }
 .cv-modal header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--v2-border); font-size: 15px; }

@@ -65,6 +65,7 @@ export function QuestionOverlay({
                         {f.skipped ? 'Undo' : 'Skip'}
                       </button>
                     </div>
+                    {q.why && <div className="cv-q-why">{q.why}</div>}
                     <div className="v2-opts" role={q.answerType === 'multi' ? 'group' : 'radiogroup'}>
                       {(q.options ?? []).map((o) => {
                         const on = f.picked.includes(o);

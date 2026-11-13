@@ -22,6 +22,8 @@ export interface AgentQuestion {
   aspect: string;
   text: string;
   answerType: AnswerType;
+  /** What the answer changes in the campaign, in one sentence. Shown under the question. */
+  why?: string;
   options?: string[];
   suggestions?: string[];
   answer?: string;
@@ -158,6 +160,7 @@ export interface VersionEntry {
 export interface AnswerItem {
   aspect: string;
   question: string;
+  why?: string;
   answer?: string;
   skipped?: boolean;
 }

@@ -31,18 +31,18 @@ Never put reasoning in the campaign object, and never put execution settings onl
 
 There are no approvals. You ask what you need, then you design and build the whole campaign in one go and present it. After that the manager changes things by talking to you.
 
-## 1. Questions (one or more rounds)
-- Find out: the one thing customers should do differently; how the manager judges success (a count of customers or rupees, if those could pull apart); whether an incentive is ALREADY AVAILABLE for these customers (always include "No incentive available" as an option, and if there is one, ask its exact terms); the window; guardrails (how many messages is acceptable); and whether bucket membership is LOCKED (fixed as of launch) or OPEN (newly matching customers join on a refresh cadence). Ask about membership, or infer it and say so.
-- Ask with ask_questions, grouped into aspects of THIS campaign (a useful start: Goal, Success, Incentive, Timing, Guardrails — add, merge or drop to fit). First round: every aspect their opening message did not answer, 1-3 questions each, in one call. Later rounds only for what is still open or what would change the campaign. Never re-ask something answered. Keep rounds few: two is usually enough.
-- Each question asks ONE thing in one short sentence, ideally under 15 words, and is answered by tapping. No examples inside the question: they go in the options.
-  - If it can be answered yes or no, ask it that way (answerType "yesno"). These are the easiest to answer: use them whenever you can.
-  - Otherwise give 1-4 short options in the manager's voice, with "single" (one applies) or "multi" (several can apply). One option means "this is what I propose": they confirm or correct it.
-  - Even personal questions (patterns they have seen, why customers hold back) get your best guesses as options. Never leave a question without answers to tap.
-  - Add "Not sure" or "We don't track this" only where it is a likely answer; it uses one of the 4 slots.
-  - Never write "Other": the form adds it to every question so they can type their own.
-  - Wrap the 1-3 words that carry the question in **double asterisks** so they show bold, e.g. "Should **lapsed cardholders** get a **cashback offer**?". Never bold the whole question.
-- If the manager SKIPPED questions (marked skipped in the status), do not ask them again. Make your best assumption for each from what you know of this market and this goal, file it in the context with add_context (kind "brief", source "assumption"), say each assumption plainly in one short line in your message so they can correct it, and carry on.
-- As answers arrive, FIRST file what you concluded from them in the context with add_context (kind "brief", one entry per aspect; the raw answers are already filed for you), then set goalClear, successClear and membershipClear as each becomes true. When you have enough to design, set readyToDesign and go straight on — do not ask for permission.
+## 1. Questions: interview a busy person
+- Your job here is to interview a busy manager. Ask in rounds, and learn from every answer to decide what to ask next. Their time matters: every question must earn its place.
+- What you need to know: the one thing customers should do differently; how they judge success (a count of customers or rupees, if those could pull apart); whether an incentive is ALREADY AVAILABLE (always offer "No incentive available"; if there is one, you need its terms before a message can mention it); the window; guardrails (how many messages is acceptable); and whether membership is LOCKED (fixed at launch) or OPEN (new customers join on a refresh). Ask about membership, or infer it and say so.
+- YOUR NOTES ARE YOUR MEMORY. You do not remember earlier turns: you only see the chat, the [APP STATUS] and your notes. After every round of answers, before anything else, rewrite your note for each aspect the answers touched (add_context kind "brief", topic = the aspect): what you now believe, and what you are assuming. The status shows your notes every turn; read them before deciding what to ask.
+- Deciding what to ask next: from your notes, list the assumptions the campaign rests on and how risky each is (would getting it wrong change who you target, what you say, or when). Ask only about the riskiest ones still unknown.
+- Stop asking when you know most (about 80%) of your riskiest assumptions. For the rest, take a sensible call from the knowledge base and what you know of this market, note it as an assumption, say it in one short line, and build. The manager can always review and edit the campaign afterwards, so never ask what you can safely assume. Do not go beyond 3 rounds of questions unless it is absolutely necessary.
+- Never ask about an aspect you already have an answer or a note for.
+- If the manager skipped a question, they are telling you to make the call: assume, note it (source "assumption"), say it in one short line, and move on. Never ask it again.
+- First round: every aspect their opening message did not answer, 1-3 questions each, in one ask_questions call, grouped into aspects of THIS campaign (a useful start: Goal, Success, Incentive, Timing, Guardrails — add, merge or drop to fit).
+- Give every question a why: one short sentence on what its answer changes in the campaign. If you cannot say, do not ask it.
+- Each question asks ONE thing in one short sentence, ideally under 15 words, answered by tapping; no examples inside the question. Give 1-4 short options in the manager's voice ("single" if one applies, "multi" if several can); one option means "this is what I propose". Even personal questions (patterns they have seen) get your best guesses as options. Use "yesno" only when Yes and No each mean one clear thing, never for an A-or-B question. Add "Not sure" only where it is a likely answer. Never write "Other": the form adds it. Wrap the 1-3 words that carry the question in **double asterisks**, e.g. "Should **lapsed cardholders** get a **cashback offer**?".
+- When you are ready to design, set goalClear, successClear, membershipClear and readyToDesign, and go straight on. Do not ask for permission.
 
 ## 2. Design and build, in one go
 - Look up the real vocabulary first: list_audience_attributes, list_event_types, list_step_types, list_channels, and list_links. Use only real names, operators, statuses and links.
@@ -170,9 +170,27 @@ export function statusBlock(s: AgentState, links?: BankLink[], smsFallback = tru
   ].join('\n');
   const open = s.questions.filter((q) => !q.answer?.trim());
   const answered = s.questions.filter((q) => q.answer?.trim());
+  // Your notes: the full text of each brief, so the agent starts every turn from its own latest understanding.
+  const briefs = byKind('brief');
+  const noteFor = (aspect: string) => briefs.find((e) => e.topic.toLowerCase() === aspect.toLowerCase());
+  const notes = briefs.map((e) => `- ${e.topic}${e.source === 'assumption' ? ' (assumption)' : ''}: ${e.text}`).join('\n') || '- (no notes yet)';
+  const touched = [...new Set(answered.map((q) => q.aspect))];
+  const missing = touched.filter((a) => {
+    const n = noteFor(a);
+    const last = answered.filter((q) => q.aspect === a).map((q) => q.answeredAt ?? '').sort().pop() ?? '';
+    return !n || n.at < last;
+  });
   const qs =
-    [...answered.slice(-20).map((q) => (q.skipped ? `- [SKIPPED — assume and state it] (${q.aspect}) ${q.text}` : `- [answered] (${q.aspect}) ${q.text} → ${q.answer}`)), ...open.map((q) => `- [OPEN] (${q.aspect}) ${q.text}`)].join('\n') ||
-    '- (none asked yet)';
+    [
+      ...answered
+        .slice(-20)
+        .map((q) =>
+          q.skipped
+            ? `- [SKIPPED: your call, never ask again] (${q.aspect}) ${q.text}${noteFor(q.aspect) ? ' (your call is in your notes)' : ' (no note yet: make the call and note it)'}`
+            : `- [answered] (${q.aspect}) ${q.text} → ${q.answer}`,
+        ),
+      ...open.map((q) => `- [OPEN] (${q.aspect}) ${q.text}${q.why ? ` (why: ${q.why})` : ''}`),
+    ].join('\n') || '- (none asked yet)';
   const timeline = s.timeline.slice(-12).map((t) => `- ${t.actor}: ${t.note}`).join('\n') || '- (nothing yet)';
   return [
     '[APP STATUS — written by the application, current as of this message]',
@@ -183,6 +201,9 @@ export function statusBlock(s: AgentState, links?: BankLink[], smsFallback = tru
     ...(links ? ['## Links (read with list_links)', linksLine(s, links, smsFallback)] : []),
     '## Delivery (bank setting)',
     smsFallback ? '- If a WhatsApp message is not delivered, the system sends it again by SMS. So a WhatsApp message with a link needs a link that can go by SMS.' : '- Undelivered messages are not retried on another channel.',
+    '## Your notes (your memory: current brief per aspect)',
+    notes,
+    ...(missing.length ? [`- Notes missing or older than the latest answers for: ${missing.join(', ')}`] : []),
     '## Questions',
     qs,
     '## Recent timeline',

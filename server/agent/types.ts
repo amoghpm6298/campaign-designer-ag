@@ -38,6 +38,8 @@ export interface AgentQuestion {
   aspect: string;
   text: string;
   answerType: AnswerType;
+  /** What the answer changes in the campaign, in one sentence. Shown under the question. */
+  why?: string;
   /** The tappable answers (yesno stores Yes/No). "Other" is never stored here: the UI always adds it. */
   options?: string[];
   askedAt: string;

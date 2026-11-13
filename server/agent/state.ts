@@ -129,6 +129,7 @@ const cleanList = (v: unknown, max: number): string[] => {
 export interface RawQuestion {
   aspect?: unknown;
   text?: unknown;
+  why?: unknown;
   answerType?: unknown;
   options?: unknown;
   suggestions?: unknown;
@@ -172,6 +173,7 @@ export function normaliseQuestions(raw: unknown, existingAspects: string[], seqS
       id: `q${seq}`,
       aspect,
       text,
+      ...(typeof q.why === 'string' && q.why.trim() ? { why: q.why.trim().replace(/\s+/g, ' ').slice(0, 160) } : {}),
       answerType,
       options,
       askedAt: now(),
