@@ -2,9 +2,9 @@
 // accents from src/canvas/dripCanvas.css). Read-only: the campaign changes
 // through the chat, never by clicking a card. Clicking a message opens its
 // preview.
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { Handle, NodeToolbar, Position } from '@xyflow/react';
-import { Pencil } from 'lucide-react';
+import { ChevronDown, ChevronRight, Pencil } from 'lucide-react';
 import type { BankLink } from '../LinksSection';
 import { assembleSms, smsLength } from './smsText';
 import { Icon } from '../../components/icons';
@@ -202,6 +202,7 @@ function BucketCard({ data }: { data: CdNodeData }) {
   // Execution (name, holdout, journey) comes from the campaign object; the
   // reasoning and size come from the context.
   const info = data.info ?? {};
+  const [why, setWhy] = useState(false);
   const evidence = info.evidence ?? 'hypothesis';
   const size =
     typeof info.size === 'number'
@@ -219,16 +220,27 @@ function BucketCard({ data }: { data: CdNodeData }) {
         <span className={`cv-ev ${evidence}`}>{EVIDENCE[evidence]}</span>
       </div>
       <div className="dc-node-label cv-bucket-name">{b.name}</div>
+      {/* Who is in it first, then how many, then why (on demand). */}
+      {info.behaviour && <p className="cv-bucket-who">{info.behaviour}</p>}
       <div className="cv-bucket-meta">
         {size}
         {b.holdoutPct ? ` · ${b.holdoutPct}% held back to measure` : ''}
       </div>
-      {info.behaviour && <p className="cv-bucket-p">{info.behaviour}</p>}
       {info.thesis && (
-        <p className="cv-bucket-p">
-          <b>Why they're stuck: </b>
-          {info.thesis}
-        </p>
+        <>
+          <button
+            type="button"
+            className="cv-bucket-why nodrag nopan"
+            aria-expanded={why}
+            onClick={(e) => {
+              e.stopPropagation();
+              setWhy((v) => !v);
+            }}
+          >
+            {why ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Why they're stuck
+          </button>
+          {why && <p className="cv-bucket-p">{info.thesis}</p>}
+        </>
       )}
       {!b.journey?.length && <div className="cv-bucket-pending">Journey not designed yet</div>}
     </div>
