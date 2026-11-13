@@ -3,15 +3,20 @@
 // box whose request goes to the agent pointed at this box.
 import { useState } from 'react';
 import { ArrowUp, Loader2, X } from 'lucide-react';
-import { fmtWait, sendTitle, waitHours, type CStep } from './canvasModel';
+import { OUTCOME_LABEL, fmtWait, sendTitle, waitHours, type CStep } from './canvasModel';
 import type { CdNodeData } from './canvasNodes';
-import type { CampaignObject } from './types';
+import type { AfterOutcome, CampaignObject } from './types';
 
 export type DirectOp =
   | { op: 'membership'; type: 'locked' | 'open'; refresh?: 'daily' | 'weekly' | 'monthly' }
   | { op: 'holdout'; bucketId: string; pct: number }
   | { op: 'split'; bucketId: string; stepId: string; pcts: number[] }
-  | { op: 'wait'; bucketId: string; stepId: string; days: number };
+  | { op: 'wait'; bucketId: string; stepId: string; days: number }
+  | { op: 'afterJourney'; outcome: AfterOutcome; value: number | 'leave' }
+  | { op: 'maxAttempts'; value: number };
+
+const rejoinIn = (d: number) => (d === 0 ? 'Can rejoin at the next refresh' : `Can rejoin in ${d} day${d === 1 ? '' : 's'}`);
+const AFTER_CHOICES: [string, string][] = [['leave', 'Leaves the campaign'], ...[0, 7, 14, 30, 60, 90].map((d): [string, string] => [String(d), rejoinIn(d)])];
 
 const CHIPS: Record<string, string[]> = {
   send: ['Change the channel', 'Rewrite the message', 'Change the timing', 'Remove this message'],
@@ -111,6 +116,42 @@ export function EditPopover({
             </button>
           ))}
         </div>
+        {m?.type === 'open' && (
+          <>
+            <span className="cv-pop-label" style={{ marginTop: 10 }}>Stopping rule</span>
+            <label className="cv-pop-after">
+              <span>Most times through</span>
+              <select value={campaign?.maxAttempts ? String(campaign.maxAttempts) : ''} disabled={saving} onChange={(e) => e.target.value && direct({ op: 'maxAttempts', value: Number(e.target.value) })}>
+                {!campaign?.maxAttempts && <option value="">Not set</option>}
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>
+                    {n === 1 ? 'Once, then leaves' : `${n} times, then leaves`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="cv-pop-label" style={{ marginTop: 10 }}>After the journey</span>
+            {(['no_response', 'not_reachable', 'declined', 'converted'] as const).map((k) => {
+              const v = campaign?.afterJourney?.[k];
+              const val = v === undefined ? '' : String(v);
+              const choices = val && !AFTER_CHOICES.some(([c]) => c === val) ? [...AFTER_CHOICES, [val, rejoinIn(Number(val))] as [string, string]] : AFTER_CHOICES;
+              return (
+                <label key={k} className="cv-pop-after">
+                  <span>{OUTCOME_LABEL[k]}</span>
+                  <select value={val} disabled={saving} onChange={(e) => e.target.value && direct({ op: 'afterJourney', outcome: k, value: e.target.value === 'leave' ? 'leave' : Number(e.target.value) })}>
+                    {!val && <option value="">Not decided</option>}
+                    {choices.map(([c, l]) => (
+                      <option key={c} value={c}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              );
+            })}
+            <span className="cv-pop-hint">Opted out (STOP, unsubscribe): never comes back. Fixed.</span>
+          </>
+        )}
       </div>
     );
   } else if ((data.kind === 'bucket' || data.kind === 'holdout') && bucket) {

@@ -219,3 +219,57 @@ One chat is one campaign, stored as two files keyed by the chat's session id:
 Not yet engine fields (kept as context text for now): the window and the
 message cap. Each message's "why" note stays on the step.
 
+
+## 10. Journey endings and what happens next (2026-11-13)
+
+**Problem.** Every path used to end in a generic "Journey ends". The "Anything else" route on a delivery branch was a dead end. Nothing recorded why a customer left, so a recurring campaign silently lost three groups:
+- non-responders;
+- the unreachable;
+- people who said no.
+
+**Principle.** The agent designs every ending. Code makes the design buildable, checks it, and holds a few hard lines. It never writes an ending itself.
+
+**In the campaign object:**
+- `exit.outcome`: one of
+  - `no_response`: got the messages, did not act;
+  - `not_reachable`: no message got through;
+  - `declined`: said no; needs reply capture.
+
+  Converted is the goal check's exit. Opted out belongs to the system.
+- `branch.otherwise`: steps on the builder's "Anything else" route, i.e. everyone no path matched. On a delivery branch, that is the people the message never reached. `server/blueprint.ts` attaches them to the catch-all edge. Steps after a fork are not carried onto it.
+- `afterJourney` (recurring campaigns): per outcome, days before the customer may come back in and be bucketed again, or `"leave"`. Set by the agent (`edit_campaign`) or directly from the entry card (`directEdit` op `afterJourney`, versioned).
+
+**Checks** (`endingGaps` in `server/agent/compile.ts`). These are open decisions, never auto-filled:
+- a path that stops without an outcome;
+- an undecided "Anything else" route;
+- a recurring campaign with no `afterJourney`.
+
+How they are applied:
+- **End-of-turn repair rounds** look only at journeys changed that turn.
+- **`build_campaign`** lists them as "ENDINGS NOT DECIDED YET", separate from things to fix.
+- **Repair-on-open** ignores them (broken things only), so opening an old campaign does not start a redesign.
+
+**Hard lines** (refusals in the tools):
+- An exit may not claim converted or opted out.
+- No bucket rule, wait or condition may target opted-out customers.
+- A delivery branch's "Anything else" may not resend on the channel that just failed.
+- `afterJourney` takes no opted-out entry.
+
+**Proposed vocabulary** (marked new, so the agent says it is not yet real):
+- the **Campaign History** entity: Last Outcome, Days Since Last Outcome, Times Through This Campaign. It is used for "returning customer" buckets.
+- **Message Events → Replied**, with the **Message Reply** entity (Reply Button, Reply Text). It is used for "said no" paths.
+
+**Engine contract (not built here):**
+- Record each customer's outcome per campaign, with a timestamp, when their journey ends.
+- Re-admit per `afterJourney` after the cool-off. Never re-admit while a run is active.
+- Opt-out (STOP, unsubscribe, DND) is global and immediate: the customer exits every campaign and is never messaged again.
+- Expose Campaign History attributes to bucket rules.
+- Emit `Replied` events with the button or text.
+- Today the builder graph has one `allowReEntry` + cool-off. Per-outcome re-entry is new.
+
+**The stopping rule (added the same day).** In a recurring campaign, "can rejoin in 14 days" plus a "Repeat non-responders" bucket on "times through > 0" was an endless loop: the same non-responder came back every ~3 weeks forever.
+- **`maxAttempts`** on the campaign object is the most times one customer goes through the campaign (the agent usually proposes 2). After their last time, everyone leaves for good, whatever their ending. It is set by the agent or directly from the entry card. A recurring campaign without it is an open decision.
+- **A returning-customer bucket must target one attempt:** Campaign History "Times Through This Campaign" Equals N. Anything open-ended is refused. A bucket for an attempt past the cap is flagged as unreachable.
+- **Holdout customers end as `held_back`, set by the system.** They are never messaged by this campaign while it runs, so the comparison stays clean.
+- **"Everyone else: no messages"** customers are not an ending. They are checked against the buckets again at every refresh.
+- **Engine:** count entries per customer per campaign, and stop re-admitting at `maxAttempts`. Keep held-back customers held back for the campaign's lifetime.

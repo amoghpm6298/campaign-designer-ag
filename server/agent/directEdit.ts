@@ -8,13 +8,18 @@ import { addContext, editJourney, emptyContext, initialState, updateCampaign, up
 import { findStep } from './stepIds';
 import { buildCampaign } from './tools';
 import { toolEnvFor } from './loop';
-import type { AgentState, CampaignContext, CampaignObject, TimelineEntry } from './types';
+import { type AfterJourney, type AfterOutcome, type AgentState, type CampaignContext, type CampaignObject, type TimelineEntry } from './types';
+
+const OUTCOME_WORDS: Record<AfterOutcome, string> = { no_response: "Didn't respond", not_reachable: "Couldn't reach", declined: 'Said no', converted: 'Converted' };
+const afterWords = (v: AfterJourney[AfterOutcome]) => (v === undefined ? 'not set' : v === 'leave' ? 'leaves' : `can rejoin after ${v} days`);
 
 export type DirectOp =
   | { op: 'membership'; type: 'locked' | 'open'; refresh?: 'daily' | 'weekly' | 'monthly' }
   | { op: 'holdout'; bucketId: string; pct: number }
   | { op: 'split'; bucketId: string; stepId: string; pcts: number[] }
-  | { op: 'wait'; bucketId: string; stepId: string; days: number };
+  | { op: 'wait'; bucketId: string; stepId: string; days: number }
+  | { op: 'afterJourney'; outcome: AfterOutcome; value: number | 'leave' }
+  | { op: 'maxAttempts'; value: number };
 
 export interface DirectResult {
   ok: boolean;
@@ -37,6 +42,20 @@ function apply(state: AgentState, op: DirectOp): { state: AgentState; said: stri
     if (res.error) return { error: res.error };
     const txt = (m: typeof prev) => (!m ? 'not decided' : m.type === 'open' ? `recurring, ${m.refresh ?? 'weekly'}` : 'one-time');
     return { state: res.state, said: `Refresh: ${txt(prev)} → ${txt(res.state.campaign.membership)}` };
+  }
+  if (op.op === 'maxAttempts') {
+    const prev = c.maxAttempts;
+    const res = updateCampaign(state, { maxAttempts: op.value });
+    if (res.error) return { error: res.error };
+    const w = (v: number | null | undefined) => (v ? `at most ${v} time${v === 1 ? '' : 's'}` : 'not set');
+    return { state: res.state, said: `Times through the campaign: ${w(prev)} → ${w(res.state.campaign.maxAttempts)}` };
+  }
+  if (op.op === 'afterJourney') {
+    if (op.value !== 'leave' && !(Number(op.value) >= 0 && Number(op.value) <= 365)) return { error: 'Days must be between 0 and 365.' };
+    const prev = c.afterJourney?.[op.outcome];
+    const res = updateCampaign(state, { afterJourney: { [op.outcome]: op.value } });
+    if (res.error) return { error: res.error };
+    return { state: res.state, said: `After the journey, ${OUTCOME_WORDS[op.outcome]}: ${afterWords(prev)} → ${afterWords(res.state.campaign.afterJourney?.[op.outcome])}` };
   }
   const bucket = op.bucketId === 'everyone_else' ? null : c.buckets.find((b) => b.id === op.bucketId);
   if (op.bucketId !== 'everyone_else' && !bucket) return { error: 'That bucket no longer exists.' };

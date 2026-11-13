@@ -241,7 +241,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
         // The agent thinks it is done. If this turn changed the campaign and
         // hard problems remain, send it back to fix them (at most twice).
         if (!wrapUp && !asked.length && repairRounds < MAX_REPAIR_ROUNDS && state.campaign !== startCampaign) {
-          const problems = checkJourneys(state.campaign, bankLinks, delivery.smsFallback);
+          const problems = checkJourneys(state.campaign, bankLinks, delivery.smsFallback, false, startCampaign);
           if (problems.length) {
             repairRounds++;
             em.emit('model.tool_call.completed', 'understanding', `Sent back to fix ${problems.length} problem${problems.length === 1 ? '' : 's'}`, {
@@ -251,7 +251,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
               data: { tool: 'repair', input: problems, round },
             });
             yield* drain();
-            conversation.push({ role: 'user', content: `AUTOMATIC FIX (end of turn): these problems remain in the campaign:\n${problems.map((p) => `- ${p}`).join('\n')}\nFix each one with the least change that works, rebuild, and add what you fixed to your reply.` });
+            conversation.push({ role: 'user', content: `AUTOMATIC FIX (end of turn): these problems remain in the campaign:\n${problems.map((p) => `- ${p}`).join('\n')}\nFix each one with the least change that works (an undecided ending is yours to design, not to paper over), rebuild, and add what you fixed or decided to your reply.` });
             continue;
           }
         }
@@ -308,7 +308,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   }
 
   // Anything still broken after the repair rounds is said plainly, never hidden.
-  const remaining = state.campaign !== startCampaign ? checkJourneys(state.campaign, bankLinks, delivery.smsFallback) : [];
+  const remaining = state.campaign !== startCampaign ? checkJourneys(state.campaign, bankLinks, delivery.smsFallback, false, startCampaign) : [];
   if (remaining.length) textSegments.push(`Still to fix (I could not resolve ${remaining.length === 1 ? 'this' : 'these'} on my own):\n${remaining.map((p) => `- ${p}`).join('\n')}`);
   yield* drain();
   const version = await versionThisTurn(req.sessionId, startCampaign, state.campaign, latestUser, req.repair ? 'repair' : 'chat');

@@ -124,7 +124,16 @@ export type BpStep =
       timeoutDays: number;
       conditions?: BpCondition[];
     }
-  | { kind: 'exit'; reason: string }
+  | {
+      kind: 'exit';
+      reason: string;
+      /**
+       * How the customer left, chosen by the agent: the engine records it and
+       * `afterJourney` decides what happens to them next. Converted (the goal
+       * check) and opted out (a system rule) are never written here.
+       */
+      outcome?: ExitOutcome | 'held_back';
+    }
   | {
       /** A/B split. Arms are built as real EXPERIMENT_SPLIT branches. */
       kind: 'experiment';
@@ -220,7 +229,22 @@ export type BpStep =
         statuses?: string[];
         steps: BpStep[];
       }[];
+      /**
+       * The builder's own "Anything else" route: everyone no path matched. On
+       * a delivery branch that is the people the message never reached. Left
+       * out, that route simply ends; the checks ask the agent to decide.
+       */
+      otherwise?: BpStep[];
     };
+
+/** How a customer left a journey. Written by the agent on exit steps. */
+export type ExitOutcome = 'no_response' | 'not_reachable' | 'declined';
+export const EXIT_OUTCOMES: ExitOutcome[] = ['no_response', 'not_reachable', 'declined'];
+export const EXIT_OUTCOME_LABEL: Record<ExitOutcome, string> = {
+  no_response: "Didn't respond",
+  not_reachable: "Couldn't reach",
+  declined: 'Said no',
+};
 
 /** One ANDed entity block, as Entry · Audience and an Audience-rule condition take it. */
 export interface BpAudienceGroup {
@@ -1407,6 +1431,18 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
       }
 
       if (step.kind === 'branch') {
+        // The "Anything else" route the reducer adds to every DECISION_SPLIT.
+        // Steps go on it only when the agent wrote them; nothing is added
+        // for it otherwise.
+        const attachOtherwise = (splitId: string | undefined) => {
+          if (!step.otherwise?.length || !splitId) return;
+          const edge = graph.edges.find((e) => e.from === splitId && e.to === null && e.branchLabel === 'Anything else');
+          if (!edge) {
+            issues.push({ path: `${path}.otherwise`, problem: 'The builder did not leave an "Anything else" route on this branch, so its steps were not placed.' });
+            return;
+          }
+          addSteps(step.otherwise, `${path}.otherwise`, { kind: 'edge', edgeId: edge.id });
+        };
         // N-way routing, built as the app's own DECISION_SPLIT. Same reducer
         // call the builder's UI makes, for both shapes.
         if (!step.paths?.length) {
@@ -1611,6 +1647,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
             const end = edge && addSteps(b.steps, `${path}.paths[${i}]`, { kind: 'edge', edgeId: edge.id });
             if (end) armsOpened.push(end);
           });
+          attachOtherwise(outcomeId);
           return;
         }
 
@@ -1659,6 +1696,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
           const end = edge && addSteps(b.steps, `${path}.paths[${i}]`, { kind: 'edge', edgeId: edge.id });
           if (end) armsOpened.push(end);
         });
+        attachOtherwise(nodeId);
         return;
       }
 

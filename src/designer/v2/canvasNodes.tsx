@@ -8,7 +8,7 @@ import { Pencil } from 'lucide-react';
 import type { BankLink } from '../LinksSection';
 import { assembleSms, smsLength } from './smsText';
 import { Icon } from '../../components/icons';
-import { CHANNEL_LABEL, fmtWait, sendTitle, sendWhen, waitHours, type CNodeData, type CStep } from './canvasModel';
+import { CHANNEL_LABEL, OUTCOME_LABEL, afterText, fmtTime, fmtWait, sendTitle, sendWhen, waitHours, type CNodeData, type CStep } from './canvasModel';
 
 const CHANNEL_ICON: Record<string, string> = { WHATSAPP: 'whatsapp', SMS: 'sms', EMAIL: 'mail', RCS: 'rcs', PUSH: 'message' };
 
@@ -179,10 +179,13 @@ function SendCard({ data }: { data: CdNodeData }) {
       {(st.copy || st.describe) && (
         <ChannelPreview channel={ch} text={st.copy || st.describe || ''} cta={st.cta} bank={data.bankName ?? 'Your bank'} subject={st.name || st.label} time={st.atTime} link={linkState.link} />
       )}
-      <div className="dc-node-send-row">
-        <Icon name="clock" />
-        <span>{sendWhen(st, data.path)}</span>
-      </div>
+      {/* Timing only when it says something the flow doesn't: a send time or a delay of its own. */}
+      {(st.atTime || st.delayDays) && (
+        <div className="dc-node-send-row">
+          <Icon name="clock" />
+          <span>{st.delayDays ? sendWhen(st, data.path) : `At ${fmtTime(st.atTime)}`}</span>
+        </div>
+      )}
       {exception && fb && (
         <div className="dc-node-send-row dc-node-fallback-row">
           <span className="dc-node-fallback-arrow">↳</span>
@@ -315,6 +318,23 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
                 : ''}
           </div>
           <div className="dc-node-meta">Each customer goes into the first bucket they match, left to right.</div>
+          {m?.type === 'open' && (
+            <div className="cv-after">
+              <span className="cv-after-h">After the journey</span>
+              {(['no_response', 'not_reachable', 'declined', 'converted'] as const).map((k) => (
+                <span key={k} className={`cv-after-row out-${k}`}>
+                  <i />
+                  {OUTCOME_LABEL[k]}: {afterText(c, k).replace('what happens next: ', '')}
+                </span>
+              ))}
+              <span className={`cv-after-stop${c?.maxAttempts ? '' : ' unset'}`}>
+                {c?.maxAttempts
+                  ? `Stops after ${c.maxAttempts} time${c.maxAttempts === 1 ? '' : 's'} through: then everyone leaves for good.`
+                  : 'Stopping rule not set: a customer could go through again and again.'}
+              </span>
+            </div>
+          )}
+          <div className="dc-node-meta cv-optout">STOP or unsubscribe: leaves every campaign, never messaged again.</div>
         </Card>
       );
       break;
@@ -331,7 +351,7 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
       body = (
         <Card cat="flow" icon="users" data={data} type="Everyone else · if no bucket matches">
           <div className="dc-node-label">Customers who match no bucket</div>
-          <p className="cv-bucket-p">{ee ? (ee.approach === 'journey' ? 'Get their own journey' : 'Get no messages') : 'Not decided yet'}{data.why ? `: ${data.why}` : ''}</p>
+          <p className="cv-bucket-p">{ee ? (ee.approach === 'journey' ? 'Get their own journey' : 'Get no messages. Checked against the buckets again at every refresh') : 'Not decided yet'}{data.why ? `: ${data.why}` : ''}</p>
         </Card>
       );
       return (
@@ -344,7 +364,8 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
     case 'holdout':
       body = (
         <Hexagon data={data} color="#7a52d1" fill="#f9f6ff" icon="flask" kind="Holdout">
-          <div className="cv-shape-label">{data.holdoutPct}% get no messages</div>
+          <div className="cv-shape-label">{data.holdoutPct}% held back</div>
+          <div className="cv-shape-meta">Never messaged by this campaign</div>
         </Hexagon>
       );
       break;
@@ -401,9 +422,16 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
       break;
     default:
       body = (
-        <div className="cv-chip-node cv-end" style={{ width: data.width, height: data.height }} title={data.text || 'Journey ends'}>
+        <div
+          className={`cv-chip-node cv-end out-${data.outcome ?? 'undecided'}`}
+          style={{ width: data.width, height: data.height }}
+          title={data.outcome === 'undecided' ? 'The agent has not decided how customers leave here yet.' : `${data.text}${data.after ? ` · ${data.after}` : ''}`}
+        >
           <Icon name="doorExit" />
-          <span>{data.text || 'Journey ends'}</span>
+          <span className="cv-end-txt">
+            <b>{data.outcome && data.outcome !== 'undecided' ? OUTCOME_LABEL[data.outcome] ?? data.outcome : 'Ending not decided'}</b>
+            {data.after ? <span className="cv-end-next"> · {data.after}</span> : null}
+          </span>
         </div>
       );
   }

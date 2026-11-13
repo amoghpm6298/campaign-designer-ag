@@ -78,7 +78,24 @@ export interface CampaignObject {
   buckets: CampaignBucket[];
   /** What customers in no bucket get: a journey, or deliberately nothing. */
   everyoneElse: { approach: 'journey' | 'none'; journey?: BpStep[] } | null;
+  /**
+   * What happens to a customer once their journey ends, by how they left:
+   * days before they may come back in (and be bucketed again), or 'leave'.
+   * Recurring campaigns only. Opted-out customers are never here: they never
+   * come back, by system rule.
+   */
+  afterJourney?: AfterJourney | null;
+  /**
+   * The stopping rule: the most times one customer goes through this
+   * campaign. After their last time they leave for good, whatever their
+   * ending. Recurring campaigns only.
+   */
+  maxAttempts?: number | null;
 }
+
+export type AfterOutcome = 'converted' | 'no_response' | 'not_reachable' | 'declined';
+export const AFTER_OUTCOMES: AfterOutcome[] = ['no_response', 'not_reachable', 'declined', 'converted'];
+export type AfterJourney = Partial<Record<AfterOutcome, number | 'leave'>>;
 
 // --- the campaign context: everything that supports it ---------------------------
 

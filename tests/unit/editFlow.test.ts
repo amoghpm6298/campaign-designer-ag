@@ -79,7 +79,7 @@ describe('knock-on checks', () => {
     expect(problems).toMatch(/80% \+ 10% = 90%/);
     expect(problems).toMatch(/goes by SMS/);
     expect(problems).toMatch(/comes after an exit/);
-    expect(checkJourneys(s.campaign)).toEqual([]);
+    expect(checkJourneys(s.campaign, undefined, true, true)).toEqual([]);
     expect(runToolCall('build_campaign', {}, withExit, env()).forModel).toMatch(/FIX BEFORE YOU FINISH/);
   });
 });

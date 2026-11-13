@@ -300,7 +300,7 @@ export function agentApiPlugin(): Plugin {
               const stores = (files.loadStores as (id: string) => { campaign: unknown })(q.get('sessionId') ?? '');
               const B = await load('bankSettings.ts');
           const tid = q.get('tenantId') ?? '';
-          const problems = stores.campaign ? (compile.checkJourneys as (c: unknown, l: unknown, f: boolean) => string[])(stores.campaign, (L.listLinks as (t: string) => unknown)(tid), (B.getBankSettings as (t: string) => { smsFallback: boolean })(tid).smsFallback) : [];
+          const problems = stores.campaign ? (compile.checkJourneys as (c: unknown, l: unknown, f: boolean, b: boolean) => string[])(stores.campaign, (L.listLinks as (t: string) => unknown)(tid), (B.getBankSettings as (t: string) => { smsFallback: boolean })(tid).smsFallback, true) : [];
               return send(res, 200, { problems });
             } catch (e) {
               return send(res, 400, { error: (e as Error).message });

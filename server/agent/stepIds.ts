@@ -18,7 +18,7 @@ export function walkSteps(steps: BpStep[] | null | undefined, fn: (step: Rec, pa
     const path = `${prefix}${i}`;
     fn(s, path, steps as unknown as Rec[], i);
     for (const k of KIDS) ((s[k] as { steps?: BpStep[] }[] | undefined) ?? []).forEach((a, ai) => walkSteps(a.steps, fn, `${path}.${k}.${ai}.steps.`));
-    for (const k of ['yes', 'no'] as const) walkSteps(s[k] as BpStep[] | undefined, fn, `${path}.${k}.`);
+    for (const k of ['yes', 'no', 'otherwise'] as const) walkSteps(s[k] as BpStep[] | undefined, fn, `${path}.${k}.`);
   });
 }
 
@@ -28,7 +28,8 @@ export function walkSteps(steps: BpStep[] | null | undefined, fn: (step: Rec, pa
  * %, statuses) — changing a split is a change to the A/B test itself.
  */
 export function ownSignature(s: Rec): string {
-  const { id: _id, arms, paths, yes: _y, no: _n, ...own } = s;
+  const { id: _id, arms, paths, yes: _y, no: _n, otherwise: _o, ...own } = s;
+  void _o;
   void _id;
   void _y;
   void _n;
@@ -154,6 +155,7 @@ export function findStep(journey: BpStep[] | null | undefined, id: string): { st
       ((s.paths as { label?: string; steps?: BpStep[] }[] | undefined) ?? []).forEach((p, pi) => visit(p.steps, `${path}.paths.${pi}.steps.`, [...trail, `${here} › path "${p.label ?? pi + 1}"`]));
       visit(s.yes as BpStep[] | undefined, `${path}.yes.`, [...trail, `${here} › yes`]);
       visit(s.no as BpStep[] | undefined, `${path}.no.`, [...trail, `${here} › no`]);
+      visit(s.otherwise as BpStep[] | undefined, `${path}.otherwise.`, [...trail, `${here} › anything else`]);
     });
   };
   visit(journey, '', []);

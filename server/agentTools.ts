@@ -7,6 +7,7 @@
 import {
   EVENT_CATEGORIES,
   ELIGIBILITY_META,
+  PROPOSED_ENTITIES,
   COMMS_TEMPLATES,
   DC_EVENT_ENTITY,
   DC_PROMOTED_ATTR,
@@ -140,7 +141,8 @@ function describeEntity(entity: string) {
   const attrs = (ELIGIBILITY_META as Record<string, Record<string, AttrMeta>>)[entity];
   const described = Object.fromEntries(Object.entries(attrs).map(([name, meta]) => [name, describeAttribute(meta)]));
   const promoted = DC_PROMOTED_ATTR[entity];
-  return { attributes: described, ...(promoted ? { promotedAttribute: promoted } : {}) };
+  const proposed = PROPOSED_ENTITIES[entity];
+  return { attributes: described, ...(promoted ? { promotedAttribute: promoted } : {}), ...(proposed ? { status: 'new-proposed', statusNote: proposed } : {}) };
 }
 
 /** Executes a tool. Unknown names fail loudly rather than returning nothing. */

@@ -52,7 +52,13 @@ export const STEP_DEF = {
     timeoutDays: { type: 'number' },
     conditions: { type: 'array', items: CONDITION },
     // exit
-    reason: { type: 'string' },
+    reason: { type: 'string', description: 'Exit steps: a short label for this ending, in plain words.' },
+    outcome: {
+      type: 'string',
+      enum: ['no_response', 'not_reachable', 'declined'],
+      description:
+        'Exit steps: how the customer left. no_response = got the messages and did not act; not_reachable = no message got through; declined = said no (needs reply capture, a proposed capability). Converted is the goal check and opted out is the system, so never write those.',
+    },
     // experiment / condition / branch
     label: { type: 'string' },
     tests: { type: 'string', enum: ['wording', 'explanation', 'timing', 'audience'], description: 'What the experiment actually compares. Arms must differ in THIS.' },
@@ -97,7 +103,7 @@ export const STEP_DEF = {
             type: 'array',
             items: { type: 'string' },
             description:
-              'Outcome branch only. Statuses from the preceding send\'s channel, e.g. ["DELIVERED"] / ["READ"] / ["DELETED"] on WhatsApp. Never QUEUED, SENT or PENDING: the message is still in flight and that is not a person. Never a FAILED, UNKNOWN or NOT_DELIVERED arm: undelivered is "fallbackChannel" on the send itself, and an arm there would have nothing different to say.',
+              'Outcome branch only. Statuses from the preceding send\'s channel, e.g. ["DELIVERED"] / ["READ"] / ["DELETED"] on WhatsApp. Never QUEUED, SENT or PENDING: the message is still in flight and that is not a person. Never a FAILED, UNKNOWN or NOT_DELIVERED arm: everyone no path matches (the undelivered) takes the branch\'s "otherwise" route.',
           },
           steps: { type: 'array', items: { $ref: '#/$defs/step' } },
         },
@@ -107,6 +113,12 @@ export const STEP_DEF = {
         // branch unsendable while the API reported it as a schema error.
         required: ['label', 'steps'],
       },
+    },
+    otherwise: {
+      type: 'array',
+      items: { $ref: '#/$defs/step' },
+      description:
+        'Branch only: the "Anything else" route, everyone no path matched. On a delivery branch these are the people the message never reached (failed, still queued, unknown). Decide it on purpose: e.g. one try on a DIFFERENT channel, then an exit with outcome not_reachable.',
     },
   },
   required: ['kind'],

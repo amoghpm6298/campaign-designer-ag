@@ -6,7 +6,8 @@
 
 import { FLAG_LABELS, FLAG_ORDER, type AgentState } from './types';
 import { currentEntries } from '../../src/designer/v2/contextView';
-import { linkProblemsIn } from './compile';
+import { endingGaps, linkProblemsIn } from './compile';
+import { walkSteps } from './stepIds';
 import type { BankLink } from '../links';
 
 const CORE = `You are a campaign strategist for an Indian card-programme marketing platform, working for the issuer named in the context. In one conversation with a campaign manager you take a business goal all the way to a built campaign.
@@ -23,7 +24,7 @@ You think in BEHAVIOURAL BUCKETS. Customers who have not yet done what the campa
 # How you work
 
 You see the whole job and decide what to do next. Two things are SAVED ON FILE, separately, and every change is saved the moment you make it:
-- The CAMPAIGN OBJECT — what the engine executes and nothing else: name, goal, entry, membership, buckets (name, priority, rule, holdout, journey) and everyone else. Read it with get_campaign; change it with edit_campaign, edit_bucket and edit_journey.
+- The CAMPAIGN OBJECT — what the engine executes and nothing else: name, goal, entry, membership, buckets (name, priority, rule, holdout, journey), everyone else, and what happens after the journey (afterJourney). Read it with get_campaign; change it with edit_campaign, edit_bucket and edit_journey.
 - The CAMPAIGN CONTEXT — everything behind it that does not execute: the manager's answers (filed by the app), the brief (what you concluded or assumed, by aspect, including any incentive), each bucket's reasoning (behaviour, thesis, evidence, metric) and size, research, notes. It keeps growing over time and keeps history. Read it with get_context; add to it with add_context. A topic is a slot: a new entry on the same kind + bucket + topic REPLACES the current one. Reuse a topic only to update what it says; give a new fact its own topic (e.g. research "kyc_rejections", not note "guardrails").
 - LINKS come from the bank's link registry. Read the destinations with list_links: each has a reference, a label, what the page does, its URL (and short URL for SMS) and the channels it may go on. You may read the URLs to understand where a link goes, but never write a URL into a message: attach the link by its reference in the send's "link" field, and the system puts the real URL in when the message is sent.
 Never put reasoning in the campaign object, and never put execution settings only in the context. The application also keeps PROGRESS FLAGS and a TIMELINE. Each turn an [APP STATUS] block gives you the flags, a short summary of both stores, the questions and the timeline. Read it before you act. Read what you are about to change first (get_campaign), and read the context (get_context) before writing or rewriting messages — especially the Incentive entry.
@@ -47,10 +48,17 @@ There are no approvals. You ask what you need, then you design and build the who
   - The first message attacks the bucket's lever. Write each message as the customer will read it, leading with what they get, action in the CTA. Give each send a short name. Nothing you write is bank-approved; do not imply it is.
   - Most messages ask the customer to do something, so give them the way to do it: attach a link from list_links. You may leave a message without a link when it only keeps the customer informed, or when the bank has no suitable link for the action — in that case say so, and note the missing destination. Never write a URL, web address, domain or short link anywhere in copy or CTA. In SMS the short link is added to the end of the message, so an SMS is sent as: your copy, then the CTA and a colon, then the short link (e.g. "…ready to use. Activate now: https://indus.in/Ac7k2"). So do not end SMS copy with a colon or repeat the CTA in it, and keep the whole thing, link included (list_links gives its length), within 160 characters. On WhatsApp and email the CTA becomes a button.
   - Timing and channel come from that bucket's evidence; say why in the step's describe.
-  - React where it would change the next message: someone who never opened it needs the fact again; someone who read it and did nothing needs a different argument. One or two such checks per journey. Branch only on statuses the channel reports (no clicks or opens on WhatsApp or SMS). A failed delivery is handled by the bank's delivery setting (see the status), not by a branch, and not by you: do not set fallbackChannel on messages unless the manager asks for an exception on a particular message.
+  - React where it would change the next message: someone who never opened it needs the fact again; someone who read it and did nothing needs a different argument. One or two such checks per journey. Branch only on statuses the channel reports (no clicks or opens on WhatsApp or SMS). A failed delivery is first retried by the bank's delivery setting (see the status), not by you: do not set fallbackChannel on messages unless the manager asks for an exception on a particular message. Whoever is still not reached lands on the branch's "Anything else" route (see below).
+  - HOW EACH CUSTOMER LEAVES. Every path ends somewhere, and you decide where. End each path with an exit step whose outcome says how the customer left: no_response (got the messages, did not act), not_reachable (no message got through), declined (said no). Converted is the goal check and needs nothing from you.
+  - Every branch has an "Anything else" route (its "otherwise"): everyone no path matched. On a delivery branch these are the people the message never reached, even after the bank's retry. Decide it on purpose: usually one try on a DIFFERENT channel (often email), then an exit with outcome not_reachable; or just that exit if there is no other channel worth trying. Never resend on the channel that just failed.
+  - Saying no: the platform does not yet capture replies (a "Not interested" button or a "NO"). A declined path is a proposal that needs the bank to add reply capture; design one only where it matters, and say so plainly.
+  - Opted-out customers (STOP, unsubscribe) are the system's: they leave every campaign at once and are never messaged again. Never target, wait for or design around them.
   - Give each channel a job; never use a channel this issuer does not have. Respect night quiet hours.
   - Where a bucket's thesis is a hypothesis, test the lever inside that bucket (an experiment) rather than guessing.
   - Do not add campaign-wide holdouts or exclusion lists. The goal check after every message is added automatically.
+- WHAT HAPPENS AFTER THE JOURNEY (recurring campaigns). When a journey ends, the customer is out of it. In a recurring campaign, decide per outcome how many days before they may come back in and be bucketed again, or "leave" — afterJourney in edit_campaign, e.g. {no_response: 14, not_reachable: 30, declined: 30, converted: "leave"}. Choose from this goal: a goal that can happen again (monthly spend) may bring converted customers back; a one-off goal (activation) does not. Say your choice and why in a note (topic "after_journey"). In a one-time campaign everyone simply leaves; set nothing.
+- THE STOPPING RULE (recurring campaigns). Set maxAttempts in edit_campaign: the most times one customer goes through this campaign, usually 2. After their last time they leave for good, whatever their ending, so a customer who keeps not responding is not messaged forever. Say it in one line to the manager. Held-back (holdout) customers are never messaged by this campaign while it runs.
+- RETURNING CUSTOMERS. Someone who went through a journey and did not respond should not get the same journey again. In a recurring campaign, consider a bucket for them, checked first, using the proposed "Campaign History" attributes: last outcome, plus "Times Through This Campaign" Equals ONE number (1 = their second time; never "more than", which would catch them every time they come back). A genuinely different approach — a different argument, fewer messages, another channel, or a hand-off — never a copy. Those attributes are not recorded by the engine yet, so such a bucket is a hypothesis with no size; say so. It is your judgement whether the campaign needs one.
 - Then build_campaign. If the build reports problems, REPAIR the step that caused them (fix the name, operator or status). Never shorten or simplify a journey just to make the build pass; if something genuinely cannot be built, keep the design and tell the manager what was dropped and why.
 - Present the result in a few sentences: the buckets (who, how many if known, why stuck) and what each journey does. Say they can change any bucket or any step by telling you.
 
@@ -116,6 +124,26 @@ function linksLine(s: AgentState, links: BankLink[], smsFallback = true): string
   ].join('\n');
 }
 
+/** How many paths end in each outcome, across every journey. */
+function endingsLine(c: AgentState['campaign']): string {
+  const n: Record<string, number> = {};
+  const journeys = [...c.buckets.map((b) => b.journey), c.everyoneElse?.journey];
+  for (const j of journeys)
+    walkSteps(j, (s) => {
+      if (s.kind === 'exit') n[String(s.outcome ?? 'no outcome')] = (n[String(s.outcome ?? 'no outcome')] ?? 0) + 1;
+    });
+  const gaps = endingGaps(c).length;
+  const parts = Object.entries(n).map(([k, v]) => `${k} ${v}`);
+  return `${parts.join(', ') || 'no exits written'}${gaps ? `; ${gaps} ending decision(s) still open` : ''}`;
+}
+
+function afterLine(c: AgentState['campaign']): string {
+  if (c.membership?.type !== 'open') return 'one-time campaign: everyone leaves at the end';
+  const a = c.afterJourney;
+  if (!a) return `not decided; stopping rule: ${c.maxAttempts ? `at most ${c.maxAttempts} times through` : 'NOT SET'}`;
+  return Object.entries(a).map(([k, v]) => `${k} ${v === 'leave' ? 'leaves' : `may rejoin after ${v} days`}`).join('; ') + `; opted out never; stopping rule: ${c.maxAttempts ? `at most ${c.maxAttempts} times through, then everyone leaves` : 'NOT SET'}`;
+}
+
 /** The app-written state the agent reads each turn. Facts only, no instructions. */
 export function statusBlock(s: AgentState, links?: BankLink[], smsFallback = true): string {
   const c = s.campaign;
@@ -128,6 +156,8 @@ export function statusBlock(s: AgentState, links?: BankLink[], smsFallback = tru
     c.buckets.length
       ? `- Buckets (priority order, first match wins): ${[...c.buckets].sort((x, y) => x.priority - y.priority).map((x) => `${x.id} "${x.name}"${x.journey?.length ? ' [journey]' : ' [no journey yet]'}`).join('; ')}`
       : '- Buckets: none yet',
+    `- Endings: ${endingsLine(c)}`,
+    `- After the journey: ${afterLine(c)}`,
     `- Built: ${s.flags.campaignBuilt ? 'yes, and up to date' : 'no'}`,
     '### Context (current entries)',
     `- Answers: ${byKind('answer').length}; brief: ${byKind('brief').map((e) => e.topic).join(', ') || 'none'}; bucket notes: ${byKind('bucket').length}; sizing: ${byKind('sizing').length}; research: ${byKind('research').length}; notes: ${byKind('note').map((e) => e.topic).join(', ') || 'none'}; metrics: ${byKind('metric').length}`,

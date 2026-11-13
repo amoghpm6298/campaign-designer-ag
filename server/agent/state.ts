@@ -2,13 +2,16 @@
 // the campaign context (what supports it), flags, timeline and questions.
 // No I/O, no model calls, so every rule here is unit-testable.
 
-import type { BpAudienceGroup, BpStep } from '../blueprint';
+import { EXIT_OUTCOMES, type BpAudienceGroup, type BpStep } from '../blueprint';
 import { carryIds, idsIn } from './stepIds';
 import {
   AGENT_FLAGS,
   FLAG_LABELS,
   FLAG_ORDER,
   type AgentQuestion,
+  AFTER_OUTCOMES,
+  type AfterJourney,
+  type AfterOutcome,
   type AgentState,
   type AnswerType,
   type CampaignBucket,
@@ -378,12 +381,49 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
       changed.push('everyoneElse');
     }
   }
+  if (input.maxAttempts === null) {
+    next.maxAttempts = null;
+    changed.push('maxAttempts');
+  } else if (input.maxAttempts !== undefined) {
+    const n = Number(input.maxAttempts);
+    if (!Number.isInteger(n) || n < 1 || n > 10) return { state, said: '', error: 'maxAttempts is the most times one customer goes through this campaign: a whole number from 1 to 10. Nothing was changed.' };
+    next.maxAttempts = n;
+    changed.push('maxAttempts');
+  }
+  if (input.afterJourney === null) {
+    next.afterJourney = null;
+    changed.push('afterJourney');
+  } else if (input.afterJourney && typeof input.afterJourney === 'object') {
+    const res = parseAfterJourney(input.afterJourney as Record<string, unknown>, prev.afterJourney);
+    if (res.error) return { state, said: '', error: res.error };
+    next.afterJourney = res.value;
+    changed.push('afterJourney');
+  }
   if (!changed.length)
-    return { state, said: '', error: 'Nothing to update. The campaign takes: name, description, goal, entry, membership, everyoneElse. Reasoning (why, guardrails, measurement) goes in the context with add_context.' };
+    return { state, said: '', error: 'Nothing to update. The campaign takes: name, description, goal, entry, membership, everyoneElse, afterJourney, maxAttempts. Reasoning (why, guardrails, measurement) goes in the context with add_context.' };
   let out: AgentState = { ...state, campaign: next };
   out = log(out, 'agent', 'plan_section_updated', `Updated the campaign (${changed.join(', ')})`);
-  if (state.flags.campaignBuilt && changed.some((c) => ['goal', 'entry', 'membership', 'everyoneElse', 'name'].includes(c))) out = markStale(out, 'The campaign');
+  if (state.flags.campaignBuilt && changed.some((c) => ['goal', 'entry', 'membership', 'everyoneElse', 'afterJourney', 'maxAttempts', 'name'].includes(c))) out = markStale(out, 'The campaign');
   return { state: out, said: `Campaign updated: ${changed.join(', ')}.` };
+}
+
+/**
+ * Reads an afterJourney: per outcome, days before the customer may come back,
+ * or "leave". Merged over the previous value. Opted out is refused: those
+ * customers never come back, by system rule.
+ */
+export function parseAfterJourney(input: Record<string, unknown>, prev?: AfterJourney | null): { value?: AfterJourney; error?: string } {
+  const out: AfterJourney = { ...(prev ?? {}) };
+  for (const [k, v] of Object.entries(input)) {
+    if (/opt/i.test(k))
+      return { error: 'Opted-out customers never come back into any campaign: that is a system rule, not a campaign setting. Nothing was changed.' };
+    if (!(AFTER_OUTCOMES as string[]).includes(k))
+      return { error: `afterJourney takes ${AFTER_OUTCOMES.join(', ')}; "${k}" is not one of them. Nothing was changed.` };
+    if (v === 'leave' || v === null) out[k as AfterOutcome] = 'leave';
+    else if (Number.isFinite(Number(v)) && Number(v) >= 0) out[k as AfterOutcome] = Math.round(Number(v));
+    else return { error: `afterJourney.${k} must be a number of days (0 or more) or "leave". Nothing was changed.` };
+  }
+  return { value: out };
 }
 
 /**
@@ -393,11 +433,37 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
 /** Anything that looks like a web address: the agent must never write one. */
 const URL_LIKE = /https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|in|co|net|org|bank|app|ly|me|io)(?:\/|\b)/i;
 
+/** Anything that names opted-out customers: never targeted, never designed for. */
+const OPTED_OUT = /opt(?:ed)?[\s_-]*out|unsubscrib/i;
+const OPTED_OUT_ERROR =
+  'Opted-out customers (STOP, unsubscribe) are handled by the system: they leave every campaign immediately and are never messaged again. A campaign never targets, waits for or designs around them. Nothing was saved.';
+
 export function journeyErrors(steps: BpStep[] | null | undefined): string[] {
   const out: string[] = [];
-  const visit = (list: BpStep[] | null | undefined) =>
+  const visit = (list: BpStep[] | null | undefined, before: string | null = null) => {
+    let channel = before;
     (list ?? []).forEach((st) => {
-      const s = st as unknown as { kind?: string; label?: string; link?: string; arms?: { pct?: number; label?: string; steps?: BpStep[] }[]; paths?: { steps?: BpStep[] }[]; yes?: BpStep[]; no?: BpStep[] };
+      const s = st as unknown as { kind?: string; label?: string; link?: string; outcome?: unknown; reason?: string; eventType?: string; channelPreference?: string[]; entity?: string; attribute?: string; on?: { attribute?: string; value?: string }; arms?: { pct?: number; label?: string; steps?: BpStep[] }[]; paths?: { statuses?: string[]; steps?: BpStep[] }[]; otherwise?: BpStep[]; yes?: BpStep[]; no?: BpStep[] };
+      if (s.kind === 'exit' && s.outcome !== undefined && !(EXIT_OUTCOMES as unknown[]).includes(s.outcome)) {
+        out.push(
+          /convert|goal/i.test(String(s.outcome))
+            ? 'an exit cannot have outcome "converted": the goal check already takes converted customers out. Use no_response, not_reachable or declined. Nothing was saved.'
+            : OPTED_OUT.test(String(s.outcome))
+              ? OPTED_OUT_ERROR
+              : /held|holdout/i.test(String(s.outcome))
+                ? 'an exit cannot have outcome "held_back": the holdout is the system\'s, added from the bucket\'s holdout %. Use no_response, not_reachable or declined. Nothing was saved.'
+              : `the exit "${s.reason ?? ''}" has outcome "${String(s.outcome)}"; it must be one of ${EXIT_OUTCOMES.join(', ')}. Nothing was saved.`,
+        );
+      }
+      if ((s.kind === 'waitForEvent' && OPTED_OUT.test(String(s.eventType ?? ''))) || OPTED_OUT.test(`${s.on?.attribute ?? ''} ${s.on?.value ?? ''}`)) out.push(OPTED_OUT_ERROR);
+      if (s.kind === 'branch' && s.otherwise?.length && channel && s.paths?.some((p) => p.statuses?.length)) {
+        // A delivery branch's "Anything else" is the people that channel did
+        // not reach: sending them the same channel again reaches no one.
+        const firstSend = (s.otherwise as unknown as { kind?: string; channelPreference?: string[] }[]).find((x) => x.kind === 'send');
+        if (firstSend && (firstSend.channelPreference ?? [])[0] === channel)
+          out.push(`the "Anything else" route of "${s.label ?? 'the branch'}" sends ${channel} again, but those are the people ${channel} just failed to reach. Use a different channel there, or end it. Nothing was saved.`);
+      }
+      if (s.kind === 'send') channel = (s.channelPreference ?? [])[0] ?? channel;
       if (s.kind === 'send') {
         const send = st as unknown as { name?: string; label?: string; copy?: string; cta?: string };
         for (const [field, text] of [['copy', send.copy], ['CTA', send.cta]] as const)
@@ -409,13 +475,33 @@ export function journeyErrors(steps: BpStep[] | null | undefined): string[] {
         if (Math.round(total) !== 100)
           out.push(`the A/B test${s.label ? ` "${s.label}"` : ''} would split ${s.arms.map((a) => `${a.pct}%`).join(' + ')} = ${total}%. A split must total 100%. Nothing was changed: ask the manager how they want the split before changing it.`);
       }
-      s.arms?.forEach((a) => visit(a.steps));
-      s.paths?.forEach((p) => visit(p.steps));
-      visit(s.yes);
-      visit(s.no);
+      s.arms?.forEach((a) => visit(a.steps, channel));
+      s.paths?.forEach((p) => visit(p.steps, channel));
+      visit(s.otherwise, channel);
+      visit(s.yes, channel);
+      visit(s.no, channel);
     });
+  };
   visit(steps);
-  return out;
+  return [...new Set(out)];
+}
+
+/**
+ * A bucket on Campaign History must target ONE attempt ("Times Through This
+ * Campaign" Equals N). An open-ended rule ("more than 0") catches the same
+ * customer every time they come back, which is a loop with no stopping point.
+ */
+export function returningRuleError(groups: BpAudienceGroup[] | null | undefined): string | null {
+  const hist = (groups ?? []).filter((g) => g.entity === 'Campaign History');
+  if (!hist.length) return null;
+  const times = hist.flatMap((g) => g.conditions ?? []).filter((c) => /times through/i.test(c.attribute ?? ''));
+  if (times.length === 1 && times[0].operator === 'Equals' && Number.isInteger(Number(times[0].value)) && Number(times[0].value) >= 1) return null;
+  return 'A returning-customer bucket must target one specific attempt: "Times Through This Campaign" Equals a number (1 = their second time through). An open-ended rule such as "more than 0" would catch the same customer every time they come back, with no stopping point. Nothing was saved.';
+}
+
+/** A bucket rule (or entry) that targets opted-out customers. */
+export function ruleTargetsOptedOut(groups: BpAudienceGroup[] | null | undefined): boolean {
+  return (groups ?? []).some((g) => (g.conditions ?? []).some((c) => OPTED_OUT.test(`${c.attribute ?? ''} ${c.value ?? ''}`)));
 }
 
 /** Step ids used everywhere in the campaign except one lane (a bucket id, or 'everyone_else'). */
@@ -444,7 +530,7 @@ export function normaliseSteps(steps: BpStep[] | null | undefined): BpStep[] {
       delete s.days;
       delete s.hours;
     }
-    for (const k of ['yes', 'no']) if (Array.isArray(s[k])) s[k] = normaliseSteps(s[k] as BpStep[]);
+    for (const k of ['yes', 'no', 'otherwise']) if (Array.isArray(s[k])) s[k] = normaliseSteps(s[k] as BpStep[]);
     for (const k of ['arms', 'paths']) {
       if (Array.isArray(s[k])) s[k] = (s[k] as { steps?: BpStep[] }[]).map((a) => ({ ...a, steps: normaliseSteps(a.steps) }));
     }
@@ -483,6 +569,9 @@ export function upsertBucket(state: AgentState, input: BucketInput): { state: Ag
   const prev = buckets.find((b) => b.id === id);
   if (!prev && !str(input.name)) return { state, said: '', error: 'A new bucket needs at least a name (and normally a rule and a journey).', definitionChanged: false };
   const rule = Array.isArray(input.rule) ? (input.rule as BpAudienceGroup[]).filter((g) => g && typeof g.entity === 'string') : undefined;
+  if (ruleTargetsOptedOut(rule)) return { state, said: '', error: OPTED_OUT_ERROR, definitionChanged: false };
+  const loop = returningRuleError(rule);
+  if (loop) return { state, said: '', error: loop, definitionChanged: false };
   const journey = Array.isArray(input.journey)
     ? carryIds(prev?.journey, normaliseSteps(input.journey as BpStep[]), idsOutside(state.campaign, id))
     : input.journey === null
@@ -543,7 +632,7 @@ function resolve(journey: BpStep[], path: string): { list: Container; index: num
     const step = list[idx] as unknown as Record<string, unknown> | undefined;
     if (!step) return null;
     const key = parts[++i];
-    if (key === 'yes' || key === 'no') {
+    if (key === 'yes' || key === 'no' || key === 'otherwise') {
       const arr = step[key];
       if (!Array.isArray(arr)) return null;
       list = arr as Container;
@@ -633,7 +722,7 @@ export function outline(steps: BpStep[] | null | undefined, prefix = ''): string
     if (k === 'send') out.push(`${at} send ${(s.channelPreference as string[] | undefined)?.join('/') ?? ''}${s.fallbackChannel ? ` (fallback ${s.fallbackChannel})` : ''}${s.delayDays ? ` day ${s.delayDays}` : ''}${s.atTime ? ` ${s.atTime}` : ''}: "${String(s.copy ?? s.describe ?? '').slice(0, 90)}"${s.cta ? ` [${s.cta}]` : ''}`);
     else if (k === 'wait') out.push(`${at} wait ${s.durationHours}h`);
     else if (k === 'waitForEvent') out.push(`${at} waitForEvent ${s.eventType} up to ${s.timeoutDays}d`);
-    else if (k === 'exit') out.push(`${at} exit "${s.reason}"`);
+    else if (k === 'exit') out.push(`${at} exit "${s.reason}"${s.outcome ? ` → ${s.outcome}` : ' (no outcome yet)'}`);
     else if (k === 'experiment') {
       out.push(`${at} experiment "${s.label ?? ''}" tests ${s.tests}`);
       ((s.arms as { label: string; pct: number; steps: BpStep[] }[]) ?? []).forEach((a, ai) => {
@@ -646,6 +735,9 @@ export function outline(steps: BpStep[] | null | undefined, prefix = ''): string
         out.push(`${at}.paths.${pi} path "${p.label}"`);
         out.push(...outline(p.steps, `${at}.paths.${pi}.steps.`));
       });
+      const other = s.otherwise as BpStep[] | undefined;
+      out.push(`${at}.otherwise "Anything else"${other?.length ? '' : ' (nothing decided yet)'}`);
+      out.push(...outline(other, `${at}.otherwise.`));
     } else if (k === 'condition') {
       out.push(`${at} condition "${s.label ?? ''}"`);
       out.push(...outline(s.yes as BpStep[], `${at}.yes.`));

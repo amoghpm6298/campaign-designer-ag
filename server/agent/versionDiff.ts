@@ -41,9 +41,10 @@ function fieldChanges(o: Record<string, unknown>, n: Record<string, unknown>): s
     durationHours: (v) => `${Math.round((Number(v) / 24) * 10) / 10} days`,
     delayDays: (v) => `day ${v ?? 0}`,
     atTime: (v) => String(v ?? ''),
+    outcome: (v) => (v ? String(v).replace('_', ' ') : 'none'),
   };
   const words: Record<string, string> = { link: 'link', channelPreference: 'channel', fallbackChannel: 'fallback', durationHours: 'wait', delayDays: 'timing', atTime: 'time', copy: 'copy', cta: 'CTA wording', name: 'name', label: 'label', arms: 'split', paths: 'paths' };
-  const keys = [...new Set([...Object.keys(o), ...Object.keys(n)])].filter((k) => !['id', 'yes', 'no', 'describe', 'objective', 'stage'].includes(k));
+  const keys = [...new Set([...Object.keys(o), ...Object.keys(n)])].filter((k) => !['id', 'yes', 'no', 'otherwise', 'describe', 'objective', 'stage'].includes(k));
   const out: string[] = [];
   for (const k of keys) {
     const a = k === 'arms' || k === 'paths' ? JSON.stringify(((o[k] as Record<string, unknown>[]) ?? []).map(({ steps: _s, ...r }) => (void _s, r))) : JSON.stringify(o[k]);
@@ -80,6 +81,13 @@ export function diffCampaigns(prev: CampaignObject | null | undefined, next: Cam
   if (JSON.stringify(p.goal) !== JSON.stringify(next.goal)) settings.push(`goal: ${p.goal?.eventType ?? 'none'} → ${next.goal?.eventType ?? 'none'}`);
   if (JSON.stringify(p.entry) !== JSON.stringify(next.entry)) settings.push('who can join (entry) changed');
   if (JSON.stringify(p.membership) !== JSON.stringify(next.membership)) settings.push(`refresh: ${membershipText(p.membership)} → ${membershipText(next.membership)}`);
+  if ((p.maxAttempts ?? null) !== (next.maxAttempts ?? null)) settings.push(`times through the campaign: ${p.maxAttempts ? `at most ${p.maxAttempts}` : 'not set'} → ${next.maxAttempts ? `at most ${next.maxAttempts}` : 'not set'}`);
+  for (const k of ['no_response', 'not_reachable', 'declined', 'converted'] as const) {
+    const a = p.afterJourney?.[k];
+    const b = next.afterJourney?.[k];
+    const w = (v: typeof a) => (v === undefined ? 'not set' : v === 'leave' ? 'leaves' : `can rejoin after ${v} days`);
+    if (a !== b) settings.push(`after the journey, ${k.replace('_', ' ')}: ${w(a)} → ${w(b)}`);
+  }
 
   const before = new Map(p.buckets.map((b) => [b.id, b]));
   const after = new Map(next.buckets.map((b) => [b.id, b]));

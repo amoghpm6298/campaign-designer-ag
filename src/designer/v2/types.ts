@@ -52,7 +52,13 @@ export interface CampaignObject {
   membership: { type: 'locked' | 'open'; refresh?: 'daily' | 'weekly' | 'monthly' } | null;
   buckets: CampaignBucket[];
   everyoneElse: { approach: 'journey' | 'none'; journey?: unknown[] } | null;
+  /** Recurring campaigns: per outcome, days before a customer may come back, or 'leave'. */
+  afterJourney?: Partial<Record<AfterOutcome, number | 'leave'>> | null;
+  /** The stopping rule: the most times one customer goes through this campaign. */
+  maxAttempts?: number | null;
 }
+
+export type AfterOutcome = 'no_response' | 'not_reachable' | 'declined' | 'converted';
 
 export interface ContextEntry {
   id: string;

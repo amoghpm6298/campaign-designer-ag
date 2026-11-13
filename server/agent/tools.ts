@@ -13,7 +13,7 @@ import { bankContext } from '../knowledge';
 import type { TenantConfig } from '../tenants';
 import type { Channel } from '../../src/data/sharedConstants';
 import { countCustomers, runWarehouseQuery, warehouseSchema } from '../warehouse';
-import { checkJourneys, linkProblemsIn, planToBlueprint } from './compile';
+import { checkJourneys, endingGaps, linkProblemsIn, planToBlueprint } from './compile';
 import { forAgent, type BankLink } from '../links';
 import {
   addQuestions,
@@ -84,7 +84,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'edit_campaign',
     title: 'Editing the campaign',
     description:
-      'Change campaign settings in the CAMPAIGN OBJECT, saved straight to file. Execution fields only; send only what you are changing. name, description; goal {eventCategory, eventType} = the event that proves success (it exits anyone who reaches it); entry = who is eligible at all (everyone who has not reached the goal yet), as {entity, conditions[], groups[]} using real attributes; membership {type: "locked" (fixed as of launch) | "open" (newly matching customers join), refresh: daily|weekly|monthly}; everyoneElse {approach: "journey" | "none", journey: steps[]} for customers who match no bucket. Reasons and notes go in the context (add_context), not here.',
+      'Change campaign settings in the CAMPAIGN OBJECT, saved straight to file. Execution fields only; send only what you are changing. name, description; goal {eventCategory, eventType} = the event that proves success (it exits anyone who reaches it); entry = who is eligible at all (everyone who has not reached the goal yet), as {entity, conditions[], groups[]} using real attributes; membership {type: "locked" (fixed as of launch) | "open" (newly matching customers join), refresh: daily|weekly|monthly}; everyoneElse {approach: "journey" | "none", journey: steps[]} for customers who match no bucket. afterJourney {no_response, not_reachable, declined, converted: days | "leave"} and maxAttempts (the stopping rule) for recurring campaigns. Reasons and notes go in the context (add_context), not here.',
     input_schema: {
       type: 'object',
       properties: {
@@ -94,6 +94,12 @@ const BASE_TOOLS: ToolDef[] = [
         entry: { type: 'object', properties: { entity: { type: 'string' }, conditions: { type: 'array', items: CONDITION }, groups: { type: 'array', items: GROUP } }, required: ['entity'] },
         membership: { type: 'object', properties: { type: { type: 'string', enum: ['locked', 'open'] }, refresh: { type: 'string', enum: ['daily', 'weekly', 'monthly'] } }, required: ['type'] },
         everyoneElse: { type: 'object', properties: { approach: { type: 'string', enum: ['journey', 'none'] }, journey: STEPS }, required: ['approach'] },
+        maxAttempts: { type: 'number', description: 'Recurring campaigns: the stopping rule. The most times one customer goes through this campaign (usually 2). After their last time they leave for good, whatever their ending.' },
+        afterJourney: {
+          type: 'object',
+          description: 'Recurring campaigns: per outcome, days before a customer may come back in (and be bucketed again), or "leave". Opted-out customers never come back and are not set here.',
+          properties: Object.fromEntries(['no_response', 'not_reachable', 'declined', 'converted'].map((k) => [k, { anyOf: [{ type: 'number' }, { type: 'string', enum: ['leave'] }] }])),
+        },
       },
       $defs: { step: STEP_DEF },
     },
@@ -191,7 +197,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'edit_journey',
     title: 'Editing a journey',
     description:
-      'Change ONE bucket\'s journey precisely, saved straight to file, without rewriting it: a list of operations, each {op: "replace" | "insert_after" | "insert_before" | "remove", path, step}. path is the step\'s address from get_campaign (e.g. "2", "1.arms.0.steps.3", "4.paths.1.steps.0"). step is a full step for replace/insert. Use bucketId "everyone_else" for the everyone-else journey. Leave every other step as it is. Rebuild afterwards.',
+      'Change ONE bucket\'s journey precisely, saved straight to file, without rewriting it: a list of operations, each {op: "replace" | "insert_after" | "insert_before" | "remove", path, step}. path is the step\'s address from get_campaign (e.g. "2", "1.arms.0.steps.3", "4.paths.1.steps.0", "4.otherwise.0"). step is a full step for replace/insert. Use bucketId "everyone_else" for the everyone-else journey. Leave every other step as it is. Rebuild afterwards.',
     input_schema: {
       type: 'object',
       properties: {
@@ -606,7 +612,8 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
     return { state: next, ok: false, forModel: `Nothing was built. Problems: ${notes.join(' | ') || 'none reported'}. Fix the plan and build again.`, summary: 'Nothing built', result: notes };
   }
   const summary = `${compiled.bucketsIncluded.length} buckets, ${sends} messages, ${nodes.length} steps`;
-  const knockOns = checkJourneys(next.campaign, env.links, env.smsFallback ?? true);
+  const knockOns = checkJourneys(next.campaign, env.links, env.smsFallback ?? true, true);
+  const openEndings = endingGaps(next.campaign);
   next = setFlag(next, 'campaignBuilt', true, 'app', summary);
   next = log(next, 'app', 'campaign_built', `Built: ${summary}${notes.length ? `, ${notes.length} note(s)` : ''}`);
   return {
@@ -614,8 +621,8 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
     ok: true,
     doneTitle: 'Built the campaign',
     summary: `${summary}${notes.length ? ` · ${notes.length} note(s)` : ''}`,
-    result: { buckets: compiled.bucketsIncluded, messages: sends, steps: nodes.length, notes, ...(knockOns.length ? { toFix: knockOns } : {}) },
+    result: { buckets: compiled.bucketsIncluded, messages: sends, steps: nodes.length, notes, ...(knockOns.length ? { toFix: knockOns } : {}), ...(openEndings.length ? { endingsToDecide: openEndings } : {}) },
     build: { graph: built.graph, campaign, notes },
-    forModel: `Built on the canvas as one campaign: ${summary} (buckets: ${compiled.bucketsIncluded.join(', ')}).${notes.length ? ` Notes: ${notes.join(' | ')}` : ' No problems reported.'}${knockOns.length ? ` FIX BEFORE YOU FINISH — a change left these problems further down the tree: ${knockOns.join(' | ')} Fix each one (edit_journey / edit_bucket), build again, and list what you fixed under "Also changed because of this".` : ''} Tell the manager plainly what was built, anything that needs their attention, and that they can ask you to change any bucket or any step.`,
+    forModel: `Built on the canvas as one campaign: ${summary} (buckets: ${compiled.bucketsIncluded.join(', ')}).${notes.length ? ` Notes: ${notes.join(' | ')}` : ' No problems reported.'}${knockOns.length ? ` FIX BEFORE YOU FINISH — a change left these problems further down the tree: ${knockOns.join(' | ')} Fix each one (edit_journey / edit_bucket), build again, and list what you fixed under "Also changed because of this".` : ''}${openEndings.length ? ` ENDINGS NOT DECIDED YET: ${openEndings.join(' | ')} Decide these for the journeys you designed or changed in this conversation turn; for journeys you did not touch, do not change them unasked — mention in one line that their endings are not decided.` : ''} Tell the manager plainly what was built, anything that needs their attention, and that they can ask you to change any bucket or any step.`,
   };
 }

@@ -79,6 +79,10 @@ export const EVENT_CATEGORIES: Record<string, EventCategoryMeta> = {
   'Transaction Events': { events: ['Transaction'], isNew: true },
   'EMI Events': { events: ['EMI_STATUS_CHANGED'], isNew: true },
   'Card Events': { events: ['Card Issued', 'Card Activated', 'Card Loaded', 'Card Inactive'], isNew: true },
+  // Proposed: a customer replying to a message ("Not interested", "NO").
+  // Opt-outs are deliberately not an event here: STOP / unsubscribe is a
+  // system rule that takes the customer out of every campaign.
+  'Message Events': { events: ['Replied'], isNew: true },
 };
 
 // Which flow a customer completed a triggering action through.
@@ -149,6 +153,27 @@ export const ELIGIBILITY_META: Record<string, Record<string, AttrMeta>> = {
     'Product Type': { type: 'select', options: ['Single-Txn', 'Multi-Txn', 'Outstanding'] },
     Source: { type: 'select', options: EVENT_SOURCE_OPTIONS },
   },
+  // PROPOSED (see PROPOSED_ENTITIES): how a customer left this campaign last
+  // time, which the engine would record when a journey ends. Lets a recurring
+  // campaign treat a returning non-responder differently. Opted out is not a
+  // value on purpose: those customers are never targeted.
+  'Campaign History': {
+    'Last Outcome': { type: 'select', options: ['Converted', "Didn't respond", "Couldn't reach", 'Said no'] },
+    'Days Since Last Outcome': { type: 'number' },
+    'Times Through This Campaign': { type: 'number' },
+  },
+  // PROPOSED: a reply to a message (a quick-reply button or a keyword).
+  'Message Reply': {
+    'Reply Button': { type: 'select', options: ['Interested', 'Not interested', 'Call me', 'Later'] },
+    'Reply Text': { type: 'list' },
+  },
+};
+
+/** Entities the platform does not record yet: designs may use them, flagged as proposed. */
+export const PROPOSED_ENTITIES: Record<string, string> = {
+  'Campaign History':
+    'Proposed: the engine does not record campaign outcomes yet. A bucket on it is a hypothesis with no size until it does. Opted-out customers are never in it.',
+  'Message Reply': 'Proposed: replies (quick-reply buttons, keywords) are not captured yet. Use it only with the proposed Message Events.',
 };
 
 // Real mechanism, confirmed directly against ironbank-face-main's own
@@ -199,6 +224,7 @@ export const MILESTONE_OPERATORS: MilestoneOperatorMeta[] = [
 export const DC_EVENT_ENTITY: Record<string, string> = {
   'Transaction Events': 'Transaction',
   'EMI Events': 'EMI Request',
+  'Message Events': 'Message Reply',
 };
 // An entity's one dominant attribute that IS the point of picking that
 // event type at all (New Status for EMI_STATUS_CHANGED) — promoted to
