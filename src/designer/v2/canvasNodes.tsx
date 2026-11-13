@@ -5,6 +5,8 @@
 import { createContext, useContext } from 'react';
 import { Handle, NodeToolbar, Position } from '@xyflow/react';
 import { Pencil } from 'lucide-react';
+import type { BankLink } from '../LinksSection';
+import { assembleSms, smsLength } from './smsText';
 import { Icon } from '../../components/icons';
 import { CHANNEL_LABEL, fmtWait, sendTitle, sendWhen, waitHours, type CNodeData, type CStep } from './canvasModel';
 
@@ -15,6 +17,8 @@ export interface CdNodeData extends CNodeData {
   goalText?: string;
   /** The issuer's name, for the sender line in message previews. */
   bankName?: string;
+  /** The bank's link registry, to show where a message's link really goes. */
+  links?: BankLink[];
   width: number;
   /** Fixed height for the drawn shapes (diamonds, hexagons, pills). */
   height?: number;
@@ -62,8 +66,11 @@ function Card({ cat, type, icon, children, data, extra, title }: { cat: string; 
 const smsSender = (bank: string) => `AD-${bank.replace(/bank|ltd|limited|\(.*?\)/gi, '').replace(/[^a-z]/gi, '').toUpperCase().slice(0, 6).padEnd(4, 'X')}`;
 
 /** The message drawn the way the customer sees it on that channel. */
-function ChannelPreview({ channel, text, cta, bank, subject, time }: { channel: string; text: string; cta?: string; bank: string; subject?: string; time?: string }) {
+function ChannelPreview({ channel, text, cta, bank, subject, time, link }: { channel: string; text: string; cta?: string; bank: string; subject?: string; time?: string; link?: BankLink }) {
   const clock = fmtClock(time);
+  // No link: no button and no URL; the CTA wording, if any, stays part of the message.
+  const button = link && cta ? cta : null;
+  const body = !link && cta ? `${text} ${cta}.` : text;
   if (channel === 'WHATSAPP' || channel === 'RCS') {
     return (
       <div className={`cv-pv cv-pv-wa${channel === 'RCS' ? ' rcs' : ''}`}>
@@ -75,10 +82,14 @@ function ChannelPreview({ channel, text, cta, bank, subject, time }: { channel: 
         </div>
         <div className="cv-pv-wa-body">
           <div className="cv-pv-wa-bubble">
-            <span className="cv-pv-text">{text}</span>
+            <span className="cv-pv-text">{body}</span>
             <span className="cv-pv-meta">{clock}</span>
           </div>
-          {cta && <div className="cv-pv-wa-btn">↗ {cta}</div>}
+          {button && (
+            <div className="cv-pv-wa-btn" title={`Opens ${link!.url}`}>
+              ↗ {button}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -94,12 +105,20 @@ function ChannelPreview({ channel, text, cta, bank, subject, time }: { channel: 
           </span>
         </div>
         {subject && <div className="cv-pv-mail-subject">{subject}</div>}
-        <span className="cv-pv-text">{text}</span>
-        {cta && <span className="cv-pv-mail-btn">{cta}</span>}
+        <span className="cv-pv-text">{body}</span>
+        {button && (
+          <span className="cv-pv-mail-btn" title={`Opens ${link!.url}`}>
+            {button}
+          </span>
+        )}
       </div>
     );
   }
-  // SMS (and anything else): a plain text thread. SMS has no buttons, so the CTA is a link in the text.
+  // SMS (and anything else): a plain text thread. SMS has no buttons: the link
+  // is written out at the end, as the customer's phone will show it.
+  const smsText = assembleSms(text, cta, link?.shortUrl);
+  const { chars, parts } = smsLength(smsText);
+  const urlAt = link?.shortUrl ? smsText.lastIndexOf(link.shortUrl) : -1;
   return (
     <div className="cv-pv cv-pv-sms">
       <div className="cv-pv-sms-head">
@@ -108,14 +127,20 @@ function ChannelPreview({ channel, text, cta, bank, subject, time }: { channel: 
       </div>
       <div className="cv-pv-sms-bubble">
         <span className="cv-pv-text">
-          {text}
-          {cta && (
+          {urlAt >= 0 ? (
             <>
-              {' '}
-              <span className="cv-pv-link" title="The link to the bank's page goes here">{cta} ↗</span>
+              {smsText.slice(0, urlAt)}
+              <span className="cv-pv-link" title={`Opens ${link!.url}`}>
+                {link!.shortUrl}
+              </span>
             </>
+          ) : (
+            smsText
           )}
         </span>
+      </div>
+      <div className={`cv-pv-count${parts > 1 ? ' over' : ''}`}>
+        {parts} SMS · {chars} chars{parts > 1 ? ' — over 160, sent as ' + parts + ' parts' : ''}
       </div>
     </div>
   );
@@ -126,14 +151,29 @@ const fmtClock = (t?: string) => {
   return `${(h % 12) || 12}:${String(m || 0).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`;
 };
 
+/** Where a message's link goes, from the registry; or why it can't be sent. */
+function resolveCardLink(st: CStep, ch: string, links: BankLink[] | undefined): { link?: BankLink; broken?: string } {
+  if (!st.link) return {};
+  if (!links) return {};
+  const l = links.find((x) => x.ref === st.link);
+  if (!l) return { broken: `Unknown link "${st.link}"` };
+  if (l.status === 'retired') return { broken: `Link retired: ${l.label}` };
+  if ((ch === 'SMS' || st.fallbackChannel === 'SMS') && !l.shortUrl) return { broken: `No SMS short link for "${l.label}"`, link: l };
+  return { link: l };
+}
+
 function SendCard({ data }: { data: CdNodeData }) {
   const st = data.step as CStep;
   const ch = (st.channelPreference ?? [])[0] ?? 'SMS';
+  const linkState = resolveCardLink(st, ch, data.links);
   const fb = st.fallbackChannel;
   return (
     <Card cat="send" icon={CHANNEL_ICON[ch] ?? 'paperplane'} type={`Send · ${CHANNEL_LABEL[ch] ?? ch}`} data={data} extra="cv-clickable" title="Open the message preview">
       <div className="dc-node-label">{sendTitle({ ...st, name: st.name || st.label })}</div>
-      {(st.copy || st.describe) && <ChannelPreview channel={ch} text={st.copy || st.describe || ''} cta={st.cta} bank={data.bankName ?? 'Your bank'} subject={st.name || st.label} time={st.atTime} />}
+      {linkState.broken && <div className="cv-link-bad" title={linkState.broken}>⚠ {linkState.broken}</div>}
+      {(st.copy || st.describe) && (
+        <ChannelPreview channel={ch} text={st.copy || st.describe || ''} cta={st.cta} bank={data.bankName ?? 'Your bank'} subject={st.name || st.label} time={st.atTime} link={linkState.link} />
+      )}
       <div className="dc-node-send-row">
         <Icon name="clock" />
         <span>{sendWhen(st)}</span>

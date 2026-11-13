@@ -244,6 +244,7 @@ export function agentApiPlugin(): Plugin {
               answers: body.answers,
               skipped: body.skipped,
               focus: body.focus ?? null,
+              repair: body.repair === true,
             });
             return void (await streamSse(res, gen));
           }
@@ -256,6 +257,43 @@ export function agentApiPlugin(): Plugin {
               return send(res, 200, { campaign: stores.campaign ?? null, context: stores.context ?? null });
             } catch {
               return send(res, 400, { error: 'Not a valid session id.' });
+            }
+          }
+          // Hard problems in a saved campaign (unusable links, broken splits, …), for repair turns.
+          if (url === '/api/campaign/problems' && req.method === 'GET') {
+            const files = await load('campaignFiles.ts');
+            const compile = await load('agent/compile.ts');
+            const L = await load('links.ts');
+            const q = new URL(req.url ?? '', 'http://x').searchParams;
+            try {
+              const stores = (files.loadStores as (id: string) => { campaign: unknown })(q.get('sessionId') ?? '');
+              const problems = stores.campaign ? (compile.checkJourneys as (c: unknown, l: unknown) => string[])(stores.campaign, (L.listLinks as (t: string) => unknown)(q.get('tenantId') ?? '')) : [];
+              return send(res, 200, { problems });
+            } catch (e) {
+              return send(res, 400, { error: (e as Error).message });
+            }
+          }
+          // The bank's link registry (the agent only sees references; URLs live here).
+          if (url === '/api/links' && req.method === 'GET') {
+            const L = await load('links.ts');
+            const tenantId = new URL(req.url ?? '', 'http://x').searchParams.get('tenantId') ?? '';
+            try {
+              return send(res, 200, { links: (L.listLinks as (t: string) => unknown[])(tenantId) });
+            } catch (e) {
+              return send(res, 400, { error: (e as Error).message });
+            }
+          }
+          if ((url === '/api/links' || url === '/api/links/retire') && req.method === 'POST') {
+            const L = await load('links.ts');
+            const body = (await readBody(req)) as { tenantId?: string; link?: unknown; ref?: string };
+            try {
+              const out =
+                url === '/api/links'
+                  ? (L.saveLink as (t: string, l: unknown) => { ok: boolean })(String(body.tenantId ?? ''), body.link ?? {})
+                  : (L.retireLink as (t: string, r: string) => { ok: boolean })(String(body.tenantId ?? ''), String(body.ref ?? ''));
+              return send(res, out.ok ? 200 : 400, out);
+            } catch (e) {
+              return send(res, 400, { ok: false, error: (e as Error).message });
             }
           }
           // Versions of the campaign object, direct edits from the canvas, and restore.

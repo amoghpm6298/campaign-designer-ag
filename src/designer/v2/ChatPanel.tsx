@@ -1,7 +1,7 @@
 // The chat on the right: the conversation, what the agent did on each turn
 // (as compact chips you can open), and a cue card that points at the canvas.
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ArrowRight, ArrowUp, Check, ChevronRight, Highlighter, LayoutDashboard, Loader2, MessageCircleQuestion, Pencil, X } from 'lucide-react';
+import { AlertCircle, ArrowRight, ArrowUp, Check, ChevronRight, Highlighter, LayoutDashboard, Loader2, MessageCircleQuestion, Pencil, Wrench, X } from 'lucide-react';
 import { RichText } from '../RichText';
 import { buildTrace } from './logic';
 import type { AnswerItem, Focus, V2Event, V2Turn } from './types';
@@ -68,7 +68,9 @@ export function ChatPanel({
         {turns.map((t, i) =>
           t.role === 'user' ? (
             <div className="cv-msg user" key={i}>
-              {t.answerSet ? (
+              {t.auto ? (
+                <AutoFixNote text={t.content} />
+              ) : t.answerSet ? (
                 <AnswersBubble items={t.answerSet} onOpen={() => setOpenAnswers(t.answerSet!)} />
               ) : (
                 <div className="cv-bubble user">
@@ -307,5 +309,26 @@ function AnswersModal({ items, onClose }: { items: AnswerItem[]; onClose: () => 
         </div>
       </div>
     </div>
+  );
+}
+
+/** An app-written request: shown as what it is, not as the manager speaking. */
+function AutoFixNote({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const items = text.split('\n').filter((l) => l.startsWith('- ')).map((l) => l.slice(2));
+  return (
+    <button className="cv-autofix" onClick={() => setOpen((v) => !v)}>
+      <span className="cv-autofix-head">
+        <Wrench size={13} /> Automatic fix · {items.length} problem{items.length === 1 ? '' : 's'} found in the campaign
+        <ChevronRight size={13} className={open ? 'rot' : ''} />
+      </span>
+      {open && (
+        <ul>
+          {items.map((p, i) => (
+            <li key={i}>{p}</li>
+          ))}
+        </ul>
+      )}
+    </button>
   );
 }

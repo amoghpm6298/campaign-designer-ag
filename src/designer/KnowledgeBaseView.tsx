@@ -25,6 +25,7 @@ import {
 } from './knowledgeStore';
 import type { Capabilities, KnowledgeBase, KnowledgeDocument, Tenant } from './types';
 import './designer.css';
+import { LinksSection } from './LinksSection';
 
 interface Props {
   /** The seed with the user's changes already applied. What the agent reads. */
@@ -300,6 +301,8 @@ export function KnowledgeBaseView({ knowledge, seed, overrides, capabilities, on
           </div>
         </section>
       )}
+
+      <LinksSection tenant={tenant ?? null} />
 
       <section className="hf-section">
         {/* Heading left, the section's ONE primary action right — the same

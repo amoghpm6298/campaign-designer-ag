@@ -2,7 +2,7 @@
 // object, newest first, with what changed. Pick one to view it read-only; the
 // banner on the canvas offers to restore it.
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, History, MessageSquare, RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { ChevronDown, History, MessageSquare, RotateCcw, SlidersHorizontal, Wrench } from 'lucide-react';
 import type { VersionEntry } from './types';
 
 const ago = (iso: string) => {
@@ -18,6 +18,7 @@ const SOURCE: Record<VersionEntry['source'], { icon: React.ReactNode; label: str
   direct: { icon: <SlidersHorizontal size={12} />, label: 'Edited directly' },
   rollback: { icon: <RotateCcw size={12} />, label: 'Restored' },
   migration: { icon: <History size={12} />, label: 'Starting point' },
+  repair: { icon: <Wrench size={12} />, label: 'Automatic fix' },
 };
 
 export function VersionMenu({ versions, viewing, onView }: { versions: VersionEntry[]; viewing: number | null; onView: (n: number) => void }) {

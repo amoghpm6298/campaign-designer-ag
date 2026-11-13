@@ -92,9 +92,9 @@ describe('versions', () => {
     t = runToolCall('edit_campaign', { membership: { type: 'open', refresh: 'weekly' } }, t, env()).state;
     const d = diffCampaigns(s.campaign, t.campaign);
     expect(d.bucketsRemoved).toEqual(['Old']);
-    expect(d.bucketsChanged[0].steps).toEqual({ added: [], changed: ['wait 2 days → wait 3 days'], removed: [] });
+    expect(d.bucketsChanged[0].steps).toEqual({ added: [], changed: ['wait: 2 days → 3 days'], removed: [] });
     expect(d.settings).toEqual(['refresh: recurring, daily → recurring, weekly']);
-    expect(templateSummary(d)).toMatch(/Refresh: recurring, daily → recurring, weekly; removed bucket "Old"; "Fresh": wait 2 days → wait 3 days/);
+    expect(templateSummary(d)).toMatch(/Refresh: recurring, daily → recurring, weekly; removed bucket "Old"; "Fresh": wait: 2 days → 3 days/);
   });
 
   it('one version per change, none when nothing changed; history is never rewritten', () => {

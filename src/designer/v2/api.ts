@@ -14,6 +14,8 @@ export interface AgentStreamBody {
   skipped?: string[];
   /** The block on the canvas this message is about. */
   focus?: Focus | null;
+  /** An app-started repair turn. */
+  repair?: boolean;
 }
 
 export async function runAgentStream(
@@ -120,4 +122,11 @@ export async function getVersion(sessionId: string, n: number): Promise<(Version
   const res = await fetch(apiUrl(`/api/campaign/version?sessionId=${encodeURIComponent(sessionId)}&n=${n}`));
   if (!res.ok) return null;
   return ((await res.json()) as { version?: VersionEntry & { campaign: CampaignObject } }).version ?? null;
+}
+
+/** Hard problems in the saved campaign (unusable links, broken splits, …). */
+export async function fetchProblems(sessionId: string, tenantId: string): Promise<string[]> {
+  const res = await fetch(apiUrl(`/api/campaign/problems?sessionId=${encodeURIComponent(sessionId)}&tenantId=${encodeURIComponent(tenantId)}`));
+  if (!res.ok) return [];
+  return ((await res.json()) as { problems?: string[] }).problems ?? [];
 }

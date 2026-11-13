@@ -8,6 +8,7 @@ import '../../canvas/dripCanvas.css';
 import { buildCanvasModel, FIXED_SHAPES, NODE_H, type CNodeKind } from './canvasModel';
 import { cdNodeTypes, EditContext, type CdNodeData, type EditApi } from './canvasNodes';
 import type { ChangeMap } from './canvasModel';
+import type { BankLink } from '../LinksSection';
 import type { CampaignContext, CampaignObject } from './types';
 
 const MINI: Partial<Record<CNodeKind, string>> = {
@@ -59,9 +60,11 @@ interface Props {
   onPaneClick?: () => void;
   /** The issuer's name, shown as the sender in message previews. */
   bankName?: string;
+  /** The bank's link registry, to resolve message links. */
+  links?: BankLink[];
 }
 
-function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName }: Props) {
+function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName, links }: Props) {
   const measured = useRef<Record<string, number>>({});
   const [tick, setTick] = useState(0);
   const model = useMemo(() => buildCanvasModel(campaign, context, changed, measured.current),
@@ -75,12 +78,12 @@ function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClic
         id: n.id,
         type: 'cd',
         position: { x: n.x, y: n.y },
-        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText, bankName } satisfies CdNodeData,
+        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText, bankName, links } satisfies CdNodeData,
         draggable: false,
         connectable: false,
         selectable: n.data.kind === 'send',
       })),
-    [model, goalText, bankName],
+    [model, goalText, bankName, links],
   );
   const edges: Edge[] = useMemo(() => {
     // A step with several routes sends each one out of its own side: the

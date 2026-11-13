@@ -13,11 +13,15 @@ import { TOOL_TITLES, runToolCall, toolsFor, type ToolEnv } from './tools';
 import { emptyCampaign, emptyContext, normaliseState, recordAnswers, recordSkips } from './state';
 import { loadStores, saveCampaignObject, saveContext } from '../campaignFiles';
 import { focusSection } from './focus';
+import { listLinks } from '../links';
+import { checkJourneys } from './compile';
 import { ensureBaseline, recordVersion, setSummary, summariseVersion, type VersionEntry } from '../campaignVersions';
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
 
 const MAX_ROUNDS = 24;
+/** How many times the app sends the agent back to fix problems it left at the end of a turn. */
+const MAX_REPAIR_ROUNDS = 2;
 const REACH_ORDER: Channel[] = ['WHATSAPP', 'SMS', 'EMAIL', 'RCS'] as Channel[];
 
 export function channelsFor(tenant: NonNullable<ReturnType<typeof resolveTenant>>): Channel[] {
@@ -28,11 +32,11 @@ export function channelsFor(tenant: NonNullable<ReturnType<typeof resolveTenant>
 }
 
 /** If this turn changed the campaign, records it as a version with a short summary. */
-async function versionThisTurn(sessionId: string, start: AgentState['campaign'], end: AgentState['campaign'], request: string): Promise<VersionEntry | null> {
+async function versionThisTurn(sessionId: string, start: AgentState['campaign'], end: AgentState['campaign'], request: string, source: 'chat' | 'repair' = 'chat'): Promise<VersionEntry | null> {
   if (start === end) return null;
   try {
     ensureBaseline(sessionId, start);
-    const v = recordVersion({ sessionId, campaign: end, source: 'chat', request });
+    const v = recordVersion({ sessionId, campaign: end, source, request });
     if (!v) return null;
     const summary = await summariseVersion(v.diff, request);
     if (summary !== v.summary) setSummary(sessionId, v.n, summary);
@@ -57,6 +61,7 @@ export function toolEnvFor(tenantId: string | undefined, sessionId: string, goal
     sessionId,
     warehouseBank: tenant.warehouse && warehouseAvailable(tenant.warehouse.bank) ? tenant.warehouse.bank : undefined,
     lookupCache: new Map(),
+    links: listLinks(tenant.tenantId),
   };
 }
 
@@ -136,6 +141,8 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
 
   const tenant = resolveTenant(req.tenantId);
   if (!tenant) return base({ reply: 'That tenant is not recognised. Pick one from the list and try again.', error: 'unknown-tenant' });
+  // The bank's link registry, read once per turn (the agent sees references only).
+  const bankLinks = listLinks(tenant.tenantId);
 
   // --- the manager's answers since the last turn ----------------------------
   const latestUser = [...(req.messages ?? [])].reverse().find((m) => m.role === 'user')?.content ?? '';
@@ -167,7 +174,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       role: 'user',
       content: [
         { type: 'text', text: String(last.content) },
-        { type: 'text', text: [statusBlock(state), focusSection(state, req.focus)].filter(Boolean).join('\n\n') },
+        { type: 'text', text: [statusBlock(state, bankLinks), focusSection(state, req.focus)].filter(Boolean).join('\n\n') },
       ],
     };
   }
@@ -179,6 +186,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
     sessionId: req.sessionId,
     warehouseBank,
     lookupCache: new Map(),
+    links: bankLinks,
   };
   const tools = toolsFor(!!warehouseBank).map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
 
@@ -186,6 +194,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   const asked: AgentQuestion[] = [];
   let built: { graph: unknown; campaign: unknown; notes: string[] } | null = null;
   let wrapUp = false;
+  let repairRounds = 0;
 
   try {
     for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -224,7 +233,26 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       if (roundText.trim()) textSegments.push(roundText.trim());
       conversation.push({ role: 'assistant', content });
 
-      if (!toolUses.length || stopReason !== 'tool_use') break;
+      if (!toolUses.length || stopReason !== 'tool_use') {
+        // The agent thinks it is done. If this turn changed the campaign and
+        // hard problems remain, send it back to fix them (at most twice).
+        if (!wrapUp && !asked.length && repairRounds < MAX_REPAIR_ROUNDS && state.campaign !== startCampaign) {
+          const problems = checkJourneys(state.campaign, bankLinks);
+          if (problems.length) {
+            repairRounds++;
+            em.emit('model.tool_call.completed', 'understanding', `Sent back to fix ${problems.length} problem${problems.length === 1 ? '' : 's'}`, {
+              status: 'ok',
+              correlationId: `repair-${repairRounds}`,
+              detail: problems.join(' | ').slice(0, 300),
+              data: { tool: 'repair', input: problems, round },
+            });
+            yield* drain();
+            conversation.push({ role: 'user', content: `AUTOMATIC FIX (end of turn): these problems remain in the campaign:\n${problems.map((p) => `- ${p}`).join('\n')}\nFix each one with the least change that works, rebuild, and add what you fixed to your reply.` });
+            continue;
+          }
+        }
+        break;
+      }
 
       const results: unknown[] = [];
       let endsTurn = false;
@@ -275,8 +303,11 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
     });
   }
 
+  // Anything still broken after the repair rounds is said plainly, never hidden.
+  const remaining = state.campaign !== startCampaign ? checkJourneys(state.campaign, bankLinks) : [];
+  if (remaining.length) textSegments.push(`Still to fix (I could not resolve ${remaining.length === 1 ? 'this' : 'these'} on my own):\n${remaining.map((p) => `- ${p}`).join('\n')}`);
   yield* drain();
-  const version = await versionThisTurn(req.sessionId, startCampaign, state.campaign, latestUser);
+  const version = await versionThisTurn(req.sessionId, startCampaign, state.campaign, latestUser, req.repair ? 'repair' : 'chat');
   return base({
     ...(version ? { version } : {}),
     reply: textSegments.join('\n\n'),

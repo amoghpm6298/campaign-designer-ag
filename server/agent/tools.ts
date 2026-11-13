@@ -13,7 +13,8 @@ import { bankContext } from '../knowledge';
 import type { TenantConfig } from '../tenants';
 import type { Channel } from '../../src/data/sharedConstants';
 import { countCustomers, runWarehouseQuery, warehouseSchema } from '../warehouse';
-import { checkJourneys, planToBlueprint } from './compile';
+import { checkJourneys, linkProblemsIn, planToBlueprint } from './compile';
+import { forAgent, type BankLink } from '../links';
 import {
   addQuestions,
   editJourney,
@@ -117,6 +118,13 @@ const BASE_TOOLS: ToolDef[] = [
       required: ['id'],
       $defs: { step: STEP_DEF },
     },
+  },
+  {
+    name: 'list_links',
+    title: 'Checking the bank\'s links',
+    description:
+      'The destinations this bank has for messages: each with a reference, a label, what the page does, its full URL and (for SMS) its short URL and length, the channels it may be used on, and whether it can go by SMS (smsReady). The URLs are for you to understand where a link goes and to fit SMS length — never write a URL into a message: attach the link by its reference (the send\'s "link" field) and the system adds the real URL when it sends. Read this early, while designing: a lever needs somewhere real to send people.',
+    input_schema: { type: 'object', properties: {} },
   },
   {
     name: 'get_context',
@@ -252,6 +260,7 @@ export const TOOL_TITLES: Record<string, { running: string; done: string }> = {
   edit_campaign: { running: 'Editing the campaign', done: 'Edited the campaign' },
   edit_bucket: { running: 'Editing a bucket', done: 'Edited a bucket' },
   get_context: { running: 'Reading the context', done: 'Read the context' },
+  list_links: { running: "Checking the bank's links", done: "Checked the bank's links" },
   add_context: { running: 'Adding to the context', done: 'Added to the context' },
   set_flags: { running: 'Updating progress', done: 'Updated progress' },
   edit_journey: { running: 'Editing a journey', done: 'Edited a journey' },
@@ -269,6 +278,8 @@ export interface ToolEnv {
   warehouseBank?: string;
   /** Lookup results already fetched this turn, keyed by name+input. */
   lookupCache: Map<string, unknown>;
+  /** The bank's link registry. The agent sees references only, never URLs. */
+  links?: BankLink[];
 }
 
 export interface ToolOutcome {
@@ -340,6 +351,20 @@ function sizeEntries(raw: unknown, env: ToolEnv): { entries: unknown[]; lines: s
 }
 
 export function runToolCall(name: string, input: Record<string, unknown>, state: AgentState, env: ToolEnv): ToolOutcome {
+  const out = runToolCallInner(name, input, state, env);
+  if (!out.ok || !env.links || !['edit_bucket', 'edit_journey', 'edit_campaign'].includes(name) || out.state.campaign === state.campaign) return out;
+  // A link that cannot be sent is refused like any other hard rule — but only
+  // when this edit introduced it; problems already there are left to the build
+  // checks and repair turns, so they never block an unrelated edit.
+  const lanes = (c: AgentState['campaign']) => [...c.buckets.map((b) => b.journey), c.everyoneElse?.journey ?? null];
+  const before = new Set(lanes(state.campaign).flatMap((j) => linkProblemsIn(j, env.links!)));
+  const fresh = lanes(out.state.campaign).flatMap((j) => linkProblemsIn(j, env.links!)).filter((p) => !before.has(p));
+  if (!fresh.length) return out;
+  const usable = env.links.filter((l) => l.status === 'active').map((l) => `${l.ref}${l.shortUrl ? '' : ' (not for SMS)'}`).join(', ');
+  return { state, ok: false, summary: 'Link not usable', forModel: `Nothing was saved: ${fresh.join('; ')}. Usable links: ${usable || 'none'}. Pick one of these, or leave the link out if the message only informs or nothing fits (then say so).` };
+}
+
+function runToolCallInner(name: string, input: Record<string, unknown>, state: AgentState, env: ToolEnv): ToolOutcome {
   switch (name) {
     case 'ask_questions': {
       const { state: next, added, dropped } = addQuestions(state, input.questions);
@@ -392,6 +417,19 @@ export function runToolCall(name: string, input: Record<string, unknown>, state:
         summary: [b.journey?.length ? `${b.journey.length}-step journey` : 'no journey yet', b.holdoutPct ? `${b.holdoutPct}% holdout` : ''].filter(Boolean).join(' · '),
         result: { id: b.id, name: b.name, priority: b.priority, rule: b.rule, holdoutPct: b.holdoutPct, journeySteps: b.journey?.length ?? 0 },
         forModel: `Saved. ${res.said} Buckets now: ${res.state.campaign.buckets.map((x) => `${x.priority}. ${x.id}${x.journey?.length ? ' [journey]' : ''}`).join('; ')}.${isNew ? ' File its reasoning (behaviour, thesis, evidence, metric) with add_context.' : ''}`,
+      };
+    }
+
+    case 'list_links': {
+      const list = (env.links ?? []).filter((l) => l.status === 'active').map(forAgent);
+      const retired = (env.links ?? []).filter((l) => l.status === 'retired').map((l) => l.ref);
+      return {
+        state,
+        ok: true,
+        doneTitle: "Checked the bank's links",
+        summary: `${list.length} link${list.length === 1 ? '' : 's'}${list.some((l) => !l.smsReady) ? `, ${list.filter((l) => !l.smsReady).length} not ready for SMS` : ''}`,
+        result: list,
+        forModel: list.length ? `${JSON.stringify(list)}${retired.length ? ` Retired (do not use): ${retired.join(', ')}.` : ''}` : 'This bank has no links registered. Messages can only inform, or point customers to the app in words; say so to the manager.',
       };
     }
 
@@ -566,7 +604,7 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
     return { state: next, ok: false, forModel: `Nothing was built. Problems: ${notes.join(' | ') || 'none reported'}. Fix the plan and build again.`, summary: 'Nothing built', result: notes };
   }
   const summary = `${compiled.bucketsIncluded.length} buckets, ${sends} messages, ${nodes.length} steps`;
-  const knockOns = checkJourneys(next.campaign);
+  const knockOns = checkJourneys(next.campaign, env.links);
   next = setFlag(next, 'campaignBuilt', true, 'app', summary);
   next = log(next, 'app', 'campaign_built', `Built: ${summary}${notes.length ? `, ${notes.length} note(s)` : ''}`);
   return {

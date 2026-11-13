@@ -14,7 +14,7 @@ import { campaignDir, sessionFolder } from './campaignFiles';
 import { diffCampaigns, isEmptyDiff, templateSummary, type CampaignDiff } from './agent/versionDiff';
 import type { CampaignObject } from './agent/types';
 
-export type VersionSource = 'chat' | 'direct' | 'rollback' | 'migration';
+export type VersionSource = 'chat' | 'direct' | 'rollback' | 'migration' | 'repair';
 
 export interface VersionEntry {
   n: number;
@@ -118,7 +118,7 @@ export async function summariseVersion(diff: CampaignDiff, request: string): Pro
       maxTokens: 1000,
       timeoutMs: 30_000,
       system:
-        'You write the one-line summary for a version of a marketing campaign, shown in a version history list. Use ONLY the changes listed in the diff; never add, guess or embellish. When the diff only says a step "changed", say it was updated; do not guess how. Plain words a campaign manager understands, no ids, no JSON. At most two short sentences, under 30 words. No preamble.',
+        'You write the one-line summary for a version of a marketing campaign, shown in a version history list. State what changed, as a plain statement (e.g. "The benefit reminder in No activation at all now links to the rewards page; its copy was tightened to match."). Use ONLY the changes listed; never add, guess or embellish, and when a step only says "updated", say it was updated without guessing how. Never mention the diff, the data or what you can or cannot confirm. Plain words a campaign manager understands, no ids, no JSON, no link references in snake_case (say "the rewards page"). At most two short sentences, under 30 words. No preamble.',
       messages: [{ role: 'user', content: `What the manager asked: ${request || '(no message)'}\n\nWhat actually changed (computed by code):\n${JSON.stringify(diff)}` }],
     });
     const text = r.text.trim().replace(/^["']|["']$/g, '');

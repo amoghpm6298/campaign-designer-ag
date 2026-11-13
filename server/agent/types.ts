@@ -162,6 +162,8 @@ export interface AgentRequest {
   skipped?: string[];
   /** The block the manager pointed at on the canvas (backend ids; turned into plain words for the agent). */
   focus?: { kind: 'step' | 'bucket' | 'entry' | 'goal' | 'everyone_else'; bucketId?: string; stepId?: string } | null;
+  /** An app-started repair turn: the last user message was written by the app, not the manager. */
+  repair?: boolean;
 }
 
 export interface AgentResponse {

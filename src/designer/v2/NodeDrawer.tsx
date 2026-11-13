@@ -2,8 +2,10 @@
 // channel, and why the agent put it there.
 import { X } from 'lucide-react';
 import { CHANNEL_LABEL, sendTitle, sendWhen, type CStep } from './canvasModel';
+import type { BankLink } from '../LinksSection';
 
-export function NodeDrawer({ step, bucketName, onClose }: { step: CStep; bucketName: string; onClose: () => void }) {
+export function NodeDrawer({ step, bucketName, links, onClose }: { step: CStep; bucketName: string; links?: BankLink[]; onClose: () => void }) {
+  const link = step.link ? links?.find((l) => l.ref === step.link) : undefined;
   const ch = (step.channelPreference ?? [])[0] ?? 'SMS';
   const fb = step.fallbackChannel;
   return (
@@ -42,6 +44,27 @@ export function NodeDrawer({ step, bucketName, onClose }: { step: CStep; bucketN
             <dd>{step.describe}</dd>
           </div>
         )}
+        <div>
+          <dt>Link</dt>
+          <dd>
+            {!step.link ? (
+              'No link: this message only informs.'
+            ) : !link ? (
+              <span className="cv-dd-bad">Unknown link "{step.link}"</span>
+            ) : (
+              <>
+                <b>{link.label}</b>
+                {link.status === 'retired' && <span className="cv-dd-bad"> (retired)</span>}
+                <br />
+                <span className="v2-muted">{link.purpose}</span>
+                <br />
+                Full: <a href={link.url} target="_blank" rel="noreferrer">{link.url}</a>
+                <br />
+                SMS: {link.shortUrl ? link.shortUrl : <span className="cv-dd-bad">no short link yet</span>}
+              </>
+            )}
+          </dd>
+        </div>
         <div>
           <dt>Template</dt>
           <dd>The bank's approved template id is still needed before this can send.</dd>

@@ -8,7 +8,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MoreHorizontal, RotateCcw, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
-import { directEdit, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, type Stores } from './api';
+import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, type Stores } from './api';
+import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
 import { VersionMenu } from './VersionMenu';
 import type { CdNodeData, EditApi } from './canvasNodes';
@@ -37,6 +38,8 @@ interface Stored {
   changed?: string[];
   /** The block the last change was pointed at, to tell "what you asked" from knock-on changes. */
   changeFocus?: Focus | null;
+  /** The last problem set an automatic fix was started for, so it runs once. */
+  repairKey?: string;
   lastBuilt?: boolean;
 }
 
@@ -81,6 +84,12 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
   const [changed, setChanged] = useState<string[]>(fresh?.changed ?? []);
   const [lastBuilt, setLastBuilt] = useState(!!fresh?.lastBuilt);
   const [changeFocus, setChangeFocus] = useState<Focus | null>(fresh?.changeFocus ?? null);
+  const [repairKey, setRepairKey] = useState<string>(fresh?.repairKey ?? '');
+  // The bank's link registry: where each message's link really goes.
+  const [links, setLinks] = useState<BankLink[]>([]);
+  useEffect(() => {
+    fetchLinks(tenant.tenantId).then(setLinks).catch(() => setLinks([]));
+  }, [tenant.tenantId]);
   // Point-and-edit: the box being edited.
   const [editing, setEditing] = useState<{ nodeId: string; data: CdNodeData } | null>(null);
   // Versions of the campaign object; viewing one makes the canvas read-only.
@@ -101,8 +110,8 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    saveStored({ sessionId, tenantId: tenant.tenantId, turns, state, changed, changeFocus, lastBuilt });
-  }, [sessionId, tenant.tenantId, turns, state, changed, changeFocus, lastBuilt]);
+    saveStored({ sessionId, tenantId: tenant.tenantId, turns, state, changed, changeFocus, lastBuilt, repairKey });
+  }, [sessionId, tenant.tenantId, turns, state, changed, changeFocus, lastBuilt, repairKey]);
 
   const shown = viewing ? { campaign: viewing.campaign, context: stores.context } : (liveStores ?? stores);
   const plan = shown.campaign;
@@ -111,12 +120,18 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
   const sends = model.nodes.filter((n) => n.data.kind === 'send').length;
   const buckets = plan?.buckets.length ?? 0;
 
-  const send = (text: string, opts: { answers?: Record<string, string>; skipped?: string[]; answerSet?: AnswerItem[]; focus?: Focus; focusLabel?: string } = {}) => {
+  const send = (text: string, opts: { answers?: Record<string, string>; skipped?: string[]; answerSet?: AnswerItem[]; focus?: Focus; focusLabel?: string; repair?: boolean } = {}) => {
     if (busy || !text.trim() || viewing) return;
     const before = stores.campaign;
     const next: V2Turn[] = [
       ...turns,
-      { role: 'user', content: text, ...(opts.answerSet ? { answerSet: opts.answerSet } : {}), ...(opts.focus ? { focus: opts.focus, focusLabel: opts.focusLabel } : {}) },
+      {
+        role: 'user',
+        content: text,
+        ...(opts.answerSet ? { answerSet: opts.answerSet } : {}),
+        ...(opts.focus ? { focus: opts.focus, focusLabel: opts.focusLabel } : {}),
+        ...(opts.repair ? { auto: true } : {}),
+      },
     ];
     setTurns(next);
     setLive([]);
@@ -136,6 +151,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
         answers: opts.answers,
         skipped: opts.skipped,
         focus: opts.focus ?? null,
+        repair: opts.repair ?? false,
       },
       {
         onEvent: (e) => {
@@ -252,6 +268,27 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  // An opened campaign with hard problems (a retired link, a broken split, …)
+  // gets one automatic-fix turn per problem set. The message is the app's,
+  // shown as "Automatic fix", never as the manager's.
+  useEffect(() => {
+    if (busy || viewing || !stores.campaign || !turns.length) return;
+    let live = true;
+    fetchProblems(sessionId, tenant.tenantId).then((problems) => {
+      const key = problems.join('|');
+      if (!live || !problems.length || key === repairKey) return;
+      setRepairKey(key);
+      send(
+        `AUTOMATIC FIX: the app found ${problems.length === 1 ? 'a problem' : `${problems.length} problems`} in the saved campaign:\n${problems.map((p) => `- ${p}`).join('\n')}\nFix each one with the least change that works, rebuild, and say what you changed. If nothing suitable exists, ask the manager.`,
+        { repair: true },
+      );
+    });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stores.campaign, links]);
+
   /** From a chat tag back to the box it was about. */
   const showFocus = (f: Focus) => {
     const n = model.nodes.find((x) => JSON.stringify(x.data.focus) === JSON.stringify(f));
@@ -348,6 +385,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
               edit={editApi}
               onPaneClick={() => setEditing(null)}
               bankName={(tenant.issuer || tenant.displayName).replace(/\s*\(.*?\)\s*/g, '').trim()}
+              links={links}
             />
           ) : (
             <div className="cv-canvas-empty dc-graph-wrap">
@@ -391,7 +429,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
             </div>
           )}
 
-          {drawerNode?.data.step && <NodeDrawer step={drawerNode.data.step as CStep} bucketName={drawerBucket} onClose={() => setDrawerId(null)} />}
+          {drawerNode?.data.step && <NodeDrawer step={drawerNode.data.step as CStep} bucketName={drawerBucket} links={links} onClose={() => setDrawerId(null)} />}
 
           {activity && <ActivityDrawer state={state} onClose={() => setActivity(false)} />}
         </section>

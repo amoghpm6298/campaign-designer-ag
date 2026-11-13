@@ -390,11 +390,20 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
  * Hard rules a journey must meet before it is saved, whoever writes it. The
  * agent gets the reason and must ask the manager rather than guess.
  */
+/** Anything that looks like a web address: the agent must never write one. */
+const URL_LIKE = /https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|in|co|net|org|bank|app|ly|me|io)(?:\/|\b)/i;
+
 export function journeyErrors(steps: BpStep[] | null | undefined): string[] {
   const out: string[] = [];
   const visit = (list: BpStep[] | null | undefined) =>
     (list ?? []).forEach((st) => {
-      const s = st as unknown as { kind?: string; label?: string; arms?: { pct?: number; label?: string; steps?: BpStep[] }[]; paths?: { steps?: BpStep[] }[]; yes?: BpStep[]; no?: BpStep[] };
+      const s = st as unknown as { kind?: string; label?: string; link?: string; arms?: { pct?: number; label?: string; steps?: BpStep[] }[]; paths?: { steps?: BpStep[] }[]; yes?: BpStep[]; no?: BpStep[] };
+      if (s.kind === 'send') {
+        const send = st as unknown as { name?: string; label?: string; copy?: string; cta?: string };
+        for (const [field, text] of [['copy', send.copy], ['CTA', send.cta]] as const)
+          if (text && URL_LIKE.test(text))
+            out.push(`the message "${send.name ?? send.label ?? ''}" has a web address in its ${field}. Nothing was saved: never write a URL, web address or short link; attach a link reference from list_links instead (the system adds the real link).`);
+      }
       if (s.kind === 'experiment' && s.arms?.length) {
         const total = s.arms.reduce((n, a) => n + (Number(a.pct) || 0), 0);
         if (Math.round(total) !== 100)

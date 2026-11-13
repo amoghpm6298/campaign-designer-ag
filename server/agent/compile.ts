@@ -12,6 +12,8 @@
 
 import type { BpStep, CampaignBlueprint } from '../blueprint';
 import type { CampaignObject } from './types';
+import { linkProblem, type BankLink } from '../links';
+import { walkSteps } from './stepIds';
 
 export interface CompileResult {
   blueprint: CampaignBlueprint | null;
@@ -122,9 +124,26 @@ function checkSteps(steps: BpStep[] | null | undefined, where: string, out: stri
 }
 
 /** Problems a change may have left further down the tree. Empty when all is well. */
-export function checkJourneys(campaign: CampaignObject): string[] {
+export function checkJourneys(campaign: CampaignObject, links?: BankLink[]): string[] {
   const out: string[] = [];
   for (const b of campaign.buckets) checkSteps(b.journey, `Bucket "${b.name}"`, out, null);
   if (campaign.everyoneElse?.journey) checkSteps(campaign.everyoneElse.journey, 'Everyone else', out, null);
+  if (links) {
+    for (const b of campaign.buckets) out.push(...linkProblemsIn(b.journey, links).map((p) => `Bucket "${b.name}": ${p}`));
+    if (campaign.everyoneElse?.journey) out.push(...linkProblemsIn(campaign.everyoneElse.journey, links).map((p) => `Everyone else: ${p}`));
+  }
+  return out;
+}
+
+/** Every message whose link cannot be sent on its channel (or its fallback channel). */
+export function linkProblemsIn(steps: BpStep[] | null | undefined, links: BankLink[]): string[] {
+  const out: string[] = [];
+  walkSteps(steps, (s) => {
+    if (s.kind !== 'send' || typeof s.link !== 'string' || !s.link) return;
+    const name = String(s.name ?? s.label ?? 'a message');
+    const ch = ((s.channelPreference as string[] | undefined) ?? [])[0] ?? 'SMS';
+    const problem = linkProblem(links, s.link, ch) ?? (typeof s.fallbackChannel === 'string' ? linkProblem(links, s.link, s.fallbackChannel) : null);
+    if (problem) out.push(`"${name}": ${problem}`);
+  });
   return out;
 }

@@ -32,14 +32,41 @@ const stepLabel = (s: Record<string, unknown>) => {
   return `${k}${s.label ? ` "${s.label}"` : ''}`;
 };
 
+/** In words, what changed inside one step: "link: card_benefits → rewards; copy updated". */
+function fieldChanges(o: Record<string, unknown>, n: Record<string, unknown>): string {
+  const show: Record<string, (v: unknown) => string> = {
+    link: (v) => (v ? String(v) : 'none'),
+    channelPreference: (v) => ((v as string[] | undefined) ?? [])[0] ?? 'none',
+    fallbackChannel: (v) => (v ? String(v) : 'none'),
+    durationHours: (v) => `${Math.round((Number(v) / 24) * 10) / 10} days`,
+    delayDays: (v) => `day ${v ?? 0}`,
+    atTime: (v) => String(v ?? ''),
+  };
+  const words: Record<string, string> = { link: 'link', channelPreference: 'channel', fallbackChannel: 'fallback', durationHours: 'wait', delayDays: 'timing', atTime: 'time', copy: 'copy', cta: 'CTA wording', name: 'name', label: 'label', arms: 'split', paths: 'paths' };
+  const keys = [...new Set([...Object.keys(o), ...Object.keys(n)])].filter((k) => !['id', 'yes', 'no', 'describe', 'objective', 'stage'].includes(k));
+  const out: string[] = [];
+  for (const k of keys) {
+    const a = k === 'arms' || k === 'paths' ? JSON.stringify(((o[k] as Record<string, unknown>[]) ?? []).map(({ steps: _s, ...r }) => (void _s, r))) : JSON.stringify(o[k]);
+    const b = k === 'arms' || k === 'paths' ? JSON.stringify(((n[k] as Record<string, unknown>[]) ?? []).map(({ steps: _s, ...r }) => (void _s, r))) : JSON.stringify(n[k]);
+    if (a === b) continue;
+    out.push(show[k] ? `${words[k] ?? k}: ${show[k](o[k])} → ${show[k](n[k])}` : `${words[k] ?? k} updated`);
+  }
+  return out.join('; ');
+}
+
 function stepDiff(prev: BpStep[] | null | undefined, next: BpStep[] | null | undefined) {
-  const a = new Map<string, { sig: string; label: string }>();
-  const b = new Map<string, { sig: string; label: string }>();
-  walkSteps(prev, (s) => typeof s.id === 'string' && a.set(s.id, { sig: ownSignature(s), label: stepLabel(s) }));
-  walkSteps(next, (s) => typeof s.id === 'string' && b.set(s.id, { sig: ownSignature(s), label: stepLabel(s) }));
+  const a = new Map<string, { sig: string; label: string; s: Record<string, unknown> }>();
+  const b = new Map<string, { sig: string; label: string; s: Record<string, unknown> }>();
+  walkSteps(prev, (s) => typeof s.id === 'string' && a.set(s.id, { sig: ownSignature(s), label: stepLabel(s), s }));
+  walkSteps(next, (s) => typeof s.id === 'string' && b.set(s.id, { sig: ownSignature(s), label: stepLabel(s), s }));
   return {
     added: [...b].filter(([id]) => !a.has(id)).map(([, v]) => v.label),
-    changed: [...b].filter(([id, v]) => a.has(id) && a.get(id)!.sig !== v.sig).map(([id, v]) => (a.get(id)!.label === v.label ? `${v.label} changed` : `${a.get(id)!.label} → ${v.label}`)),
+    changed: [...b]
+      .filter(([id, v]) => a.has(id) && a.get(id)!.sig !== v.sig)
+      .map(([id, v]) => {
+        const what = fieldChanges(a.get(id)!.s, v.s);
+        return v.s.kind === 'wait' && what ? what : `${a.get(id)!.label}: ${what || 'updated'}`;
+      }),
     removed: [...a].filter(([id]) => !b.has(id)).map(([, v]) => v.label),
   };
 }

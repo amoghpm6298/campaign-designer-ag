@@ -47,6 +47,8 @@ export interface CStep {
   tests?: string;
   /** The backend's stable id for this step. */
   id?: string;
+  /** A reference to the bank's link registry (never a URL). */
+  link?: string;
   arms?: { label?: string; pct?: number; steps?: CStep[] }[];
   paths?: { label?: string; statuses?: string[]; steps?: CStep[] }[];
   yes?: CStep[];
