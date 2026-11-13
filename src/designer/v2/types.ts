@@ -14,7 +14,8 @@ export const FLAG_LABELS: Record<FlagName, string> = {
   campaignBuilt: 'Built & up to date',
 };
 
-export type AnswerType = 'single' | 'multi' | 'open';
+/** 'open' and suggestions only appear in chats saved before every question had options. */
+export type AnswerType = 'yesno' | 'single' | 'multi' | 'open';
 
 export interface AgentQuestion {
   id: string;

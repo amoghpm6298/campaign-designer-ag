@@ -17,7 +17,7 @@ import type { CdNodeData, EditApi } from './canvasNodes';
 import { CampaignCanvas } from './CampaignCanvas';
 import { buildCanvasModel, classifyChanges, diffChangedSteps, type CStep } from './canvasModel';
 import { ChatPanel, type Cue } from './ChatPanel';
-import { mergeEvent } from './logic';
+import { mergeEvent, plainText } from './logic';
 import { NodeDrawer } from './NodeDrawer';
 import { QuestionOverlay } from './QuestionOverlay';
 import { FLAG_LABELS, FLAG_ORDER, type AgentState, type CampaignContext, type CampaignObject, type AnswerItem, type Focus, type V2Event, type V2Turn, type VersionEntry } from './types';
@@ -406,7 +406,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
                 send(message, {
                   answers,
                   skipped,
-                  answerSet: formQuestions.map((q) => (answers[q.id] ? { aspect: q.aspect, question: q.text, answer: answers[q.id] } : { aspect: q.aspect, question: q.text, skipped: true })),
+                  answerSet: formQuestions.map((q) => (answers[q.id] ? { aspect: q.aspect, question: plainText(q.text), answer: answers[q.id] } : { aspect: q.aspect, question: plainText(q.text), skipped: true })),
                 })
               }
             />

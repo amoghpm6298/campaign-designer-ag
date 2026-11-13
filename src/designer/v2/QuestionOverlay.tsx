@@ -1,13 +1,15 @@
 // The agent's questions, as an overlay on the canvas. Grouped by aspect.
-// Skip: the agent assumes every answer and says what it assumed.
-// Send answers: anything left blank is treated as skipped.
+// Every question has answers to tap, plus Other. Skip on a question strikes it
+// out; Skip all sends at once. Skipped and blank questions: the agent assumes
+// the answer and says what it assumed.
 import { useState } from 'react';
-import { answerOf, composeReply, emptyField, groupByAspect, isAnswered, type FieldState } from './logic';
+import { renderInline } from '../RichText';
+import { answerOf, composeReply, emptyField, groupByAspect, isAnswered, toFormQuestion, type FieldState } from './logic';
 import type { AgentQuestion } from './types';
 
 export function QuestionOverlay({
   intro,
-  questions,
+  questions: raw,
   pulse,
   onSubmit,
 }: {
@@ -16,9 +18,12 @@ export function QuestionOverlay({
   pulse: number;
   onSubmit: (message: string, answers: Record<string, string>, skipped: string[]) => void;
 }) {
+  const questions = raw.map(toFormQuestion);
   const [fields, setFields] = useState<Record<string, FieldState>>({});
   const set = (id: string, patch: Partial<FieldState>) => setFields((f) => ({ ...f, [id]: { ...(f[id] ?? emptyField()), ...patch } }));
   const answered = questions.filter((q) => isAnswered(q, fields[q.id])).length;
+  const skippedCount = questions.filter((q) => fields[q.id]?.skipped).length;
+  const left = questions.length - answered - skippedCount;
   const groups = groupByAspect(questions);
 
   return (
@@ -30,7 +35,8 @@ export function QuestionOverlay({
           e.preventDefault();
           const { message, answers } = composeReply(questions, fields);
           const skipped = questions.filter((q) => !answers[q.id]).map((q) => q.id);
-          onSubmit(message ? `${message}${skipped.length ? `\n\n(Skipped ${skipped.length})` : ''}` : 'Skipped these questions.', answers, skipped);
+          const blank = skipped.length - skippedCount;
+          onSubmit(message ? `${message}${blank > 0 ? `\n\n(Left blank ${blank})` : ''}` : 'Skipped these questions.', answers, skipped);
         }}
       >
         <div className="cv-qa-head">
@@ -44,57 +50,52 @@ export function QuestionOverlay({
               {g.questions.map((q) => {
                 const f = fields[q.id] ?? emptyField();
                 return (
-                  <div className="cv-q" key={q.id}>
-                    <div className="cv-q-text">
-                      {q.text}
-                      <span className="v2-muted"> · {q.answerType === 'multi' ? 'pick any' : q.answerType === 'single' ? 'pick one' : 'your words'}</span>
+                  <div className={`cv-q${f.skipped ? ' skipped' : ''}`} key={q.id}>
+                    <div className="cv-q-line">
+                      <div className="cv-q-text">
+                        {renderInline(q.text)}
+                        {q.answerType === 'multi' && <span className="v2-muted"> · pick any</span>}
+                      </div>
+                      <button
+                        type="button"
+                        className="cv-q-skip"
+                        title={f.skipped ? 'Answer this one after all' : 'Skip this question: the agent assumes the answer and tells you'}
+                        onClick={() => set(q.id, f.skipped ? { skipped: false } : { skipped: true, picked: [], other: false, text: '' })}
+                      >
+                        {f.skipped ? 'Undo' : 'Skip'}
+                      </button>
                     </div>
-                    {q.answerType !== 'open' ? (
-                      <>
-                        <div className="v2-opts" role={q.answerType === 'single' ? 'radiogroup' : 'group'}>
-                          {(q.options ?? []).map((o) => {
-                            const on = f.picked.includes(o);
-                            return (
-                              <button
-                                type="button"
-                                key={o}
-                                className={`v2-opt${on ? ' on' : ''}`}
-                                aria-pressed={on}
-                                onClick={() =>
-                                  q.answerType === 'single'
-                                    ? set(q.id, { picked: on ? [] : [o], other: false })
-                                    : set(q.id, { picked: on ? f.picked.filter((p) => p !== o) : [...f.picked, o] })
-                                }
-                              >
-                                {o}
-                              </button>
-                            );
-                          })}
+                    <div className="v2-opts" role={q.answerType === 'multi' ? 'group' : 'radiogroup'}>
+                      {(q.options ?? []).map((o) => {
+                        const on = f.picked.includes(o);
+                        return (
                           <button
                             type="button"
-                            className={`v2-opt other${f.other ? ' on' : ''}`}
-                            aria-pressed={f.other}
-                            onClick={() => set(q.id, q.answerType === 'single' ? { other: !f.other, picked: [] } : { other: !f.other })}
+                            key={o}
+                            disabled={f.skipped}
+                            className={`v2-opt${on ? ' on' : ''}`}
+                            aria-pressed={on}
+                            onClick={() =>
+                              q.answerType === 'multi'
+                                ? set(q.id, { picked: on ? f.picked.filter((p) => p !== o) : [...f.picked, o] })
+                                : set(q.id, { picked: on ? [] : [o], other: false })
+                            }
                           >
-                            Other
+                            {o}
                           </button>
-                        </div>
-                        {f.other && <input className="v2-input" autoFocus placeholder="Type your answer" value={f.text} onChange={(e) => set(q.id, { text: e.target.value })} />}
-                      </>
-                    ) : (
-                      <>
-                        {!!q.suggestions?.length && (
-                          <div className="v2-opts">
-                            {q.suggestions.map((s) => (
-                              <button type="button" key={s} className="v2-opt sugg" onClick={() => set(q.id, { text: s })}>
-                                {s}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        <textarea className="v2-input" rows={2} placeholder="Your answer" value={f.text} onChange={(e) => set(q.id, { text: e.target.value })} />
-                      </>
-                    )}
+                        );
+                      })}
+                      <button
+                        type="button"
+                        disabled={f.skipped}
+                        className={`v2-opt other${f.other ? ' on' : ''}`}
+                        aria-pressed={f.other}
+                        onClick={() => set(q.id, q.answerType === 'multi' ? { other: !f.other } : { other: !f.other, picked: [] })}
+                      >
+                        Other
+                      </button>
+                    </div>
+                    {f.other && !f.skipped && <input className="v2-input" autoFocus placeholder="Type your answer" value={f.text} onChange={(e) => set(q.id, { text: e.target.value })} />}
                     {isAnswered(q, f) && q.answerType === 'multi' && <div className="v2-q-ans">→ {answerOf(q, f)}</div>}
                   </div>
                 );
@@ -104,13 +105,14 @@ export function QuestionOverlay({
         </div>
         <div className="cv-qa-foot">
           <span className="v2-muted">
-            {answered} of {questions.length} answered{answered < questions.length ? ' · the agent will assume the rest and tell you' : ''}
+            {[`${answered} answered`, skippedCount ? `${skippedCount} skipped` : '', left ? `${left} left` : ''].filter(Boolean).join(' · ')}
+            {answered < questions.length ? ` · the agent will assume the ${skippedCount && left ? 'skipped and blank ones' : skippedCount ? 'skipped ones' : 'rest'} and tell you` : ''}
           </span>
           <span className="cv-qa-btns">
             <button type="button" className="cv-btn" title="The agent makes its best assumptions and tells you what it assumed" onClick={() => onSubmit('Skipped these questions.', {}, questions.map((q) => q.id))}>
-              Skip
+              Skip all
             </button>
-            <button type="submit" className="cv-btn primary" disabled={!answered}>
+            <button type="submit" className="cv-btn primary" disabled={!answered && !skippedCount}>
               Send answers
             </button>
           </span>

@@ -28,8 +28,7 @@ import {
 } from './types';
 
 export const MAX_QUESTIONS_PER_CALL = 12;
-const MAX_OPTIONS = 6;
-const MAX_SUGGESTIONS = 3;
+const MAX_OPTIONS = 4;
 
 export function initialFlags(): Flags {
   return Object.fromEntries(FLAG_ORDER.map((f) => [f, false])) as Flags;
@@ -138,7 +137,8 @@ export interface RawQuestion {
 /**
  * Turns the model's `ask_questions` payload into stored questions.
  * - Aspect labels are free text, trimmed and title-cased; near-duplicates merge onto the first spelling.
- * - A choice question with fewer than two options becomes open, its options kept as examples.
+ * - Every question has tappable answers: yesno stores Yes/No; single/multi keep 1-4 options.
+ * - A choice question with no options becomes yesno; a legacy "open" question becomes multi, its suggestions as options.
  * - An agent-written "Other" is dropped; the form always offers one.
  */
 export function normaliseQuestions(raw: unknown, existingAspects: string[], seqStart: number): { questions: AgentQuestion[]; dropped: number; seq: number } {
@@ -162,24 +162,18 @@ export function normaliseQuestions(raw: unknown, existingAspects: string[], seqS
       continue;
     }
     const aspect = canonical(typeof q.aspect === 'string' && q.aspect.trim() ? titleCase(q.aspect).slice(0, 40) : 'General');
-    let answerType: AnswerType = q.answerType === 'single' || q.answerType === 'multi' || q.answerType === 'open' ? q.answerType : 'open';
-    let options = cleanList(q.options, MAX_OPTIONS);
-    let suggestions = cleanList(q.suggestions, MAX_SUGGESTIONS);
-    if (answerType !== 'open' && options.length < 2) {
-      suggestions = cleanList([...options, ...suggestions], MAX_SUGGESTIONS);
-      options = [];
-      answerType = 'open';
-    }
-    if (answerType === 'open') options = [];
-    else suggestions = [];
+    let options = cleanList([...(Array.isArray(q.options) ? q.options : []), ...(Array.isArray(q.suggestions) ? q.suggestions : [])], MAX_OPTIONS);
+    let answerType: AnswerType =
+      q.answerType === 'yesno' || q.answerType === 'single' || q.answerType === 'multi' ? q.answerType : q.answerType === 'open' ? 'multi' : options.length ? 'single' : 'yesno';
+    if (answerType !== 'yesno' && !options.length) answerType = 'yesno';
+    if (answerType === 'yesno') options = ['Yes', 'No'];
     seq++;
     out.push({
       id: `q${seq}`,
       aspect,
       text,
       answerType,
-      ...(options.length ? { options } : {}),
-      ...(suggestions.length ? { suggestions } : {}),
+      options,
       askedAt: now(),
     });
   }
@@ -317,7 +311,7 @@ function fileAnswers(state: AgentState, ids: string[]): AgentState {
     state,
     qs.map((q) => ({
       kind: 'answer',
-      topic: `${q.aspect}: ${q.text}`,
+      topic: `${q.aspect}: ${q.text.replace(/\*\*/g, '')}`,
       text: q.skipped ? '(skipped)' : q.answer ?? '',
       source: 'manager',
       data: { questionId: q.id, ...(q.skipped ? { skipped: true } : {}) },

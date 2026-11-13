@@ -23,7 +23,7 @@ import { resolveTenant } from '../../server/tenants';
 import { checkReadOnly, warehousePath } from '../../server/warehouse';
 import { FLAG_ORDER, type AgentState } from '../../server/agent/types';
 import { dcAddFormValid } from '../../src/reducer/defaultConfig';
-import { buildTrace, composeReply, emptyField, mergeEvent } from '../../src/designer/v2/logic';
+import { buildTrace, composeReply, emptyField, mergeEvent, toFormQuestion } from '../../src/designer/v2/logic';
 import type { V2Event } from '../../src/designer/v2/types';
 
 const env = (warehouse = false): ToolEnv => ({
@@ -82,7 +82,7 @@ describe('flags and questions', () => {
   it('questionsAnswered follows the form; blanks stay open', () => {
     let s = addQuestions(initialState(), [
       { aspect: 'Goal', text: 'What should change?', answerType: 'single', options: ['A', 'B'] },
-      { aspect: 'Timing', text: 'When?', answerType: 'open' },
+      { aspect: 'Timing', text: 'When?', answerType: 'yesno' },
     ]).state;
     s = recordAnswers(s, { q1: 'A' }, '');
     expect(s.flags.questionsAnswered).toBe(false);
@@ -90,19 +90,28 @@ describe('flags and questions', () => {
     expect(s.flags.questionsAnswered).toBe(true);
   });
 
-  it('normalises aspects, strips Other, downgrades thin choice questions, caps at 12', () => {
+  it('normalises aspects, strips Other, keeps every question tappable, caps at 12', () => {
     const { questions } = normaliseQuestions(
       [
         { aspect: 'goal', text: 'One?', answerType: 'single', options: ['A', 'B', 'Other'] },
         { aspect: 'Goal ', text: 'Two?', answerType: 'multi', options: ['Only one'] },
+        { aspect: 'Goal', text: 'Three?', answerType: 'yesno', options: ['Maybe'] },
+        { aspect: 'Goal', text: 'Four?', answerType: 'single' },
+        { aspect: 'Goal', text: 'Five?', answerType: 'multi', options: ['a', 'b', 'c', 'd', 'e', 'f'] },
+        { aspect: 'Goal', text: 'Six?', answerType: 'open', suggestions: ['x', 'y'] },
       ],
       [],
       0,
     );
-    expect(questions.map((q) => q.aspect)).toEqual(['Goal', 'Goal']);
+    expect(questions.map((q) => q.aspect)).toEqual(['Goal', 'Goal', 'Goal', 'Goal', 'Goal', 'Goal']);
     expect(questions[0].options).toEqual(['A', 'B']);
-    expect(questions[1].answerType).toBe('open');
-    const many = Array.from({ length: 20 }, (_, i) => ({ aspect: 'A', text: `Q${i}?`, answerType: 'open' }));
+    expect(questions[1]).toMatchObject({ answerType: 'multi', options: ['Only one'] }); // one option = a proposal
+    expect(questions[2]).toMatchObject({ answerType: 'yesno', options: ['Yes', 'No'] });
+    expect(questions[3]).toMatchObject({ answerType: 'yesno', options: ['Yes', 'No'] }); // no options: yes/no
+    expect(questions[4].options).toHaveLength(4);
+    expect(questions[5]).toMatchObject({ answerType: 'multi', options: ['x', 'y'] }); // legacy open
+    expect(questions.every((q) => !('suggestions' in q))).toBe(true);
+    const many = Array.from({ length: 20 }, (_, i) => ({ aspect: 'A', text: `Q${i}?`, answerType: 'yesno' }));
     expect(normaliseQuestions(many, [], 0).questions).toHaveLength(12);
   });
 
@@ -258,7 +267,7 @@ describe('the prompt', () => {
       expect(p).toMatch(/## 3\. Changes, through chat/);
       expect(p).toMatch(/There are no approvals/);
       expect(p).not.toMatch(/request_signoff/);
-      expect(p.length).toBeLessThan(18500); // raised for endings + after-journey guidance
+      expect(p.length).toBeLessThan(19000); // raised for endings + after-journey guidance
     }
     expect(systemPrompt(true)).toMatch(/data warehouse/);
     expect(systemPrompt(false)).toMatch(/your own knowledge and judgement/);
@@ -288,14 +297,37 @@ describe('UI helpers', () => {
     expect(buildTrace(list).map((t) => t.kind)).toEqual(['text', 'tool', 'text']);
   });
 
-  it('the form composes single, multi + Other and open answers, and omits blanks', () => {
+  it('the form composes single, multi + Other and yes/no answers, and omits blanks', () => {
     const qs = [
       { id: 'q1', aspect: 'Goal', text: 'What?', answerType: 'single' as const, options: ['A', 'B'] },
       { id: 'q2', aspect: 'Why not', text: 'Why?', answerType: 'multi' as const, options: ['X', 'Y'] },
-      { id: 'q3', aspect: 'Timing', text: 'When?', answerType: 'open' as const },
+      { id: 'q3', aspect: 'Timing', text: 'When?', answerType: 'yesno' as const, options: ['Yes', 'No'] },
+      { id: 'q4', aspect: 'Timing', text: 'Where?', answerType: 'yesno' as const, options: ['Yes', 'No'] },
     ];
-    const { answers } = composeReply(qs, { q1: { ...emptyField(), picked: ['B'] }, q2: { picked: ['X'], other: true, text: 'UPI' } });
-    expect(answers).toEqual({ q1: 'B', q2: 'X, Other: UPI' });
+    const { answers } = composeReply(qs, {
+      q1: { ...emptyField(), picked: ['B'] },
+      q2: { picked: ['X'], other: true, text: 'UPI' },
+      q3: { ...emptyField(), other: true, text: 'Only in Diwali week' },
+    });
+    expect(answers).toEqual({ q1: 'B', q2: 'X, Other: UPI', q3: 'Other: Only in Diwali week' });
+  });
+
+  it('a question skipped on its own gives no answer and shows as Skipped; bold markers stay out of the transcript', () => {
+    const qs = [
+      { id: 'q1', aspect: 'Goal', text: 'Should **lapsed cardholders** get an offer?', answerType: 'yesno' as const, options: ['Yes', 'No'] },
+      { id: 'q2', aspect: 'Goal', text: 'Which **channel**?', answerType: 'single' as const, options: ['A', 'B'] },
+    ];
+    const { answers, message } = composeReply(qs, { q1: { ...emptyField(), picked: ['Yes'] }, q2: { ...emptyField(), picked: ['A'], skipped: true } });
+    expect(answers).toEqual({ q1: 'Yes' });
+    expect(message).toContain('- Should lapsed cardholders get an offer? → Yes');
+    expect(message).toContain('- Skipped: Which channel?');
+    expect(message).not.toContain('**lapsed');
+  });
+
+  it('old saved "open" questions still show as tappable', () => {
+    const base = { id: 'q1', aspect: 'Goal', text: 'Why?' };
+    expect(toFormQuestion({ ...base, answerType: 'open', suggestions: ['P', 'Q'] })).toMatchObject({ answerType: 'multi', options: ['P', 'Q'] });
+    expect(toFormQuestion({ ...base, answerType: 'open' })).toMatchObject({ answerType: 'yesno', options: ['Yes', 'No'] });
   });
 });
 
@@ -325,8 +357,8 @@ describe('skipping questions', () => {
   it('skipped questions count as dealt with, are marked skipped, and tell the agent to assume', async () => {
     const { recordSkips } = await import('../../server/agent/state');
     let s = addQuestions(initialState(), [
-      { aspect: 'Goal', text: 'A?', answerType: 'open' },
-      { aspect: 'Timing', text: 'B?', answerType: 'open' },
+      { aspect: 'Goal', text: 'A?', answerType: 'yesno' },
+      { aspect: 'Timing', text: 'B?', answerType: 'yesno' },
     ]).state;
     s = recordAnswers(s, { q1: 'Activation' }, '');
     s = recordSkips(s, ['q2']);
@@ -338,10 +370,19 @@ describe('skipping questions', () => {
 
   it('a skip never overwrites an answer', async () => {
     const { recordSkips } = await import('../../server/agent/state');
-    let s = addQuestions(initialState(), [{ aspect: 'Goal', text: 'A?', answerType: 'open' }]).state;
+    let s = addQuestions(initialState(), [{ aspect: 'Goal', text: 'A?', answerType: 'yesno' }]).state;
     s = recordAnswers(s, { q1: 'Activation' }, '');
     s = recordSkips(s, ['q1']);
     expect(s.questions[0].answer).toBe('Activation');
     expect(s.questions[0].skipped).toBeUndefined();
+  });
+});
+
+describe('bold keywords in questions', () => {
+  it('renderInline makes **words** strong', async () => {
+    const { renderInline } = await import('../../src/designer/RichText');
+    const parts = renderInline('Should **lapsed cardholders** get it?') as { type: unknown; props: { children: string } }[];
+    expect(parts.map((p) => p.type)).toEqual(['span', 'strong', 'span']);
+    expect(parts[1].props.children).toBe('lapsed cardholders');
   });
 });

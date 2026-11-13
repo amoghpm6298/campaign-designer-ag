@@ -56,22 +56,38 @@ export const totalMs = (events: V2Event[] | undefined) =>
 // --- the question form --------------------------------------------------------
 
 export interface FieldState {
-  /** single/multi: picked options. */
+  /** Picked options (yesno/single: at most one). */
   picked: string[];
-  /** single/multi: Other is selected. */
+  /** Other is selected. */
   other: boolean;
-  /** single/multi: the Other text. open: the answer text. */
+  /** The Other text. */
   text: string;
+  /** Skipped on its own: struck out, no answer, the agent assumes it. */
+  skipped?: boolean;
 }
 
-export const emptyField = (): FieldState => ({ picked: [], other: false, text: '' });
+export const emptyField = (): FieldState => ({ picked: [], other: false, text: '', skipped: false });
+
+/** The question text without its **bold** markers, for transcripts and the chat history. */
+export const plainText = (s: string) => s.replace(/\*\*/g, '');
+
+/**
+ * The question as the form shows it. Chats saved before every question had
+ * answers to tap may hold an "open" question: it becomes multi with its
+ * example replies as options, or yes/no if it had none.
+ */
+export function toFormQuestion(q: AgentQuestion): AgentQuestion {
+  if (q.answerType === 'yesno') return { ...q, options: ['Yes', 'No'] };
+  if (q.answerType !== 'open' && q.options?.length) return q;
+  const options = [...(q.options ?? []), ...(q.suggestions ?? [])].slice(0, 4);
+  return options.length ? { ...q, answerType: 'multi', options } : { ...q, answerType: 'yesno', options: ['Yes', 'No'] };
+}
 
 export function answerOf(q: AgentQuestion, f: FieldState | undefined): string {
-  if (!f) return '';
-  if (q.answerType === 'open') return f.text.trim();
+  if (!f || f.skipped) return '';
   const other = f.other && f.text.trim() ? `Other: ${f.text.trim()}` : '';
-  if (q.answerType === 'single') return f.picked[0] ?? other;
-  return [...f.picked, other].filter(Boolean).join(', ');
+  if (q.answerType === 'multi') return [...f.picked, other].filter(Boolean).join(', ');
+  return f.picked[0] ?? other;
 }
 
 export function isAnswered(q: AgentQuestion, f: FieldState | undefined): boolean {
@@ -89,13 +105,14 @@ export function composeReply(questions: AgentQuestion[], fields: Record<string, 
   let aspect = '';
   for (const q of questions) {
     const a = answerOf(q, fields[q.id]);
-    if (!a) continue;
-    answers[q.id] = a;
+    const skipped = !!fields[q.id]?.skipped;
+    if (!a && !skipped) continue;
+    if (a) answers[q.id] = a;
     if (q.aspect !== aspect) {
       aspect = q.aspect;
       lines.push(`${lines.length ? '\n' : ''}**${aspect}**`);
     }
-    lines.push(`- ${q.text} → ${a}`);
+    lines.push(a ? `- ${plainText(q.text)} → ${a}` : `- Skipped: ${plainText(q.text)}`);
   }
   return { message: lines.join('\n'), answers };
 }

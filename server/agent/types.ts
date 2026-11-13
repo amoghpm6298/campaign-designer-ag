@@ -31,17 +31,15 @@ export const FLAG_LABELS: Record<FlagName, string> = {
   campaignBuilt: 'Campaign built and up to date',
 };
 
-export type AnswerType = 'single' | 'multi' | 'open';
+export type AnswerType = 'yesno' | 'single' | 'multi';
 
 export interface AgentQuestion {
   id: string;
   aspect: string;
   text: string;
   answerType: AnswerType;
-  /** single / multi only. "Other" is never stored here: the UI always adds it. */
+  /** The tappable answers (yesno stores Yes/No). "Other" is never stored here: the UI always adds it. */
   options?: string[];
-  /** open only: example replies the manager can tap to fill the box. */
-  suggestions?: string[];
   askedAt: string;
   answer?: string;
   answeredAt?: string;

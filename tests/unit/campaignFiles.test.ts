@@ -114,8 +114,8 @@ describe('the context', () => {
 
   it('the app files every answer and every skip, without the agent', () => {
     let s = addQuestions(initialState(), [
-      { aspect: 'Incentive', text: 'Any incentive?', answerType: 'open' },
-      { aspect: 'Timing', text: 'How long?', answerType: 'open' },
+      { aspect: 'Incentive', text: 'Any incentive?', answerType: 'yesno' },
+      { aspect: 'Timing', text: 'How long?', answerType: 'yesno' },
     ]).state;
     s = recordAnswers(s, { q1: 'None' }, '');
     s = recordSkips(s, ['q2']);
