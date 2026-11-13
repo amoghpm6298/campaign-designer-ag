@@ -268,7 +268,7 @@ describe('the prompt', () => {
       expect(p).toMatch(/## 3\. Changes, through chat/);
       expect(p).toMatch(/There are no approvals/);
       expect(p).not.toMatch(/request_signoff/);
-      expect(p.length).toBeLessThan(19500); // raised for endings + after-journey guidance
+      expect(p.length).toBeLessThan(20500); // raised for endings + after-journey guidance
     }
     expect(systemPrompt(true)).toMatch(/data warehouse/);
     expect(systemPrompt(false)).toMatch(/your own knowledge and judgement/);

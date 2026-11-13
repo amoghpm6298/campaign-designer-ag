@@ -20,6 +20,8 @@ import type { CampaignObject } from '../../server/agent/types';
 const env = (): ToolEnv => ({ tenant: resolveTenant('TEN-YES')!, availableChannels: ['SMS', 'WHATSAPP', 'EMAIL'], goalStatement: 'x', sessionId: 's1', lookupCache: new Map() });
 const send = (name: string, ch = 'WHATSAPP') => ({ kind: 'send', name, stage: 'first-touch', describe: name, objective: ['activation'], channelPreference: [ch] });
 const exit = (outcome?: string, reason = 'End') => ({ kind: 'exit', reason, ...(outcome ? { outcome } : {}) });
+/** The response window after a last message. */
+const win = { kind: 'wait', durationHours: 96 };
 
 /** A WhatsApp, then a read / not-read branch, with an "Anything else" route. */
 const designed = (otherwise?: unknown[]) =>
@@ -30,8 +32,8 @@ const designed = (otherwise?: unknown[]) =>
       kind: 'branch',
       label: 'Did they read it?',
       paths: [
-        { label: 'Read', statuses: ['READ'], steps: [send('Different argument'), exit('no_response')] },
-        { label: 'Not read', statuses: ['DELIVERED'], steps: [send('Resend', 'SMS'), exit('no_response')] },
+        { label: 'Read', statuses: ['READ'], steps: [send('Different argument'), win, exit('no_response')] },
+        { label: 'Not read', statuses: ['DELIVERED'], steps: [send('Resend', 'SMS'), win, exit('no_response')] },
       ],
       ...(otherwise ? { otherwise } : {}),
     },
@@ -96,7 +98,7 @@ describe('the "Anything else" route', () => {
 
 describe('endings', () => {
   it('a fully designed journey has no open ending decisions', () => {
-    expect(endingGaps(campaign(designed([send('Email try', 'EMAIL'), exit('not_reachable')])))).toEqual([]);
+    expect(endingGaps(campaign(designed([send('Email try', 'EMAIL'), win, exit('no_response')])))).toEqual([]);
   });
 
   it('names every path that stops without saying how the customer left', () => {
@@ -107,8 +109,24 @@ describe('endings', () => {
   });
 
   it('a trailing exit with an outcome closes every arm still open above it', () => {
-    const j = [send('First'), { kind: 'branch', label: 'Read?', paths: [{ label: 'Read', statuses: ['READ'], steps: [send('R')] }, { label: 'Not read', statuses: ['DELIVERED'], steps: [send('N', 'SMS')] }], otherwise: [exit('not_reachable')] }, exit('no_response')] as unknown as BpStep[];
+    const j = [send('First'), { kind: 'branch', label: 'Read?', paths: [{ label: 'Read', statuses: ['READ'], steps: [send('R'), win] }, { label: 'Not read', statuses: ['DELIVERED'], steps: [send('N', 'SMS'), win] }], otherwise: [exit('not_reachable')] }, exit('no_response')] as unknown as BpStep[];
     expect(endingGaps(campaign(j))).toEqual([]);
+  });
+
+  it('every last message gets a response window before its exit (the agent picks the length)', () => {
+    // send → exit: closed out before they could act
+    expect(endingGaps(campaign([send('Only'), exit('no_response')] as unknown as BpStep[])).join(' ')).toMatch(/comes straight after "Only".*response window/);
+    // send → wait → exit: fine
+    expect(endingGaps(campaign([send('Only'), win, exit('no_response')] as unknown as BpStep[]))).toEqual([]);
+    // a fork arm ending on a send, flowing into the trailing exit
+    const j = [send('First'), { kind: 'branch', label: 'Read?', paths: [{ label: 'Read', statuses: ['READ'], steps: [send('R')] }], otherwise: [exit('not_reachable')] }, exit('no_response')] as unknown as BpStep[];
+    expect(endingGaps(campaign(j)).join(' ')).toMatch(/arm|path "Read".*straight after "R"/);
+    // the "Anything else" retry: email → exit is flagged, email → wait → exit is not
+    expect(endingGaps(campaign(designed([send('Email try', 'EMAIL'), exit('not_reachable')]))).join(' ')).toMatch(/Anything else.*straight after "Email try"/);
+    // the code never adds the wait itself
+    const c = campaign([send('Only'), exit('no_response')] as unknown as BpStep[]);
+    endingGaps(c);
+    expect(c.buckets[0].journey).toHaveLength(2);
   });
 
   it('only checks journeys changed since the turn began', () => {

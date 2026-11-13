@@ -144,6 +144,7 @@ function endingGapsIn(list: BpStep[] | null | undefined, where: string, out: str
   const prev = steps[steps.length - 2];
   if (last.kind === 'exit') {
     if (!last.outcome) out.push(`${where}: the exit "${String(last.reason ?? '')}" does not say how the customer left. Give it an outcome.`);
+    if (prev?.kind === 'send') out.push(noWindow(where, `the exit "${String(last.reason ?? '')}"`, prev));
     if (prev && ['branch', 'experiment', 'condition'].includes(String(prev.kind))) forkGaps(prev, where, out, Boolean(last.outcome));
     return;
   }
@@ -151,8 +152,14 @@ function endingGapsIn(list: BpStep[] | null | undefined, where: string, out: str
     forkGaps(last, where, out, covered);
     return;
   }
+  // Flows straight into the exit after the fork: the same missing window.
+  if (covered && last.kind === 'send') out.push(noWindow(where, 'the exit after it', last));
   if (!covered) out.push(`${where} ends after "${stepName(last)}" without saying how the customer left. Decide the ending: an exit with an outcome (no_response, not_reachable or declined).`);
 }
+
+/** An exit straight after a message closes customers out before they could act on it. */
+const noWindow = (where: string, exit: string, send: Record<string, unknown>) =>
+  `${where}: ${exit} comes straight after "${stepName(send)}", so customers are closed out before they could act on it. Put a wait (the response window) before the exit; you choose the length.`;
 
 function forkGaps(s: Record<string, unknown>, where: string, out: string[], covered: boolean): void {
   const name = stepName(s);
