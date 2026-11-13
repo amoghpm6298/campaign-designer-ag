@@ -81,10 +81,10 @@ const BASE_TOOLS: ToolDef[] = [
     input_schema: { type: 'object', properties: { part: { type: 'string' } } },
   },
   {
-    name: 'edit_campaign',
-    title: 'Editing the campaign',
+    name: 'create_campaign',
+    title: 'Creating the campaign',
     description:
-      'Change campaign settings in the CAMPAIGN OBJECT, saved straight to file. Execution fields only; send only what you are changing. name, description; goal {eventCategory, eventType} = the event that proves success (it exits anyone who reaches it); entry = who is eligible at all (everyone who has not reached the goal yet), as {entity, conditions[], groups[]} using real attributes; membership {type: "locked" (fixed as of launch) | "open" (newly matching customers join), refresh: daily|weekly|monthly}; everyoneElse {approach: "journey" | "none", journey: steps[]} for customers who match no bucket. afterJourney {no_response, not_reachable, declined, converted: days | "leave"} and maxAttempts (the stopping rule) for recurring campaigns. Reasons and notes go in the context (add_context), not here.',
+      'Create the campaign, once, in the CAMPAIGN OBJECT (saved straight to file). Same fields as edit_campaign: name, description, goal, entry, membership, everyoneElse, and for recurring campaigns maxAttempts and afterJourney.',
     input_schema: {
       type: 'object',
       properties: {
@@ -105,10 +105,53 @@ const BASE_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'edit_campaign',
+    title: 'Editing the campaign',
+    description:
+      'Change campaign settings in the CAMPAIGN OBJECT, saved straight to file. Execution fields only; send only what you are changing. name, description; goal {eventCategory, eventType} = the event that proves success (your goal checks take out anyone who reaches it); entry = who is eligible at all (everyone who has not reached the goal yet), as {entity, conditions[], groups[]} using real attributes; membership {type: "locked" (fixed as of launch) | "open" (newly matching customers join), refresh: daily|weekly|monthly}; everyoneElse {approach: "journey" | "none", journey: steps[]} for customers who match no bucket. afterJourney {no_response, not_reachable, declined, converted: days | "leave"} and maxAttempts (the stopping rule) for recurring campaigns. Reasons and notes go in the context (add_context), not here.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+        goal: { type: 'object', properties: { eventCategory: { type: 'string' }, eventType: { type: 'string' }, conditions: { type: 'array', items: CONDITION } }, required: ['eventCategory', 'eventType'] },
+        entry: { type: 'object', properties: { entity: { type: 'string' }, conditions: { type: 'array', items: CONDITION }, groups: { type: 'array', items: GROUP } }, required: ['entity'] },
+        membership: { type: 'object', properties: { type: { type: 'string', enum: ['locked', 'open'] }, refresh: { type: 'string', enum: ['daily', 'weekly', 'monthly'] } }, required: ['type'] },
+        everyoneElse: { type: 'object', properties: { approach: { type: 'string', enum: ['journey', 'none'] }, journey: STEPS }, required: ['approach'] },
+        maxAttempts: { type: 'number', description: 'Recurring campaigns: the stopping rule. The most times one customer goes through this campaign (usually 2). After their last time they leave for good, whatever their ending.' },
+        afterJourney: {
+          type: 'object',
+          description: 'Recurring campaigns: per outcome, days before a customer may come back in (and be bucketed again), or "leave". Opted-out customers never come back and are not set here.',
+          properties: Object.fromEntries(['no_response', 'not_reachable', 'declined', 'converted'].map((k) => [k, { anyOf: [{ type: 'number' }, { type: 'string', enum: ['leave'] }] }])),
+        },
+      },
+      $defs: { step: STEP_DEF },
+    },
+  },
+  {
+    name: 'create_bucket',
+    title: 'Creating a bucket',
+    description:
+      'Create ONE new bucket in the CAMPAIGN OBJECT, saved straight to file: id (short slug, new), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0 unless the manager explicitly asked for a holdout), journey (this bucket\'s own steps). Its reasoning (behaviour, thesis, evidence, metric) and sizing go in the context with add_context.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        priority: { type: 'number' },
+        rule: { type: 'array', items: GROUP },
+        holdoutPct: { type: 'number' },
+        journey: STEPS,
+      },
+      required: ['id', 'name', 'priority', 'rule'],
+      $defs: { step: STEP_DEF },
+    },
+  },
+  {
     name: 'edit_bucket',
     title: 'Editing a bucket',
     description:
-      'Add, change or remove ONE bucket in the CAMPAIGN OBJECT, saved straight to file. Execution fields only: id (short slug), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0 unless the manager explicitly asked for a holdout: a share of the bucket that gets no messages, to measure lift), journey (this bucket\'s own steps). Match by id; when changing, send only what changes. remove: true deletes it. The bucket\'s reasoning (behaviour, thesis, evidence, metric) and its sizing go in the context with add_context. For a small change to a journey use edit_journey.',
+      'Change or remove ONE bucket in the CAMPAIGN OBJECT, saved straight to file. Execution fields only: id (short slug), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0 unless the manager explicitly asked for a holdout: a share of the bucket that gets no messages, to measure lift), journey (this bucket\'s own steps). Match by id; when changing, send only what changes. remove: true deletes it. The bucket\'s reasoning (behaviour, thesis, evidence, metric) and its sizing go in the context with add_context. For a small change to a journey use edit_journey.',
     input_schema: {
       type: 'object',
       properties: {
@@ -263,7 +306,9 @@ export const TOOL_TITLES: Record<string, { running: string; done: string }> = {
   ...Object.fromEntries(AGENT_TOOLS.map((t) => [t.name, { running: t.title, done: LOOKUP_DONE[t.name] ?? t.title }])),
   ask_questions: { running: 'Putting questions to you', done: 'Asked you questions' },
   get_campaign: { running: 'Reading the campaign', done: 'Read the campaign' },
+  create_campaign: { running: 'Creating the campaign', done: 'Created the campaign' },
   edit_campaign: { running: 'Editing the campaign', done: 'Edited the campaign' },
+  create_bucket: { running: 'Creating a bucket', done: 'Created a bucket' },
   edit_bucket: { running: 'Editing a bucket', done: 'Edited a bucket' },
   get_context: { running: 'Reading the context', done: 'Read the context' },
   list_links: { running: "Checking the bank's links", done: "Checked the bank's links" },
@@ -360,7 +405,7 @@ function sizeEntries(raw: unknown, env: ToolEnv): { entries: unknown[]; lines: s
 
 export function runToolCall(name: string, input: Record<string, unknown>, state: AgentState, env: ToolEnv): ToolOutcome {
   const out = runToolCallInner(name, input, state, env);
-  if (!out.ok || !env.links || !['edit_bucket', 'edit_journey', 'edit_campaign'].includes(name) || out.state.campaign === state.campaign) return out;
+  if (!out.ok || !env.links || !['create_bucket', 'edit_bucket', 'edit_journey', 'create_campaign', 'edit_campaign'].includes(name) || out.state.campaign === state.campaign) return out;
   // A link that cannot be sent is refused like any other hard rule — but only
   // when this edit introduced it; problems already there are left to the build
   // checks and repair turns, so they never block an unrelated edit.
@@ -398,15 +443,24 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
       return { state, ok: true, doneTitle: part === 'all' ? 'Read the campaign' : `Read the campaign (${part})`, summary: part, result: view, forModel: JSON.stringify(view) };
     }
 
+    case 'create_campaign':
     case 'edit_campaign': {
+      const c = state.campaign;
+      const exists = !!(c.name || c.goal || c.entry || c.membership || c.buckets.length);
+      if (name === 'create_campaign' && exists) return { state, ok: false, forModel: 'Not saved: the campaign already exists. Change it with edit_campaign.', summary: 'Campaign already exists' };
+      if (name === 'edit_campaign' && !exists) return { state, ok: false, forModel: 'Not saved: there is no campaign yet. Create it with create_campaign.', summary: 'No campaign yet' };
       const res = updateCampaign(state, input);
       if (res.error) return { state, ok: false, forModel: `Not saved: ${res.error}`, summary: res.error };
       const { buckets: _b, ...shell } = res.state.campaign;
       void _b;
-      return { state: res.state, ok: true, doneTitle: 'Edited the campaign', summary: res.said, result: shell, forModel: `Saved. ${res.said} Flags now: ${flagLine(res.state)}.` };
+      return { state: res.state, ok: true, doneTitle: name === 'create_campaign' ? 'Created the campaign' : 'Edited the campaign', summary: res.said, result: shell, forModel: `Saved. ${res.said} Flags now: ${flagLine(res.state)}.` };
     }
 
+    case 'create_bucket':
     case 'edit_bucket': {
+      const known = state.campaign.buckets.some((b) => b.id === input.id);
+      if (name === 'create_bucket' && known) return { state, ok: false, forModel: `Not saved: bucket "${String(input.id)}" already exists. Change it with edit_bucket.`, summary: 'Bucket already exists' };
+      if (name === 'edit_bucket' && !known) return { state, ok: false, forModel: `Not saved: there is no bucket "${String(input.id)}". Create it with create_bucket. Buckets now: ${state.campaign.buckets.map((b) => b.id).join(', ') || 'none'}.`, summary: 'No such bucket' };
       if (input.remove === true) {
         const res = removeBucket(state, String(input.id ?? ''), typeof input.reason === 'string' ? input.reason : '');
         if (res.error) return { state, ok: false, forModel: res.error, summary: res.error };

@@ -19,9 +19,9 @@ const ids = (j: BpStep[] | null) => { const out: string[] = []; findAll(j, out);
 function findAll(j: BpStep[] | null | undefined, out: string[]) { for (const s of (j ?? []) as Record<string, unknown>[]) { out.push(String(s.id)); for (const a of (s.arms as { steps: BpStep[] }[]) ?? []) findAll(a.steps, out); } }
 
 function built() {
-  let s = runToolCall('edit_campaign', { name: 'C', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'locked' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
-  s = runToolCall('edit_bucket', { id: 'b1', name: 'B1', priority: 1, rule: [{ entity: 'Card', conditions: [] }], journey }, s, env()).state;
-  s = runToolCall('edit_bucket', { id: 'b2', name: 'B2', priority: 2, rule: [{ entity: 'Card', conditions: [] }], journey }, s, env()).state;
+  let s = runToolCall('create_campaign', { name: 'C', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'locked' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
+  s = runToolCall('create_bucket', { id: 'b1', name: 'B1', priority: 1, rule: [{ entity: 'Card', conditions: [] }], journey }, s, env()).state;
+  s = runToolCall('create_bucket', { id: 'b2', name: 'B2', priority: 2, rule: [{ entity: 'Card', conditions: [] }], journey }, s, env()).state;
   return s;
 }
 
@@ -97,8 +97,8 @@ describe('step ids', () => {
 describe('ids with identical steps in one journey', () => {
   it('editing one of two identical waits keeps both ids where they were', () => {
     const j = [send('First'), { kind: 'wait', durationHours: 48 }, send('Second'), { kind: 'wait', durationHours: 72 }, send('Third')];
-    let s = runToolCall('edit_campaign', { name: 'C', entry: { entity: 'Card' }, membership: { type: 'locked' } }, initialState(), env()).state;
-    s = runToolCall('edit_bucket', { id: 'b1', name: 'B1', rule: [{ entity: 'Card', conditions: [] }], journey: j }, s, env()).state;
+    let s = runToolCall('create_campaign', { name: 'C', entry: { entity: 'Card' }, membership: { type: 'locked' } }, initialState(), env()).state;
+    s = runToolCall('create_bucket', { id: 'b1', name: 'B1', rule: [{ entity: 'Card', conditions: [] }], journey: j }, s, env()).state;
     const before = ids(s.campaign.buckets[0].journey);
     // The first wait becomes 72h, now identical to the second wait.
     const out = runToolCall('edit_journey', { bucketId: 'b1', operations: [{ op: 'replace', path: '1', step: { kind: 'wait', durationHours: 72 } }] }, s, env()).state;
@@ -108,8 +108,8 @@ describe('ids with identical steps in one journey', () => {
 
 describe('a split must total 100%', () => {
   it('is refused before anything changes, with a reason to ask the manager', () => {
-    let s = runToolCall('edit_campaign', { name: 'C', entry: { entity: 'Card' }, membership: { type: 'locked' } }, initialState(), env()).state;
-    s = runToolCall('edit_bucket', { id: 'b1', name: 'B1', rule: [{ entity: 'Card', conditions: [] }], journey }, s, env()).state;
+    let s = runToolCall('create_campaign', { name: 'C', entry: { entity: 'Card' }, membership: { type: 'locked' } }, initialState(), env()).state;
+    s = runToolCall('create_bucket', { id: 'b1', name: 'B1', rule: [{ entity: 'Card', conditions: [] }], journey }, s, env()).state;
     const bad = { kind: 'experiment', label: 'Wording', tests: 'wording', arms: [{ label: 'A', pct: 80, steps: [send('A')] }, { label: 'B', pct: 10, steps: [send('B')] }] };
     const viaEdit = runToolCall('edit_journey', { bucketId: 'b1', operations: [{ op: 'replace', path: '1', step: bad }] }, s, env());
     expect(viaEdit.ok).toBe(false);

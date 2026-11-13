@@ -17,7 +17,7 @@
 // opposite of what the bank context says.
 import { describe, it, expect } from 'vitest';
 import { AGENT_TOOLS, runTool } from '../../server/agentTools';
-import { blueprintVocabulary } from '../../server/blueprint';
+import { issuerContext } from '../../server/blueprint';
 import { resolveTenant } from '../../server/tenants';
 import { DC_NODE_META, DC_STEP_TYPES, DC_ROUTING_TYPES, DC_TERMINAL_TYPES } from '../../src/data/nodeMeta';
 import { DC_ENTRY_TYPES } from '../../src/data/typeSub';
@@ -222,7 +222,7 @@ describe('channel discovery carries the delivery-status vocabulary', () => {
 describe('template availability never contradicts the tenant', () => {
   it('does not list templates for a tenant whose library is unreachable', () => {
     expect(tenant.templateLibraryAccess).toBe('unavailable');
-    const v = blueprintVocabulary(CHANNELS, tenant.templateLibraryAccess);
+    const v = issuerContext(CHANNELS, tenant.templateLibraryAccess);
     // The exact contradiction being removed: the prompt used to assert these
     // templates "exist" while the tool said the library could not be read.
     expect(v).not.toContain('templates that exist');
@@ -232,7 +232,7 @@ describe('template availability never contradicts the tenant', () => {
 
   it('still lists the demo tenant\'s library, labelled synthetic', () => {
     expect(demoTenant.templateLibraryAccess).toBe('synthetic-demo');
-    const v = blueprintVocabulary(CHANNELS, demoTenant.templateLibraryAccess);
+    const v = issuerContext(CHANNELS, demoTenant.templateLibraryAccess);
     expect(v).toContain(COMMS_TEMPLATES[0].name);
     expect(v).toMatch(/SYNTHETIC demo library/i);
     expect(v).not.toMatch(/CT-\d{4}/);
@@ -242,25 +242,10 @@ describe('template availability never contradicts the tenant', () => {
     for (const t of [tenant, demoTenant]) {
       const tool = runTool('check_template_availability', {}, { tenant: t }).result as { reachable: boolean };
       const vocabLists = COMMS_TEMPLATES.some((tpl) =>
-        blueprintVocabulary(CHANNELS, t.templateLibraryAccess).includes(tpl.name),
+        issuerContext(CHANNELS, t.templateLibraryAccess).includes(tpl.name),
       );
       expect(vocabLists, t.tenantId).toBe(tool.reachable);
     }
-  });
-});
-
-describe('the vocabulary block points at the metadata rather than duplicating it', () => {
-  it('names each category\'s entity and flags the new ones', () => {
-    const v = blueprintVocabulary(CHANNELS, 'unavailable');
-    expect(v).toContain('Transaction Events: Transaction — conditions filter Transaction');
-    expect(v).toContain('MARKED NEW');
-  });
-
-  it('tells the model to fetch allowed values instead of inlining 34 of them', () => {
-    const v = blueprintVocabulary(CHANNELS, 'unavailable');
-    expect(v).toContain('list_audience_attributes');
-    // Inlining the full value catalogue is what this deliberately avoids.
-    expect(v).not.toContain('AUTHORIZATION_REVERSAL');
   });
 });
 

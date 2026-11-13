@@ -22,18 +22,21 @@ const send = (name: string, ch = 'WHATSAPP') => ({ kind: 'send', name, stage: 'f
 const exit = (outcome?: string, reason = 'End') => ({ kind: 'exit', reason, ...(outcome ? { outcome } : {}) });
 /** The response window after a last message. */
 const win = { kind: 'wait', durationHours: 96 };
+/** The goal check the agent places after every wait. */
+const gc = { kind: 'goalCheck' };
 
 /** A WhatsApp, then a read / not-read branch, with an "Anything else" route. */
 const designed = (otherwise?: unknown[]) =>
   [
     send('First'),
     { kind: 'wait', durationHours: 48 },
+    gc,
     {
       kind: 'branch',
       label: 'Did they read it?',
       paths: [
-        { label: 'Read', statuses: ['READ'], steps: [send('Different argument'), win, exit('no_response')] },
-        { label: 'Not read', statuses: ['DELIVERED'], steps: [send('Resend', 'SMS'), win, exit('no_response')] },
+        { label: 'Read', statuses: ['READ'], steps: [send('Different argument'), win, gc, exit('no_response')] },
+        { label: 'Not read', statuses: ['DELIVERED'], steps: [send('Resend', 'SMS'), win, gc, exit('no_response')] },
       ],
       ...(otherwise ? { otherwise } : {}),
     },
@@ -86,11 +89,11 @@ describe('the "Anything else" route', () => {
   });
 
   it('can be addressed and edited precisely', () => {
-    let s = runToolCall('edit_campaign', { name: 'A', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'locked' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
-    s = runToolCall('edit_bucket', { id: 'b1', name: 'Fresh', priority: 1, rule: [{ entity: 'Card', conditions: [] }], journey: designed([exit('not_reachable')]) }, s, env()).state;
-    const out = runToolCall('edit_journey', { bucketId: 'b1', operations: [{ op: 'insert_before', path: '2.otherwise.0', step: send('Email try', 'EMAIL') }] }, s, env());
+    let s = runToolCall('create_campaign', { name: 'A', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'locked' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
+    s = runToolCall('create_bucket', { id: 'b1', name: 'Fresh', priority: 1, rule: [{ entity: 'Card', conditions: [] }], journey: designed([exit('not_reachable')]) }, s, env()).state;
+    const out = runToolCall('edit_journey', { bucketId: 'b1', operations: [{ op: 'insert_before', path: '3.otherwise.0', step: send('Email try', 'EMAIL') }] }, s, env());
     expect(out.ok).toBe(true);
-    const branch = (out.state.campaign.buckets[0].journey as unknown as { otherwise?: { name?: string; id?: string }[] }[])[2];
+    const branch = (out.state.campaign.buckets[0].journey as unknown as { otherwise?: { name?: string; id?: string }[] }[])[3];
     expect(branch.otherwise?.[0].name).toBe('Email try');
     expect(branch.otherwise?.[0].id).toBeTruthy();
   });
@@ -98,7 +101,7 @@ describe('the "Anything else" route', () => {
 
 describe('endings', () => {
   it('a fully designed journey has no open ending decisions', () => {
-    expect(endingGaps(campaign(designed([send('Email try', 'EMAIL'), win, exit('no_response')])))).toEqual([]);
+    expect(endingGaps(campaign(designed([send('Email try', 'EMAIL'), win, gc, exit('no_response')])))).toEqual([]);
   });
 
   it('names every path that stops without saying how the customer left', () => {
@@ -117,7 +120,11 @@ describe('endings', () => {
     // send → exit: closed out before they could act
     expect(endingGaps(campaign([send('Only'), exit('no_response')] as unknown as BpStep[])).join(' ')).toMatch(/comes straight after "Only".*response window/);
     // send → wait → exit: fine
-    expect(endingGaps(campaign([send('Only'), win, exit('no_response')] as unknown as BpStep[]))).toEqual([]);
+    expect(endingGaps(campaign([send('Only'), win, gc, exit('no_response')] as unknown as BpStep[]))).toEqual([]);
+    // a goal check straight after the message gives no time either
+    expect(endingGaps(campaign([send('Only'), gc, exit('no_response')] as unknown as BpStep[])).join(' ')).toMatch(/straight after "Only"/);
+    // a wait with no goal check after it is the agent's to fix
+    expect(endingGaps(campaign([send('Only'), win, exit('no_response')] as unknown as BpStep[])).join(' ')).toMatch(/no goal check/);
     // a fork arm ending on a send, flowing into the trailing exit
     const j = [send('First'), { kind: 'branch', label: 'Read?', paths: [{ label: 'Read', statuses: ['READ'], steps: [send('R')] }], otherwise: [exit('not_reachable')] }, exit('no_response')] as unknown as BpStep[];
     expect(endingGaps(campaign(j)).join(' ')).toMatch(/arm|path "Read".*straight after "R"/);
@@ -149,8 +156,8 @@ describe('endings', () => {
   });
 
   it('build_campaign reports open endings separately from things to fix', () => {
-    let s = runToolCall('edit_campaign', { name: 'A', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'locked' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
-    s = runToolCall('edit_bucket', { id: 'b1', name: 'Fresh', priority: 1, rule: [{ entity: 'Card', conditions: [] }], journey: [send('Only')] }, s, env()).state;
+    let s = runToolCall('create_campaign', { name: 'A', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'locked' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
+    s = runToolCall('create_bucket', { id: 'b1', name: 'Fresh', priority: 1, rule: [{ entity: 'Card', conditions: [] }], journey: [send('Only')] }, s, env()).state;
     const out = runToolCall('build_campaign', {}, s, env());
     expect(out.forModel).toMatch(/ENDINGS NOT DECIDED YET/);
     expect(out.forModel).not.toMatch(/FIX BEFORE YOU FINISH/);
@@ -165,7 +172,7 @@ describe('hard lines', () => {
   });
 
   it('no bucket rule may target opted-out customers', () => {
-    const s = runToolCall('edit_bucket', { id: 'x', name: 'Opted out', priority: 1, rule: [{ entity: 'Customer', conditions: [{ attribute: 'Opted Out', operator: 'Equals', value: 'Yes' }] }], journey: [send('Hi')] }, initialState(), env());
+    const s = runToolCall('create_bucket', { id: 'x', name: 'Opted out', priority: 1, rule: [{ entity: 'Customer', conditions: [{ attribute: 'Opted Out', operator: 'Equals', value: 'Yes' }] }], journey: [send('Hi')] }, initialState(), env());
     expect(s.ok).toBe(false);
     expect(s.state.campaign.buckets).toHaveLength(0);
   });
@@ -222,8 +229,8 @@ describe('the stopping rule', () => {
   });
 
   it('is set by the agent (1 to 10) and directly by the manager, versioned', () => {
-    expect(runToolCall('edit_campaign', { maxAttempts: 0 }, initialState(), env()).ok).toBe(false);
-    expect(runToolCall('edit_campaign', { maxAttempts: 2 }, initialState(), env()).state.campaign.maxAttempts).toBe(2);
+    expect(runToolCall('create_campaign', { maxAttempts: 0 }, initialState(), env()).ok).toBe(false);
+    expect(runToolCall('create_campaign', { maxAttempts: 2 }, initialState(), env()).state.campaign.maxAttempts).toBe(2);
     const c = campaign(designed([exit('not_reachable')]));
     saveCampaignObject('d2', 'TEN-YES', c);
     const r = directEdit('d2', 'TEN-YES', { op: 'maxAttempts', value: 3 });
@@ -233,10 +240,10 @@ describe('the stopping rule', () => {
   });
 
   it('a returning bucket must target one attempt, never "more than"', () => {
-    const bad = runToolCall('edit_bucket', { id: 'r', name: 'Repeat', priority: 1, rule: hist('0', 'Greater than'), journey: [send('Hi', 'SMS'), exit('no_response')] }, initialState(), env());
+    const bad = runToolCall('create_bucket', { id: 'r', name: 'Repeat', priority: 1, rule: hist('0', 'Greater than'), journey: [send('Hi', 'SMS'), exit('no_response')] }, initialState(), env());
     expect(bad.ok).toBe(false);
     expect(String(bad.forModel)).toMatch(/one specific attempt/);
-    const good = runToolCall('edit_bucket', { id: 'r', name: 'Repeat', priority: 1, rule: hist('1'), journey: [send('Hi', 'SMS'), exit('no_response')] }, initialState(), env());
+    const good = runToolCall('create_bucket', { id: 'r', name: 'Repeat', priority: 1, rule: hist('1'), journey: [send('Hi', 'SMS'), exit('no_response')] }, initialState(), env());
     expect(good.ok).toBe(true);
   });
 
@@ -261,5 +268,19 @@ describe('the stopping rule', () => {
     c.buckets[0].holdoutPct = 10;
     expect(JSON.stringify(planToBlueprint(c).blueprint)).toMatch(/"outcome":"held_back"/);
     expect(journeyErrors([exit('held_back')] as unknown as BpStep[]).join(' ')).toMatch(/holdout is the system/);
+  });
+});
+
+describe('goal checks: the agent places them, the builder adds none', () => {
+  const build = (journey: BpStep[]) => {
+    const bp = planToBlueprint(campaign(journey, { membership: { type: 'locked' } })).blueprint!;
+    const r = buildFromBlueprint(bp, { availableChannels: ['SMS', 'WHATSAPP', 'EMAIL'], templateLibraryAccess: 'unavailable' });
+    return Object.values((r.graph as { nodes: Record<string, { type: string }> }).nodes).filter((n) => n.type === 'GOAL_CHECK').length;
+  };
+  it('a message and a wait get no goal check unless the agent wrote one', () => {
+    expect(build([send('A'), { kind: 'wait', durationHours: 72 }, exit('no_response')] as unknown as BpStep[])).toBe(0);
+  });
+  it('a goalCheck step builds exactly one goal check, where it was written', () => {
+    expect(build([send('A'), { kind: 'wait', durationHours: 72 }, { kind: 'goalCheck' }, exit('no_response')] as unknown as BpStep[])).toBe(1);
   });
 });

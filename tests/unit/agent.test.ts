@@ -435,3 +435,18 @@ describe('holdouts', () => {
     expect(p).toMatch(/no holdout unless the manager explicitly asks/);
   });
 });
+
+describe('create vs edit tools', () => {
+  it('create_campaign once, then edit_campaign; create_bucket for new ids, edit_bucket for existing ones', () => {
+    const goal = { eventCategory: 'Card Events', eventType: 'Card Activated' };
+    expect(runToolCall('edit_campaign', { name: 'A' }, initialState(), env()).forModel).toMatch(/Create it with create_campaign/);
+    let s = runToolCall('create_campaign', { name: 'A', goal }, initialState(), env()).state;
+    expect(runToolCall('create_campaign', { name: 'B' }, s, env()).forModel).toMatch(/already exists.*edit_campaign/);
+    expect(runToolCall('edit_campaign', { name: 'B' }, s, env()).state.campaign.name).toBe('B');
+    expect(runToolCall('edit_bucket', { id: 'b1', name: 'X' }, s, env()).forModel).toMatch(/Create it with create_bucket/);
+    s = runToolCall('create_bucket', { id: 'b1', name: 'X', priority: 1, rule: [{ entity: 'Card', conditions: [] }] }, s, env()).state;
+    expect(runToolCall('create_bucket', { id: 'b1', name: 'Y', priority: 1, rule: [] }, s, env()).forModel).toMatch(/already exists.*edit_bucket/);
+    expect(runToolCall('edit_bucket', { id: 'b1', name: 'Y' }, s, env()).state.campaign.buckets[0].name).toBe('Y');
+    expect(toolsFor(false).map((t) => t.name)).toEqual(expect.arrayContaining(['create_campaign', 'edit_campaign', 'create_bucket', 'edit_bucket']));
+  });
+});

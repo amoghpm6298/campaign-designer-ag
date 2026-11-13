@@ -28,7 +28,8 @@ export const STEP_DEF = {
   properties: {
     kind: {
       type: 'string',
-      enum: ['send', 'wait', 'waitForEvent', 'exit', 'experiment', 'condition', 'branch'],
+      enum: ['send', 'wait', 'goalCheck', 'waitForEvent', 'exit', 'experiment', 'condition', 'branch'],
+      description: 'goalCheck: everyone who has reached the campaign goal leaves here as converted; the rest continue. No other fields.',
     },
     // send
     name: { type: 'string' },

@@ -28,14 +28,12 @@ describe('canvas model', () => {
     expect(m.nodes[0].id).toBe('entry');
   });
 
-  it('puts one goal check after every send and every wait, as the builder does', () => {
-    const m = buildCanvasModel(plan([bucket('b1', 1, [send('a'), { kind: 'wait', durationHours: 48 }, send('b')])]));
-    const after = m.nodes.filter((n) => n.data.kind === 'send' || n.data.kind === 'wait');
+  it('draws goal checks only where the agent placed them', () => {
+    const m = buildCanvasModel(plan([bucket('b1', 1, [send('a'), { kind: 'wait', durationHours: 48 }, { kind: 'goalCheck' }, send('b')])]));
     const checks = m.nodes.filter((n) => n.data.kind === 'goalcheck');
-    expect(after).toHaveLength(3);
-    expect(checks.map((c) => c.id)).toEqual(after.map((s) => `${s.id}:gc`));
-    expect(m.edges.some((e) => e.source === 'b1:0:gc' && e.target === 'b1:1')).toBe(true);
-    expect(m.edges.some((e) => e.source === 'b1:1:gc' && e.target === 'b1:2')).toBe(true);
+    expect(checks.map((c) => c.id)).toEqual(['b1:2']);
+    expect(m.edges.some((e) => e.source === 'b1:1' && e.target === 'b1:2')).toBe(true);
+    expect(m.edges.some((e) => e.source === 'b1:2' && e.target === 'b1:3')).toBe(true);
   });
 
   it('draws a holdout only when one is set', () => {

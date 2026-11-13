@@ -3,7 +3,7 @@
 // deterministic half — no LLM involved — because that is the half that must
 // never let an invented node type, event or template reach the campaign.
 import { describe, it, expect } from 'vitest';
-import { buildFromBlueprint, blueprintVocabulary, type CampaignBlueprint } from '../../server/blueprint';
+import { buildFromBlueprint, type CampaignBlueprint } from '../../server/blueprint';
 import { scoreTemplates } from '../../agent-proto/templateSelect';
 import { validateCampaignGraph } from '../../agent-proto/validate';
 import { EVENT_CATEGORIES, COMMS_TEMPLATES, ELIGIBILITY_META, type Channel } from '../../src/data/sharedConstants';
@@ -176,16 +176,6 @@ describe('blueprint → graph, built by the application reducer', () => {
     expect(report.checks.find((c) => c.id === 'no-open-branches')?.status).toBe('pass');
   });
 
-  it('the vocabulary handed to the model contains only real values', () => {
-    const v = blueprintVocabulary(CHANNELS, 'synthetic-demo');
-    for (const cat of Object.keys(EVENT_CATEGORIES)) expect(v).toContain(cat);
-    for (const kind of ['send', 'wait', 'waitForEvent', 'exit', 'experiment']) expect(v).toContain(kind);
-    // Template NAMES are listed so the model can reason about coverage, but
-    // no ids — the model must never pick one by id.
-    expect(v).toContain(COMMS_TEMPLATES[0].name);
-    expect(v).not.toMatch(/CT-\d{4}/);
-  });
-
   // --- defects found by real Claude runs, not by reasoning about the code ---
 
   it('turns phrase objectives into usable keywords', () => {
@@ -319,16 +309,6 @@ describe('blueprint → graph, built by the application reducer', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('tells the model which nodes the application inserts for it', () => {
-    // A live refinement emitted exit steps meaning "they already converted",
-    // not knowing the app auto-inserts Goal Check + Goal Reached. Those
-    // exits consumed the open slot and dropped every later step.
-    const v = blueprintVocabulary(CHANNELS, 'synthetic-demo');
-    expect(v).toContain('automatically inserts a Goal Check');
-    expect(v).toContain('do NOT add an exit step');
-    expect(v).toContain('"first-touch" | "reminder" | "outcome"'.replace(/"/g, '').split(' | ')[0]);
-  });
-
   it('off-topic signals are judged relative to what was asked for', () => {
     // Absolute off-topic signals disqualified every real activation template
     // for an ACTIVATION campaign. A signal only disqualifies when the caller
@@ -345,139 +325,6 @@ describe('blueprint → graph, built by the application reducer', () => {
     const activation = forEmi.find((r) => r.template.id === 'CT-3313')!;
     expect(activation.score).toBeLessThan(0);
     expect(activation.offTopic).toContain('card activation');
-  });
-});
-
-describe('the vocabulary tells the agent what it CANNOT build', () => {
-  // The trailing "node types the application supports" list named all eleven
-  // types, four of which a blueprint cannot produce. Once list_step_types
-  // began reporting those same types with their wiring, two sources said
-  // Branch exists and nothing said it was unreachable from a blueprint.
-  const v = () => blueprintVocabulary(CHANNELS, 'unavailable');
-
-  /** Every node type buildFromBlueprint can actually construct, found by building one. */
-  const constructible = () => {
-    const types = new Set<string>();
-    const add = (bp: CampaignBlueprint) => {
-      const r = buildFromBlueprint(bp, CHANNELS);
-      for (const n of Object.values(r.graph.nodes)) types.add(n.type);
-    };
-    const send = { kind: 'send' as const, name: 's', objective: ['emi'], stage: 'first-touch' as const, describe: 'x' };
-    // One blueprint per supported step kind, so the set is derived from the
-    // builder's real output rather than from a list written here.
-    add({ ...linear, entry: { kind: 'audience', entity: 'Account' }, steps: [send] });
-    add({
-      ...linear,
-      steps: [
-        send,
-        { kind: 'wait', durationHours: 24 },
-        { kind: 'waitForEvent', eventCategory: 'EMI Events', eventType: 'EMI_STATUS_CHANGED', timeoutDays: 7 },
-        { kind: 'exit', reason: 'done' },
-      ],
-    });
-    add({
-      ...linear,
-      steps: [{ kind: 'experiment', label: 'ab', arms: [{ label: 'A', pct: 50, steps: [send] }, { label: 'B', pct: 50, steps: [send] }] }],
-    });
-    add({ ...linear, steps: [send, { kind: 'condition', label: 'c', outcomes: ['DELIVERED'], yes: [], no: [] }] });
-    // The two the sample used to omit — which is how the vocabulary block
-    // came to claim, for weeks, that neither could be built.
-    add({
-      ...linear,
-      steps: [
-        {
-          kind: 'branch',
-          label: 'band',
-          entity: 'Account',
-          attribute: 'Status',
-          paths: [
-            { label: 'Active', operator: 'Equals', value: 'Active', steps: [send] },
-            { label: 'Rest', operator: 'Not Equals', value: 'Active', steps: [send] },
-          ],
-        },
-      ],
-    } as CampaignBlueprint);
-    add({
-      ...linear,
-      steps: [
-        { kind: 'condition', label: 'limit', on: { entity: 'Account', attribute: 'Status', operator: 'Equals', value: 'Active' }, yes: [send], no: [send] },
-      ],
-    } as CampaignBlueprint);
-    return types;
-  };
-
-  it('does not hand the agent raw node-type names', () => {
-    expect(v()).not.toMatch(/^- DECISION_SPLIT/m);
-  });
-
-  it('DOES construct a Branch and an attribute condition, so the prompt must not deny them', () => {
-    // REVERSED 2026-10-22, and the old assertion is why this mattered. It read
-    // "the builder genuinely never constructs one" and passed only because the
-    // sample above fed no `branch` step. Meanwhile the vocabulary block told
-    // the agent, every turn, that a Branch was unavailable and that a
-    // condition could read nothing but a delivery outcome. Both are built —
-    // DECISION_SPLIT from `kind: 'branch'`, SPLIT from `condition.on` — so the
-    // agent was being talked out of the two tools it has for treating groups
-    // differently, and then measured on how flat its campaigns were.
-    const types = constructible();
-    expect(types.has('DECISION_SPLIT')).toBe(true);
-    expect(types.has('SPLIT')).toBe(true);
-    const text = v();
-    expect(text).not.toMatch(/more than two outcomes/i);
-    expect(text).not.toMatch(/except the previous send's delivery outcome/i);
-  });
-
-  it('names every capability the builder has but the blueprint cannot reach', () => {
-    const text = v();
-    expect(text).toMatch(/Builder capabilities this blueprint CANNOT express/);
-    for (const [what, pattern] of [
-      ['mid-journey transaction history', /Transaction history and milestone checks/i],
-      ['simultaneous paths', /every customer takes every path/i],
-      ['parallel paths', /parallel paths/i],
-      ['audience extras', /Milestone as an audience entity/i],
-    ] as const) {
-      expect(text, what).toMatch(pattern);
-    }
-  });
-
-  it('tells the agent to raise a limitation rather than fake the capability', () => {
-    const text = v();
-    expect(text).toMatch(/operational-limitation/);
-    expect(text).toMatch(/do not pretend you built it/i);
-    expect(text).toMatch(/do not quietly design around it/i);
-    // A supported alternative is offered where one exists.
-    expect(text).toMatch(/Closest supported:/);
-  });
-
-  it('the claimed limitations are true of the real builder', () => {
-    // Each claim checked against behaviour, not against the prose.
-    const built = buildFromBlueprint(
-      { ...linear, steps: [{ kind: 'send', name: 's', objective: ['emi'], stage: 'first-touch', describe: 'x' }] },
-      CHANNELS,
-    );
-    const send = Object.values(built.graph.nodes).find((n) => n.type === 'SEND')!;
-    const cfg = send._config as Record<string, unknown>;
-    // Unspecified send timing keeps the builder default, not a zeroed clock.
-    expect(cfg.timing).toBe('Absolute');
-    expect(cfg.absTime).toBe('11:00');
-    expect(cfg.fallbackChannel).toBe('');
-    // Milestone is not an audience entity the blueprint accepts
-    const milestone = buildFromBlueprint({ ...linear, entry: { kind: 'audience', entity: 'Milestone' } }, CHANNELS);
-    expect(milestone.ok).toBe(false);
-    expect(milestone.issues.some((i) => /not a real entity/.test(i.problem))).toBe(true);
-  });
-
-  it('the supported step kinds it advertises are exactly what the builder constructs', () => {
-    // The "step kinds you may use" line must not promise a kind the builder
-    // cannot produce, which is the failure mode this whole section exists for.
-    const text = v();
-    for (const kind of ['send', 'wait', 'waitForEvent', 'exit', 'experiment', 'condition']) {
-      expect(text, kind).toContain(kind);
-    }
-    const types = constructible();
-    for (const t of ['SEND', 'PAUSE', 'WAIT_UNTIL', 'EXIT', 'RANDOM_SPLIT', 'SPLIT', 'ENTRY_EVENT', 'ENTRY_SEGMENT']) {
-      expect(types.has(t), t).toBe(true);
-    }
   });
 });
 

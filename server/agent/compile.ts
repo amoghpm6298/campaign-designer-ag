@@ -27,7 +27,7 @@ export function planToBlueprint(campaign: CampaignObject): CompileResult {
   const problems: string[] = [];
   const shell = campaign;
   if (!shell.goal && !shell.entry && !shell.membership && !shell.buckets.length)
-    return { blueprint: null, problems: ['There is no campaign yet. Write it with edit_campaign (entry, goal, membership) and edit_bucket.'], bucketsIncluded: [] };
+    return { blueprint: null, problems: ['There is no campaign yet. Write it with create_campaign (entry, goal, membership) and create_bucket.'], bucketsIncluded: [] };
 
   const ready = campaign.buckets
     .slice()
@@ -144,7 +144,9 @@ function endingGapsIn(list: BpStep[] | null | undefined, where: string, out: str
   const prev = steps[steps.length - 2];
   if (last.kind === 'exit') {
     if (!last.outcome) out.push(`${where}: the exit "${String(last.reason ?? '')}" does not say how the customer left. Give it an outcome.`);
-    if (prev?.kind === 'send') out.push(noWindow(where, `the exit "${String(last.reason ?? '')}"`, prev));
+    // Look past goal checks: one right after a message gives nobody time either.
+    const before = [...steps.slice(0, -1)].reverse().find((x) => x.kind !== 'goalCheck');
+    if (before?.kind === 'send') out.push(noWindow(where, `the exit "${String(last.reason ?? '')}"`, before));
     if (prev && ['branch', 'experiment', 'condition'].includes(String(prev.kind))) forkGaps(prev, where, out, Boolean(last.outcome));
     return;
   }
@@ -182,6 +184,21 @@ function forkGaps(s: Record<string, unknown>, where: string, out: string[], cove
   }
 }
 
+/** Every wait is followed by a goal check the agent placed; code only points at a missing one. */
+function goalCheckGaps(list: BpStep[] | null | undefined, where: string, out: string[]): void {
+  const steps = (list ?? []) as unknown as Record<string, unknown>[];
+  steps.forEach((s, i) => {
+    const next = steps[i + 1];
+    if (s.kind === 'wait' && next && next.kind !== 'goalCheck')
+      out.push(`${where}: after the ${Math.round((Number(s.durationHours) / 24) * 10) / 10}-day wait comes "${stepName(next)}" with no goal check, so customers who already reached the goal get it anyway. Put a goalCheck step after the wait.`);
+    for (const a of (s.arms as { label?: string; steps?: BpStep[] }[] | undefined) ?? []) goalCheckGaps(a.steps, `${where} › "${stepName(s)}" arm "${a.label}"`, out);
+    for (const p of (s.paths as { label?: string; steps?: BpStep[] }[] | undefined) ?? []) goalCheckGaps(p.steps, `${where} › "${stepName(s)}" path "${p.label}"`, out);
+    goalCheckGaps(s.otherwise as BpStep[] | undefined, `${where} › "${stepName(s)}" › "Anything else"`, out);
+    goalCheckGaps(s.yes as BpStep[] | undefined, `${where} › "${stepName(s)}" yes`, out);
+    goalCheckGaps(s.no as BpStep[] | undefined, `${where} › "${stepName(s)}" no`, out);
+  });
+}
+
 /**
  * Design decisions still open about how customers leave and what happens next.
  * With `since`, only the journeys changed since then are looked at, so a small
@@ -190,9 +207,15 @@ function forkGaps(s: Record<string, unknown>, where: string, out: string[], cove
 export function endingGaps(campaign: CampaignObject, since?: CampaignObject): string[] {
   const out: string[] = [];
   const touched = (id: string, journey: unknown) => !since || since.buckets.find((x) => x.id === id)?.journey !== journey;
-  for (const b of campaign.buckets) if (b.journey?.length && touched(b.id, b.journey)) endingGapsIn(b.journey, `Bucket "${b.name}"`, out);
-  if (campaign.everyoneElse?.approach === 'journey' && campaign.everyoneElse.journey?.length && (!since || since.everyoneElse?.journey !== campaign.everyoneElse.journey))
+  for (const b of campaign.buckets)
+    if (b.journey?.length && touched(b.id, b.journey)) {
+      endingGapsIn(b.journey, `Bucket "${b.name}"`, out);
+      if (campaign.goal) goalCheckGaps(b.journey, `Bucket "${b.name}"`, out);
+    }
+  if (campaign.everyoneElse?.approach === 'journey' && campaign.everyoneElse.journey?.length && (!since || since.everyoneElse?.journey !== campaign.everyoneElse.journey)) {
     endingGapsIn(campaign.everyoneElse.journey, 'Everyone else', out);
+    if (campaign.goal) goalCheckGaps(campaign.everyoneElse.journey, 'Everyone else', out);
+  }
   const shapeChanged = !since || since.membership !== campaign.membership || !since.buckets.some((b) => b.journey?.length);
   if (shapeChanged && campaign.membership?.type === 'open' && campaign.buckets.some((b) => b.journey?.length) && !campaign.afterJourney)
     out.push('This campaign is recurring, but what happens after the journey is not decided: for each outcome (no_response, not_reachable, declined, converted), how many days before the customer may come back and be bucketed again, or "leave". Set afterJourney with edit_campaign.');

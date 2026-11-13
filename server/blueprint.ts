@@ -13,7 +13,7 @@
 import { dcConfirmAddNode, type DcAddingAt } from '../src/reducer/campaignReducer';
 import { dcDefaultConfig } from '../src/reducer/defaultConfig';
 import { dcResetIdCounters } from '../src/reducer/idGen';
-import { COMMS_TEMPLATES, EVENT_CATEGORIES, ELIGIBILITY_META, DC_EVENT_ENTITY, DELIVERY_STATUS_BY_CHANNEL, dcOperatorsForAttribute, type AttrMeta, type Channel } from '../src/data/sharedConstants';
+import { COMMS_TEMPLATES, EVENT_CATEGORIES, ELIGIBILITY_META, dcOperatorsForAttribute, type AttrMeta, type Channel } from '../src/data/sharedConstants';
 import {
   validateEventConditions,
   validateAudienceConditions,
@@ -25,7 +25,7 @@ import {
   type ConditionLimitation,
 } from '../src/data/conditionValidation';
 import { selectTemplate, proposeMessaging, type TemplateNeed } from '../agent-proto/templateSelect';
-import { statusVocabularyFor, isInFlight, isUndelivered, engagementStatusesFor } from './deliveryStatuses';
+import { statusVocabularyFor, isInFlight, isUndelivered } from './deliveryStatuses';
 import { forkAttribute, sendSteps } from './pathReading';
 import type { DripGraph, DripGoal, DripGoalCondition } from '../src/data/graphTypes';
 
@@ -117,6 +117,8 @@ export type BpStep =
       fallbackChannel?: string;
     }
   | { kind: 'wait'; durationHours: number; why?: string }
+  /** Everyone who has reached the campaign goal leaves here as converted. Placed by the agent. */
+  | { kind: 'goalCheck' }
   | {
       kind: 'waitForEvent';
       eventCategory: string;
@@ -988,7 +990,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
    */
   const isLinearTail = (steps: BpStep[]): boolean => {
     const body = steps[steps.length - 1]?.kind === 'exit' ? steps.slice(0, -1) : steps;
-    return body.length > 0 && body.some((s) => s.kind === 'send') && body.every((s) => s.kind === 'send' || s.kind === 'wait');
+    return body.length > 0 && body.some((s) => s.kind === 'send') && body.every((s) => s.kind === 'send' || s.kind === 'wait' || s.kind === 'goalCheck');
   };
 
   let lastSend: { channel: string; fallbackChannel: string } | null = null;
@@ -1336,7 +1338,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         };
         lastSend = { channel: resolvedChannel, fallbackChannel: String(cfg.fallbackChannel ?? '') };
         const before = new Set(Object.keys(graph.nodes));
-        graph = dcConfirmAddNode(graph, 'SEND', cfg, where, goal);
+        graph = dcConfirmAddNode(graph, 'SEND', cfg, where, goal, { autoGoalCheck: false });
         // Bind any proposal for this step to the node that was just created,
         // so the UI can show the unresolved fields on the right card.
         const newId = Object.keys(graph.nodes).find((id) => !before.has(id));
@@ -1351,7 +1353,18 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
           issues.push({ path, problem: 'A wait has no duration (durationHours), so it was built as 24 hours.' });
         }
         const hours = Math.max(0, Math.round(Number.isFinite(raw) ? raw : 24));
-        graph = dcConfirmAddNode(graph, 'PAUSE', { duration: hours, unit: 'hours' }, where, goal);
+        graph = dcConfirmAddNode(graph, 'PAUSE', { duration: hours, unit: 'hours' }, where, goal, { autoGoalCheck: false });
+        return;
+      }
+
+      if (step.kind === 'goalCheck') {
+        // Placed by the agent, never added for it: everyone who has reached
+        // the goal leaves here as converted; the rest continue on "No".
+        if (!goal) {
+          issues.push({ path, problem: 'A goal check needs the campaign goal, and none is set, so it was left out.' });
+          return;
+        }
+        graph = dcConfirmAddNode(graph, 'GOAL_CHECK', {}, where, goal);
         return;
       }
 
@@ -1610,7 +1623,7 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
                   }
                 : {
                     attribute: `${c.label} (${c.statuses.join(', ')})`,
-                    note: `"${c.label}" has no message on it and shares ${c.statuses.join(', ')} with an arm that does, so it is not built. Nothing is lost: the Goal Check after each send already takes whoever converted off the path.`,
+                    note: `"${c.label}" has no message on it and shares ${c.statuses.join(', ')} with an arm that does, so it is not built. Nothing is lost: whoever converted is taken off the path by the goal checks the journey places.`,
                   },
             );
             clerkedSends += c.sends;
@@ -1860,27 +1873,8 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
 }
 
 /**
- * The vocabulary summary handed to the model, so it proposes only real things.
- *
- * `templateLibraryAccess` is REQUIRED, not defaulted: this block used to list
- * every template under "templates that exist" for every tenant, including the
- * ones whose library Hyperface cannot read at all. The model was then told the
- * library both exists and is unreachable, in the same prompt.
- *
- * Allowed attribute VALUES are deliberately not inlined here — one attribute
- * alone carries 34 of them. They come from list_audience_attributes instead,
- * which is pulled only when the model is actually writing a condition.
- */
-/**
- * What this ISSUER can do. Bank context, not builder vocabulary.
- *
- * Kept apart from `builderVocabulary` because the two belong to different
- * phases. Which channels exist and what they cost is a business input: it
- * shapes a strategy honestly, and a campaign manager would tell you the same
- * thing. The builder's event names, attribute lists and step kinds are not —
- * they describe how the thing gets assembled, and knowing them before the
- * problem is understood is how a conversation about why customers do not
- * convert turns into a conversation about which fields are filterable.
+ * What this ISSUER can do: which channels exist and whether its template
+ * library is readable. Bank context the agent's prompt carries every turn.
  */
 export function issuerContext(
   availableChannels: string[],
@@ -1899,103 +1893,5 @@ export function issuerContext(
           '### Message templates',
           '- This tenant\'s template library is NOT readable from here, so no template list exists for you to pick from. Design the message anyway: give its objective, copy, CTA and tokens. The campaign manager supplies the real account and template id.',
         ]),
-  ].join('\n');
-}
-
-/**
- * How the builder assembles a journey.
- *
- * Withheld until discovery is finished. See `issuerContext` above for the
- * split, and server/CLAUDE.md for why: the agent reasoned in platform terms
- * because platform terms were the only ones it had been given, and this block
- * arriving in the opening message is most of how that happened.
- */
-export function blueprintVocabulary(
-  availableChannels: string[],
-  templateLibraryAccess: 'unavailable' | 'synthetic-demo',
-): string {
-  return [
-    '### Event categories and their event types',
-    '(conditions on a category filter that category\'s ENTITY — call list_event_types for the full detail)',
-    ...Object.entries(EVENT_CATEGORIES).map(([c, m]) => {
-      const entity = DC_EVENT_ENTITY[c];
-      const parts = [
-        entity ? `conditions filter ${entity}` : 'no entity-based conditions',
-        m.isNew ? 'MARKED NEW: proposed, not confirmed built in production' : null,
-      ].filter(Boolean);
-      return `- ${c}: ${m.events.join(', ')} — ${parts.join('; ')}`;
-    }),
-    '',
-    '### Entities and attributes usable in conditions',
-    '(names only. Call list_audience_attributes for each attribute\'s type, operators and ALLOWED VALUES before you write a condition — a value outside the allowed set matches nobody)',
-    ...Object.entries(ELIGIBILITY_META).map(([e, attrs]) => `- ${e}: ${Object.keys(attrs).join(', ')}`),
-    '',
-    '### Channels available to this issuer',
-    `- ${availableChannels.join(', ')}`,
-    '',
-    ...(templateLibraryAccess === 'synthetic-demo'
-      ? [
-          '### Message templates in this tenant\'s SYNTHETIC demo library (you pick by OBJECTIVE, never by id)',
-          ...COMMS_TEMPLATES.map((t) => `- ${t.name} [${t.channelType}]`),
-        ]
-      : [
-          '### Message templates',
-          '- This tenant\'s template library is NOT readable from here, so no template list exists for you to pick from. Design the message anyway: give its objective, copy, CTA and tokens. The campaign manager supplies the real account and template id.',
-        ]),
-    '',
-    '### Step kinds you may use',
-    '- send (has its own clock time and optional delayDays / fallbackChannel — those are fields on the Send, not extra steps), wait, waitForEvent, exit, experiment (A/B arms), condition (Yes/No on a previous send outcome via "outcomes", or on a customer attribute via "on"), branch (n-way: on one attribute, OR on the preceding send\'s delivery statuses)',
-    '',
-    '### Branching on what the last message DID — the real per-channel statuses',
-    '(these are the platform\'s own delivery vocabulary, not a list to invent from. A "branch" with no entity/attribute and `statuses` on each path is an outcome split; one with entity+attribute is a who-split.)',
-    ...availableChannels.map((c) => {
-      const engagement = engagementStatusesFor(c as Channel);
-      const all = DELIVERY_STATUS_BY_CHANNEL[c as Channel] ?? [];
-      return `- ${c}: worth branching on — ${engagement.join(', ') || 'nothing it reports is an engagement signal'}. Everything else it reports (${all.filter((s) => !engagement.includes(s)).join(', ')}) is either in flight or undelivered.`;
-    }),
-    '- WhatsApp and SMS do NOT report opens or clicks. Never put OPENED or CLICKED on one. Email and RCS do report them.',
-    '- DELIVERED on its own means it landed and has NOT been read yet. READ means they saw it and did not act. DELETED means they dismissed the thread.',
-    '- A SPLIT IS A DECISION, NOT A HABIT. Put one after a send only when the arms would do DIFFERENT JOBS: unread needs the same fact sooner, read-and-not-booked needs a different argument, dismissed needs leaving alone. Where every arm would wait the same time and send the same kind of reminder, do not split — that is a clock with extra nodes. One or two designed checks on a whole path is the shape, never one after every message, and never nested three-way forks on a four-touch path. Say in "approach" which send you chose to read back and why that one.',
-    '- Use only the statuses that change the next job on THAT send. A later check may be READ against everything else; email or RCS may be OPENED against CLICKED. Arms on one split must not overlap — on WhatsApp, READ is not also DELIVERED. The leftovers are the reducer\'s catch-all.',
-    '- Never branch on QUEUED, SENT or PENDING: the message is still on its way and that is not a person.',
-    '- Never create a FAILED / UNKNOWN / NOT_DELIVERED arm. Undelivered is "fallbackChannel" on the send itself, which re-attempts the same message elsewhere. An arm for someone who received nothing has nothing different to say.',
-    '- Do not add a "converted" arm. The Goal Check after each send already takes anyone who booked off the path.',
-    '',
-    '### What the application builds FOR you — do not ask for these',
-    '- After every send and every wait, if a Goal is set, the application automatically inserts a Goal Check and a "Goal Reached" exit on its Yes arm. Anyone who reaches the goal leaves the journey there.',
-    '- So do NOT add an exit step meaning "they already converted" or "goal reached" — it exists already, and adding one ends the journey early and drops every later step.',
-    '- Use "exit" ONLY for the single final terminal state, or for the end of a branch arm.',
-    '- Every remaining open path is closed with an exit automatically, so a trailing exit is optional.',
-    '',
-    '### Send "stage" — EXACTLY one of these three strings, nothing else',
-    '- "first-touch" — the opening message',
-    '- "reminder" — any follow-up or reinforcement message',
-    '- "outcome" — a message about a result (approved, failed, expired)',
-    '',
-    // This used to list all eleven node types "for context". Four of them —
-    // Branch, Goal Check, Goal Reached and the entry types — cannot be
-    // produced from a blueprint at all, so the list read as an offer the
-    // builder could not honour. list_step_types now reports those same types
-    // with their wiring, which made the problem worse: two sources said
-    // Branch exists and nothing said it was unreachable from here.
-    '### Builder capabilities this blueprint CANNOT express',
-    'If a design genuinely needs one of these, do not pretend you built it and do not quietly design around it. Raise it as an "operational-limitation" open item, say what you built instead, and let the campaign manager decide.',
-    // TWO CAPABILITIES WERE LISTED AS MISSING AND BOTH ARE BUILT.
-    //
-    // This block said a Branch was unavailable and that a condition could read
-    // nothing but the previous send's delivery outcome. `buildFromBlueprint`
-    // compiles `kind: "branch"` into DECISION_SPLIT and `condition.on` into a
-    // SPLIT on a customer attribute — it has done since the entry-vocabulary
-    // round. So the agent was told, every turn, that its two tools for
-    // treating groups differently did not exist, and then measured on how flat
-    // its campaigns were. A prompt that understates the platform costs more
-    // design quality than one that overstates it: the agent simply stops
-    // reaching.
-    //
-    // Nothing is added to the builder here. This deletes two false sentences.
-    '- A fan-out where every customer takes every path at once. Every split sends a customer down exactly one branch. Closest supported: none — say so if simultaneous paths matter.',
-    '- Transaction history and milestone checks mid-journey. Those forms exist in the builder and this blueprint has no words for them. Closest supported: filter at entry instead, where both DO work.',
-    '- Two or more parallel paths from one step. Every journey here is a single line, branching only at a condition or an experiment.',
-    '- Extra audience filters beyond one entity and its conditions, and Milestone as an audience entity. Milestone is NOT an entity this blueprint accepts and will be rejected.',
   ].join('\n');
 }

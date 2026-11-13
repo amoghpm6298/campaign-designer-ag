@@ -690,7 +690,7 @@ export function editJourney(state: AgentState, target: string, ops: JourneyOp[])
   const bucket = isEveryone ? null : state.campaign.buckets.find((b) => b.id === target);
   const journey = isEveryone ? state.campaign.everyoneElse?.journey : bucket?.journey;
   if (!isEveryone && !bucket) return { state, said: '', error: `No bucket "${target}".` };
-  if (!journey?.length) return { state, said: '', error: 'That journey is empty; write it with edit_bucket (or edit_campaign for everyone else) first.' };
+  if (!journey?.length) return { state, said: '', error: 'That journey is empty; write it with create_bucket or edit_bucket (or edit_campaign for everyone else) first.' };
   const res = applyJourneyOps(journey, ops);
   if (!res.applied.length) return { state, said: '', error: res.errors.join('; ') || 'No operations applied.' };
   const bad = journeyErrors(res.journey);
@@ -717,6 +717,7 @@ export function outline(steps: BpStep[] | null | undefined, prefix = ''): string
     const k = String(s.kind);
     if (k === 'send') out.push(`${at} send ${(s.channelPreference as string[] | undefined)?.join('/') ?? ''}${s.fallbackChannel ? ` (fallback ${s.fallbackChannel})` : ''}${s.delayDays ? ` day ${s.delayDays}` : ''}${s.atTime ? ` ${s.atTime}` : ''}: "${String(s.copy ?? s.describe ?? '').slice(0, 90)}"${s.cta ? ` [${s.cta}]` : ''}`);
     else if (k === 'wait') out.push(`${at} wait ${s.durationHours}h`);
+    else if (k === 'goalCheck') out.push(`${at} goal check`);
     else if (k === 'waitForEvent') out.push(`${at} waitForEvent ${s.eventType} up to ${s.timeoutDays}d`);
     else if (k === 'exit') out.push(`${at} exit "${s.reason}"${s.outcome ? ` → ${s.outcome}` : ' (no outcome yet)'}`);
     else if (k === 'experiment') {

@@ -18,6 +18,7 @@ const describeStep = (s: Record<string, unknown>): string => {
   const k = String(s.kind);
   if (k === 'send') return `the ${(s.channelPreference as string[] | undefined)?.[0] ?? ''} message "${s.name ?? s.label ?? ''}"`;
   if (k === 'wait') return `the wait of ${s.durationHours} hours`;
+  if (k === 'goalCheck') return 'the goal check';
   if (k === 'branch') return `the branch "${s.label ?? ''}"`;
   if (k === 'experiment') return `the A/B test "${s.label ?? ''}" (${((s.arms as { label?: string; pct?: number }[]) ?? []).map((a) => `${a.label} ${a.pct}%`).join(' vs ')})`;
   if (k === 'condition') return `the check "${s.label ?? ''}"`;
@@ -39,7 +40,7 @@ export function focusSection(state: AgentState, focus: Focus | null | undefined)
   const head = '## The manager wants a change on this block\nTheir message is about this block. Make the change, then check the rest of the tree and change anything else that needs to change because of it (see "Changes, through chat").';
 
   if (focus.kind === 'entry' || focus.kind === 'goal') {
-    const what = focus.kind === 'goal' ? `the campaign goal (${c.goal ? `${c.goal.eventType}, ${c.goal.eventCategory}` : 'not set'}): the check after every message that exits anyone who has reached it` : 'the entry: who can join the campaign, and whether it is one-time or recurring';
+    const what = focus.kind === 'goal' ? `the campaign goal (${c.goal ? `${c.goal.eventType}, ${c.goal.eventCategory}` : 'not set'}): checked by the journey's goal checks, which take out anyone who has reached it` : 'the entry: who can join the campaign, and whether it is one-time or recurring';
     return `${head}\n- Block: ${what}.\n- Now: ${JSON.stringify({ goal: c.goal, entry: c.entry, membership: c.membership })}\n- Change it with edit_campaign.`;
   }
   if (focus.kind === 'everyone_else' && !focus.stepId) {

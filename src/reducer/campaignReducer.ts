@@ -37,7 +37,9 @@ export type DcAddingAt = { kind: 'root' } | { kind: 'edge'; edgeId: string } | {
 // Split's open arms), then attaches the whole thing to whichever
 // slot/leaf this add action started from.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function dcConfirmAddNode(graph: DripGraph, type: DcNodeType, p: any, addingAt: DcAddingAt, goal: DripGoal | null): DripGraph {
+// `opts.autoGoalCheck: false` is for the agent's builds: there the agent places
+// every Goal Check itself (one author), so Send and Pause get none for free.
+export function dcConfirmAddNode(graph: DripGraph, type: DcNodeType, p: any, addingAt: DcAddingAt, goal: DripGoal | null, opts: { autoGoalCheck?: boolean } = {}): DripGraph {
   const next = cloneGraph(graph);
   const { label, meta } = dcRecomputeLabelMeta(type, p, goal);
   const id = dcNewNodeId();
@@ -53,7 +55,7 @@ export function dcConfirmAddNode(graph: DripGraph, type: DcNodeType, p: any, add
   // check below, a more precise version of this same idea, not something
   // to layer a second generic check on top of.
   if (type === 'SEND' || type === 'PAUSE') {
-    const goalLabel = dcGoalLabel(goal);
+    const goalLabel = opts.autoGoalCheck === false ? null : dcGoalLabel(goal);
     if (goalLabel) {
       const question = goalLabel + '?';
       const checkId = dcNewNodeId();

@@ -28,6 +28,7 @@ const stepLabel = (s: Record<string, unknown>) => {
   const k = String(s.kind);
   if (k === 'send') return `${String(s.name ?? s.label ?? 'message')} (${((s.channelPreference as string[] | undefined) ?? [])[0] ?? ''})`;
   if (k === 'wait') return `wait ${Math.round(Number(s.durationHours) / 24 * 10) / 10} days`;
+  if (k === 'goalCheck') return 'goal check';
   if (k === 'experiment') return `A/B test "${s.label ?? ''}" ${((s.arms as { pct?: number }[]) ?? []).map((a) => `${a.pct}%`).join('/')}`;
   return `${k}${s.label ? ` "${s.label}"` : ''}`;
 };

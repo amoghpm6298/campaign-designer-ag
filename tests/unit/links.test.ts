@@ -22,8 +22,8 @@ const env = (): ToolEnv => ({ tenant: resolveTenant('TEN-IBL')!, availableChanne
 const send = (name: string, ch: string, extra: Record<string, unknown> = {}) => ({ kind: 'send', name, stage: 'first-touch', describe: name, objective: ['activation'], channelPreference: [ch], copy: `${name}: your card is ready.`, ...extra });
 
 function built(journey: unknown[]): AgentState {
-  let s = runToolCall('edit_campaign', { name: 'C', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'locked' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
-  const r = runToolCall('edit_bucket', { id: 'b1', name: 'B1', priority: 1, rule: [{ entity: 'Card', conditions: [] }], journey }, s, env());
+  let s = runToolCall('create_campaign', { name: 'C', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'locked' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
+  const r = runToolCall('create_bucket', { id: 'b1', name: 'B1', priority: 1, rule: [{ entity: 'Card', conditions: [] }], journey }, s, env());
   expect(r.ok).toBe(true);
   s = r.state;
   return s;

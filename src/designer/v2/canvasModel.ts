@@ -199,21 +199,14 @@ function addSeq(lane: string, steps: CStep[] | undefined, from: Tail[], prefix: 
     const path = `${prefix}${i}`;
     const base = `${lane}:${st.id ?? path}`;
     const id = `${base}${copy}`;
-    const kind = (['send', 'wait', 'waitForEvent', 'branch', 'experiment', 'condition', 'exit'].includes(String(st.kind)) ? st.kind : 'exit') as CNodeKind;
+    // A goal check is a step the agent placed, drawn where it put it.
+    const kind = (st.kind === 'goalCheck' ? 'goalcheck' : ['send', 'wait', 'waitForEvent', 'branch', 'experiment', 'condition', 'exit'].includes(String(st.kind)) ? st.kind : 'exit') as CNodeKind;
     const focus: Focus = st.id ? { kind: 'step', bucketId: lane, stepId: st.id } : { kind: 'bucket', bucketId: lane };
     const ck = changed.get(base);
     out.nodes.push({ id, data: { kind, lane, path, step: st, focus, changed: !!ck, ...(ck ? { changeKind: ck } : {}), ...(kind === 'exit' ? exitData(campaignOf(out), st.outcome, st.reason, lane) : {}) } });
     for (const t of tails) out.edges.push({ id: `e:${t.id}->${id}`, source: t.id, target: id, ...(t.label ? { label: t.label } : {}) });
 
-    // The builder puts a goal check after every send and every wait (the
-    // one after a wait is what measures the message before it), so the
-    // canvas draws both.
-    if (kind === 'send' || kind === 'wait') {
-      const gc = `${id}:gc`;
-      out.nodes.push({ id: gc, data: { kind: 'goalcheck', lane, path, focus: { kind: 'goal' } } });
-      out.edges.push({ id: `e:${id}->${gc}`, source: id, target: gc });
-      tails = [{ id: gc }];
-    } else if (kind === 'exit') {
+    if (kind === 'exit') {
       tails = [];
     } else if (kind === 'experiment') {
       tails = (st.arms ?? []).flatMap((a, ai) => {
