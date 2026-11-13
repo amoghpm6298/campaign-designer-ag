@@ -57,9 +57,11 @@ interface Props {
   /** Point-and-edit: which box is being edited, and the hooks every box uses. */
   edit?: EditApi;
   onPaneClick?: () => void;
+  /** The issuer's name, shown as the sender in message previews. */
+  bankName?: string;
 }
 
-function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick }: Props) {
+function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName }: Props) {
   const measured = useRef<Record<string, number>>({});
   const [tick, setTick] = useState(0);
   const model = useMemo(() => buildCanvasModel(campaign, context, changed, measured.current),
@@ -73,12 +75,12 @@ function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClic
         id: n.id,
         type: 'cd',
         position: { x: n.x, y: n.y },
-        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText } satisfies CdNodeData,
+        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText, bankName } satisfies CdNodeData,
         draggable: false,
         connectable: false,
         selectable: n.data.kind === 'send',
       })),
-    [model, goalText],
+    [model, goalText, bankName],
   );
   const edges: Edge[] = useMemo(() => {
     // A step with several routes sends each one out of its own side: the

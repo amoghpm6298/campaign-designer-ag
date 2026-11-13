@@ -174,20 +174,11 @@ export function EditPopover({
           <X size={15} />
         </button>
       </header>
-      {control}
-      {msg && <div className={`cv-pop-msg ${msg.ok ? 'ok' : 'err'}`}>{saving ? <Loader2 size={12} className="v2-spin" /> : null}{msg.text}</div>}
-      <div className="cv-pop-chips">
-        {(CHIPS[data.kind] ?? []).map((c) => (
-          <button key={c} className="v2-opt sugg" onClick={() => setText(c)}>
-            {c}
-          </button>
-        ))}
-      </div>
       <div className="cv-pop-compose">
         <textarea
           autoFocus
-          rows={2}
-          placeholder="What should change? Anything that needs to change because of it will be updated too."
+          rows={4}
+          placeholder="Describe the change. Anything that has to change because of it will be updated too."
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -197,10 +188,37 @@ export function EditPopover({
             }
           }}
         />
-        <button className="cv-send" disabled={busy || !text.trim()} onClick={send} aria-label="Send">
-          {busy ? <Loader2 size={16} className="v2-spin" /> : <ArrowUp size={16} />}
+        <button className="cv-pop-send" disabled={busy || !text.trim()} onClick={send}>
+          {busy ? (
+            <>
+              <Loader2 size={15} className="v2-spin" /> Working on it…
+            </>
+          ) : (
+            <>
+              Send <ArrowUp size={15} />
+            </>
+          )}
         </button>
       </div>
+      {control && (
+        <div className="cv-pop-section">
+          <span className="cv-pop-head">Quick change</span>
+          {control}
+          {msg && <div className={`cv-pop-msg ${msg.ok ? 'ok' : 'err'}`}>{saving ? <Loader2 size={12} className="v2-spin" /> : null}{msg.text}</div>}
+        </div>
+      )}
+      {(CHIPS[data.kind] ?? []).length > 0 && (
+        <div className="cv-pop-section">
+          <span className="cv-pop-head">Suggested changes</span>
+          <div className="cv-pop-chips">
+            {(CHIPS[data.kind] ?? []).map((c) => (
+              <button key={c} className={`v2-opt sugg${text === c ? ' on' : ''}`} onClick={() => setText(c)}>
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

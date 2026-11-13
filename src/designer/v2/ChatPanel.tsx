@@ -119,16 +119,20 @@ export function ChatPanel({
               <b>{cue.title}</b>
             </div>
             <p className="cv-cue-text">{cue.text}</p>
-            {cue.action && (
-              <button className="cv-cue-btn" onClick={cue.action.run}>
-                {cue.action.label}
-                <ArrowRight size={14} />
-              </button>
-            )}
-            {cue.secondary && (
-              <button className="cv-cue-link" onClick={cue.secondary.run}>
-                {cue.secondary.label}
-              </button>
+            {(cue.action || cue.secondary) && (
+              <div className="cv-cue-actions">
+                {cue.action && (
+                  <button className="cv-cue-btn" onClick={cue.action.run}>
+                    {cue.action.label}
+                    <ArrowRight size={13} />
+                  </button>
+                )}
+                {cue.secondary && (
+                  <button className="cv-cue-link" onClick={cue.secondary.run}>
+                    {cue.secondary.label}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}

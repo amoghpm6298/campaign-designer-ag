@@ -162,16 +162,17 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-chip.failed { color: var(--v2-err); border-color: color-mix(in srgb, var(--v2-err) 35%, var(--v2-border)); }
 .cv-chip.on { border-color: var(--v2-primary); }
 .cv-tool-detail { border: 1px solid var(--v2-border); border-radius: 10px; padding: 8px 10px; font-size: 12px; background: var(--v2-subtle); min-width: 0; overflow: hidden; }
-.cv-cue { --cue: var(--v2-primary); --cue-bg: color-mix(in srgb, var(--cue) 9%, var(--v2-surface)); display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--cue) 18%, var(--v2-border)); background: var(--v2-surface); box-shadow: 0 1px 2px rgba(16, 24, 40, .04); }
+.cv-cue { --cue: var(--v2-primary); --cue-bg: color-mix(in srgb, var(--cue) 9%, var(--v2-surface)); display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--cue) 18%, var(--v2-border)); background: var(--v2-surface); box-shadow: 0 1px 2px rgba(16, 24, 40, .04); }
 .cv-cue.question { --cue: #2f6fe4; }
 .cv-cue.ready { --cue: #12805c; }
 .cv-cue.changed { --cue: #b26a00; }
 .cv-cue.busy { --cue: #5b6b85; }
 .cv-cue-top { display: flex; align-items: center; gap: 10px; }
 .cv-cue-top b { font-size: 14px; color: var(--v2-text); line-height: 1.3; }
-.cv-cue-icon { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--cue); background: var(--cue-bg); }
-.cv-cue-text { margin: 0 0 0 38px; font-size: 13px; line-height: 1.5; color: var(--v2-text-2); }
-.cv-cue-btn { margin-left: 38px; align-self: stretch; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--cue) 25%, transparent); background: var(--cue-bg); color: var(--cue); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s; }
+.cv-cue-icon { flex: none; width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; color: var(--cue); background: var(--cue-bg); }
+.cv-cue-text { margin: 0; font-size: 13px; line-height: 1.5; color: var(--v2-text-2); }
+.cv-cue-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.cv-cue-btn { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--cue) 25%, transparent); background: var(--cue-bg); color: var(--cue); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s; }
 .cv-cue-btn:hover { background: color-mix(in srgb, var(--cue) 15%, var(--v2-surface)); border-color: color-mix(in srgb, var(--cue) 40%, transparent); }
 .cv-compose { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--v2-border); align-items: flex-end; }
 .cv-compose textarea { flex: 1; border: 1px solid var(--v2-border); border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 13.5px; resize: none; background: var(--v2-surface); color: var(--v2-text); min-height: 38px; box-sizing: border-box; }
@@ -229,7 +230,7 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-knock .cv-chip-node.cv-shape-changed { border-color: #b54708; box-shadow: 0 0 0 3px rgba(181, 71, 8, .2); }
 
 /* the edit popover beside the focused box */
-.cv-pop { width: 330px; background: #fff; border: 1px solid #e4e7ec; border-radius: 14px; box-shadow: 0 18px 40px rgba(16, 24, 40, .16); padding: 14px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: #101828; }
+.cv-pop { width: 380px; background: #fff; border: 1px solid #e4e7ec; border-radius: 14px; box-shadow: 0 18px 40px rgba(16, 24, 40, .16); padding: 14px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: #101828; }
 .cv-pop header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
 .cv-pop header b { display: block; font-size: 14px; }
 .cv-pop-crumb { display: block; font-size: 12px; color: #667085; margin-top: 2px; line-height: 1.4; }
@@ -265,7 +266,8 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 
 /* chat: a message pointed at a box */
 .cv-focus-tag { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 4px; border: 0; background: rgba(10, 102, 240, .1); color: #0a66f0; border-radius: 6px; padding: 2px 7px; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cv-cue-link { margin-left: 38px; align-self: flex-start; border: 0; background: none; color: var(--v2-text-2); font: inherit; font-size: 12.5px; font-weight: 600; text-decoration: underline; cursor: pointer; padding: 0; }
+.cv-cue-link { border: 0; background: none; color: var(--v2-text-2); font: inherit; font-size: 13px; font-weight: 500; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; padding: 0; }
+.cv-cue-link:hover { color: var(--v2-text); }
 
 /* versions */
 .cv-ver { position: relative; }
@@ -288,3 +290,46 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-viewing { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 12; display: flex; align-items: center; gap: 10px; max-width: calc(100% - 40px); padding: 10px 12px 10px 16px; background: #fffaeb; border: 1px solid #fedf89; border-radius: 12px; box-shadow: 0 8px 22px rgba(16, 24, 40, .12); font-size: 13px; }
 .cv-viewing > div { display: flex; flex-direction: column; min-width: 0; }
 .cv-viewing span { color: #475467; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 520px; }
+
+/* edit popover: the text box first, then quick change, then suggestions */
+.cv-pop-compose { flex-direction: column; align-items: stretch; gap: 8px; }
+.cv-pop-compose textarea { min-height: 92px; font-size: 13.5px; line-height: 1.5; }
+.cv-pop-send { align-self: flex-end; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 14px; border: 0; border-radius: 8px; background: #0a66f0; color: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.cv-pop-send:disabled { opacity: .45; cursor: default; }
+.cv-pop-section { display: flex; flex-direction: column; gap: 7px; padding-top: 10px; border-top: 1px solid #eaecf0; }
+.cv-pop-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #667085; }
+.cv-pop-section .cv-pop-control { background: none; border: 0; padding: 0; }
+.cv-pop-section .cv-pop-label { text-transform: none; letter-spacing: 0; font-size: 12.5px; font-weight: 500; color: #475467; }
+.cv-pop-chips .v2-opt.on { background: #e7f0fe; border-color: #8fb9f8; color: #0a66f0; }
+
+/* message previews in send cards: the way the customer sees it */
+.cv-pv { margin: 8px 0 7px; border-radius: 10px; overflow: hidden; font-size: 11.5px; line-height: 1.45; }
+.cv-pv-text { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
+.cv-pv-avatar { flex: none; width: 20px; height: 20px; border-radius: 999px; display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #fff; background: #1f3b73; }
+/* WhatsApp */
+.cv-pv-wa { border: 1px solid #d9e3dc; }
+.cv-pv-wa-head { display: flex; align-items: center; gap: 7px; padding: 6px 9px; background: #075e54; color: #fff; }
+.cv-pv-wa-name { font-weight: 600; font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px; }
+.cv-pv-tick { display: inline-grid; place-items: center; width: 12px; height: 12px; border-radius: 999px; background: #25d366; color: #fff; font-size: 8px; font-weight: 800; }
+.cv-pv-wa-body { padding: 8px 9px 9px; background: #efeae2; background-image: radial-gradient(rgba(0,0,0,.035) 1px, transparent 1px); background-size: 10px 10px; display: flex; flex-direction: column; gap: 3px; }
+.cv-pv-wa-bubble { position: relative; background: #fff; color: #111b21; border-radius: 0 8px 8px 8px; padding: 6px 8px 5px; box-shadow: 0 1px .5px rgba(11, 20, 26, .13); margin-left: 6px; }
+.cv-pv-wa-bubble::before { content: ''; position: absolute; left: -6px; top: 0; border-top: 0 solid transparent; border-right: 7px solid #fff; border-bottom: 8px solid transparent; }
+.cv-pv-meta { display: block; text-align: right; font-size: 9.5px; color: #667781; margin-top: 2px; }
+.cv-pv-meta::after { content: ' ✓✓'; color: #53bdeb; letter-spacing: -2px; }
+.cv-pv-wa-btn { margin-left: 6px; background: #fff; border-radius: 8px; padding: 5px 8px; text-align: center; color: #027eb5; font-weight: 600; box-shadow: 0 1px .5px rgba(11, 20, 26, .13); }
+.cv-pv-wa.rcs .cv-pv-wa-head { background: #1a73e8; }
+.cv-pv-wa.rcs .cv-pv-wa-body { background: #f1f3f4; background-image: none; }
+.cv-pv-wa.rcs .cv-pv-wa-btn { color: #1a73e8; }
+/* SMS */
+.cv-pv-sms { background: #fff; border: 1px solid #e4e7ec; padding: 7px 9px 9px; }
+.cv-pv-sms-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 9.5px; color: #8a8a8e; margin-bottom: 5px; }
+.cv-pv-sms-sender { font-weight: 700; color: #3c3c43; font-size: 10.5px; letter-spacing: .02em; }
+.cv-pv-sms-bubble { background: #e9e9eb; color: #000; border-radius: 14px 14px 14px 4px; padding: 7px 10px; max-width: 92%; }
+.cv-pv-link { color: #0a66f0; text-decoration: underline; }
+/* Email */
+.cv-pv-mail { background: #fff; border: 1px solid #e4e7ec; padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 5px; color: #344054; }
+.cv-pv-mail-from { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.cv-pv-mail-from > span:last-child { display: flex; flex-direction: column; line-height: 1.25; }
+.cv-pv-mail-to { color: #98a2b3; font-size: 10px; }
+.cv-pv-mail-subject { font-weight: 700; color: #101828; font-size: 12px; }
+.cv-pv-mail-btn { align-self: flex-start; background: #1f3b73; color: #fff; border-radius: 6px; padding: 4px 10px; font-weight: 600; font-size: 11px; }

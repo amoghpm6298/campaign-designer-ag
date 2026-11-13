@@ -13,6 +13,8 @@ const CHANNEL_ICON: Record<string, string> = { WHATSAPP: 'whatsapp', SMS: 'sms',
 export interface CdNodeData extends CNodeData {
   /** "Did they activate?" — the campaign goal, for goal checks. */
   goalText?: string;
+  /** The issuer's name, for the sender line in message previews. */
+  bankName?: string;
   width: number;
   /** Fixed height for the drawn shapes (diamonds, hexagons, pills). */
   height?: number;
@@ -56,6 +58,74 @@ function Card({ cat, type, icon, children, data, extra, title }: { cat: string; 
   );
 }
 
+/** "AD-INDBNK": the kind of sender id an Indian bank's SMS shows. */
+const smsSender = (bank: string) => `AD-${bank.replace(/bank|ltd|limited|\(.*?\)/gi, '').replace(/[^a-z]/gi, '').toUpperCase().slice(0, 6).padEnd(4, 'X')}`;
+
+/** The message drawn the way the customer sees it on that channel. */
+function ChannelPreview({ channel, text, cta, bank, subject, time }: { channel: string; text: string; cta?: string; bank: string; subject?: string; time?: string }) {
+  const clock = fmtClock(time);
+  if (channel === 'WHATSAPP' || channel === 'RCS') {
+    return (
+      <div className={`cv-pv cv-pv-wa${channel === 'RCS' ? ' rcs' : ''}`}>
+        <div className="cv-pv-wa-head">
+          <span className="cv-pv-avatar">{bank.slice(0, 1)}</span>
+          <span className="cv-pv-wa-name">
+            {bank} <span className="cv-pv-tick" title="Verified business">✓</span>
+          </span>
+        </div>
+        <div className="cv-pv-wa-body">
+          <div className="cv-pv-wa-bubble">
+            <span className="cv-pv-text">{text}</span>
+            <span className="cv-pv-meta">{clock}</span>
+          </div>
+          {cta && <div className="cv-pv-wa-btn">↗ {cta}</div>}
+        </div>
+      </div>
+    );
+  }
+  if (channel === 'EMAIL') {
+    return (
+      <div className="cv-pv cv-pv-mail">
+        <div className="cv-pv-mail-from">
+          <span className="cv-pv-avatar">{bank.slice(0, 1)}</span>
+          <span>
+            <b>{bank}</b>
+            <span className="cv-pv-mail-to">to you · {clock}</span>
+          </span>
+        </div>
+        {subject && <div className="cv-pv-mail-subject">{subject}</div>}
+        <span className="cv-pv-text">{text}</span>
+        {cta && <span className="cv-pv-mail-btn">{cta}</span>}
+      </div>
+    );
+  }
+  // SMS (and anything else): a plain text thread. SMS has no buttons, so the CTA is a link in the text.
+  return (
+    <div className="cv-pv cv-pv-sms">
+      <div className="cv-pv-sms-head">
+        <span className="cv-pv-sms-sender">{smsSender(bank)}</span>
+        <span>Text message · {clock}</span>
+      </div>
+      <div className="cv-pv-sms-bubble">
+        <span className="cv-pv-text">
+          {text}
+          {cta && (
+            <>
+              {' '}
+              <span className="cv-pv-link" title="The link to the bank's page goes here">{cta} ↗</span>
+            </>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const fmtClock = (t?: string) => {
+  const [h, m] = (t || '11:00').split(':').map(Number);
+  return `${(h % 12) || 12}:${String(m || 0).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`;
+};
+
 function SendCard({ data }: { data: CdNodeData }) {
   const st = data.step as CStep;
   const ch = (st.channelPreference ?? [])[0] ?? 'SMS';
@@ -63,14 +133,7 @@ function SendCard({ data }: { data: CdNodeData }) {
   return (
     <Card cat="send" icon={CHANNEL_ICON[ch] ?? 'paperplane'} type={`Send · ${CHANNEL_LABEL[ch] ?? ch}`} data={data} extra="cv-clickable" title="Open the message preview">
       <div className="dc-node-label">{sendTitle({ ...st, name: st.name || st.label })}</div>
-      {(st.copy || st.describe) && (
-        <div className="cv-preview">
-          <div className="cv-preview-text">
-            {st.copy || st.describe}
-            {st.cta && <b className="cv-preview-cta"> {st.cta} ›</b>}
-          </div>
-        </div>
-      )}
+      {(st.copy || st.describe) && <ChannelPreview channel={ch} text={st.copy || st.describe || ''} cta={st.cta} bank={data.bankName ?? 'Your bank'} subject={st.name || st.label} time={st.atTime} />}
       <div className="dc-node-send-row">
         <Icon name="clock" />
         <span>{sendWhen(st)}</span>

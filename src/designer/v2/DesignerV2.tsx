@@ -347,6 +347,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
               onOpenNode={setDrawerId}
               edit={editApi}
               onPaneClick={() => setEditing(null)}
+              bankName={(tenant.issuer || tenant.displayName).replace(/\s*\(.*?\)\s*/g, '').trim()}
             />
           ) : (
             <div className="cv-canvas-empty dc-graph-wrap">
