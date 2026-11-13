@@ -108,7 +108,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'edit_bucket',
     title: 'Editing a bucket',
     description:
-      'Add, change or remove ONE bucket in the CAMPAIGN OBJECT, saved straight to file. Execution fields only: id (short slug), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0-30, a no-message share to measure this journey), journey (this bucket\'s own steps). Match by id; when changing, send only what changes. remove: true deletes it. The bucket\'s reasoning (behaviour, thesis, evidence, metric) and its sizing go in the context with add_context. For a small change to a journey use edit_journey.',
+      'Add, change or remove ONE bucket in the CAMPAIGN OBJECT, saved straight to file. Execution fields only: id (short slug), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0 unless the manager explicitly asked for a holdout: a share of the bucket that gets no messages, to measure lift), journey (this bucket\'s own steps). Match by id; when changing, send only what changes. remove: true deletes it. The bucket\'s reasoning (behaviour, thesis, evidence, metric) and its sizing go in the context with add_context. For a small change to a journey use edit_journey.',
     input_schema: {
       type: 'object',
       properties: {

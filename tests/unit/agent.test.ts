@@ -427,3 +427,11 @@ describe('the interview: notes are memory, every question has a why', () => {
     expect(r.forModel).not.toMatch(/q2/);
   });
 });
+
+describe('holdouts', () => {
+  it('are off unless the manager explicitly asks for a control group', () => {
+    const p = systemPrompt(false);
+    expect(p).not.toMatch(/10 is a sensible default/);
+    expect(p).toMatch(/no holdout unless the manager explicitly asks/);
+  });
+});
