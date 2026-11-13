@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BpAudienceGroup, BpStep } from './blueprint';
+import { ensureIds } from './agent/stepIds';
 import type { CampaignBucket, CampaignContext, CampaignObject, ContextEntry } from './agent/types';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -61,10 +62,25 @@ function writeStamped<T>(path: string, sessionId: string, tenantId: string, body
 export function loadStores(sessionId: string, dir = campaignDir()): Stores {
   migrateLegacy(sessionId, dir);
   const folder = sessionFolder(sessionId, dir);
-  return {
-    campaign: readStamped<CampaignObject>(join(folder, 'campaign.json'))?.body ?? null,
-    context: readStamped<CampaignContext>(join(folder, 'context.json'))?.body ?? null,
-  };
+  const stamped = readStamped<CampaignObject>(join(folder, 'campaign.json'));
+  let campaign = stamped?.body ?? null;
+  // Every step carries a stable id; campaigns saved before ids existed get them now.
+  if (campaign) {
+    const used = new Set<string>();
+    let changed = false;
+    const buckets = campaign.buckets.map((b) => {
+      const r = ensureIds(b.journey, used);
+      changed ||= r.changed;
+      return { ...b, journey: r.steps };
+    });
+    const ee = campaign.everyoneElse?.journey ? ensureIds(campaign.everyoneElse.journey, used) : null;
+    if (ee?.changed) changed = true;
+    if (changed) {
+      campaign = { ...campaign, buckets, everyoneElse: campaign.everyoneElse ? { ...campaign.everyoneElse, ...(ee ? { journey: ee.steps ?? undefined } : {}) } : null };
+      saveCampaignObject(sessionId, stamped?.tenantId ?? '', campaign, dir);
+    }
+  }
+  return { campaign, context: readStamped<CampaignContext>(join(folder, 'context.json'))?.body ?? null };
 }
 
 export function saveCampaignObject(sessionId: string, tenantId: string, campaign: CampaignObject, dir = campaignDir()): void {

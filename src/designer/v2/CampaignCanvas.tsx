@@ -6,7 +6,8 @@ import { Background, BaseEdge, Controls, EdgeLabelRenderer, getSmoothStepPath, M
 import '@xyflow/react/dist/style.css';
 import '../../canvas/dripCanvas.css';
 import { buildCanvasModel, FIXED_SHAPES, NODE_H, type CNodeKind } from './canvasModel';
-import { cdNodeTypes, type CdNodeData } from './canvasNodes';
+import { cdNodeTypes, EditContext, type CdNodeData, type EditApi } from './canvasNodes';
+import type { ChangeMap } from './canvasModel';
 import type { CampaignContext, CampaignObject } from './types';
 
 const MINI: Partial<Record<CNodeKind, string>> = {
@@ -49,13 +50,16 @@ const cvEdgeTypes = { cv: CvEdge };
 interface Props {
   campaign: CampaignObject | null | undefined;
   context: CampaignContext | null | undefined;
-  changed: Set<string>;
+  changed: Set<string> | ChangeMap;
   /** Centre on this node; `n` changes on every request so the same node can be asked for twice. */
   focus?: { id: string; n: number } | null;
   onOpenNode?: (id: string) => void;
+  /** Point-and-edit: which box is being edited, and the hooks every box uses. */
+  edit?: EditApi;
+  onPaneClick?: () => void;
 }
 
-function Inner({ campaign, context, changed, focus, onOpenNode }: Props) {
+function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick }: Props) {
   const measured = useRef<Record<string, number>>({});
   const [tick, setTick] = useState(0);
   const model = useMemo(() => buildCanvasModel(campaign, context, changed, measured.current),
@@ -76,17 +80,30 @@ function Inner({ campaign, context, changed, focus, onOpenNode }: Props) {
       })),
     [model, goalText],
   );
-  const edges: Edge[] = useMemo(
-    () =>
-      model.edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        type: 'cv',
-        data: { label: e.label ?? '' },
-      })),
-    [model],
-  );
+  const edges: Edge[] = useMemo(() => {
+    // A step with several routes sends each one out of its own side: the
+    // leftmost from the left corner, the rightmost from the right corner, the
+    // rest from the bottom — so a third route (e.g. "Anything else") is
+    // clearly its own line, not a split off another.
+    const x = new Map(model.nodes.map((n) => [n.id, n.x + n.width / 2]));
+    const out = new Map<string, typeof model.edges>();
+    for (const e of model.edges) out.set(e.source, [...(out.get(e.source) ?? []), e]);
+    const handle = new Map<string, string | undefined>();
+    for (const [, list] of out) {
+      if (list.length < 2 || list[0].source === 'entry') continue;
+      const sorted = [...list].sort((a, b) => (x.get(a.target) ?? 0) - (x.get(b.target) ?? 0));
+      handle.set(sorted[0].id, 'sl');
+      handle.set(sorted[sorted.length - 1].id, 'sr');
+    }
+    return model.edges.map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      ...(handle.get(e.id) ? { sourceHandle: handle.get(e.id) } : {}),
+      type: 'cv',
+      data: { label: e.label ?? '' },
+    }));
+  }, [model]);
 
   // React Flow keeps the nodes so it can measure them; positions come from the model.
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(modelNodes);
@@ -141,6 +158,16 @@ function Inner({ campaign, context, changed, focus, onOpenNode }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, nodes, shape, rf]);
 
+  const editingId = edit?.editingId ?? null;
+  useEffect(() => {
+    if (!editingId) return;
+    const n = rf.getNode(editingId);
+    if (!n) return;
+    const w = n.measured?.width ?? 300;
+    const h = n.measured?.height ?? 120;
+    rf.setCenter(n.position.x + w / 2 + 200, n.position.y + h / 2, { zoom: 1, duration: 450 });
+  }, [editingId, rf]);
+
   useEffect(() => {
     if (!focus) return;
     if (focus.id === '__fit__') {
@@ -165,7 +192,8 @@ function Inner({ campaign, context, changed, focus, onOpenNode }: Props) {
       nodesConnectable={false}
       minZoom={0.15}
       maxZoom={1.6}
-      onNodeClick={(_, n) => (n.data as CdNodeData).kind === 'send' && onOpenNode?.(n.id)}
+      onNodeClick={(_, n) => !edit?.editingId && (n.data as CdNodeData).kind === 'send' && onOpenNode?.(n.id)}
+      onPaneClick={onPaneClick}
       proOptions={{ hideAttribution: true }}
     >
       <Background gap={16} size={1} />
@@ -185,10 +213,12 @@ function Inner({ campaign, context, changed, focus, onOpenNode }: Props) {
 
 export function CampaignCanvas(props: Props) {
   return (
-    <div className="cv-canvas dc-graph-wrap">
+    <div className={`cv-canvas dc-graph-wrap${props.edit?.editingId ? ' cv-focus-mode' : ''}`}>
+      <EditContext.Provider value={props.edit ?? null}>
       <ReactFlowProvider>
         <Inner {...props} />
       </ReactFlowProvider>
+      </EditContext.Provider>
     </div>
   );
 }

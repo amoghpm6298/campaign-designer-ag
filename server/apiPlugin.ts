@@ -243,6 +243,7 @@ export function agentApiPlugin(): Plugin {
               state: body.state ?? null,
               answers: body.answers,
               skipped: body.skipped,
+              focus: body.focus ?? null,
             });
             return void (await streamSse(res, gen));
           }
@@ -255,6 +256,39 @@ export function agentApiPlugin(): Plugin {
               return send(res, 200, { campaign: stores.campaign ?? null, context: stores.context ?? null });
             } catch {
               return send(res, 400, { error: 'Not a valid session id.' });
+            }
+          }
+          // Versions of the campaign object, direct edits from the canvas, and restore.
+          if (url === '/api/campaign/versions' && req.method === 'GET') {
+            const v = await load('campaignVersions.ts');
+            const sessionId = new URL(req.url ?? '', 'http://x').searchParams.get('sessionId') ?? '';
+            try {
+              return send(res, 200, { versions: (v.listVersions as (id: string) => unknown[])(sessionId) });
+            } catch {
+              return send(res, 400, { error: 'Not a valid session id.' });
+            }
+          }
+          if (url === '/api/campaign/version' && req.method === 'GET') {
+            const v = await load('campaignVersions.ts');
+            const q = new URL(req.url ?? '', 'http://x').searchParams;
+            try {
+              const one = (v.getVersion as (id: string, n: number) => unknown)(q.get('sessionId') ?? '', Number(q.get('n')));
+              return one ? send(res, 200, { version: one }) : send(res, 404, { error: 'No such version.' });
+            } catch {
+              return send(res, 400, { error: 'Not a valid session id.' });
+            }
+          }
+          if ((url === '/api/campaign/edit' || url === '/api/campaign/restore') && req.method === 'POST') {
+            const d = await load('agent/directEdit.ts');
+            const body = (await readBody(req)) as { sessionId?: string; tenantId?: string; op?: unknown; n?: number };
+            try {
+              const out =
+                url === '/api/campaign/edit'
+                  ? (d.directEdit as (s: string, t: string, op: unknown) => { ok: boolean })(String(body.sessionId ?? ''), String(body.tenantId ?? ''), body.op)
+                  : (d.restoreVersion as (s: string, t: string, n: number) => { ok: boolean })(String(body.sessionId ?? ''), String(body.tenantId ?? ''), Number(body.n));
+              return send(res, out.ok ? 200 : 400, out);
+            } catch (e) {
+              return send(res, 400, { ok: false, error: (e as Error).message });
             }
           }
           const table = await routes(load);

@@ -112,8 +112,10 @@ export async function callClaude(opts: {
   messages: { role: 'user' | 'assistant'; content: string }[];
   maxTokens?: number;
   timeoutMs?: number;
+  /** Override the configured model, e.g. a small model for short summaries. */
+  model?: string;
 }): Promise<LlmCallResult> {
-  const model = resolveModel();
+  const model = opts.model ?? resolveModel();
   const key = apiKey();
   const started = Date.now();
   const controller = new AbortController();

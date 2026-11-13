@@ -8,14 +8,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MoreHorizontal, RotateCcw, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
-import { fetchStores, runAgentStream, type Stores } from './api';
+import { directEdit, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, type Stores } from './api';
+import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
+import { VersionMenu } from './VersionMenu';
+import type { CdNodeData, EditApi } from './canvasNodes';
 import { CampaignCanvas } from './CampaignCanvas';
-import { buildCanvasModel, diffChangedSteps, type CStep } from './canvasModel';
+import { buildCanvasModel, classifyChanges, diffChangedSteps, type CStep } from './canvasModel';
 import { ChatPanel, type Cue } from './ChatPanel';
 import { mergeEvent } from './logic';
 import { NodeDrawer } from './NodeDrawer';
 import { QuestionOverlay } from './QuestionOverlay';
-import { FLAG_LABELS, FLAG_ORDER, type AgentState, type CampaignContext, type CampaignObject, type AnswerItem, type V2Event, type V2Turn } from './types';
+import { FLAG_LABELS, FLAG_ORDER, type AgentState, type CampaignContext, type CampaignObject, type AnswerItem, type Focus, type V2Event, type V2Turn, type VersionEntry } from './types';
 import '../designer.css';
 import './v2.css';
 
@@ -32,6 +35,8 @@ interface Stored {
   turns: V2Turn[];
   state: AgentState | null;
   changed?: string[];
+  /** The block the last change was pointed at, to tell "what you asked" from knock-on changes. */
+  changeFocus?: Focus | null;
   lastBuilt?: boolean;
 }
 
@@ -75,6 +80,17 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
   }, [sessionId]);
   const [changed, setChanged] = useState<string[]>(fresh?.changed ?? []);
   const [lastBuilt, setLastBuilt] = useState(!!fresh?.lastBuilt);
+  const [changeFocus, setChangeFocus] = useState<Focus | null>(fresh?.changeFocus ?? null);
+  // Point-and-edit: the box being edited.
+  const [editing, setEditing] = useState<{ nodeId: string; data: CdNodeData } | null>(null);
+  // Versions of the campaign object; viewing one makes the canvas read-only.
+  const [versions, setVersions] = useState<VersionEntry[]>([]);
+  const [viewing, setViewing] = useState<{ v: VersionEntry; campaign: Stores['campaign']; changed: Set<string> } | null>(null);
+  const refreshVersions = () => listVersions(sessionId).then(setVersions).catch(() => undefined);
+  useEffect(() => {
+    refreshVersions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
   const [live, setLive] = useState<V2Event[]>([]);
   const [liveStores, setLiveStores] = useState<Stores | null>(null);
   const [busy, setBusy] = useState(false);
@@ -85,20 +101,23 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    saveStored({ sessionId, tenantId: tenant.tenantId, turns, state, changed, lastBuilt });
-  }, [sessionId, tenant.tenantId, turns, state, changed, lastBuilt]);
+    saveStored({ sessionId, tenantId: tenant.tenantId, turns, state, changed, changeFocus, lastBuilt });
+  }, [sessionId, tenant.tenantId, turns, state, changed, changeFocus, lastBuilt]);
 
-  const shown = liveStores ?? stores;
+  const shown = viewing ? { campaign: viewing.campaign, context: stores.context } : (liveStores ?? stores);
   const plan = shown.campaign;
-  const changedSet = useMemo(() => new Set(changed), [changed]);
+  const changedSet = useMemo(() => (viewing ? classifyChanges(viewing.changed, null) : classifyChanges(changed, changeFocus)), [viewing, changed, changeFocus]);
   const model = useMemo(() => buildCanvasModel(plan, shown.context, changedSet), [plan, shown.context, changedSet]);
   const sends = model.nodes.filter((n) => n.data.kind === 'send').length;
   const buckets = plan?.buckets.length ?? 0;
 
-  const send = (text: string, opts: { answers?: Record<string, string>; skipped?: string[]; answerSet?: AnswerItem[] } = {}) => {
-    if (busy || !text.trim()) return;
+  const send = (text: string, opts: { answers?: Record<string, string>; skipped?: string[]; answerSet?: AnswerItem[]; focus?: Focus; focusLabel?: string } = {}) => {
+    if (busy || !text.trim() || viewing) return;
     const before = stores.campaign;
-    const next: V2Turn[] = [...turns, { role: 'user', content: text, ...(opts.answerSet ? { answerSet: opts.answerSet } : {}) }];
+    const next: V2Turn[] = [
+      ...turns,
+      { role: 'user', content: text, ...(opts.answerSet ? { answerSet: opts.answerSet } : {}), ...(opts.focus ? { focus: opts.focus, focusLabel: opts.focusLabel } : {}) },
+    ];
     setTurns(next);
     setLive([]);
     setLiveStores(null);
@@ -116,6 +135,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
         state,
         answers: opts.answers,
         skipped: opts.skipped,
+        focus: opts.focus ?? null,
       },
       {
         onEvent: (e) => {
@@ -133,7 +153,9 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
           setState(withoutCampaign(r.state));
           setLiveStores(null);
           setChanged([...diff]);
+          setChangeFocus(opts.focus ?? null);
           setLastBuilt(!!r.graph);
+          if (r.version) refreshVersions();
           setTurns((t) => [
             ...t,
             { role: 'assistant', content: r.reply || (r.error ? '' : '…'), questions: r.questionItems, events, ...(r.error ? { error: r.errorDetail ?? r.error } : {}) },
@@ -159,11 +181,81 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
     setState(null);
     setStores({ campaign: null, context: null });
     setChanged([]);
+    setChangeFocus(null);
+    setEditing(null);
+    setViewing(null);
+    setVersions([]);
     setLastBuilt(false);
     setLive([]);
     setLiveStores(null);
     setBusy(false);
     setDrawerId(null);
+  };
+
+  /** After a direct edit or a restore: show the new campaign, highlight what changed, log it for the agent. */
+  const applyEdit = (r: Awaited<ReturnType<typeof directEdit>>, focus: Focus | null) => {
+    if (!r.ok || !r.campaign) return;
+    setChanged([...diffChangedSteps(stores.campaign, r.campaign)]);
+    setChangeFocus(focus);
+    setStores({ campaign: r.campaign, context: r.context ?? stores.context });
+    if (r.timeline) setState((s) => (s ? { ...s, timeline: [...s.timeline, r.timeline!] } : s));
+    setLastBuilt(true);
+    refreshVersions();
+  };
+  const onDirect = async (op: DirectOp) => {
+    const r = await directEdit(sessionId, tenant.tenantId, op);
+    applyEdit(r, editing?.data.focus ?? null);
+    return { ok: r.ok, error: r.error };
+  };
+  const restore = async (n: number) => {
+    const r = await restoreVersion(sessionId, tenant.tenantId, n);
+    if (r.ok) {
+      setViewing(null);
+      applyEdit(r, null);
+      setTurns((t) => [...t, { role: 'assistant', content: `Restored version ${n}. ${r.version ? `It is now version ${r.version.n}.` : ''}` }]);
+    }
+  };
+  const view = async (n: number) => {
+    const latest = versions[versions.length - 1]?.n;
+    if (n === latest) return setViewing(null);
+    const [v, prev] = await Promise.all([getVersion(sessionId, n), n > 1 ? getVersion(sessionId, n - 1) : Promise.resolve(null)]);
+    if (!v) return;
+    setEditing(null);
+    setDrawerId(null);
+    setViewing({ v, campaign: v.campaign, changed: diffChangedSteps(prev?.campaign ?? null, v.campaign) });
+    setFocus({ id: '__fit__', n: Date.now() });
+  };
+  const undo = versions.length >= 2 ? () => restore(versions[versions.length - 2].n) : undefined;
+
+  const editApi: EditApi = {
+    editingId: editing?.nodeId ?? null,
+    locked: busy || !!viewing,
+    onEdit: (nodeId, data) => {
+      setDrawerId(null);
+      setEditing({ nodeId, data });
+    },
+    renderPopover: (_id, data) => (
+      <EditPopover
+        data={data}
+        campaign={stores.campaign}
+        busy={busy}
+        onClose={() => setEditing(null)}
+        onDirect={onDirect}
+        onSend={(text) => {
+          send(text, { focus: data.focus, focusLabel: breadcrumb(data, stores.campaign) });
+        }}
+      />
+    ),
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setEditing(null);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  /** From a chat tag back to the box it was about. */
+  const showFocus = (f: Focus) => {
+    const n = model.nodes.find((x) => JSON.stringify(x.data.focus) === JSON.stringify(f));
+    if (n) setFocus({ id: n.id, n: Date.now() });
   };
 
   const lastAssistant = [...turns].reverse().find((t) => t.role === 'assistant');
@@ -195,11 +287,14 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
       action: { label: 'Go to questions', run: () => setPulse((p) => p + 1) },
     };
   } else if (lastBuilt && changed.length) {
+    const kinds = [...classifyChanges(changed, changeFocus).values()];
+    const knock = kinds.filter((k) => k === 'knock').length;
     cue = {
       icon: 'changed',
       title: 'Change applied and rebuilt',
-      text: `Only what you asked about changed (${changed.length} step${changed.length === 1 ? '' : 's'}). It's highlighted on the canvas.`,
+      text: `${kinds.length - knock} step${kinds.length - knock === 1 ? '' : 's'} you asked about${knock ? `, and ${knock} more changed as a result (in amber)` : ''}. ${versions.length ? `Saved as version ${versions[versions.length - 1].n}.` : ''}`,
       action: { label: 'Show me', run: showMe },
+      ...(undo ? { secondary: { label: 'Undo this change', run: undo } } : {}),
     };
   } else if (lastBuilt && built) {
     cue = {
@@ -232,6 +327,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
           Live bank data access: {tenant.warehouseAccess ? 'ON' : 'OFF'}
         </span>
         <span className="cv-top-gap" />
+        {versions.length > 0 && <VersionMenu versions={versions} viewing={viewing?.v.n ?? null} onView={view} />}
         <button className="cv-btn" onClick={() => setActivity((v) => !v)}>
           <MoreHorizontal size={14} /> Activity
         </button>
@@ -243,7 +339,15 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
       <div className="cv-main">
         <section className="cv-stage">
           {hasCanvas ? (
-            <CampaignCanvas campaign={plan} context={shown.context} changed={changedSet} focus={focus} onOpenNode={setDrawerId} />
+            <CampaignCanvas
+              campaign={plan}
+              context={shown.context}
+              changed={changedSet}
+              focus={focus}
+              onOpenNode={setDrawerId}
+              edit={editApi}
+              onPaneClick={() => setEditing(null)}
+            />
           ) : (
             <div className="cv-canvas-empty dc-graph-wrap">
               <div>
@@ -269,6 +373,23 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
             />
           )}
 
+          {viewing && (
+            <div className="cv-viewing">
+              <div>
+                <b>
+                  Viewing version {viewing.v.n} · {new Date(viewing.v.at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                </b>
+                <span>{viewing.v.summary}</span>
+              </div>
+              <button className="cv-btn primary" onClick={() => restore(viewing.v.n)}>
+                Restore this version
+              </button>
+              <button className="cv-btn" onClick={() => setViewing(null)}>
+                Back to current
+              </button>
+            </div>
+          )}
+
           {drawerNode?.data.step && <NodeDrawer step={drawerNode.data.step as CStep} bucketName={drawerBucket} onClose={() => setDrawerId(null)} />}
 
           {activity && <ActivityDrawer state={state} onClose={() => setActivity(false)} />}
@@ -279,8 +400,10 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
           live={live}
           busy={busy}
           cue={cue}
-          placeholder={formQuestions.length ? 'Or reply in your own words…' : built ? 'Ask for a change…' : 'Message the agent…'}
+          placeholder={viewing ? 'Viewing an old version. Go back to current to make changes.' : formQuestions.length ? 'Or reply in your own words…' : built ? 'Ask for a change, or point at any box on the canvas…' : 'Message the agent…'}
           onSend={(t) => send(t)}
+          locked={!!viewing}
+          onShowFocus={showFocus}
         />
       </div>
     </div>

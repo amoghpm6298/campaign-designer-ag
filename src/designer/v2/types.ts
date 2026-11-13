@@ -112,6 +112,7 @@ export interface AgentResponse {
   buildNotes: string[];
   events: V2Event[];
   warehouseAccess: boolean;
+  version?: VersionEntry;
 }
 
 export interface V2Turn {
@@ -124,6 +125,25 @@ export interface V2Turn {
   error?: string;
   /** User turns sent from the question form: each question and what was picked (or skipped). */
   answerSet?: AnswerItem[];
+  /** User turns sent from a block on the canvas: which block, and its label for the chat tag. */
+  focus?: Focus;
+  focusLabel?: string;
+}
+
+/** A block on the canvas the manager pointed at. Ids are the backend's. */
+export interface Focus {
+  kind: 'step' | 'bucket' | 'entry' | 'goal' | 'everyone_else';
+  bucketId?: string;
+  stepId?: string;
+}
+
+export interface VersionEntry {
+  n: number;
+  at: string;
+  source: 'chat' | 'direct' | 'rollback' | 'migration';
+  request: string;
+  summary: string;
+  counts: { added: number; changed: number; removed: number };
 }
 
 export interface AnswerItem {

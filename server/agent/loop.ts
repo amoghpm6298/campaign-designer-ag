@@ -12,17 +12,52 @@ import { systemPrompt, statusBlock } from './prompt';
 import { TOOL_TITLES, runToolCall, toolsFor, type ToolEnv } from './tools';
 import { emptyCampaign, emptyContext, normaliseState, recordAnswers, recordSkips } from './state';
 import { loadStores, saveCampaignObject, saveContext } from '../campaignFiles';
+import { focusSection } from './focus';
+import { ensureBaseline, recordVersion, setSummary, summariseVersion, type VersionEntry } from '../campaignVersions';
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
 
 const MAX_ROUNDS = 24;
 const REACH_ORDER: Channel[] = ['WHATSAPP', 'SMS', 'EMAIL', 'RCS'] as Channel[];
 
-function channelsFor(tenant: NonNullable<ReturnType<typeof resolveTenant>>): Channel[] {
+export function channelsFor(tenant: NonNullable<ReturnType<typeof resolveTenant>>): Channel[] {
   return tenant.availableChannels
     .filter((c) => c.available)
     .sort((a, b) => REACH_ORDER.indexOf(a.channel as Channel) - REACH_ORDER.indexOf(b.channel as Channel))
     .map((c) => c.channel as Channel);
+}
+
+/** If this turn changed the campaign, records it as a version with a short summary. */
+async function versionThisTurn(sessionId: string, start: AgentState['campaign'], end: AgentState['campaign'], request: string): Promise<VersionEntry | null> {
+  if (start === end) return null;
+  try {
+    ensureBaseline(sessionId, start);
+    const v = recordVersion({ sessionId, campaign: end, source: 'chat', request });
+    if (!v) return null;
+    const summary = await summariseVersion(v.diff, request);
+    if (summary !== v.summary) setSummary(sessionId, v.n, summary);
+    const { campaign: _c, diff: _d, ...entry } = v;
+    void _c;
+    void _d;
+    return { ...entry, summary };
+  } catch (e) {
+    console.error(`[versions] could not record ${sessionId}: ${(e as Error).message}`);
+    return null;
+  }
+}
+
+/** The tool setup for a tenant: channels and warehouse. Shared with direct edits. */
+export function toolEnvFor(tenantId: string | undefined, sessionId: string, goalStatement = ''): ToolEnv | null {
+  const tenant = resolveTenant(tenantId);
+  if (!tenant) return null;
+  return {
+    tenant,
+    availableChannels: channelsFor(tenant),
+    goalStatement,
+    sessionId,
+    warehouseBank: tenant.warehouse && warehouseAvailable(tenant.warehouse.bank) ? tenant.warehouse.bank : undefined,
+    lookupCache: new Map(),
+  };
 }
 
 /** Alternating user/assistant messages, merging consecutive turns from the same side. */
@@ -83,6 +118,8 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   // The campaign itself lives on disk, keyed by this chat's session id. The
   // request carries only the conversation; whatever campaign it sends is ignored.
   let state: AgentState = withStoresFromDisk(normaliseState(req.state), req.sessionId);
+  // What the campaign was when this turn started: a turn that changes it becomes a version.
+  const startCampaign = state.campaign;
   const base = (extra: Partial<AgentResponse>): AgentResponse => ({
     sessionId: req.sessionId,
     runId,
@@ -130,7 +167,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       role: 'user',
       content: [
         { type: 'text', text: String(last.content) },
-        { type: 'text', text: statusBlock(state) },
+        { type: 'text', text: [statusBlock(state), focusSection(state, req.focus)].filter(Boolean).join('\n\n') },
       ],
     };
   }
@@ -239,7 +276,9 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   }
 
   yield* drain();
+  const version = await versionThisTurn(req.sessionId, startCampaign, state.campaign, latestUser);
   return base({
+    ...(version ? { version } : {}),
     reply: textSegments.join('\n\n'),
     state,
     questionItems: asked,

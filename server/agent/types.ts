@@ -160,6 +160,8 @@ export interface AgentRequest {
   answers?: Record<string, string>;
   /** Question ids the manager skipped (the Skip button, or left blank on Send). */
   skipped?: string[];
+  /** The block the manager pointed at on the canvas (backend ids; turned into plain words for the agent). */
+  focus?: { kind: 'step' | 'bucket' | 'entry' | 'goal' | 'everyone_else'; bucketId?: string; stepId?: string } | null;
 }
 
 export interface AgentResponse {
@@ -176,4 +178,6 @@ export interface AgentResponse {
   buildNotes: string[];
   events: unknown[];
   warehouseAccess: boolean;
+  /** The version this turn created, if it changed the campaign. */
+  version?: { n: number; at: string; source: string; request: string; summary: string; counts: { added: number; changed: number; removed: number } };
 }

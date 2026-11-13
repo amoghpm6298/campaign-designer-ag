@@ -15,6 +15,7 @@ import {
   upsertBucket,
 } from '../../server/agent/state';
 import { runToolCall, toolsFor, type ToolEnv } from '../../server/agent/tools';
+import { stripJourneyIds } from '../../server/agent/stepIds';
 import { planToBlueprint } from '../../server/agent/compile';
 import { systemPrompt, statusBlock } from '../../server/agent/prompt';
 import { buildFromBlueprint, type BpStep } from '../../server/blueprint';
@@ -119,7 +120,7 @@ describe('buckets, rebuilds and precise edits', () => {
     expect(s.flags.campaignBuilt).toBe(true);
     s = upsertBucket(s, { id: 'dormant', rule: [{ entity: 'Transaction', conditions: [], lookbackDays: 120, existence: 'none' }] }).state;
     expect(s.flags.campaignBuilt).toBe(false);
-    expect(s.campaign.buckets.find((b) => b.id === 'electronics')!.journey).toEqual(journey);
+    expect(stripJourneyIds(s.campaign.buckets.find((b) => b.id === 'electronics')!.journey)).toEqual(journey);
   });
 
   it('the outline gives every step an address, including inside forks', () => {
@@ -158,7 +159,7 @@ describe('buckets, rebuilds and precise edits', () => {
     const b = out.state.campaign.buckets.find((x) => x.id === 'dormant')!;
     const arm = (b.journey![0] as Extract<BpStep, { kind: 'experiment' }>).arms[1];
     expect((arm.steps[0] as { name: string }).name).toBe('B1 new');
-    expect(out.state.campaign.buckets.find((x) => x.id === 'electronics')!.journey).toEqual(journey);
+    expect(stripJourneyIds(out.state.campaign.buckets.find((x) => x.id === 'electronics')!.journey)).toEqual(journey);
     expect(out.state.flags.campaignBuilt).toBe(false);
   });
 

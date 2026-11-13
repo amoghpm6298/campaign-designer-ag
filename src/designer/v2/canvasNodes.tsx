@@ -2,7 +2,9 @@
 // accents from src/canvas/dripCanvas.css). Read-only: the campaign changes
 // through the chat, never by clicking a card. Clicking a message opens its
 // preview.
-import { Handle, Position } from '@xyflow/react';
+import { createContext, useContext } from 'react';
+import { Handle, NodeToolbar, Position } from '@xyflow/react';
+import { Pencil } from 'lucide-react';
 import { Icon } from '../../components/icons';
 import { CHANNEL_LABEL, fmtWait, sendTitle, sendWhen, waitHours, type CNodeData, type CStep } from './canvasModel';
 
@@ -21,21 +23,22 @@ const EVIDENCE: Record<string, string> = { measured: 'From data', manager: 'You 
 const ORDINAL = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'];
 const ordinal = (i: number) => ORDINAL[i] ?? `${i + 1}th`;
 
-function Changed({ on }: { on?: boolean }) {
-  return on ? <span className="cv-changed-tag">Changed in chat</span> : null;
+const titleCase = (s: string) => s[0].toUpperCase() + s.slice(1);
+
+function Changed({ on, knock }: { on?: boolean; knock?: boolean }) {
+  return on ? <span className={`cv-changed-tag${knock ? ' knock' : ''}`}>{knock ? 'Changed as a result' : 'Changed'}</span> : null;
 }
 
-function Handles({ sideways }: { sideways?: boolean }) {
+const CHANGE_STROKE = (d: CdNodeData) => (d.changeKind === 'knock' ? '#b54708' : '#027a48');
+
+/** In at the top; out at the bottom, or at the left / right corner when a decision has several routes. */
+function Handles(_: { sideways?: boolean }) {
   return (
     <>
       <Handle type="target" position={Position.Top} className="cv-handle" isConnectable={false} />
       <Handle type="source" position={Position.Bottom} className="cv-handle" isConnectable={false} />
-      {sideways && (
-        <>
-          <Handle id="l" type="target" position={Position.Left} className="cv-handle" isConnectable={false} />
-          <Handle id="r" type="source" position={Position.Right} className="cv-handle" isConnectable={false} />
-        </>
-      )}
+      <Handle id="sl" type="source" position={Position.Left} className="cv-handle" isConnectable={false} />
+      <Handle id="sr" type="source" position={Position.Right} className="cv-handle" isConnectable={false} />
     </>
   );
 }
@@ -46,7 +49,7 @@ function Card({ cat, type, icon, children, data, extra, title }: { cat: string; 
       <div className="dc-node-type">
         <Icon name={icon} />
         <span>{type}</span>
-        <Changed on={data.changed} />
+        <Changed on={data.changed} knock={data.changeKind === 'knock'} />
       </div>
       {children}
     </div>
@@ -125,14 +128,34 @@ function BucketCard({ data }: { data: CdNodeData }) {
   );
 }
 
-/** A decision, drawn as a diamond so it reads as a question from far away. */
+/** An SVG path for a polygon with rounded corners. */
+function rounded(points: [number, number][], r: number): string {
+  const n = points.length;
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const [px, py] = points[(i - 1 + n) % n];
+    const [cx, cy] = points[i];
+    const [nx, ny] = points[(i + 1) % n];
+    const toward = (ax: number, ay: number) => {
+      const len = Math.hypot(ax - cx, ay - cy) || 1;
+      const k = Math.min(r, len / 2) / len;
+      return [cx + (ax - cx) * k, cy + (ay - cy) * k];
+    };
+    const [sx, sy] = toward(px, py);
+    const [ex, ey] = toward(nx, ny);
+    d += `${i === 0 ? 'M' : 'L'}${sx},${sy} Q${cx},${cy} ${ex},${ey} `;
+  }
+  return `${d}Z`;
+}
+
+/** A decision, drawn as a soft diamond so it reads as a question from far away. */
 function Diamond({ data, color, fill, icon, kind, children }: { data: CdNodeData; color: string; fill: string; icon: string; kind: string; children: React.ReactNode }) {
   const w = data.width;
   const h = data.height ?? 110;
   return (
     <div className={`cv-shape${data.changed ? ' cv-shape-changed' : ''}`} style={{ width: w, height: h }}>
       <svg className="cv-shape-bg" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden>
-        <polygon points={`${w / 2},2 ${w - 2},${h / 2} ${w / 2},${h - 2} 2,${h / 2}`} fill={fill} stroke={data.changed ? '#027a48' : color} strokeWidth={data.changed ? 3 : 1.5} strokeLinejoin="round" />
+        <path d={rounded([[w / 2, 2], [w - 2, h / 2], [w / 2, h - 2], [2, h / 2]], 14)} fill={fill} stroke={data.changed ? CHANGE_STROKE(data) : `color-mix(in srgb, ${color} 45%, white)`} strokeWidth={data.changed ? 2.5 : 1.25} />
       </svg>
       <div className="cv-shape-text" style={{ maxWidth: w * 0.56, color }}>
         <span className="cv-shape-kind">
@@ -153,7 +176,7 @@ function Hexagon({ data, color, fill, icon, kind, children }: { data: CdNodeData
   return (
     <div className={`cv-shape${data.changed ? ' cv-shape-changed' : ''}`} style={{ width: w, height: h }}>
       <svg className="cv-shape-bg" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden>
-        <polygon points={`${c},2 ${w - c},2 ${w - 2},${h / 2} ${w - c},${h - 2} ${c},${h - 2} 2,${h / 2}`} fill={fill} stroke={data.changed ? '#027a48' : color} strokeWidth={data.changed ? 3 : 1.5} strokeLinejoin="round" />
+        <path d={rounded([[c, 2], [w - c, 2], [w - 2, h / 2], [w - c, h - 2], [c, h - 2], [2, h / 2]], 10)} fill={fill} stroke={data.changed ? CHANGE_STROKE(data) : `color-mix(in srgb, ${color} 45%, white)`} strokeWidth={data.changed ? 2.5 : 1.25} />
       </svg>
       <div className="cv-shape-text" style={{ maxWidth: w - 2 * c - 8, color }}>
         <span className="cv-shape-kind">
@@ -166,7 +189,7 @@ function Hexagon({ data, color, fill, icon, kind, children }: { data: CdNodeData
   );
 }
 
-export function CdNode({ data }: { data: CdNodeData }) {
+function CdNodeBody({ data }: { data: CdNodeData }) {
   const st = (data.step ?? {}) as CStep;
   let body: React.ReactNode;
   switch (data.kind) {
@@ -176,9 +199,16 @@ export function CdNode({ data }: { data: CdNodeData }) {
       body = (
         <Card cat="entry" icon="users" data={data} type={<>Entry · who can join <span className="dc-node-start-tag">START</span></>}>
           <div className="dc-node-label">{c?.description || c?.name || 'Eligible customers'}</div>
+          <div className="cv-entry-mode">
+            <span className={`cv-mode-tag ${m?.type === 'open' ? 'rec' : m ? 'once' : 'none'}`}>{m ? (m.type === 'open' ? `Recurring · ${titleCase(m.refresh ?? 'weekly')}` : 'One-time') : 'One-time or recurring: not decided'}</span>
+            {c?.goal && <span className="dc-node-meta">Success: {c.goal.eventType}</span>}
+          </div>
           <div className="dc-node-meta">
-            {m ? (m.type === 'open' ? `New matching customers join ${m.refresh ?? 'weekly'}` : 'Buckets fixed at launch') : 'Membership not decided yet'}
-            {c?.goal ? ` · Success: ${c.goal.eventType}` : ''}
+            {m?.type === 'open'
+              ? `New matching customers join every ${m.refresh === 'daily' ? 'day' : m.refresh === 'monthly' ? 'month' : 'week'}. Nobody re-enters while their journey is running.`
+              : m
+                ? 'The list is fixed at launch. Nobody new joins.'
+                : ''}
           </div>
           <div className="dc-node-meta">Each customer goes into the first bucket they match, left to right.</div>
         </Card>
@@ -209,7 +239,7 @@ export function CdNode({ data }: { data: CdNodeData }) {
     }
     case 'holdout':
       body = (
-        <Hexagon data={data} color="#6941c6" fill="#f6f1ff" icon="flask" kind="Holdout">
+        <Hexagon data={data} color="#7a52d1" fill="#f9f6ff" icon="flask" kind="Holdout">
           <div className="cv-shape-label">{data.holdoutPct}% get no messages</div>
         </Hexagon>
       );
@@ -219,7 +249,7 @@ export function CdNode({ data }: { data: CdNodeData }) {
       break;
     case 'goalcheck':
       body = (
-        <Diamond data={data} color="#4b4fb8" fill="#eef0fd" icon="targetCheck" kind="Goal check">
+        <Diamond data={data} color="#4b4fb8" fill="#f4f5fe" icon="targetCheck" kind="Goal check">
           <div className="cv-shape-label">{data.goalText ?? 'Reached the goal?'}</div>
           <div className="cv-shape-meta">Yes → exit</div>
         </Diamond>
@@ -246,21 +276,21 @@ export function CdNode({ data }: { data: CdNodeData }) {
       break;
     case 'branch':
       body = (
-        <Diamond data={data} color="#e0a020" fill="#fff8e6" icon="split3" kind="Branch">
+        <Diamond data={data} color="#c98a12" fill="#fffaf0" icon="split3" kind="Branch">
           <div className="cv-shape-label">{st.label || 'What did they do with the last message?'}</div>
         </Diamond>
       );
       break;
     case 'experiment':
       body = (
-        <Hexagon data={data} color="#6941c6" fill="#f6f1ff" icon="flask" kind="A/B test">
+        <Hexagon data={data} color="#7a52d1" fill="#f9f6ff" icon="flask" kind="A/B test">
           <div className="cv-shape-label">{st.label || 'Which version works better?'}</div>
         </Hexagon>
       );
       break;
     case 'condition':
       body = (
-        <Diamond data={data} color="#e0a020" fill="#fff8e6" icon="split2" kind="Condition">
+        <Diamond data={data} color="#c98a12" fill="#fffaf0" icon="split2" kind="Condition">
           <div className="cv-shape-label">{st.label || 'Condition'}</div>
         </Diamond>
       );
@@ -278,6 +308,49 @@ export function CdNode({ data }: { data: CdNodeData }) {
       <Handles />
       {body}
     </>
+  );
+}
+
+/** What the canvas lends every box for point-and-edit. */
+export interface EditApi {
+  /** The canvas node being edited, if any. */
+  editingId: string | null;
+  /** Read-only (viewing an old version, or the agent is working). */
+  locked: boolean;
+  onEdit: (nodeId: string, data: CdNodeData) => void;
+  renderPopover: (nodeId: string, data: CdNodeData) => React.ReactNode;
+}
+export const EditContext = createContext<EditApi | null>(null);
+
+/** Every box: the drawn shape, an edit pencil on hover, and the edit popover beside it when focused. */
+export function CdNode({ id, data }: { id: string; data: CdNodeData }) {
+  const api = useContext(EditContext);
+  const editing = api?.editingId === id;
+  const dimmed = !!api?.editingId && !editing;
+  const canEdit = !!data.focus && !api?.locked;
+  return (
+    <div className={`cv-node${editing ? ' cv-editing' : ''}${dimmed ? ' cv-dimmed' : ''}${data.changeKind === 'knock' ? ' cv-knock' : ''}`}>
+      <CdNodeBody data={data} />
+      {canEdit && !editing && (
+        <button
+          className="cv-pencil nodrag nopan"
+          title="Change this"
+          aria-label="Change this"
+          onClick={(e) => {
+            e.stopPropagation();
+            api!.onEdit(id, data);
+          }}
+        >
+          <Pencil size={12} />
+        </button>
+      )}
+      {editing && <span className="cv-editing-tag">Editing</span>}
+      {api && (
+        <NodeToolbar isVisible={editing} position={Position.Right} offset={16} className="nodrag nopan nowheel">
+          {editing ? api.renderPopover(id, data) : null}
+        </NodeToolbar>
+      )}
+    </div>
   );
 }
 

@@ -1,6 +1,7 @@
 // SSE client for the v2 agent endpoint.
 import { apiUrl } from '../api';
-import type { AgentResponse, AgentState, CampaignContext, CampaignObject, V2Event } from './types';
+import type { AgentResponse, AgentState, CampaignContext, CampaignObject, Focus, TimelineEntry, V2Event, VersionEntry } from './types';
+import type { DirectOp } from './EditPopover';
 
 export interface AgentStreamBody {
   sessionId: string;
@@ -11,6 +12,8 @@ export interface AgentStreamBody {
   answers?: Record<string, string>;
   /** Question ids the manager skipped: the agent assumes and says so. */
   skipped?: string[];
+  /** The block on the canvas this message is about. */
+  focus?: Focus | null;
 }
 
 export async function runAgentStream(
@@ -85,4 +88,36 @@ export async function fetchStores(sessionId: string): Promise<Stores> {
   if (!res.ok) return { campaign: null, context: null };
   const body = (await res.json()) as Partial<Stores>;
   return { campaign: body.campaign ?? null, context: body.context ?? null };
+}
+
+export interface EditResult {
+  ok: boolean;
+  error?: string;
+  campaign?: CampaignObject;
+  context?: CampaignContext;
+  version?: VersionEntry;
+  timeline?: TimelineEntry;
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(apiUrl(path), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  return (await res.json().catch(() => ({ ok: false, error: `Request failed (${res.status})` }))) as T;
+}
+
+/** A direct edit from the canvas: saved and rebuilt by code, no agent. */
+export const directEdit = (sessionId: string, tenantId: string, op: DirectOp) => postJson<EditResult>('/api/campaign/edit', { sessionId, tenantId, op });
+
+/** Restores an old version as a new one. */
+export const restoreVersion = (sessionId: string, tenantId: string, n: number) => postJson<EditResult>('/api/campaign/restore', { sessionId, tenantId, n });
+
+export async function listVersions(sessionId: string): Promise<VersionEntry[]> {
+  const res = await fetch(apiUrl(`/api/campaign/versions?sessionId=${encodeURIComponent(sessionId)}`));
+  if (!res.ok) return [];
+  return ((await res.json()) as { versions?: VersionEntry[] }).versions ?? [];
+}
+
+export async function getVersion(sessionId: string, n: number): Promise<(VersionEntry & { campaign: CampaignObject }) | null> {
+  const res = await fetch(apiUrl(`/api/campaign/version?sessionId=${encodeURIComponent(sessionId)}&n=${n}`));
+  if (!res.ok) return null;
+  return ((await res.json()) as { version?: VersionEntry & { campaign: CampaignObject } }).version ?? null;
 }

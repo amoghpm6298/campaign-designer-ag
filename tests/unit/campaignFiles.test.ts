@@ -8,6 +8,7 @@ import { loadStores, saveCampaignObject, saveContext, sessionFolder, splitLegacy
 import { persistIfChanged, withStoresFromDisk } from '../../server/agent/loop';
 import { addContext, addQuestions, initialState, recordAnswers, recordSkips } from '../../server/agent/state';
 import { runToolCall, type ToolEnv } from '../../server/agent/tools';
+import { stripJourneyIds } from '../../server/agent/stepIds';
 import { statusBlock } from '../../server/agent/prompt';
 import { resolveTenant } from '../../server/tenants';
 import { bucketContext, currentEntries, entryHistory } from '../../src/designer/v2/contextView';
@@ -86,7 +87,8 @@ describe('the two files', () => {
     );
     const { campaign, context } = loadStores('cd-old', dir);
     expect(existsSync(join(dir, 'cd-old.json'))).toBe(false);
-    expect(campaign!.buckets[0]).toEqual({ id: 'b1', name: 'B1', priority: 1, rule: [], journey });
+    expect({ ...campaign!.buckets[0], journey: stripJourneyIds(campaign!.buckets[0].journey) }).toEqual({ id: 'b1', name: 'B1', priority: 1, rule: [], journey });
+    expect(campaign!.buckets[0].journey!.every((st) => typeof (st as { id?: string }).id === 'string')).toBe(true);
     expect(campaign!.everyoneElse).toEqual({ approach: 'none' });
     const v = bucketContext(context!.entries).b1;
     expect(v).toMatchObject({ behaviour: 'New', thesis: 'Busy', evidence: 'hypothesis', metric: 'Activations', size: 42, sql: 'SELECT 1' });

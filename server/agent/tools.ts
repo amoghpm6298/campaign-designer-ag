@@ -13,7 +13,7 @@ import { bankContext } from '../knowledge';
 import type { TenantConfig } from '../tenants';
 import type { Channel } from '../../src/data/sharedConstants';
 import { countCustomers, runWarehouseQuery, warehouseSchema } from '../warehouse';
-import { planToBlueprint } from './compile';
+import { checkJourneys, planToBlueprint } from './compile';
 import {
   addQuestions,
   editJourney,
@@ -29,6 +29,7 @@ import {
 } from './state';
 import { AGENT_FLAGS, type AgentQuestion, type AgentState } from './types';
 import type { BpStep } from '../blueprint';
+import { stripJourneyIds } from './stepIds';
 import { contextKey, currentEntries, entryHistory } from '../../src/designer/v2/contextView';
 
 const STEPS = { type: 'array', items: { $ref: '#/$defs/step' } } as const;
@@ -296,7 +297,8 @@ const flagLine = (s: AgentState) =>
  * step's address, which is what edit_journey takes.
  */
 export function campaignView(state: AgentState, part: string): unknown | null {
-  const c = state.campaign;
+  // Step ids are the backend's; the agent never sees them.
+  const c = { ...state.campaign, buckets: state.campaign.buckets.map((b) => ({ ...b, journey: stripJourneyIds(b.journey) })), everyoneElse: state.campaign.everyoneElse ? { ...state.campaign.everyoneElse, journey: stripJourneyIds(state.campaign.everyoneElse.journey) ?? undefined } : null };
   const withOutline = (steps: BpStep[] | null | undefined) => (steps?.length ? { journey: steps, outline: outline(steps) } : { journey: null });
   const { buckets, everyoneElse, ...shell } = c;
   if (part === 'shell') return { ...shell, everyoneElse: everyoneElse ? { approach: everyoneElse.approach, outline: outline(everyoneElse.journey ?? []) } : null };
@@ -502,7 +504,7 @@ export function runToolCall(name: string, input: Record<string, unknown>, state:
   }
 }
 
-function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
+export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
   let next = state;
   const compiled = planToBlueprint(next.campaign);
   if (!compiled.blueprint) {
@@ -541,7 +543,12 @@ function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
       { quietHours: bank.hardConstraints?.quietHours, availableChannels: bank.channels?.available },
       { campaign, provenance: proposal.provenance, blockers: proposal.blockers as string[] },
     );
-    validationLines = validation.checks.filter((c) => c.status === 'fail').map((c) => `Check failed: ${c.detail ?? c.id}`);
+    // A check that fails only because sends have no bank template id yet says
+    // nothing new: the template line below already covers it.
+    validationLines = validation.checks
+      .filter((c) => c.status === 'fail')
+      .filter((c) => !/^failed: (dcn\d+ \(Send\)[^;]*;? ?)+$/.test(String(c.detail ?? '')))
+      .map((c) => `Check failed: ${c.detail ?? c.id}`);
   } catch (e) {
     validationLines = [`Validation could not run: ${e instanceof Error ? e.message : String(e)}`];
   }
@@ -551,7 +558,7 @@ function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
     ...built.issues.map((i) => `${i.path}: ${i.problem}`),
     ...built.limitations.map((l) => `Cannot express ${l.attribute}: ${l.note}`),
     ...validationLines,
-    ...(built.sendProposals.length ? [`${built.sendProposals.length} message step(s) need the bank's real template id before export.`] : []),
+    ...(built.sendProposals.length ? [`${built.sendProposals.length} message${built.sendProposals.length === 1 ? '' : 's'} need the bank's template id before launch.`] : []),
   ];
 
   if (nodes.length <= 1) {
@@ -559,6 +566,7 @@ function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
     return { state: next, ok: false, forModel: `Nothing was built. Problems: ${notes.join(' | ') || 'none reported'}. Fix the plan and build again.`, summary: 'Nothing built', result: notes };
   }
   const summary = `${compiled.bucketsIncluded.length} buckets, ${sends} messages, ${nodes.length} steps`;
+  const knockOns = checkJourneys(next.campaign);
   next = setFlag(next, 'campaignBuilt', true, 'app', summary);
   next = log(next, 'app', 'campaign_built', `Built: ${summary}${notes.length ? `, ${notes.length} note(s)` : ''}`);
   return {
@@ -566,8 +574,8 @@ function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
     ok: true,
     doneTitle: 'Built the campaign',
     summary: `${summary}${notes.length ? ` · ${notes.length} note(s)` : ''}`,
-    result: { buckets: compiled.bucketsIncluded, messages: sends, steps: nodes.length, notes },
+    result: { buckets: compiled.bucketsIncluded, messages: sends, steps: nodes.length, notes, ...(knockOns.length ? { toFix: knockOns } : {}) },
     build: { graph: built.graph, campaign, notes },
-    forModel: `Built on the canvas as one campaign: ${summary} (buckets: ${compiled.bucketsIncluded.join(', ')}).${notes.length ? ` Notes: ${notes.join(' | ')}` : ' No problems reported.'} Tell the manager plainly what was built, anything that needs their attention, and that they can ask you to change any bucket or any step.`,
+    forModel: `Built on the canvas as one campaign: ${summary} (buckets: ${compiled.bucketsIncluded.join(', ')}).${notes.length ? ` Notes: ${notes.join(' | ')}` : ' No problems reported.'}${knockOns.length ? ` FIX BEFORE YOU FINISH — a change left these problems further down the tree: ${knockOns.join(' | ')} Fix each one (edit_journey / edit_bucket), build again, and list what you fixed under "Also changed because of this".` : ''} Tell the manager plainly what was built, anything that needs their attention, and that they can ask you to change any bucket or any step.`,
   };
 }

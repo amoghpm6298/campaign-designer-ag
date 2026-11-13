@@ -3,6 +3,7 @@
 // No I/O, no model calls, so every rule here is unit-testable.
 
 import type { BpAudienceGroup, BpStep } from '../blueprint';
+import { carryIds, idsIn } from './stepIds';
 import {
   AGENT_FLAGS,
   FLAG_LABELS,
@@ -370,7 +371,9 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
     if (ee.approach === 'journey' || ee.approach === 'none') {
       next.everyoneElse = {
         approach: ee.approach,
-        ...(ee.approach === 'journey' && Array.isArray(ee.journey) ? { journey: normaliseSteps(ee.journey as BpStep[]) } : {}),
+        ...(ee.approach === 'journey' && Array.isArray(ee.journey)
+          ? { journey: carryIds(prev.everyoneElse?.journey, normaliseSteps(ee.journey as BpStep[]), idsOutside(prev, 'everyone_else'))! }
+          : {}),
       };
       changed.push('everyoneElse');
     }
@@ -381,6 +384,34 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
   out = log(out, 'agent', 'plan_section_updated', `Updated the campaign (${changed.join(', ')})`);
   if (state.flags.campaignBuilt && changed.some((c) => ['goal', 'entry', 'membership', 'everyoneElse', 'name'].includes(c))) out = markStale(out, 'The campaign');
   return { state: out, said: `Campaign updated: ${changed.join(', ')}.` };
+}
+
+/**
+ * Hard rules a journey must meet before it is saved, whoever writes it. The
+ * agent gets the reason and must ask the manager rather than guess.
+ */
+export function journeyErrors(steps: BpStep[] | null | undefined): string[] {
+  const out: string[] = [];
+  const visit = (list: BpStep[] | null | undefined) =>
+    (list ?? []).forEach((st) => {
+      const s = st as unknown as { kind?: string; label?: string; arms?: { pct?: number; label?: string; steps?: BpStep[] }[]; paths?: { steps?: BpStep[] }[]; yes?: BpStep[]; no?: BpStep[] };
+      if (s.kind === 'experiment' && s.arms?.length) {
+        const total = s.arms.reduce((n, a) => n + (Number(a.pct) || 0), 0);
+        if (Math.round(total) !== 100)
+          out.push(`the A/B test${s.label ? ` "${s.label}"` : ''} would split ${s.arms.map((a) => `${a.pct}%`).join(' + ')} = ${total}%. A split must total 100%. Nothing was changed: ask the manager how they want the split before changing it.`);
+      }
+      s.arms?.forEach((a) => visit(a.steps));
+      s.paths?.forEach((p) => visit(p.steps));
+      visit(s.yes);
+      visit(s.no);
+    });
+  visit(steps);
+  return out;
+}
+
+/** Step ids used everywhere in the campaign except one lane (a bucket id, or 'everyone_else'). */
+function idsOutside(c: CampaignObject, lane: string): Set<string> {
+  return idsIn(...c.buckets.filter((b) => b.id !== lane).map((b) => b.journey), lane === 'everyone_else' ? null : c.everyoneElse?.journey);
 }
 
 // --- step normalisation -------------------------------------------------------------
@@ -443,8 +474,14 @@ export function upsertBucket(state: AgentState, input: BucketInput): { state: Ag
   const prev = buckets.find((b) => b.id === id);
   if (!prev && !str(input.name)) return { state, said: '', error: 'A new bucket needs at least a name (and normally a rule and a journey).', definitionChanged: false };
   const rule = Array.isArray(input.rule) ? (input.rule as BpAudienceGroup[]).filter((g) => g && typeof g.entity === 'string') : undefined;
-  const journey = Array.isArray(input.journey) ? normaliseSteps(input.journey as BpStep[]) : input.journey === null ? null : undefined;
+  const journey = Array.isArray(input.journey)
+    ? carryIds(prev?.journey, normaliseSteps(input.journey as BpStep[]), idsOutside(state.campaign, id))
+    : input.journey === null
+      ? null
+      : undefined;
   const holdout = typeof input.holdoutPct === 'number' && input.holdoutPct >= 0 && input.holdoutPct < 50 ? Math.round(input.holdoutPct) : undefined;
+  const bad = journey ? journeyErrors(journey) : [];
+  if (bad.length) return { state, said: '', error: `Not saved: ${bad.join(' ')}`, definitionChanged: false };
 
   const merged: CampaignBucket = {
     id,
@@ -562,6 +599,9 @@ export function editJourney(state: AgentState, target: string, ops: JourneyOp[])
   if (!journey?.length) return { state, said: '', error: 'That journey is empty; write it with edit_bucket (or edit_campaign for everyone else) first.' };
   const res = applyJourneyOps(journey, ops);
   if (!res.applied.length) return { state, said: '', error: res.errors.join('; ') || 'No operations applied.' };
+  const bad = journeyErrors(res.journey);
+  if (bad.length) return { state, said: '', error: bad.join(' ') };
+  res.journey = carryIds(journey, res.journey, idsOutside(state.campaign, isEveryone ? 'everyone_else' : target))!;
   let next: AgentState;
   if (isEveryone) {
     next = { ...state, campaign: { ...state.campaign, everyoneElse: { ...state.campaign.everyoneElse!, journey: res.journey } } };

@@ -11,7 +11,7 @@
 
 import dagre from '@dagrejs/dagre';
 import { bucketContext, noteText, type BucketView } from './contextView';
-import type { CampaignBucket, CampaignContext, CampaignObject } from './types';
+import type { CampaignBucket, CampaignContext, CampaignObject, Focus } from './types';
 
 export type CNodeKind =
   | 'entry'
@@ -45,6 +45,8 @@ export interface CStep {
   reason?: string;
   label?: string;
   tests?: string;
+  /** The backend's stable id for this step. */
+  id?: string;
   arms?: { label?: string; pct?: number; steps?: CStep[] }[];
   paths?: { label?: string; statuses?: string[]; steps?: CStep[] }[];
   yes?: CStep[];
@@ -65,6 +67,10 @@ export interface CNodeData extends Record<string, unknown> {
   campaign?: CampaignObject;
   /** Everyone else: why, from the context. */
   why?: string;
+  /** What editing this box points at (backend ids). */
+  focus?: Focus;
+  /** Set when a change touched this box: the thing asked for, or a knock-on of it. */
+  changeKind?: 'target' | 'knock';
   holdoutPct?: number;
   changed?: boolean;
   /** Short text for exits and the everyone-else card. */
@@ -93,14 +99,14 @@ export const NODE_W: Record<CNodeKind, number> = {
   entry: 420,
   bucket: 340,
   everyone: 280,
-  holdout: 250,
+  holdout: 220,
   send: 300,
-  goalcheck: 220,
+  goalcheck: 176,
   wait: 150,
   waitForEvent: 250,
-  branch: 260,
-  experiment: 280,
-  condition: 260,
+  branch: 220,
+  experiment: 250,
+  condition: 220,
   exit: 230,
 };
 
@@ -109,14 +115,14 @@ export const NODE_H: Record<CNodeKind, number> = {
   entry: 84,
   bucket: 230,
   everyone: 120,
-  holdout: 58,
+  holdout: 50,
   send: 190,
-  goalcheck: 104,
+  goalcheck: 80,
   wait: 38,
   waitForEvent: 42,
-  branch: 136,
-  experiment: 72,
-  condition: 130,
+  branch: 112,
+  experiment: 62,
+  condition: 106,
   exit: 38,
 };
 
@@ -139,21 +145,24 @@ type Tail = { id: string; label?: string };
  * builder cannot join paths back together, so it puts the rest of the
  * sequence on each open path, and so does the canvas.
  */
-function addSeq(lane: string, steps: CStep[] | undefined, from: Tail[], prefix: string, out: LaneBuild, changed: Set<string>, copy = '', start = 0): Tail[] {
+function addSeq(lane: string, steps: CStep[] | undefined, from: Tail[], prefix: string, out: LaneBuild, changed: ChangeMap, copy = '', start = 0): Tail[] {
   let tails = from;
   const list = steps ?? [];
   for (let i = start; i < list.length; i++) {
     if (tails.length > 1) return tails.flatMap((t, k) => addSeq(lane, list, [t], prefix, out, changed, `${copy}#${k + 1}`, i));
     const st = list[i];
     const path = `${prefix}${i}`;
-    const id = `${lane}:${path}${copy}`;
+    const base = `${lane}:${st.id ?? path}`;
+    const id = `${base}${copy}`;
     const kind = (['send', 'wait', 'waitForEvent', 'branch', 'experiment', 'condition', 'exit'].includes(String(st.kind)) ? st.kind : 'exit') as CNodeKind;
-    out.nodes.push({ id, data: { kind, lane, path, step: st, changed: changed.has(`${lane}:${path}`), ...(kind === 'exit' ? { text: st.reason ?? '' } : {}) } });
+    const focus: Focus = st.id ? { kind: 'step', bucketId: lane, stepId: st.id } : { kind: 'bucket', bucketId: lane };
+    const ck = changed.get(base);
+    out.nodes.push({ id, data: { kind, lane, path, step: st, focus, changed: !!ck, ...(ck ? { changeKind: ck } : {}), ...(kind === 'exit' ? { text: st.reason ?? '' } : {}) } });
     for (const t of tails) out.edges.push({ id: `e:${t.id}->${id}`, source: t.id, target: id, ...(t.label ? { label: t.label } : {}) });
 
     if (kind === 'send') {
       const gc = `${id}:gc`;
-      out.nodes.push({ id: gc, data: { kind: 'goalcheck', lane, path } });
+      out.nodes.push({ id: gc, data: { kind: 'goalcheck', lane, path, focus: { kind: 'goal' } } });
       out.edges.push({ id: `e:${id}->${gc}`, source: id, target: gc });
       tails = [{ id: gc }];
     } else if (kind === 'exit') {
@@ -172,7 +181,7 @@ function addSeq(lane: string, steps: CStep[] | undefined, from: Tail[], prefix: 
       });
       // The builder's catch-all arm: anyone whose status matched no path.
       const ex = `${id}:else`;
-      out.nodes.push({ id: ex, data: { kind: 'exit', lane, text: 'Did not reach the goal in this window' } });
+      out.nodes.push({ id: ex, data: { kind: 'exit', lane, text: 'Did not reach the goal in this window', focus } });
       out.edges.push({ id: `e:${id}->${ex}`, source: id, target: ex, label: 'Anything else' });
       tails = armTails;
     } else if (kind === 'condition') {
@@ -214,9 +223,10 @@ function layoutLane(lane: LaneBuild, measured: Record<string, number>): { pos: R
 export function buildCanvasModel(
   campaign: CampaignObject | null | undefined,
   context: CampaignContext | null | undefined = null,
-  changed: Set<string> = new Set(),
+  changed: Set<string> | ChangeMap = new Set(),
   measured: Record<string, number> = {},
 ): { nodes: CNode[]; edges: CEdge[] } {
+  const changedMap: ChangeMap = changed instanceof Map ? changed : new Map([...changed].map((k) => [k, 'target' as const]));
   if (!campaign || (!campaign.buckets.length && !campaign.goal && !campaign.entry && !campaign.membership && !campaign.everyoneElse)) return { nodes: [], edges: [] };
   const info = bucketContext(context?.entries ?? []);
   const buckets = [...campaign.buckets].sort((a, b) => a.priority - b.priority);
@@ -225,19 +235,19 @@ export function buildCanvasModel(
   buckets.forEach((b, i) => {
     const lane: LaneBuild = { nodes: [], edges: [] };
     const head = `${b.id}:head`;
-    lane.nodes.push({ id: head, data: { kind: 'bucket', lane: b.id, bucket: b, info: info[b.id] ?? {}, bucketIndex: i } });
+    lane.nodes.push({ id: head, data: { kind: 'bucket', lane: b.id, bucket: b, info: info[b.id] ?? {}, bucketIndex: i, focus: { kind: 'bucket', bucketId: b.id } } });
     let from: { id: string; label?: string }[] = [{ id: head }];
     if (b.holdoutPct && b.holdoutPct > 0 && b.journey?.length) {
       const h = `${b.id}:holdout`;
-      lane.nodes.push({ id: h, data: { kind: 'holdout', lane: b.id, holdoutPct: b.holdoutPct } });
+      lane.nodes.push({ id: h, data: { kind: 'holdout', lane: b.id, holdoutPct: b.holdoutPct, focus: { kind: 'bucket', bucketId: b.id } } });
       lane.edges.push({ id: `e:${head}->${h}`, source: head, target: h });
       from = [{ id: h, label: `${100 - b.holdoutPct}% get the journey` }];
     }
     if (b.journey?.length) {
-      const tails = addSeq(b.id, b.journey as CStep[], from, '', lane, changed);
+      const tails = addSeq(b.id, b.journey as CStep[], from, '', lane, changedMap);
       if (tails.length) {
         const end = `${b.id}:end`;
-        lane.nodes.push({ id: end, data: { kind: 'exit', lane: b.id, text: 'Journey ends' } });
+        lane.nodes.push({ id: end, data: { kind: 'exit', lane: b.id, text: 'Journey ends', focus: { kind: 'bucket', bucketId: b.id } } });
         for (const t of tails) lane.edges.push({ id: `e:${t.id}->${end}`, source: t.id, target: end, ...(t.label ? { label: t.label } : {}) });
       }
     }
@@ -247,11 +257,11 @@ export function buildCanvasModel(
   const ee = campaign.everyoneElse;
   {
     const lane: LaneBuild = { nodes: [], edges: [] };
-    lane.nodes.push({ id: 'everyone_else:head', data: { kind: 'everyone', lane: 'everyone_else', campaign, why: noteText(context?.entries ?? [], 'everyone_else') } });
+    lane.nodes.push({ id: 'everyone_else:head', data: { kind: 'everyone', lane: 'everyone_else', campaign, why: noteText(context?.entries ?? [], 'everyone_else'), focus: { kind: 'everyone_else' } } });
     if (ee?.approach === 'journey' && ee.journey?.length) {
-      const tails = addSeq('everyone_else', ee.journey as CStep[], [{ id: 'everyone_else:head' }], '', lane, changed);
+      const tails = addSeq('everyone_else', ee.journey as CStep[], [{ id: 'everyone_else:head' }], '', lane, changedMap);
       if (tails.length) {
-        lane.nodes.push({ id: 'everyone_else:end', data: { kind: 'exit', lane: 'everyone_else', text: 'Journey ends' } });
+        lane.nodes.push({ id: 'everyone_else:end', data: { kind: 'exit', lane: 'everyone_else', text: 'Journey ends', focus: { kind: 'everyone_else' } } });
         for (const t of tails) lane.edges.push({ id: `e:${t.id}->everyone_else:end`, source: t.id, target: 'everyone_else:end', ...(t.label ? { label: t.label } : {}) });
       }
     }
@@ -274,7 +284,7 @@ export function buildCanvasModel(
     x += l.width + LANE_GAP;
   }
   const totalW = Math.max(0, x - LANE_GAP);
-  nodes.unshift({ id: 'entry', data: { kind: 'entry', lane: '', campaign }, x: totalW / 2 - NODE_W.entry / 2, y: 0, width: NODE_W.entry, height: entryH });
+  nodes.unshift({ id: 'entry', data: { kind: 'entry', lane: '', campaign, focus: { kind: 'entry' } }, x: totalW / 2 - NODE_W.entry / 2, y: 0, width: NODE_W.entry, height: entryH });
   // The entry branches straight into every column. The order (first match
   // wins, left to right) is said on the cards, not drawn as a chain of
   // "not matched" hops.
@@ -283,11 +293,23 @@ export function buildCanvasModel(
   return { nodes, edges };
 }
 
+/** "target" = the thing the manager asked to change; "knock" = changed because of it. */
+export type ChangeMap = Map<string, 'target' | 'knock'>;
+
+/** A step's own content (without its id or nested steps, with its arms'/paths' own settings). */
+function ownSig(st: CStep): string {
+  const { arms, paths, yes: _y, no: _n, id: _id, ...own } = st;
+  void _y;
+  void _n;
+  void _id;
+  const shape = (l?: { steps?: CStep[] }[]) => l?.map(({ steps: _s, ...r }) => (void _s, r));
+  return JSON.stringify({ ...own, ...(arms ? { arms: shape(arms) } : {}), ...(paths ? { paths: shape(paths) } : {}) });
+}
+
 /**
  * Which steps changed between two versions of the campaign object, as
- * "<lane>:<path>" (a step drawn twice after a fork lights up in both places).
- * Only buckets that already had a journey count — a first build is not a
- * "change".
+ * "<lane>:<stepId>" (or "<lane>:<path>" for steps without ids). Matched by id,
+ * so inserting a step marks only that step. A first build is not a "change".
  */
 export function diffChangedSteps(prev: CampaignObject | null | undefined, next: CampaignObject | null | undefined): Set<string> {
   const out = new Set<string>();
@@ -295,12 +317,11 @@ export function diffChangedSteps(prev: CampaignObject | null | undefined, next: 
   const index = (lane: string, steps: CStep[] | undefined, prefix: string, m: Map<string, string>) => {
     (steps ?? []).forEach((st, i) => {
       const path = `${prefix}${i}`;
-      const { arms, paths, yes, no, ...own } = st;
-      m.set(`${lane}:${path}`, JSON.stringify(own));
-      (arms ?? []).forEach((a, ai) => index(lane, a.steps, `${path}.arms.${ai}.steps.`, m));
-      (paths ?? []).forEach((p, pi) => index(lane, p.steps, `${path}.paths.${pi}.steps.`, m));
-      index(lane, yes, `${path}.yes.`, m);
-      index(lane, no, `${path}.no.`, m);
+      m.set(`${lane}:${st.id ?? path}`, ownSig(st));
+      (st.arms ?? []).forEach((a, ai) => index(lane, a.steps, `${path}.arms.${ai}.steps.`, m));
+      (st.paths ?? []).forEach((p, pi) => index(lane, p.steps, `${path}.paths.${pi}.steps.`, m));
+      index(lane, st.yes, `${path}.yes.`, m);
+      index(lane, st.no, `${path}.no.`, m);
     });
   };
   const lanesOf = (c: CampaignObject) => [
@@ -318,6 +339,16 @@ export function diffChangedSteps(prev: CampaignObject | null | undefined, next: 
     for (const [id, v] of b) if (a.get(id) !== v) out.add(id);
   }
   return out;
+}
+
+/** Splits a turn's changes into what was asked for (the focused block) and knock-on changes. */
+export function classifyChanges(changed: Iterable<string>, focus: Focus | null | undefined): ChangeMap {
+  const m: ChangeMap = new Map();
+  for (const id of changed) {
+    const target = !focus || (focus.kind === 'step' && id === `${focus.bucketId}:${focus.stepId}`) || (focus.kind === 'bucket' && id.startsWith(`${focus.bucketId}:`));
+    m.set(id, target ? 'target' : 'knock');
+  }
+  return m;
 }
 
 /** Plain-language helpers shared by the node components and the drawer. */

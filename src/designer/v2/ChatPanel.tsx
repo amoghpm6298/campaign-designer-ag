@@ -1,16 +1,17 @@
 // The chat on the right: the conversation, what the agent did on each turn
 // (as compact chips you can open), and a cue card that points at the canvas.
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ArrowRight, ArrowUp, Check, ChevronRight, Highlighter, LayoutDashboard, Loader2, MessageCircleQuestion, X } from 'lucide-react';
+import { AlertCircle, ArrowRight, ArrowUp, Check, ChevronRight, Highlighter, LayoutDashboard, Loader2, MessageCircleQuestion, Pencil, X } from 'lucide-react';
 import { RichText } from '../RichText';
 import { buildTrace } from './logic';
-import type { AnswerItem, V2Event, V2Turn } from './types';
+import type { AnswerItem, Focus, V2Event, V2Turn } from './types';
 
 export interface Cue {
   icon: 'question' | 'busy' | 'ready' | 'changed';
   title: string;
   text: string;
   action?: { label: string; run: () => void };
+  secondary?: { label: string; run: () => void };
 }
 
 const STARTERS = ['Get new cardholders to activate their card', 'I want to drive spends during Diwali', 'Convert big-ticket purchases to EMI'];
@@ -22,6 +23,8 @@ export function ChatPanel({
   cue,
   placeholder,
   onSend,
+  locked,
+  onShowFocus,
 }: {
   turns: V2Turn[];
   live: V2Event[];
@@ -29,6 +32,8 @@ export function ChatPanel({
   cue: Cue | null;
   placeholder: string;
   onSend: (text: string) => void;
+  locked?: boolean;
+  onShowFocus?: (f: Focus) => void;
 }) {
   const [draft, setDraft] = useState('');
   const [openAnswers, setOpenAnswers] = useState<AnswerItem[] | null>(null);
@@ -67,6 +72,11 @@ export function ChatPanel({
                 <AnswersBubble items={t.answerSet} onOpen={() => setOpenAnswers(t.answerSet!)} />
               ) : (
                 <div className="cv-bubble user">
+                  {t.focus && (
+                    <button className="cv-focus-tag" onClick={() => onShowFocus?.(t.focus!)} title="Show this box on the canvas">
+                      <Pencil size={11} /> {t.focusLabel ?? 'A box on the canvas'}
+                    </button>
+                  )}
                   <RichText text={t.content} />
                 </div>
               )}
@@ -115,6 +125,11 @@ export function ChatPanel({
                 <ArrowRight size={14} />
               </button>
             )}
+            {cue.secondary && (
+              <button className="cv-cue-link" onClick={cue.secondary.run}>
+                {cue.secondary.label}
+              </button>
+            )}
           </div>
         )}
         <div ref={endRef} />
@@ -132,7 +147,7 @@ export function ChatPanel({
             }
           }}
           rows={1}
-          disabled={busy}
+          disabled={busy || locked}
         />
         <button className="cv-send" onClick={submit} disabled={busy || !draft.trim()} aria-label="Send">
           {busy ? <Loader2 size={16} className="v2-spin" /> : <ArrowUp size={16} />}
