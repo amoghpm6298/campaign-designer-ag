@@ -180,7 +180,7 @@ function SendCard({ data }: { data: CdNodeData }) {
         <ChannelPreview channel={ch} text={st.copy || st.describe || ''} cta={st.cta} bank={data.bankName ?? 'Your bank'} subject={st.name || st.label} time={st.atTime} link={linkState.link} />
       )}
       {/* Timing only when it says something the flow doesn't: a send time or a delay of its own. */}
-      {(st.atTime || st.delayDays) && (
+      {!!(st.atTime || st.delayDays) && (
         <div className="dc-node-send-row">
           <Icon name="clock" />
           <span>{st.delayDays ? sendWhen(st, data.path) : `At ${fmtTime(st.atTime)}`}</span>
@@ -473,7 +473,7 @@ export function CdNode({ id, data }: { id: string; data: CdNodeData }) {
             api!.onEdit(id, data);
           }}
         >
-          <Pencil size={12} />
+          <Pencil size={12} strokeWidth={2.5} /> Edit
         </button>
       )}
       {editing && <span className="cv-editing-tag">Editing</span>}

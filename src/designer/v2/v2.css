@@ -93,7 +93,7 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-bucket .dc-node-type { color: var(--warning-text); }
 .cv-bucket-name { font-size: 15px; -webkit-line-clamp: 2; }
 .cv-bucket-meta { font-size: 11.5px; color: var(--gray-500); margin: 4px 0 6px; }
-.cv-bucket-p { margin: 6px 0 0; font-size: 12px; line-height: 1.45; color: var(--gray-600); display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.cv-bucket-p { margin: 6px 0 0; font-size: 12px; line-height: 1.45; color: var(--gray-600); }
 .cv-bucket-p b { color: var(--neutral-900); }
 .cv-bucket-pending { margin-top: 8px; font-size: 11.5px; color: var(--gray-400); font-style: italic; }
 .cv-ev { margin-left: auto; flex-shrink: 0; font-size: 9px; font-weight: 800; letter-spacing: .03em; padding: 2px 7px; border-radius: 10px; }
@@ -238,9 +238,9 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 
 /* --- point-and-edit -------------------------------------------------------------- */
 .cv-node { position: relative; transition: opacity .2s; }
-.cv-pencil { position: absolute; top: -10px; right: -10px; z-index: 5; width: 24px; height: 24px; border-radius: 999px; border: 1px solid #d0d5dd; background: #fff; color: #475467; display: grid; place-items: center; cursor: pointer; opacity: 0; transform: scale(.85); transition: opacity .15s, transform .15s; box-shadow: 0 2px 6px rgba(16, 24, 40, .12); }
+.cv-pencil { position: absolute; top: -13px; right: -10px; z-index: 5; height: 26px; padding: 0 11px 0 9px; border-radius: 999px; border: 0; background: #0a66f0; color: #fff; font: inherit; font-size: 12.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; opacity: 0; transform: scale(.85); transition: opacity .15s, transform .15s, background .15s; box-shadow: 0 2px 8px rgba(10, 102, 240, .35); }
 .cv-node:hover .cv-pencil { opacity: 1; transform: scale(1); }
-.cv-pencil:hover { color: #0a66f0; border-color: #8fb9f8; }
+.cv-pencil:hover { background: #0854c4; }
 .cv-dimmed { opacity: .32; }
 .cv-editing > :first-child { outline: 2.5px solid #0a66f0; outline-offset: 4px; border-radius: 10px; }
 .cv-editing-tag { position: absolute; top: -22px; left: 0; font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: #fff; background: #0a66f0; border-radius: 6px; padding: 2px 7px; }

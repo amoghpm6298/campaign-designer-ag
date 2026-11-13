@@ -205,7 +205,10 @@ function addSeq(lane: string, steps: CStep[] | undefined, from: Tail[], prefix: 
     out.nodes.push({ id, data: { kind, lane, path, step: st, focus, changed: !!ck, ...(ck ? { changeKind: ck } : {}), ...(kind === 'exit' ? exitData(campaignOf(out), st.outcome, st.reason, lane) : {}) } });
     for (const t of tails) out.edges.push({ id: `e:${t.id}->${id}`, source: t.id, target: id, ...(t.label ? { label: t.label } : {}) });
 
-    if (kind === 'send') {
+    // The builder puts a goal check after every send and every wait (the
+    // one after a wait is what measures the message before it), so the
+    // canvas draws both.
+    if (kind === 'send' || kind === 'wait') {
       const gc = `${id}:gc`;
       out.nodes.push({ id: gc, data: { kind: 'goalcheck', lane, path, focus: { kind: 'goal' } } });
       out.edges.push({ id: `e:${id}->${gc}`, source: id, target: gc });
