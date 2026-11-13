@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 import { CHANNEL_LABEL, sendTitle, sendWhen, type CStep } from './canvasModel';
 import type { BankLink } from '../LinksSection';
 
-export function NodeDrawer({ step, bucketName, links, onClose }: { step: CStep; bucketName: string; links?: BankLink[]; onClose: () => void }) {
+export function NodeDrawer({ step, path, bucketName, links, smsFallback, onClose }: { step: CStep; path?: string; bucketName: string; links?: BankLink[]; smsFallback?: boolean; onClose: () => void }) {
   const link = step.link ? links?.find((l) => l.ref === step.link) : undefined;
   const ch = (step.channelPreference ?? [])[0] ?? 'SMS';
   const fb = step.fallbackChannel;
@@ -29,13 +29,17 @@ export function NodeDrawer({ step, bucketName, links, onClose }: { step: CStep; 
       <dl className="cv-drawer-facts">
         <div>
           <dt>When</dt>
-          <dd>{sendWhen(step)}</dd>
+          <dd>{sendWhen(step, path)}</dd>
         </div>
         <div>
           <dt>Channel</dt>
           <dd>
             {CHANNEL_LABEL[ch] ?? ch}
-            {fb ? `, then ${CHANNEL_LABEL[fb] ?? fb} if not delivered` : ''}
+            {fb
+              ? `. If not delivered: ${CHANNEL_LABEL[fb] ?? fb} (set for this message).`
+              : smsFallback !== false && (ch === 'WHATSAPP' || ch === 'RCS')
+                ? '. If not delivered: SMS (bank setting).'
+                : ''}
           </dd>
         </div>
         {step.describe && (
@@ -65,10 +69,7 @@ export function NodeDrawer({ step, bucketName, links, onClose }: { step: CStep; 
             )}
           </dd>
         </div>
-        <div>
-          <dt>Template</dt>
-          <dd>The bank's approved template id is still needed before this can send.</dd>
-        </div>
+
       </dl>
       <p className="v2-muted cv-drawer-hint">To change this message, ask in the chat.</p>
     </aside>

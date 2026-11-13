@@ -259,6 +259,37 @@ export function agentApiPlugin(): Plugin {
               return send(res, 400, { error: 'Not a valid session id.' });
             }
           }
+          // Bank-wide delivery settings (e.g. SMS when WhatsApp is not delivered).
+          if (url === '/api/bank-settings') {
+            const B = await load('bankSettings.ts');
+            try {
+              if (req.method === 'GET') return send(res, 200, { settings: (B.getBankSettings as (t: string) => unknown)(new URL(req.url ?? '', 'http://x').searchParams.get('tenantId') ?? '') });
+              const body = (await readBody(req)) as { tenantId?: string; settings?: unknown };
+              return send(res, 200, { ok: true, settings: (B.saveBankSettings as (t: string, p: unknown) => unknown)(String(body.tenantId ?? ''), body.settings ?? {}) });
+            } catch (e) {
+              return send(res, 400, { ok: false, error: (e as Error).message });
+            }
+          }
+          // The Campaigns page, and each campaign's saved chat.
+          if (url === '/api/campaigns' && req.method === 'GET') {
+            const files = await load('campaignFiles.ts');
+            const tenantId = new URL(req.url ?? '', 'http://x').searchParams.get('tenantId') ?? '';
+            return send(res, 200, { campaigns: (files.listCampaigns as (t: string) => unknown[])(tenantId) });
+          }
+          if (url === '/api/campaign/chat') {
+            const files = await load('campaignFiles.ts');
+            try {
+              if (req.method === 'GET') {
+                const sessionId = new URL(req.url ?? '', 'http://x').searchParams.get('sessionId') ?? '';
+                return send(res, 200, { chat: (files.loadChat as (s: string) => unknown)(sessionId) });
+              }
+              const body = (await readBody(req)) as { sessionId?: string; tenantId?: string; chat?: unknown };
+              (files.saveChat as (s: string, t: string, c: unknown) => void)(String(body.sessionId ?? ''), String(body.tenantId ?? ''), body.chat ?? {});
+              return send(res, 200, { ok: true });
+            } catch (e) {
+              return send(res, 400, { ok: false, error: (e as Error).message });
+            }
+          }
           // Hard problems in a saved campaign (unusable links, broken splits, …), for repair turns.
           if (url === '/api/campaign/problems' && req.method === 'GET') {
             const files = await load('campaignFiles.ts');
@@ -267,7 +298,9 @@ export function agentApiPlugin(): Plugin {
             const q = new URL(req.url ?? '', 'http://x').searchParams;
             try {
               const stores = (files.loadStores as (id: string) => { campaign: unknown })(q.get('sessionId') ?? '');
-              const problems = stores.campaign ? (compile.checkJourneys as (c: unknown, l: unknown) => string[])(stores.campaign, (L.listLinks as (t: string) => unknown)(q.get('tenantId') ?? '')) : [];
+              const B = await load('bankSettings.ts');
+          const tid = q.get('tenantId') ?? '';
+          const problems = stores.campaign ? (compile.checkJourneys as (c: unknown, l: unknown, f: boolean) => string[])(stores.campaign, (L.listLinks as (t: string) => unknown)(tid), (B.getBankSettings as (t: string) => { smsFallback: boolean })(tid).smsFallback) : [];
               return send(res, 200, { problems });
             } catch (e) {
               return send(res, 400, { error: (e as Error).message });

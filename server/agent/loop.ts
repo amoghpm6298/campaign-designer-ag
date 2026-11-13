@@ -14,6 +14,7 @@ import { emptyCampaign, emptyContext, normaliseState, recordAnswers, recordSkips
 import { loadStores, saveCampaignObject, saveContext } from '../campaignFiles';
 import { focusSection } from './focus';
 import { listLinks } from '../links';
+import { getBankSettings } from '../bankSettings';
 import { checkJourneys } from './compile';
 import { ensureBaseline, recordVersion, setSummary, summariseVersion, type VersionEntry } from '../campaignVersions';
 import { warehouseAvailable } from '../warehouse';
@@ -62,6 +63,7 @@ export function toolEnvFor(tenantId: string | undefined, sessionId: string, goal
     warehouseBank: tenant.warehouse && warehouseAvailable(tenant.warehouse.bank) ? tenant.warehouse.bank : undefined,
     lookupCache: new Map(),
     links: listLinks(tenant.tenantId),
+    smsFallback: getBankSettings(tenant.tenantId).smsFallback,
   };
 }
 
@@ -143,6 +145,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   if (!tenant) return base({ reply: 'That tenant is not recognised. Pick one from the list and try again.', error: 'unknown-tenant' });
   // The bank's link registry, read once per turn (the agent sees references only).
   const bankLinks = listLinks(tenant.tenantId);
+  const delivery = getBankSettings(tenant.tenantId);
 
   // --- the manager's answers since the last turn ----------------------------
   const latestUser = [...(req.messages ?? [])].reverse().find((m) => m.role === 'user')?.content ?? '';
@@ -174,7 +177,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       role: 'user',
       content: [
         { type: 'text', text: String(last.content) },
-        { type: 'text', text: [statusBlock(state, bankLinks), focusSection(state, req.focus)].filter(Boolean).join('\n\n') },
+        { type: 'text', text: [statusBlock(state, bankLinks, delivery.smsFallback), focusSection(state, req.focus)].filter(Boolean).join('\n\n') },
       ],
     };
   }
@@ -187,6 +190,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
     warehouseBank,
     lookupCache: new Map(),
     links: bankLinks,
+    smsFallback: delivery.smsFallback,
   };
   const tools = toolsFor(!!warehouseBank).map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
 
@@ -237,7 +241,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
         // The agent thinks it is done. If this turn changed the campaign and
         // hard problems remain, send it back to fix them (at most twice).
         if (!wrapUp && !asked.length && repairRounds < MAX_REPAIR_ROUNDS && state.campaign !== startCampaign) {
-          const problems = checkJourneys(state.campaign, bankLinks);
+          const problems = checkJourneys(state.campaign, bankLinks, delivery.smsFallback);
           if (problems.length) {
             repairRounds++;
             em.emit('model.tool_call.completed', 'understanding', `Sent back to fix ${problems.length} problem${problems.length === 1 ? '' : 's'}`, {
@@ -304,7 +308,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   }
 
   // Anything still broken after the repair rounds is said plainly, never hidden.
-  const remaining = state.campaign !== startCampaign ? checkJourneys(state.campaign, bankLinks) : [];
+  const remaining = state.campaign !== startCampaign ? checkJourneys(state.campaign, bankLinks, delivery.smsFallback) : [];
   if (remaining.length) textSegments.push(`Still to fix (I could not resolve ${remaining.length === 1 ? 'this' : 'these'} on my own):\n${remaining.map((p) => `- ${p}`).join('\n')}`);
   yield* drain();
   const version = await versionThisTurn(req.sessionId, startCampaign, state.campaign, latestUser, req.repair ? 'repair' : 'chat');

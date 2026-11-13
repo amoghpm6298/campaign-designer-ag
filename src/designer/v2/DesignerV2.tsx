@@ -6,8 +6,9 @@
 // that points at the canvas. No stages, no approvals: questions, then the
 // whole campaign in one go, then changes by asking in the chat.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MoreHorizontal, RotateCcw, X } from 'lucide-react';
+import { ArrowLeft, MoreHorizontal, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
+import { apiUrl } from '../api';
 import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, type Stores } from './api';
 import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
@@ -30,7 +31,8 @@ const EMPTY_CONTEXT: CampaignContext = { entries: [] };
 /** The browser keeps the conversation only. The campaign object and its context live on the server. */
 const withoutCampaign = (s: AgentState | null): AgentState | null => (s ? { ...s, campaign: EMPTY_CAMPAIGN, context: EMPTY_CONTEXT } : null);
 
-interface Stored {
+/** One campaign's chat, saved on the server next to the campaign (chat.json). */
+export interface Stored {
   sessionId: string;
   tenantId: string;
   turns: V2Turn[];
@@ -43,29 +45,36 @@ interface Stored {
   lastBuilt?: boolean;
 }
 
-function loadStored(): Stored | null {
+/** The chat for one campaign, from the server. Falls back to the copy this browser kept before chats were saved on the server. */
+export async function loadChat(sessionId: string): Promise<Stored | null> {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
-    return raw ? (JSON.parse(raw) as Stored) : null;
+    const res = await fetch(apiUrl(`/api/campaign/chat?sessionId=${encodeURIComponent(sessionId)}`));
+    const chat = res.ok ? ((await res.json()) as { chat?: Stored | null }).chat : null;
+    if (chat) return chat;
+  } catch {
+    /* offline: try the local copy */
+  }
+  try {
+    const legacy = JSON.parse(localStorage.getItem(STORE_KEY) || 'null') as Stored | null;
+    return legacy?.sessionId === sessionId ? legacy : null;
   } catch {
     return null;
   }
 }
 
-function saveStored(s: Stored) {
-  try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(s));
-  } catch {
-    /* storage full or blocked: the session still works for this page load */
-  }
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+/** Saves the chat on the server (debounced): the campaign reopens exactly as it was left. */
+function saveChat(s: Stored) {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    fetch(apiUrl('/api/campaign/chat'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: s.sessionId, tenantId: s.tenantId, chat: s }) }).catch(() => undefined);
+  }, 600);
 }
 
-const newId = () => `cv-${Date.now().toString(36)}`;
+export const newCampaignId = () => `cv-${Date.now().toString(36)}`;
 
-export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; tenant: Tenant }) {
-  const stored = useMemo(loadStored, []);
-  const fresh = stored?.tenantId === tenant.tenantId ? stored : null;
-  const [sessionId, setSessionId] = useState(fresh?.sessionId ?? newId());
+export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { knowledge: KnowledgeBase; tenant: Tenant; sessionId: string; initial: Stored | null; onBack: () => void }) {
+  const fresh = initial;
   const [turns, setTurns] = useState<V2Turn[]>(fresh?.turns ?? []);
   const [state, setState] = useState<AgentState | null>(withoutCampaign(fresh?.state ?? null));
   // The campaign object and its context, as saved on the server for this chat.
@@ -87,8 +96,14 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
   const [repairKey, setRepairKey] = useState<string>(fresh?.repairKey ?? '');
   // The bank's link registry: where each message's link really goes.
   const [links, setLinks] = useState<BankLink[]>([]);
+  // The bank's delivery setting: undelivered WhatsApp goes again by SMS.
+  const [smsFallback, setSmsFallback] = useState(true);
   useEffect(() => {
     fetchLinks(tenant.tenantId).then(setLinks).catch(() => setLinks([]));
+    fetch(apiUrl(`/api/bank-settings?tenantId=${encodeURIComponent(tenant.tenantId)}`))
+      .then((r) => r.json())
+      .then((d: { settings?: { smsFallback?: boolean } }) => setSmsFallback(d.settings?.smsFallback !== false))
+      .catch(() => undefined);
   }, [tenant.tenantId]);
   // Point-and-edit: the box being edited.
   const [editing, setEditing] = useState<{ nodeId: string; data: CdNodeData } | null>(null);
@@ -110,7 +125,8 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    saveStored({ sessionId, tenantId: tenant.tenantId, turns, state, changed, changeFocus, lastBuilt, repairKey });
+    if (!turns.length) return; // nothing to keep until the chat has started
+    saveChat({ sessionId, tenantId: tenant.tenantId, turns, state, changed, changeFocus, lastBuilt, repairKey });
   }, [sessionId, tenant.tenantId, turns, state, changed, changeFocus, lastBuilt, repairKey]);
 
   const shown = viewing ? { campaign: viewing.campaign, context: stores.context } : (liveStores ?? stores);
@@ -188,24 +204,6 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
       },
       ctrl.signal,
     );
-  };
-
-  const reset = () => {
-    abortRef.current?.abort();
-    setSessionId(newId());
-    setTurns([]);
-    setState(null);
-    setStores({ campaign: null, context: null });
-    setChanged([]);
-    setChangeFocus(null);
-    setEditing(null);
-    setViewing(null);
-    setVersions([]);
-    setLastBuilt(false);
-    setLive([]);
-    setLiveStores(null);
-    setBusy(false);
-    setDrawerId(null);
   };
 
   /** After a direct edit or a restore: show the new campaign, highlight what changed, log it for the agent. */
@@ -350,6 +348,9 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
   return (
     <div className="cv-wrap">
       <header className="cv-top">
+        <button className="cv-back" onClick={onBack} title="All campaigns">
+          <ArrowLeft size={16} />
+        </button>
         <div className="cv-title">
           <b>{plan?.name || 'New campaign'}</b>
           <span className="cv-sub">
@@ -368,9 +369,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
         <button className="cv-btn" onClick={() => setActivity((v) => !v)}>
           <MoreHorizontal size={14} /> Activity
         </button>
-        <button className="cv-btn" onClick={reset} title="Start a new campaign">
-          <RotateCcw size={14} /> New chat
-        </button>
+
       </header>
 
       <div className="cv-main">
@@ -386,6 +385,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
               onPaneClick={() => setEditing(null)}
               bankName={(tenant.issuer || tenant.displayName).replace(/\s*\(.*?\)\s*/g, '').trim()}
               links={links}
+              smsFallback={smsFallback}
             />
           ) : (
             <div className="cv-canvas-empty dc-graph-wrap">
@@ -429,7 +429,7 @@ export function DesignerV2({ knowledge, tenant }: { knowledge: KnowledgeBase; te
             </div>
           )}
 
-          {drawerNode?.data.step && <NodeDrawer step={drawerNode.data.step as CStep} bucketName={drawerBucket} links={links} onClose={() => setDrawerId(null)} />}
+          {drawerNode?.data.step && <NodeDrawer step={drawerNode.data.step as CStep} path={drawerNode.data.path} bucketName={drawerBucket} links={links} smsFallback={smsFallback} onClose={() => setDrawerId(null)} />}
 
           {activity && <ActivityDrawer state={state} onClose={() => setActivity(false)} />}
         </section>

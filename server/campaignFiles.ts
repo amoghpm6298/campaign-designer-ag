@@ -9,7 +9,7 @@
 //
 // They are linked by the folder (and context entries by bucket id), never
 // mixed. The conversation itself stays with the chat.
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BpAudienceGroup, BpStep } from './blueprint';
@@ -169,4 +169,83 @@ function migrateLegacy(sessionId: string, dir: string): void {
   } catch (e) {
     console.error(`[campaign] could not migrate ${sessionId}: ${(e as Error).message}`);
   }
+}
+
+// --- the conversation, per campaign -----------------------------------------------
+//
+// <CAMPAIGN_DIR>/<sessionId>/chat.json — the chat that built the campaign
+// (messages, questions, flags, timeline, last-change markers), so a campaign
+// reopens from the Campaigns page exactly as it was left. Separate from the
+// campaign object and the context; never read by the engine.
+
+export function loadChat(sessionId: string, dir = campaignDir()): unknown | null {
+  return readStamped<unknown>(join(sessionFolder(sessionId, dir), 'chat.json'))?.body ?? null;
+}
+
+export function saveChat(sessionId: string, tenantId: string, chat: unknown, dir = campaignDir()): void {
+  writeStamped(join(sessionFolder(sessionId, dir), 'chat.json'), sessionId, tenantId, chat);
+}
+
+export interface CampaignSummary {
+  sessionId: string;
+  tenantId: string;
+  name: string;
+  ask: string;
+  built: boolean;
+  buckets: number;
+  messages: number;
+  membership: 'one-time' | 'recurring' | null;
+  refresh?: string;
+  version: number;
+  updatedAt: string;
+}
+
+/** Every saved campaign for a bank, newest first: what the Campaigns page shows. */
+export function listCampaigns(tenantId: string, dir = campaignDir()): CampaignSummary[] {
+  if (!existsSync(dir)) return [];
+  const out: CampaignSummary[] = [];
+  for (const name of readdirSync(dir)) {
+    const folder = join(dir, name);
+    if (!SESSION_ID.test(name) || !statSync(folder).isDirectory()) continue;
+    const camp = readStamped<CampaignObject>(join(folder, 'campaign.json'));
+    const chat = readStamped<{ turns?: { role: string; content: string; auto?: boolean }[]; state?: { flags?: { campaignBuilt?: boolean } } }>(join(folder, 'chat.json'));
+    const tid = camp?.tenantId || chat?.tenantId;
+    if (tid !== tenantId) continue;
+    const c = camp?.body;
+    let messages = 0;
+    const count = (steps: BpStep[] | null | undefined) =>
+      (steps ?? []).forEach((s) => {
+        const r = s as unknown as { kind?: string; arms?: { steps?: BpStep[] }[]; paths?: { steps?: BpStep[] }[]; yes?: BpStep[]; no?: BpStep[] };
+        if (r.kind === 'send') messages++;
+        r.arms?.forEach((a) => count(a.steps));
+        r.paths?.forEach((p) => count(p.steps));
+        count(r.yes);
+        count(r.no);
+      });
+    c?.buckets.forEach((b) => count(b.journey));
+    count(c?.everyoneElse?.journey);
+    let version = 0;
+    try {
+      const idx = JSON.parse(readFileSync(join(folder, 'versions', 'index.json'), 'utf8')) as { n: number }[];
+      version = idx.length ? idx[idx.length - 1].n : 0;
+    } catch {
+      /* no versions yet */
+    }
+    const firstAsk = chat?.body?.turns?.find((t) => t.role === 'user' && !t.auto)?.content ?? '';
+    out.push({
+      sessionId: name,
+      tenantId,
+      name: c?.name || (firstAsk ? firstAsk.slice(0, 60) : 'Untitled campaign'),
+      ask: firstAsk.slice(0, 160),
+      // Built if the chat says so, or if it has versions (only a built campaign is versioned).
+      built: !!chat?.body?.state?.flags?.campaignBuilt || version > 0,
+      buckets: c?.buckets.length ?? 0,
+      messages,
+      membership: c?.membership ? (c.membership.type === 'open' ? 'recurring' : 'one-time') : null,
+      ...(c?.membership?.type === 'open' ? { refresh: c.membership.refresh ?? 'weekly' } : {}),
+      version,
+      updatedAt: [camp?.updatedAt, chat?.updatedAt].filter(Boolean).sort().pop() ?? '',
+    });
+  }
+  return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }

@@ -385,6 +385,18 @@ export function sendTitle(st: CStep): string {
   return st.cta ? `${base} · “${st.cta}”` : base;
 }
 
-export function sendWhen(st: CStep): string {
-  return `${st.delayDays ? `Day ${st.delayDays}` : 'On entry'}${st.atTime ? ` · ${fmtTime(st.atTime)}` : ''}`;
+/**
+ * When a message goes, in words. Its timing is relative to the step before
+ * it (waits are their own boxes), so: the first message of a bucket goes when
+ * the customer joins the bucket; any later one goes right after the previous
+ * step, or N days after it if the message has its own delay.
+ */
+export function sendWhen(st: CStep, path?: string): string {
+  const first = !!path && path.split('.').every((p) => !/^\d+$/.test(p) || p === '0');
+  const when = st.delayDays
+    ? `${st.delayDays} day${st.delayDays === 1 ? '' : 's'} after ${first ? 'they join this bucket' : 'the previous step'}`
+    : first
+      ? 'When they join this bucket'
+      : 'Right after the previous step';
+  return `${when}${st.atTime ? `, at ${fmtTime(st.atTime)}` : ''}`;
 }

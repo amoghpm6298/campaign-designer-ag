@@ -42,7 +42,7 @@ export const STEP_DEF = {
     barrier: { type: 'string', description: 'The id of the barrier this send attacks. Checked against your recorded findings.' },
     delayDays: { type: 'number', description: 'Days after the previous step (or entry). This is the Send node\'s own relativeDuration, not a Wait step. Omit to keep the builder\'s Absolute 11:00 default.' },
     atTime: { type: 'string', description: 'Clock time this send fires, e.g. "11:00". The Send node already has absTime.' },
-    fallbackChannel: { type: 'string', description: 'Fallback on THIS send if delivery fails, e.g. SMS. Not a second step.' },
+    fallbackChannel: { type: 'string', description: 'Leave unset: delivery fallback is a bank-wide setting. Set it only when the manager asks for an exception on this message.' },
     // wait
     durationHours: { type: 'number', description: 'Wait steps only, and required for them: how long to wait, in HOURS (48 = 2 days). Do not use delayDays on a wait.' },
     why: { type: 'string' },

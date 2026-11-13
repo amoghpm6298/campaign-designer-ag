@@ -47,7 +47,7 @@ There are no approvals. You ask what you need, then you design and build the who
   - The first message attacks the bucket's lever. Write each message as the customer will read it, leading with what they get, action in the CTA. Give each send a short name. Nothing you write is bank-approved; do not imply it is.
   - Most messages ask the customer to do something, so give them the way to do it: attach a link from list_links. You may leave a message without a link when it only keeps the customer informed, or when the bank has no suitable link for the action — in that case say so, and note the missing destination. Never write a URL, web address, domain or short link anywhere in copy or CTA. In SMS the short link is added to the end of the message, so an SMS is sent as: your copy, then the CTA and a colon, then the short link (e.g. "…ready to use. Activate now: https://indus.in/Ac7k2"). So do not end SMS copy with a colon or repeat the CTA in it, and keep the whole thing, link included (list_links gives its length), within 160 characters. On WhatsApp and email the CTA becomes a button.
   - Timing and channel come from that bucket's evidence; say why in the step's describe.
-  - React where it would change the next message: someone who never opened it needs the fact again; someone who read it and did nothing needs a different argument. One or two such checks per journey. Branch only on statuses the channel reports (no clicks or opens on WhatsApp or SMS). A failed delivery is the fallback channel on the send, not a branch.
+  - React where it would change the next message: someone who never opened it needs the fact again; someone who read it and did nothing needs a different argument. One or two such checks per journey. Branch only on statuses the channel reports (no clicks or opens on WhatsApp or SMS). A failed delivery is handled by the bank's delivery setting (see the status), not by a branch, and not by you: do not set fallbackChannel on messages unless the manager asks for an exception on a particular message.
   - Give each channel a job; never use a channel this issuer does not have. Respect night quiet hours.
   - Where a bucket's thesis is a hypothesis, test the lever inside that bucket (an experiment) rather than guessing.
   - Do not add campaign-wide holdouts or exclusion lists. The goal check after every message is added automatically.
@@ -106,10 +106,10 @@ export function systemPrompt(warehouse: boolean): string {
 const fmtFlags = (s: AgentState) => FLAG_ORDER.map((f) => `- ${FLAG_LABELS[f]} (${f}): ${s.flags[f] ? 'true' : 'false'}`).join('\n');
 
 /** One or two lines on the bank's links, and any message whose link cannot be sent. */
-function linksLine(s: AgentState, links: BankLink[]): string {
+function linksLine(s: AgentState, links: BankLink[], smsFallback = true): string {
   const active = links.filter((l) => l.status === 'active');
   const noSms = active.filter((l) => !l.shortUrl).length;
-  const problems = [...s.campaign.buckets.map((b) => linkProblemsIn(b.journey, links).map((p) => `"${b.name}" ${p}`)), linkProblemsIn(s.campaign.everyoneElse?.journey, links)].flat();
+  const problems = [...s.campaign.buckets.map((b) => linkProblemsIn(b.journey, links, smsFallback).map((p) => `"${b.name}" ${p}`)), linkProblemsIn(s.campaign.everyoneElse?.journey, links, smsFallback)].flat();
   return [
     `- ${active.length} available (${active.map((l) => l.ref).join(', ') || 'none'})${noSms ? `; ${noSms} without an SMS short link` : ''}`,
     ...(problems.length ? [`- Link problems: ${problems.join('; ')}`] : []),
@@ -117,7 +117,7 @@ function linksLine(s: AgentState, links: BankLink[]): string {
 }
 
 /** The app-written state the agent reads each turn. Facts only, no instructions. */
-export function statusBlock(s: AgentState, links?: BankLink[]): string {
+export function statusBlock(s: AgentState, links?: BankLink[], smsFallback = true): string {
   const c = s.campaign;
   const cx = currentEntries(s.context.entries);
   const byKind = (k: string) => cx.filter((e) => e.kind === k);
@@ -144,7 +144,9 @@ export function statusBlock(s: AgentState, links?: BankLink[]): string {
     fmtFlags(s),
     '## On file (read with get_campaign / get_context)',
     onFile,
-    ...(links ? ['## Links (read with list_links)', linksLine(s, links)] : []),
+    ...(links ? ['## Links (read with list_links)', linksLine(s, links, smsFallback)] : []),
+    '## Delivery (bank setting)',
+    smsFallback ? '- If a WhatsApp message is not delivered, the system sends it again by SMS. So a WhatsApp message with a link needs a link that can go by SMS.' : '- Undelivered messages are not retried on another channel.',
     '## Questions',
     qs,
     '## Recent timeline',

@@ -278,8 +278,10 @@ export interface ToolEnv {
   warehouseBank?: string;
   /** Lookup results already fetched this turn, keyed by name+input. */
   lookupCache: Map<string, unknown>;
-  /** The bank's link registry. The agent sees references only, never URLs. */
+  /** The bank's link registry. */
   links?: BankLink[];
+  /** Bank-wide delivery policy: undelivered WhatsApp/RCS goes again by SMS. */
+  smsFallback?: boolean;
 }
 
 export interface ToolOutcome {
@@ -357,8 +359,9 @@ export function runToolCall(name: string, input: Record<string, unknown>, state:
   // when this edit introduced it; problems already there are left to the build
   // checks and repair turns, so they never block an unrelated edit.
   const lanes = (c: AgentState['campaign']) => [...c.buckets.map((b) => b.journey), c.everyoneElse?.journey ?? null];
-  const before = new Set(lanes(state.campaign).flatMap((j) => linkProblemsIn(j, env.links!)));
-  const fresh = lanes(out.state.campaign).flatMap((j) => linkProblemsIn(j, env.links!)).filter((p) => !before.has(p));
+  const fb = env.smsFallback ?? true;
+  const before = new Set(lanes(state.campaign).flatMap((j) => linkProblemsIn(j, env.links!, fb)));
+  const fresh = lanes(out.state.campaign).flatMap((j) => linkProblemsIn(j, env.links!, fb)).filter((p) => !before.has(p));
   if (!fresh.length) return out;
   const usable = env.links.filter((l) => l.status === 'active').map((l) => `${l.ref}${l.shortUrl ? '' : ' (not for SMS)'}`).join(', ');
   return { state, ok: false, summary: 'Link not usable', forModel: `Nothing was saved: ${fresh.join('; ')}. Usable links: ${usable || 'none'}. Pick one of these, or leave the link out if the message only informs or nothing fits (then say so).` };
@@ -596,7 +599,6 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
     ...built.issues.map((i) => `${i.path}: ${i.problem}`),
     ...built.limitations.map((l) => `Cannot express ${l.attribute}: ${l.note}`),
     ...validationLines,
-    ...(built.sendProposals.length ? [`${built.sendProposals.length} message${built.sendProposals.length === 1 ? '' : 's'} need the bank's template id before launch.`] : []),
   ];
 
   if (nodes.length <= 1) {
@@ -604,7 +606,7 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
     return { state: next, ok: false, forModel: `Nothing was built. Problems: ${notes.join(' | ') || 'none reported'}. Fix the plan and build again.`, summary: 'Nothing built', result: notes };
   }
   const summary = `${compiled.bucketsIncluded.length} buckets, ${sends} messages, ${nodes.length} steps`;
-  const knockOns = checkJourneys(next.campaign, env.links);
+  const knockOns = checkJourneys(next.campaign, env.links, env.smsFallback ?? true);
   next = setFlag(next, 'campaignBuilt', true, 'app', summary);
   next = log(next, 'app', 'campaign_built', `Built: ${summary}${notes.length ? `, ${notes.length} note(s)` : ''}`);
   return {

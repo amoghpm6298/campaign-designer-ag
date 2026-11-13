@@ -19,6 +19,8 @@ export interface CdNodeData extends CNodeData {
   bankName?: string;
   /** The bank's link registry, to show where a message's link really goes. */
   links?: BankLink[];
+  /** The bank's delivery setting: undelivered WhatsApp goes again by SMS. */
+  smsFallback?: boolean;
   width: number;
   /** Fixed height for the drawn shapes (diamonds, hexagons, pills). */
   height?: number;
@@ -152,21 +154,24 @@ const fmtClock = (t?: string) => {
 };
 
 /** Where a message's link goes, from the registry; or why it can't be sent. */
-function resolveCardLink(st: CStep, ch: string, links: BankLink[] | undefined): { link?: BankLink; broken?: string } {
+function resolveCardLink(st: CStep, ch: string, links: BankLink[] | undefined, fallback?: string): { link?: BankLink; broken?: string } {
   if (!st.link) return {};
   if (!links) return {};
   const l = links.find((x) => x.ref === st.link);
   if (!l) return { broken: `Unknown link "${st.link}"` };
   if (l.status === 'retired') return { broken: `Link retired: ${l.label}` };
-  if ((ch === 'SMS' || st.fallbackChannel === 'SMS') && !l.shortUrl) return { broken: `No SMS short link for "${l.label}"`, link: l };
+  if ((ch === 'SMS' || fallback === 'SMS') && !l.shortUrl) return { broken: `No SMS short link for "${l.label}"`, link: l };
   return { link: l };
 }
 
 function SendCard({ data }: { data: CdNodeData }) {
   const st = data.step as CStep;
   const ch = (st.channelPreference ?? [])[0] ?? 'SMS';
-  const linkState = resolveCardLink(st, ch, data.links);
   const fb = st.fallbackChannel;
+  // Delivery fallback is the bank's setting; a card only mentions one that is an exception to it.
+  const policyFb = data.smsFallback !== false && (ch === 'WHATSAPP' || ch === 'RCS') ? 'SMS' : undefined;
+  const exception = !!fb && fb !== policyFb;
+  const linkState = resolveCardLink(st, ch, data.links, fb ?? policyFb);
   return (
     <Card cat="send" icon={CHANNEL_ICON[ch] ?? 'paperplane'} type={`Send · ${CHANNEL_LABEL[ch] ?? ch}`} data={data} extra="cv-clickable" title="Open the message preview">
       <div className="dc-node-label">{sendTitle({ ...st, name: st.name || st.label })}</div>
@@ -176,13 +181,9 @@ function SendCard({ data }: { data: CdNodeData }) {
       )}
       <div className="dc-node-send-row">
         <Icon name="clock" />
-        <span>{sendWhen(st)}</span>
+        <span>{sendWhen(st, data.path)}</span>
       </div>
-      <div className="dc-node-send-row">
-        <Icon name="file" />
-        <span>Bank template id needed</span>
-      </div>
-      {fb && (
+      {exception && fb && (
         <div className="dc-node-send-row dc-node-fallback-row">
           <span className="dc-node-fallback-arrow">↳</span>
           <Icon name={CHANNEL_ICON[fb] ?? 'sms'} />

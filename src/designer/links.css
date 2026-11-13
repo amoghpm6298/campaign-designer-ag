@@ -33,3 +33,12 @@
 .kl-empty { padding: 18px 16px; color: #667085; font-size: 13px; }
 .kl-toggle { margin-top: 10px; border: 0; background: none; color: #475467; font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; padding: 0; }
 @media (max-width: 900px) { .kl-row { grid-template-columns: 1fr; gap: 6px; } .kl-head { display: none; } .kl-act { justify-content: flex-start; } .kl-when { text-align: left; } .kl-grid { grid-template-columns: 1fr; } }
+/* Knowledge Base → Delivery */
+.kl-delivery { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; border: 1px solid #e4e7ec; border-radius: 12px; padding: 14px 16px; background: #fff; }
+.kl-delivery > div:first-child { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 220px; font-size: 13.5px; }
+.kl-delivery > div:first-child span { font-size: 12.5px; color: #667085; }
+.kl-seg { display: inline-flex; border: 1px solid #d0d5dd; border-radius: 9px; overflow: hidden; }
+.kl-seg button { border: 0; border-right: 1px solid #d0d5dd; background: #fff; padding: 7px 14px; font: inherit; font-size: 13px; cursor: pointer; color: #344054; }
+.kl-seg button:last-child { border-right: 0; }
+.kl-seg button.on { background: #0a66f0; color: #fff; font-weight: 600; }
+.kl-saved { font-size: 12.5px; font-weight: 600; color: #027a48; }

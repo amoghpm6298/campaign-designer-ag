@@ -1,7 +1,7 @@
 // The standalone application shell: its own header, navigation and global
 // tenant selector. Nothing here comes from the ib-face-mock chrome.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, Library, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Library, Megaphone, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import logo from '../assets/hfLogo.svg';
 import {
   applyOverrides,
@@ -9,7 +9,8 @@ import {
   resetAll,
   type KnowledgeOverrides,
 } from '../designer/knowledgeStore';
-import { DesignerV2 } from '../designer/v2/DesignerV2';
+import { newCampaignId } from '../designer/v2/DesignerV2';
+import { CampaignView, CampaignsHome } from '../designer/v2/CampaignsHome';
 import { KnowledgeBaseView } from '../designer/KnowledgeBaseView';
 import { listTenants, seedKnowledge } from '../designer/api';
 import { loadTenantId, saveTenantId } from '../designer/storage';
@@ -19,6 +20,14 @@ type Page = 'designer' | 'knowledge';
 
 export function DesignerShell() {
   const [page, setPage] = useState<Page>('designer');
+  // The open campaign, if any; kept in the address (?c=…) so a link or a refresh opens it again.
+  const [openId, setOpenId] = useState<string | null>(() => new URLSearchParams(location.search).get('c'));
+  useEffect(() => {
+    const url = new URL(location.href);
+    if (openId) url.searchParams.set('c', openId);
+    else url.searchParams.delete('c');
+    history.replaceState(null, '', url);
+  }, [openId]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [tenantId, setTenantId] = useState<string>(loadTenantId() ?? '');
   // THE SEED IS RECOMPUTED EVERY LOAD, and the user's changes are applied on
@@ -124,15 +133,18 @@ export function DesignerShell() {
         >
           {(
             [
-              ['designer', 'Design', Activity],
+              ['designer', 'Campaigns', Megaphone],
               ['knowledge', 'Knowledge Base', Library],
-            ] as [Page, string, typeof Activity][]
+            ] as [Page, string, typeof Megaphone][]
           ).map(([k, label, Icon]) => {
             const on = page === k;
             return (
               <button
                 key={k}
-                onClick={() => setPage(k)}
+                onClick={() => {
+                  setPage(k);
+                  if (k === 'designer') setOpenId(null);
+                }}
                 title={label}
                 aria-label={label}
                 aria-current={on ? 'page' : undefined}
@@ -169,7 +181,10 @@ export function DesignerShell() {
               <select
                 id="hf-tenant"
                 value={tenantId}
-                onChange={(e) => setTenantId(e.target.value)}
+                onChange={(e) => {
+                  setTenantId(e.target.value);
+                  setOpenId(null); // a campaign belongs to one bank
+                }}
                 className="w-full h-9 px-2.5 text-[13px] rounded-[var(--radius-input)] border border-border bg-white text-text-primary focus:outline-none focus:border-[#8FB9F8] focus:shadow-[var(--shadow-focus-ring)]"
               >
                 {!tenants.length && <option value="">Loading\u2026</option>}
@@ -202,8 +217,11 @@ export function DesignerShell() {
             </p>
           </div>
         )}
-        {!bootError && page === 'designer' && knowledge && tenant && (
-          <DesignerV2 key={tenant.tenantId} knowledge={knowledge} tenant={tenant} />
+        {!bootError && page === 'designer' && knowledge && tenant && openId && (
+          <CampaignView key={`${tenant.tenantId}:${openId}`} knowledge={knowledge} tenant={tenant} sessionId={openId} onBack={() => setOpenId(null)} />
+        )}
+        {!bootError && page === 'designer' && knowledge && tenant && !openId && (
+          <CampaignsHome key={tenant.tenantId} tenant={tenant} onOpen={setOpenId} onCreate={() => setOpenId(newCampaignId())} />
         )}
         {!bootError && page === 'designer' && (!knowledge || !tenant) && (
           <div style={{ padding: 30, fontSize: 13, color: 'var(--gray-600)' }}>Loading tenant and knowledge base…</div>

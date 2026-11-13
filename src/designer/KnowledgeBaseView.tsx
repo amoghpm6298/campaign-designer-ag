@@ -26,6 +26,7 @@ import {
 import type { Capabilities, KnowledgeBase, KnowledgeDocument, Tenant } from './types';
 import './designer.css';
 import { LinksSection } from './LinksSection';
+import { DeliverySetting } from './DeliverySetting';
 
 interface Props {
   /** The seed with the user's changes already applied. What the agent reads. */
@@ -301,6 +302,8 @@ export function KnowledgeBaseView({ knowledge, seed, overrides, capabilities, on
           </div>
         </section>
       )}
+
+      <DeliverySetting tenant={tenant ?? null} />
 
       <LinksSection tenant={tenant ?? null} />
 

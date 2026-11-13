@@ -85,10 +85,13 @@ describe('messages carry references, never URLs', () => {
     expect(unknown.forModel).toMatch(/no link "set_pin_page".*Usable links: .*activate_card/);
     const noShort = runToolCall('edit_journey', { bucketId: 'b1', operations: [{ op: 'replace', path: '0', step: send('First', 'SMS', { link: 'help_activation' }) }] }, s, env());
     expect(noShort.forModel).toMatch(/no short link yet/);
+    // With the bank's SMS fallback on (the default), a WhatsApp message may go by SMS, so its link must be SMS-ready.
     const onWhatsApp = runToolCall('edit_journey', { bucketId: 'b1', operations: [{ op: 'replace', path: '0', step: send('First', 'WHATSAPP', { link: 'help_activation' }) }] }, s, env());
-    expect(onWhatsApp.ok).toBe(true);
-    const fallbackSms = runToolCall('edit_journey', { bucketId: 'b1', operations: [{ op: 'replace', path: '0', step: send('First', 'WHATSAPP', { link: 'help_activation', fallbackChannel: 'SMS' }) }] }, s, env());
-    expect(fallbackSms.ok).toBe(false);
+    expect(onWhatsApp.ok).toBe(false);
+    expect(onWhatsApp.forModel).toMatch(/no short link yet/);
+    // With the bank's fallback off, WhatsApp only: the full URL is enough.
+    const noFallback = runToolCall('edit_journey', { bucketId: 'b1', operations: [{ op: 'replace', path: '0', step: send('First', 'WHATSAPP', { link: 'help_activation' }) }] }, s, { ...env(), smsFallback: false });
+    expect(noFallback.ok).toBe(true);
   });
 
   it('a link retired after the build is caught by the build checks and the status block, and does not block unrelated edits', () => {
@@ -118,5 +121,21 @@ describe('the SMS as it is sent', () => {
   it('the engine resolves the SMS text from the registry', async () => {
     const { smsTextFor } = await import('../../server/links');
     expect(smsTextFor('TEN-IBL', { copy: 'Your card is ready', cta: 'Activate now', link: 'activate_card' })).toBe('Your card is ready. Activate now: https://indus.in/Ac7k2');
+  });
+});
+
+describe('delivery fallback is a bank setting', () => {
+  it('defaults to SMS, can be turned off, and the agent is told in the status', async () => {
+    const { getBankSettings, saveBankSettings, fallbackFor } = await import('../../server/bankSettings');
+    process.env.SETTINGS_DIR = dir;
+    expect(getBankSettings('TEN-IBL').smsFallback).toBe(true);
+    expect(saveBankSettings('TEN-IBL', { smsFallback: false }).smsFallback).toBe(false);
+    expect(getBankSettings('TEN-IBL').smsFallback).toBe(false);
+    expect(fallbackFor({ channelPreference: ['WHATSAPP'] }, true)).toBe('SMS');
+    expect(fallbackFor({ channelPreference: ['WHATSAPP'] }, false)).toBeUndefined();
+    expect(fallbackFor({ channelPreference: ['SMS'] }, true)).toBeUndefined();
+    expect(fallbackFor({ channelPreference: ['WHATSAPP'], fallbackChannel: 'EMAIL' }, false)).toBe('EMAIL');
+    expect(statusBlock(initialState(), [], true)).toMatch(/system sends it again by SMS/);
+    expect(statusBlock(initialState(), [], false)).toMatch(/not retried/);
   });
 });

@@ -62,9 +62,11 @@ interface Props {
   bankName?: string;
   /** The bank's link registry, to resolve message links. */
   links?: BankLink[];
+  /** The bank's delivery setting. */
+  smsFallback?: boolean;
 }
 
-function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName, links }: Props) {
+function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName, links, smsFallback }: Props) {
   const measured = useRef<Record<string, number>>({});
   const [tick, setTick] = useState(0);
   const model = useMemo(() => buildCanvasModel(campaign, context, changed, measured.current),
@@ -78,12 +80,12 @@ function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClic
         id: n.id,
         type: 'cd',
         position: { x: n.x, y: n.y },
-        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText, bankName, links } satisfies CdNodeData,
+        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText, bankName, links, smsFallback } satisfies CdNodeData,
         draggable: false,
         connectable: false,
         selectable: n.data.kind === 'send',
       })),
-    [model, goalText, bankName, links],
+    [model, goalText, bankName, links, smsFallback],
   );
   const edges: Edge[] = useMemo(() => {
     // A step with several routes sends each one out of its own side: the
