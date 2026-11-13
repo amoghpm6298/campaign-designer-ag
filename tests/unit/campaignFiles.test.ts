@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadStores, saveCampaignObject, saveContext, sessionFolder, splitLegacy } from '../../server/campaignFiles';
+import { deleteCampaign, listCampaigns, loadStores, saveCampaignObject, saveChat, saveContext, sessionFolder, splitLegacy } from '../../server/campaignFiles';
 import { persistIfChanged, withStoresFromDisk } from '../../server/agent/loop';
 import { addContext, addQuestions, initialState, recordAnswers, recordSkips } from '../../server/agent/state';
 import { runToolCall, type ToolEnv } from '../../server/agent/tools';
@@ -214,5 +214,19 @@ describe('write-through from the agent loop', () => {
     expect(block).toContain('### Context (current entries)');
     expect(block).toContain('brief: Incentive');
     expect(block).not.toContain('"stage":');
+  });
+});
+
+describe('deleting a campaign', () => {
+  it('moves it out of the Campaigns list, keeps a copy, and refuses another bank', () => {
+    saveChat('cv-del1', 'TEN-A', { turns: [{ role: 'user', content: 'hi' }] }, dir);
+    saveChat('cv-del2', 'TEN-A', { turns: [{ role: 'user', content: 'yo' }] }, dir);
+    expect(listCampaigns('TEN-A', dir)).toHaveLength(2);
+    expect(() => deleteCampaign('cv-del1', 'TEN-B', dir)).toThrow(/another bank/);
+    deleteCampaign('cv-del1', 'TEN-A', dir);
+    expect(listCampaigns('TEN-A', dir).map((c) => c.sessionId)).toEqual(['cv-del2']);
+    expect(readdirSync(join(dir, '.deleted'))[0]).toMatch(/^cv-del1-\d+$/);
+    expect(() => deleteCampaign('cv-del1', 'TEN-A', dir)).toThrow(/No such campaign/);
+    expect(() => deleteCampaign('../x', 'TEN-A', dir)).toThrow(/valid session id/);
   });
 });

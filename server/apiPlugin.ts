@@ -249,6 +249,16 @@ export function agentApiPlugin(): Plugin {
             return void (await streamSse(res, gen));
           }
           // The campaign object and context this chat has on file, so the canvas survives a reload.
+          if (url === '/api/campaign' && req.method === 'DELETE') {
+            const files = await load('campaignFiles.ts');
+            const q = new URL(req.url ?? '', 'http://x').searchParams;
+            try {
+              (files.deleteCampaign as (s: string, t: string) => void)(q.get('sessionId') ?? '', q.get('tenantId') ?? '');
+              return send(res, 200, { ok: true });
+            } catch (e) {
+              return send(res, 400, { ok: false, error: (e as Error).message });
+            }
+          }
           if (url === '/api/campaign' && req.method === 'GET') {
             const files = await load('campaignFiles.ts');
             const sessionId = new URL(req.url ?? '', 'http://x').searchParams.get('sessionId') ?? '';

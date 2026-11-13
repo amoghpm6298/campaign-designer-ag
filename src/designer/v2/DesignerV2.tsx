@@ -6,7 +6,7 @@
 // that points at the canvas. No stages, no approvals: questions, then the
 // whole campaign in one go, then changes by asking in the chat.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, MoreHorizontal, X } from 'lucide-react';
+import { ArrowLeft, MoreHorizontal, Trash2, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
 import { apiUrl } from '../api';
 import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, type Stores } from './api';
@@ -71,6 +71,11 @@ function saveChat(s: Stored) {
   }, 600);
 }
 
+/** Drops a pending chat save, so a deleted campaign is not written back. */
+function cancelChatSave() {
+  clearTimeout(saveTimer);
+}
+
 export const newCampaignId = () => `cv-${Date.now().toString(36)}`;
 
 export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { knowledge: KnowledgeBase; tenant: Tenant; sessionId: string; initial: Stored | null; onBack: () => void }) {
@@ -122,6 +127,20 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   const [pulse, setPulse] = useState(0);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [activity, setActivity] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<'ask' | 'deleting' | string | null>(null);
+  const deleteCampaign = async () => {
+    setConfirmDelete('deleting');
+    cancelChatSave();
+    try {
+      const r = await fetch(apiUrl(`/api/campaign?sessionId=${encodeURIComponent(sessionId)}&tenantId=${encodeURIComponent(tenant.tenantId)}`), { method: 'DELETE' });
+      const d = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      // A campaign never saved (no chat yet) has nothing on file: leaving is enough.
+      if (r.ok || d.error === 'No such campaign.') return onBack();
+      setConfirmDelete(d.error || 'Could not delete the campaign.');
+    } catch {
+      setConfirmDelete('Could not reach the server.');
+    }
+  };
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -369,6 +388,26 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         <button className="cv-btn" onClick={() => setActivity((v) => !v)}>
           <MoreHorizontal size={14} /> Activity
         </button>
+        <span className="cv-del-wrap">
+          <button className="cv-btn cv-btn-del" disabled={busy} title={busy ? 'Wait for the agent to finish' : 'Delete this campaign'} onClick={() => setConfirmDelete((v) => (v ? null : 'ask'))}>
+            <Trash2 size={14} /> Delete
+          </button>
+          {confirmDelete && (
+            <div className="cv-del-pop" role="dialog" aria-label="Delete campaign">
+              <b>{plan?.name ? `Delete “${plan.name}”?` : 'Delete this campaign?'}</b>
+              <p>It is removed from your campaigns, with its chat and versions.</p>
+              {confirmDelete !== 'ask' && confirmDelete !== 'deleting' && <p className="cv-del-err">{confirmDelete}</p>}
+              <div className="cv-del-btns">
+                <button className="cv-btn" onClick={() => setConfirmDelete(null)}>
+                  Cancel
+                </button>
+                <button className="cv-btn danger" disabled={confirmDelete === 'deleting'} onClick={deleteCampaign}>
+                  {confirmDelete === 'deleting' ? 'Deleting…' : 'Delete campaign'}
+                </button>
+              </div>
+            </div>
+          )}
+        </span>
 
       </header>
 

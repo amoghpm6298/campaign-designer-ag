@@ -44,6 +44,15 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-btn { border: 1px solid var(--v2-border); background: var(--v2-surface); color: var(--v2-text-2); border-radius: 9px; padding: 7px 12px; font: inherit; font-size: 13px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
 .cv-btn:hover { border-color: color-mix(in srgb, var(--v2-primary) 40%, var(--v2-border)); color: var(--v2-text); }
 .cv-btn.primary { background: var(--v2-primary); border-color: var(--v2-primary); color: #fff; font-weight: 500; }
+.cv-btn:disabled { opacity: .5; cursor: default; }
+.cv-btn.danger { background: var(--v2-err); border-color: var(--v2-err); color: #fff; font-weight: 500; }
+.cv-btn.danger:hover { color: #fff; filter: brightness(1.08); }
+.cv-btn-del:hover:not(:disabled) { color: var(--v2-err); border-color: color-mix(in srgb, var(--v2-err) 45%, var(--v2-border)); }
+.cv-del-wrap { position: relative; }
+.cv-del-pop { position: absolute; right: 0; top: calc(100% + 8px); z-index: 60; width: 300px; background: var(--v2-surface); border: 1px solid var(--v2-border); border-radius: 12px; box-shadow: 0 12px 32px rgba(16, 24, 40, .14); padding: 14px; font-size: 13px; color: var(--v2-text); }
+.cv-del-pop p { margin: 6px 0 0; color: var(--v2-text-2); line-height: 1.45; }
+.cv-del-pop .cv-del-err { color: var(--v2-err); }
+.cv-del-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .cv-btn.primary:disabled { opacity: .45; cursor: default; }
 .cv-icon-btn { border: 0; background: none; color: var(--v2-text-3); cursor: pointer; padding: 4px; border-radius: 6px; display: grid; place-items: center; }
 .cv-icon-btn:hover { background: var(--v2-subtle); color: var(--v2-text); }

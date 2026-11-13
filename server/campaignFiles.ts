@@ -186,6 +186,21 @@ export function saveChat(sessionId: string, tenantId: string, chat: unknown, dir
   writeStamped(join(sessionFolder(sessionId, dir), 'chat.json'), sessionId, tenantId, chat);
 }
 
+/**
+ * Deletes a campaign from the Campaigns page. The folder is moved into
+ * `.deleted/` (not erased), so a mistaken delete can still be recovered by hand.
+ * Refuses a campaign that belongs to another bank.
+ */
+export function deleteCampaign(sessionId: string, tenantId: string, dir = campaignDir()): void {
+  const folder = sessionFolder(sessionId, dir);
+  if (!existsSync(folder)) throw new Error('No such campaign.');
+  const owner = readStamped<unknown>(join(folder, 'campaign.json'))?.tenantId || readStamped<unknown>(join(folder, 'chat.json'))?.tenantId;
+  if (owner && owner !== tenantId) throw new Error('This campaign belongs to another bank.');
+  const bin = join(dir, '.deleted');
+  mkdirSync(bin, { recursive: true });
+  renameSync(folder, join(bin, `${sessionId}-${Date.now()}`));
+}
+
 export interface CampaignSummary {
   sessionId: string;
   tenantId: string;
