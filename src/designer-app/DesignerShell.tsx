@@ -23,6 +23,8 @@ export function DesignerShell() {
   const [page, setPage] = useState<Page>('designer');
   // The open campaign, if any; kept in the address (?c=…) so a link or a refresh opens it again.
   const [openId, setOpenId] = useState<string | null>(() => new URLSearchParams(location.search).get('c'));
+  // Opened from a signed view link: one campaign, read-only, no navigation.
+  const viewOnly = useMemo(() => new URLSearchParams(location.search).has('view'), []);
   useEffect(() => {
     const url = new URL(location.href);
     if (openId) url.searchParams.set('c', openId);
@@ -90,6 +92,8 @@ export function DesignerShell() {
           judged on its own; it does not hold next to the company console,
           whose rail is white. Matching the house style and keeping our own
           chrome were never both available. */}
+      {/* A signed view link shows one campaign and nothing to navigate to. */}
+      {!viewOnly && (
       <aside
         className={`shrink-0 bg-white border-r border-border flex flex-col h-screen transition-[width] duration-200 ease-out ${
           railOpen ? 'w-64' : 'w-[60px]'
@@ -208,6 +212,7 @@ export function DesignerShell() {
           )}
         </div>
       </aside>
+      )}
 
       <div className="hf-main">
       <div className="ds-body">
@@ -223,7 +228,7 @@ export function DesignerShell() {
         {!bootError && page === 'designer' && knowledge && tenant && openId && (
           <CampaignView key={`${tenant.tenantId}:${openId}`} knowledge={knowledge} tenant={tenant} sessionId={openId} onBack={() => setOpenId(null)} />
         )}
-        {!bootError && page === 'designer' && knowledge && tenant && !openId && (
+        {!bootError && page === 'designer' && knowledge && tenant && !openId && !viewOnly && (
           <CampaignsHome key={tenant.tenantId} tenant={tenant} onOpen={setOpenId} onCreate={() => setOpenId(newCampaignId())} />
         )}
         {!bootError && page === 'designer' && (!knowledge || !tenant) && (

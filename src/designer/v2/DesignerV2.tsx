@@ -6,7 +6,7 @@
 // that points at the canvas. No stages, no approvals: questions, then the
 // whole campaign in one go, then changes by asking in the chat.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Eye, MoreHorizontal, Trash2, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
 import { apiUrl } from '../api';
 import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, type Stores, type Submission } from './api';
@@ -150,6 +150,10 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // Opened from a signed view link (?view=…): this one campaign, read-only.
   const viewOnly = useMemo(() => new URLSearchParams(location.search).has('view'), []);
   const locked = !!submission || viewOnly;
+  const viewExpiry = useMemo(() => {
+    const exp = Number((new URLSearchParams(location.search).get('view') ?? '').split('.')[0]);
+    return exp ? new Date(exp * 1000).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+  }, []);
 
   useEffect(() => {
     if (!turns.length || viewOnly) return; // nothing to keep until the chat has started; a view never writes
@@ -374,6 +378,13 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
 
   return (
     <div className="cv-wrap">
+      {viewOnly && (
+        <div className="cv-viewbar" role="note">
+          <Eye size={16} />
+          <b>View only</b>
+          <span>You can look at this campaign but not change it.{viewExpiry ? ` This link works until ${viewExpiry}.` : ''}</span>
+        </div>
+      )}
       <header className="cv-top">
         {!viewOnly && (
           <button className="cv-back" onClick={onBack} title="All campaigns">
@@ -387,7 +398,6 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             {tenant.displayName}
           </span>
         </div>
-        {viewOnly && <span className="cv-viewonly">View only</span>}
         {submission && (
           <span className="cv-submitted" title={`Submitted by ${submission.by}`}>
             Submitted for execution · {new Date(submission.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {submission.by}
@@ -400,10 +410,11 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           Live bank data access: {tenant.warehouseAccess ? 'ON' : 'OFF'}
         </span>
         <span className="cv-top-gap" />
-        {versions.length > 0 && <VersionMenu versions={versions} viewing={viewing?.v.n ?? null} onView={view} />}
+        {versions.length > 0 && !viewOnly && <VersionMenu versions={versions} viewing={viewing?.v.n ?? null} onView={view} />}
         <button className="cv-btn" onClick={() => setActivity((v) => !v)}>
           <MoreHorizontal size={14} /> Activity
         </button>
+        {!viewOnly && (
         <span className="cv-del-wrap">
           <button className="cv-btn cv-btn-del" disabled={busy || locked} title={busy ? 'Wait for the agent to finish' : 'Delete this campaign'} onClick={() => setConfirmDelete((v) => (v ? null : 'ask'))}>
             <Trash2 size={14} /> Delete
@@ -424,6 +435,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             </div>
           )}
         </span>
+        )}
 
       </header>
 
