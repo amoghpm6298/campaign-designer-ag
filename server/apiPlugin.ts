@@ -291,6 +291,17 @@ export function agentApiPlugin(): Plugin {
             return void (await streamSse(res, gen));
           }
           // The campaign object and context this chat has on file, so the canvas survives a reload.
+          // Submit for execution from the app: the same checks as the MCP's submit_campaign.
+          if (url === '/api/campaign/submit' && req.method === 'POST') {
+            const sub = await load('submit.ts');
+            const body = (await readBody(req)) as { sessionId?: string; tenantId?: string; startDate?: string; endDate?: string };
+            try {
+              const r = (sub.submitChecked as (s: string, t: string, by: string, d: object) => { ok: boolean; error?: string })(String(body.sessionId ?? ''), String(body.tenantId ?? ''), 'the app', { startDate: body.startDate, endDate: body.endDate });
+              return send(res, r.ok ? 200 : 400, r);
+            } catch (e) {
+              return send(res, 400, { ok: false, error: (e as Error).message });
+            }
+          }
           // A new editable draft from an existing campaign.
           if (url === '/api/campaign/copy' && req.method === 'POST') {
             const files = await load('campaignFiles.ts');

@@ -9,6 +9,7 @@
 //
 // They are linked by the folder (and context entries by bucket id), never
 // mixed. The conversation itself stays with the chat.
+import { submittedStage } from '../src/designer/v2/lifecycle';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -315,6 +316,8 @@ export interface CampaignSummary {
   updatedAt: string;
   submitted?: Submission;
   schedule?: { startDate: string; endDate: string } | null;
+  /** Where it is: draft · ready · scheduled · active · ended (the same states the MCP reports). */
+  state: 'draft' | 'ready' | 'scheduled' | 'active' | 'ended';
 }
 
 /** Every saved campaign for a bank, newest first: what the Campaigns page shows. */
@@ -325,7 +328,7 @@ export function listCampaigns(tenantId: string, dir = campaignDir()): CampaignSu
     const folder = join(dir, name);
     if (!SESSION_ID.test(name) || !statSync(folder).isDirectory()) continue;
     const camp = readStamped<CampaignObject>(join(folder, 'campaign.json'));
-    const chat = readStamped<{ turns?: { role: string; content: string; auto?: boolean }[]; state?: { flags?: { campaignBuilt?: boolean } } }>(join(folder, 'chat.json'));
+    const chat = readStamped<{ turns?: { role: string; content: string; auto?: boolean }[]; lastBuilt?: boolean; state?: { flags?: { campaignBuilt?: boolean } } }>(join(folder, 'chat.json'));
     const tid = camp?.tenantId || chat?.tenantId;
     if (tid !== tenantId) continue;
     const c = camp?.body;
@@ -364,6 +367,14 @@ export function listCampaigns(tenantId: string, dir = campaignDir()): CampaignSu
       updatedAt: [camp?.updatedAt, chat?.updatedAt].filter(Boolean).sort().pop() ?? '',
       ...(loadSubmission(name, dir) ? { submitted: loadSubmission(name, dir)! } : {}),
       ...(c?.schedule ? { schedule: c.schedule } : {}),
+      state: (() => {
+        const sub = loadSubmission(name, dir);
+        if (sub) {
+          const st = submittedStage(sub);
+          return st === 'submitted' ? 'active' : st;
+        }
+        return chat?.body?.lastBuilt || chat?.body?.state?.flags?.campaignBuilt ? 'ready' : 'draft';
+      })(),
     });
   }
   return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

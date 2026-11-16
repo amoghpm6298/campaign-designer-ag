@@ -98,6 +98,11 @@ export interface Withdrawal {
   by: string;
 }
 
+export async function submitCampaignApi(sessionId: string, tenantId: string, startDate: string, endDate: string): Promise<{ ok: boolean; submission?: Submission; error?: string }> {
+  const res = await fetch(apiUrl('/api/campaign/submit'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, tenantId, startDate, endDate }) });
+  return (await res.json().catch(() => ({ ok: false, error: 'Could not reach the server.' }))) as { ok: boolean; submission?: Submission; error?: string };
+}
+
 export async function copyCampaign(sessionId: string, tenantId: string): Promise<{ ok: boolean; sessionId?: string; name?: string; error?: string }> {
   const res = await fetch(apiUrl('/api/campaign/copy'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, tenantId }) });
   return (await res.json().catch(() => ({ ok: false, error: 'Could not reach the server.' }))) as { ok: boolean; sessionId?: string; name?: string; error?: string };

@@ -1,17 +1,16 @@
 // The MCP's tools: a thin door onto the same agent the app uses. Every
 // campaign made here is an ordinary campaign: same files, same chat, same
 // canvas link. The caller's agent never designs anything itself.
-import { checkJourneys } from '../agent/compile';
 import type { AgentQuestion, AgentState } from '../agent/types';
-import { copyCampaign, deleteCampaign, findDeleted, listCampaigns, loadChat, loadStores, loadSubmission, loadWithdrawals, submitCampaign, withdrawCampaign, LOCKED } from '../campaignFiles';
+import { copyCampaign, deleteCampaign, findDeleted, listCampaigns, loadChat, loadStores, loadSubmission, loadWithdrawals, withdrawCampaign, LOCKED } from '../campaignFiles';
 import { currentEntries } from '../../src/designer/v2/contextView';
 import type { AnswerItem } from '../../src/designer/v2/types';
 import { isRunning, runningStep, startTurn, waitForTurn, type StoredChat } from './runner';
 import { campaignBrief } from './brief';
+import { submitChecked } from '../submit';
 import { campaignDetails } from './details';
 import { submittedStage } from '../../src/designer/v2/lifecycle';
-import { directEdit } from '../agent/directEdit';
-import { daysBetween, longestPathHours, parseSchedule, scheduleText } from '../agent/schedule';
+import { scheduleText } from '../agent/schedule';
 import { VIEW_HOURS, makeViewToken } from '../viewLinks';
 
 /** Who is calling: the shared token's label and the one bank it may work on. */
@@ -354,27 +353,10 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       if (isRunning(id)) throw new ToolError('The agent is still working on this campaign. Wait until get_campaign says "ready".');
       const st = campaignStatus(caller, id);
       if (st.state !== 'ready') throw new ToolError(`Only a ready campaign can be submitted; this one is "${String(st.state)}"${(st.allowedActions as string[]).length ? ` (now: ${(st.allowedActions as string[]).join(', ')})` : ' and the designer is still working'}.`);
-      // Dates given with the call set (or change) the campaign's own dates first, with the same rules as anywhere else.
-      if (args.startDate !== undefined || args.endDate !== undefined) {
-        const cur = loadStores(id).campaign?.schedule;
-        const r = directEdit(id, chat.tenantId, { op: 'schedule', startDate: String(args.startDate ?? cur?.startDate ?? ''), endDate: String(args.endDate ?? cur?.endDate ?? '') });
-        if (!r.ok) throw new ToolError(`Not submitted: ${r.error}`);
-      }
-      const c = loadStores(id).campaign;
-      if (!c) throw new ToolError('There is no campaign yet.');
-      const sch = c.schedule;
-      if (!sch) throw new ToolError('Not submitted: the campaign has no start and end dates. Confirm them with your human and pass startDate and endDate (YYYY-MM-DD).');
-      const checked = parseSchedule(sch);
-      if ('error' in checked) throw new ToolError(`Not submitted: ${checked.error.replace(' Nothing was changed.', '')} Pass new startDate and endDate.`);
-      const windowDays = daysBetween(sch.startDate, sch.endDate);
-      const tooLong = [...c.buckets.map((b) => ({ name: b.name, journey: b.journey })), ...(c.everyoneElse?.approach === 'journey' ? [{ name: 'Everyone else', journey: c.everyoneElse.journey }] : [])]
-        .map((l) => ({ name: l.name, days: Math.ceil(longestPathHours(l.journey) / 24) }))
-        .filter((l) => l.days > windowDays);
-      if (tooLong.length)
-        throw new ToolError(`Not submitted: the campaign runs ${windowDays} days (${sch.startDate} → ${sch.endDate}), but ${tooLong.map((l) => `"${l.name}" takes about ${l.days} days`).join(', ')}. Pass later dates, or ask for shorter journeys with request_changes.`);
-      const broken = checkJourneys(c, undefined, true, true);
-      if (broken.length) throw new ToolError(`Not submitted: these need fixing first (send them with request_changes):\n- ${broken.join('\n- ')}`);
-      const sub = submitCampaign(id, chat.tenantId, caller.label, sch);
+      const r = submitChecked(id, chat.tenantId, caller.label, { startDate: args.startDate as string | undefined, endDate: args.endDate as string | undefined }, 'ask with request_changes');
+      if (!r.ok) throw new ToolError(r.error.replace('Give a startDate and an endDate (YYYY-MM-DD).', 'Confirm them with your human and pass startDate and endDate (YYYY-MM-DD).'));
+      const sub = r.submission;
+      const sch = { startDate: sub.startDate!, endDate: sub.endDate! };
       return {
         campaignId: id,
         ...linkInfo(caller, id),

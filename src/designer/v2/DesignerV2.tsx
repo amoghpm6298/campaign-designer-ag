@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Copy, Eye, MoreHorizontal, Trash2, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
 import { apiUrl } from '../api';
-import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, type Stores, type Submission, type Withdrawal } from './api';
+import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, submitCampaignApi, type Stores, type Submission, type Withdrawal } from './api';
 import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
 import { VersionMenu } from './VersionMenu';
@@ -94,6 +94,11 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [lastWithdrawal, setLastWithdrawal] = useState<Withdrawal | null>(null);
   const [withdrawing, setWithdrawing] = useState<'ask' | 'busy' | string | null>(null);
+  const [submitting, setSubmitting] = useState<'ask' | 'busy' | string | null>(null);
+  // The withdraw action, named for where the campaign is.
+  const pauseLabel = submission ? (submittedStage(submission) === 'scheduled' ? 'Unschedule' : submittedStage(submission) === 'active' ? 'Pause campaign' : 'Withdraw') : 'Withdraw';
+  const [subStart, setSubStart] = useState('');
+  const [subEnd, setSubEnd] = useState('');
   useEffect(() => {
     let live = true;
     fetchStores(sessionId)
@@ -417,21 +422,26 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             {tenant.displayName}
           </span>
         </div>
+        {!submission && (
+          <span className={`cv-state st-${state?.flags.campaignBuilt || lastBuilt ? 'ready' : 'draft'}`} title={state?.flags.campaignBuilt || lastBuilt ? 'Designed, not submitted yet' : 'Being designed'}>
+            {state?.flags.campaignBuilt || lastBuilt ? 'Ready' : 'Draft'}
+          </span>
+        )}
         {submission && (
           <span className={`cv-submitted st-${submittedStage(submission)}`} title={`Submitted by ${submission.by} on ${new Date(submission.at).toLocaleString()}`}>
             {STAGE_LABEL[submittedStage(submission)]}{submittedStage(submission) === 'submitted' ? ' for execution' : ''}
             {submission.startDate && submission.endDate ? ` · runs ${fmtShortDay(submission.startDate)} → ${fmtShortDay(submission.endDate)}` : ''} · {submission.by}
           </span>
         )}
-        {submission && !viewOnly && (
+        {submission && !viewOnly && submittedStage(submission) !== 'ended' && (
           <span className="cv-del-wrap">
-            <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title="Take it back from execution (this is also how to pause it)">
-              Withdraw
+            <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title="Take it back from execution; it becomes editable again">
+              {pauseLabel}
             </button>
             {withdrawing && (
-              <div className="cv-del-pop" role="dialog" aria-label="Withdraw campaign">
-                <b>Withdraw from execution?</b>
-                <p>This pauses the campaign and makes it editable again. Submit it again to resume.</p>
+              <div className="cv-del-pop cv-pop-left" role="dialog" aria-label={pauseLabel}>
+                <b>{pauseLabel}?</b>
+                <p>{submittedStage(submission) === 'scheduled' ? 'It will not start on its date. It becomes editable again; submit it again to reschedule.' : 'It stops being live and becomes editable again. Use Resume campaign to put it back.'}</p>
                 {withdrawing !== 'ask' && withdrawing !== 'busy' && <p className="cv-del-err">{withdrawing}</p>}
                 <div className="cv-del-btns">
                   <button className="cv-btn" onClick={() => setWithdrawing(null)}>
@@ -449,7 +459,58 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
                       setWithdrawing(null);
                     }}
                   >
-                    {withdrawing === 'busy' ? 'Withdrawing…' : 'Withdraw'}
+                    {withdrawing === 'busy' ? 'Working…' : pauseLabel}
+                  </button>
+                </div>
+              </div>
+            )}
+          </span>
+        )}
+        {!submission && !viewOnly && !viewing && (state?.flags.campaignBuilt || lastBuilt) && (
+          <span className="cv-del-wrap">
+            <button
+              className="cv-btn primary"
+              disabled={busy}
+              onClick={() => {
+                setSubStart(stores.campaign?.schedule?.startDate ?? '');
+                setSubEnd(stores.campaign?.schedule?.endDate ?? '');
+                setSubmitting((v) => (v ? null : 'ask'));
+              }}
+            >
+              {lastWithdrawal ? 'Resume campaign' : 'Submit for execution'}
+            </button>
+            {submitting && (
+              <div className="cv-del-pop cv-pop-left" role="dialog" aria-label="Submit for execution">
+                <b>{lastWithdrawal ? 'Resume campaign' : 'Submit for execution'}</b>
+                <p>Confirm when it runs. Once submitted it is locked; withdraw it to pause or change it.</p>
+                <div className="cv-pop-dates" style={{ marginTop: 8 }}>
+                  <label>
+                    <span>Starts</span>
+                    <input type="date" value={subStart} min={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })} onChange={(e) => setSubStart(e.target.value)} />
+                  </label>
+                  <label>
+                    <span>Ends</span>
+                    <input type="date" value={subEnd} min={subStart || undefined} onChange={(e) => setSubEnd(e.target.value)} />
+                  </label>
+                </div>
+                {submitting !== 'ask' && submitting !== 'busy' && <p className="cv-del-err" style={{ whiteSpace: 'pre-wrap' }}>{submitting}</p>}
+                <div className="cv-del-btns">
+                  <button className="cv-btn" onClick={() => setSubmitting(null)}>
+                    Cancel
+                  </button>
+                  <button
+                    className="cv-btn primary"
+                    disabled={submitting === 'busy' || !subStart || !subEnd}
+                    onClick={async () => {
+                      setSubmitting('busy');
+                      const r = await submitCampaignApi(sessionId, tenant.tenantId, subStart, subEnd);
+                      if (!r.ok || !r.submission) return setSubmitting(r.error ?? 'Could not submit.');
+                      setSubmission(r.submission);
+                      setSubmitting(null);
+                      fetchStores(sessionId).then(({ campaign, context }) => setStores({ campaign, context }));
+                    }}
+                  >
+                    {submitting === 'busy' ? 'Submitting…' : 'Submit'}
                   </button>
                 </div>
               </div>
@@ -458,7 +519,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         )}
         {!submission && lastWithdrawal && (
           <span className="cv-withdrawn" title="Taken back from execution; it can be changed and submitted again">
-            Withdrawn · {new Date(lastWithdrawal.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {lastWithdrawal.by}
+            Paused · {new Date(lastWithdrawal.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {lastWithdrawal.by}
           </span>
         )}
         <span

@@ -6,7 +6,6 @@ import { Layers, MessageSquare, Plus, RefreshCw, Send } from 'lucide-react';
 import { apiUrl } from '../api';
 import type { KnowledgeBase, Tenant } from '../types';
 import { DesignerV2, loadChat, type Stored } from './DesignerV2';
-import { STAGE_LABEL, submittedStage } from './lifecycle';
 import './v2.css';
 
 export interface CampaignSummary {
@@ -22,7 +21,19 @@ export interface CampaignSummary {
   version: number;
   updatedAt: string;
   submitted?: { at: string; by: string; startDate?: string; endDate?: string };
+  schedule?: { startDate: string; endDate: string } | null;
+  state: CampaignState;
 }
+
+export type CampaignState = 'draft' | 'ready' | 'scheduled' | 'active' | 'ended';
+export const STATES: { key: CampaignState; label: string; hint: string }[] = [
+  { key: 'draft', label: 'Draft', hint: 'Being designed' },
+  { key: 'ready', label: 'Ready', hint: 'Designed, not submitted' },
+  { key: 'scheduled', label: 'Scheduled', hint: 'Submitted, before its start date' },
+  { key: 'active', label: 'Active', hint: 'Submitted, between its dates' },
+  { key: 'ended', label: 'Ended', hint: 'Submitted, after its end date' },
+];
+const day = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 const ago = (iso: string) => {
   if (!iso) return '';
@@ -36,6 +47,7 @@ const ago = (iso: string) => {
 
 export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; onOpen: (id: string) => void; onCreate: () => void }) {
   const [list, setList] = useState<CampaignSummary[] | null>(null);
+  const [filter, setFilter] = useState<CampaignState | 'all'>('all');
   useEffect(() => {
     let live = true;
     setList(null);
@@ -74,23 +86,31 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
           </button>
         </div>
       ) : (
+        <>
+        <div className="cv-states" role="tablist">
+          <button role="tab" aria-selected={filter === 'all'} className={filter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>
+            All <span>{list.length}</span>
+          </button>
+          {STATES.map((s) => (
+            <button key={s.key} role="tab" title={s.hint} aria-selected={filter === s.key} className={`st-${s.key}${filter === s.key ? ' on' : ''}`} onClick={() => setFilter(s.key)}>
+              {s.label} <span>{list.filter((c) => c.state === s.key).length}</span>
+            </button>
+          ))}
+        </div>
         <div className="cv-grid">
           <button className="cv-card-new" onClick={onCreate}>
             <Plus size={22} />
             <b>Create new campaign</b>
             <span>Start from a goal, in a sentence</span>
           </button>
-          {list.map((c) => (
+          {list.filter((c) => filter === 'all' || c.state === filter).map((c) => (
             <button key={c.sessionId} className="cv-camp" onClick={() => onOpen(c.sessionId)}>
               <span className="cv-camp-top">
-                {c.submitted ? (
-                  <span className={`cv-camp-status st-${submittedStage(c.submitted)}`}>{STAGE_LABEL[submittedStage(c.submitted)]}</span>
-                ) : (
-                  <span className={`cv-camp-status ${c.built ? 'built' : 'draft'}`}>{c.built ? 'Ready' : 'Draft'}</span>
-                )}
+                <span className={`cv-camp-status st-${c.state}`}>{STATES.find((x) => x.key === c.state)?.label ?? c.state}</span>
                 {c.membership && <span className="cv-camp-mode">{c.membership === 'recurring' ? `Recurring · ${c.refresh}` : 'One-time'}</span>}
               </span>
               <b className="cv-camp-name">{c.name}</b>
+              <span className={`cv-camp-dates${c.schedule ? '' : ' unset'}`}>{c.schedule ? `${day(c.schedule.startDate)} → ${day(c.schedule.endDate)}` : 'Dates not set'}</span>
               {c.ask && <span className="cv-camp-ask">“{c.ask}”</span>}
               <span className="cv-camp-stats">
                 <span>
@@ -111,6 +131,7 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
             </button>
           ))}
         </div>
+        </>
       )}
     </div>
   );
