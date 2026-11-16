@@ -45,4 +45,4 @@ claude mcp add --transport http campaign-designer https://ai.product.hyperface.c
 
 ## For the Campaign Designer team
 
-Tokens live in the server's `.env` as `MCP_TOKENS=label:token:TENANT` (comma-separated for several, at least 16 characters each, e.g. `growth:<token>:TEN-IBL`), then restart the app (`pm2 restart campaign-designer`). The label is recorded as "submitted by". Code: `server/mcp/`.
+Tokens live in the server's `.env` as `MCP_TOKENS=label:token:TENANT` (comma-separated for several, at least 16 characters each, e.g. `growth:<token>:TEN-IBL`), and `PUBLIC_APP_URL=https://ai.product.hyperface.co/campaigndesigneragent` (so links use the public address), then restart the app (`pm2 restart campaign-designer`). The label is recorded as "submitted by". Code: `server/mcp/`.

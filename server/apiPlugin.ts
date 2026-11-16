@@ -242,7 +242,8 @@ export function agentApiPlugin(): Plugin {
               auth: req.headers.authorization,
               body: req.method === 'POST' ? await readBody(req) : undefined,
               tokens: (mcp.parseTokens as (r: string | undefined) => unknown[])(process.env.MCP_TOKENS),
-              appUrl: `${proto}://${host}${base}`,
+              // The proxy in front of the hosted copy does not pass the public host on, so it is set there (PUBLIC_APP_URL).
+              appUrl: (process.env.PUBLIC_APP_URL ?? `${proto}://${host}${base}`).replace(/\/$/, ''),
             });
             for (const [k, v] of Object.entries(out.headers ?? {})) res.setHeader(k, v);
             if (out.json === undefined) {
