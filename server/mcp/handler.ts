@@ -11,7 +11,7 @@ import { MCP_TOOLS, callTool, isToolError, type Caller } from './tools';
 export const PROTOCOL_VERSION = '2025-06-18';
 
 const INSTRUCTIONS = `Hyperface Campaign Designer. Hyperface's own campaign agent designs card campaigns (buckets of customers, a message journey per bucket) from a plain-language idea. You do not design anything yourself: you pass the idea on, relay its questions and changes, and show your human the canvas link.
-Flow: start_campaign(idea, questions: "ask" if your human can answer a few clarifying questions, "assume" for a fast first draft) → get_campaign(waitSeconds: 50) until the status changes → if "needs_answers", answer_questions (ask your human what you do not know; skip the rest and the agent assumes and says so) → when "ready", show the summary and link → request_changes for anything they want different → submit_campaign only after they explicitly say it is good to go. A design takes a few minutes.`;
+Flow: start_campaign(idea, questions: "ask" if your human can answer a few clarifying questions, "assume" for a fast first draft) → get_campaign(waitSeconds: 50) until the status changes → if "needs_answers", answer_questions (ask your human what you do not know; skip the rest and the agent assumes and says so) → when "ready", show the summary and link → request_changes for anything they want different → submit_campaign only after they explicitly say it is good to go. A design takes a few minutes. Full guide: https://ai.product.hyperface.co/campaigndesigneragent/mcp/guide`;
 
 export interface TokenEntry {
   label: string;

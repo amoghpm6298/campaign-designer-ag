@@ -7,7 +7,7 @@
 //
 // The client bundle imports NOTHING from this directory — the only transport
 // is fetch('/api/...').
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname } from 'node:path';
@@ -231,6 +231,13 @@ export function agentApiPlugin(): Plugin {
       server.middlewares.use(async (req, res, next) => {
         let url = (req.url ?? '').split('?')[0];
         if (base && url.startsWith(base + '/')) url = url.slice(base.length);
+        // The setup and usage guide a teammate's own AI reads (public: it holds no secrets).
+        if (url === '/mcp/guide' && (req.method === 'GET' || req.method === 'HEAD')) {
+          res.statusCode = 200;
+          res.setHeader('content-type', 'text/markdown; charset=utf-8');
+          res.setHeader('cache-control', 'no-cache');
+          return void res.end(readFileSync(resolve(here, '../docs/mcp-guide.md'), 'utf8'));
+        }
         // The MCP for teammates' own agents: token auth, not the app password. See server/mcp/.
         if (url === '/mcp') {
           try {

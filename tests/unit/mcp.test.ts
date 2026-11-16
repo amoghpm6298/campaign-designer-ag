@@ -194,6 +194,7 @@ describe('signed view links', () => {
     expect((await run('/cd/api/agent/stream', cookie, 'POST')).status).toBe(403);
     expect((await run(`/cd/designer.html?c=cv-a&view=${makeViewToken(SECRET, 'cv-a', -1)}`)).status).toBe(401); // expired: password page
     expect((await run('/cd/designer.html')).status).toBe(401); // no link, no cookie
+    expect((await run('/cd/mcp/guide')).next).toBe(true); // the setup guide is public
   });
 
   it('the MCP hands out a fresh view link with its expiry; get_link renews it', async () => {

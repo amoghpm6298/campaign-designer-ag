@@ -1,5 +1,7 @@
 # Campaign Designer MCP
 
+The guide teammates' AI assistants read (setup and usage) is `docs/mcp-guide.md`, served publicly at https://ai.product.hyperface.co/campaigndesigneragent/mcp/guide. A teammate pastes one message into Claude that points at it, with their token.
+
 Use Hyperface's Campaign Designer from your own agent (Claude Code, Claude Desktop, or any MCP client). You describe a campaign idea; Hyperface's campaign agent designs it (customer buckets and a message journey for each); you get back a canvas link. Your agent never designs anything itself: it passes your idea on, relays the agent's questions and your changes, and submits when you say go.
 
 ## Connect

@@ -89,6 +89,8 @@ export function passwordGate(password: string | undefined, base: string, linkSec
     if (url === '/api/health' || url === `${prefix}api/health`) return next();
     // The MCP checks its own bearer token (server/mcp/handler.ts).
     if (url === '/mcp' || url === `${prefix}mcp`) return next();
+    // Its setup guide, for a teammate's AI to read: public, no secrets in it.
+    if (url === '/mcp/guide' || url === `${prefix}mcp/guide`) return next();
 
     if (authed(req)) return next();
 
