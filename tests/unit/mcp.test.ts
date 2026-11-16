@@ -74,13 +74,13 @@ describe('the MCP endpoint', () => {
     expect(init.result.instructions).toMatch(/submit_campaign only after/);
     expect((await call({ jsonrpc: '2.0', method: 'notifications/initialized' })).status).toBe(202);
     const list = (await call({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).json as { result: { tools: { name: string }[] } };
-    expect(list.result.tools.map((t) => t.name)).toEqual(['start_campaign', 'get_campaign', 'answer_questions', 'request_changes', 'submit_campaign', 'copy_campaign', 'withdraw_campaign', 'delete_campaign', 'get_link', 'list_campaigns']);
+    expect(list.result.tools.map((t) => t.name)).toEqual(['create_campaign', 'get_campaign', 'answer_questions', 'request_changes', 'submit_campaign', 'copy_campaign', 'withdraw_campaign', 'delete_campaign', 'get_link', 'list_campaigns']);
   });
 });
 
 describe('a campaign through the MCP', () => {
   it('start → questions → answers → ready → submit, saved exactly as the app saves it, on the token\'s bank', async () => {
-    const start = await tool('start_campaign', { idea: 'Diwali spend push' });
+    const start = await tool('create_campaign', { brief: 'Diwali spend push' });
     const id = String(start.data.campaignId);
     expect(start.data.link).toBe(`https://app.test/cd/designer.html?c=${id}&bank=TEN-YES`);
     expect(seen[0].tenantId).toBe('TEN-YES');
@@ -305,6 +305,17 @@ describe('an ended campaign', () => {
     expect(st.data).toMatchObject({ state: 'ended', allowedActions: ['copy_campaign'] });
     expect((await tool('withdraw_campaign', { campaignId: id })).text).toMatch(/has ended/);
     expect((await tool('list_campaigns')).data.campaigns).toEqual(expect.arrayContaining([expect.objectContaining({ campaignId: id, state: 'ended' })]));
+  });
+});
+
+describe('create_campaign', () => {
+  it('takes a long brief as it is, and still accepts the first names (start_campaign, idea)', async () => {
+    const long = `Goal: dormant cardholders spending again.\n${'Past result: last year 4.2% reactivated with two SMS. '.repeat(400)}`;
+    const id = String((await tool('create_campaign', { brief: long, questions: 'assume' })).data.campaignId);
+    expect(seen.at(-1)!.messages[0].content).toBe(long.trim());
+    await waitForTurn(id, 2000);
+    expect((await tool('start_campaign', { idea: 'old name' })).data.state).toBe('draft');
+    expect((await tool('create_campaign', {})).text).toMatch(/brief is required/);
   });
 });
 

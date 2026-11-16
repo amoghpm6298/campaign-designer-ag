@@ -4,9 +4,9 @@ You are reading this because a Hyperface teammate asked you to connect them to t
 
 ## What it is
 
-The Campaign Designer is Hyperface's own campaign agent. From a plain-language idea ("get dormant cardholders spending again before Diwali") it designs a full card campaign for a bank: **buckets** of customers with different reasons for not acting, and a **message journey** for each (WhatsApp, SMS, email; waits; checks; endings). It is reached through an MCP server.
+The Campaign Designer is Hyperface's own campaign agent. From a brief, anything from one line ("get dormant cardholders spending again before Diwali") to a full document, it designs a full card campaign for a bank: **buckets** of customers with different reasons for not acting, and a **message journey** for each (WhatsApp, SMS, email; waits; checks; endings). It is reached through an MCP server.
 
-**You do not design campaigns yourself.** You pass your user's idea to the designer, relay its questions and your user's changes, tell your user what was built, and submit only when they say so.
+**You do not design campaigns yourself.** You pass your user's brief to the designer, relay its questions and your user's changes, tell your user what was built, and submit only when they say so.
 
 ## Setup
 
@@ -53,12 +53,12 @@ Once the tools are available, call `list_campaigns`. A list (possibly empty) mea
 
 | Tool | Use |
 |---|---|
-| `start_campaign(idea, questions)` | Start a campaign. `questions`: `"ask"` (default) lets the designer come back with clarifying questions; `"assume"` means none: it makes its own calls, lists them as assumptions and builds. Returns a campaign id and link at once; the design takes 3–7 minutes. |
+| `create_campaign(brief, questions)` | Create a campaign. `brief` can be one line or a full brief: goal, audience, success, any existing offer (exact terms), dates, limits, notes, past results, data, a pasted document. `questions`: `"ask"` (default) lets the designer come back with clarifying questions; `"assume"` means none: it makes its own calls, lists them as assumptions and builds. Returns a campaign id and link at once; the design takes 3–7 minutes. |
 | `get_campaign(campaignId, waitSeconds)` | Where the campaign is (`state`, `allowedActions`) and its results. Always pass `waitSeconds: 50` while the designer is working, and call again until it changes. |
 | `answer_questions(campaignId, answers, skip)` | Answer the designer's questions (`answers`: question id → text) or skip some or `"all"`. |
 | `request_changes(campaignId, request)` | Any change, in plain words. Also how to reply to the designer. |
 | `submit_campaign(campaignId, startDate, endDate)` | Submit for execution. Locks the campaign. Dates (YYYY-MM-DD) are optional if the campaign already has them; pass them to set or change them. Start today or later, end after the start (a recurring campaign can use a far-off end). Refused if a journey doesn't fit between the dates. |
-| `copy_campaign(campaignId, name)` | A new editable draft from an existing campaign (even a submitted one), keeping the designer's reasoning and chat; the original is unchanged. Use it for a variant: a new season or month, a different audience, a different channel mix or cadence, an A/B alternative. For a different goal, use `start_campaign` instead. Then adapt it with `request_changes`. |
+| `copy_campaign(campaignId, name)` | A new editable draft from an existing campaign (even a submitted one), keeping the designer's reasoning and chat; the original is unchanged. Use it for a variant: a new season or month, a different audience, a different channel mix or cadence, an A/B alternative. For a different goal, use `create_campaign` instead. Then adapt it with `request_changes`. |
 | `withdraw_campaign(campaignId)` | Take a submitted (scheduled or active) campaign back from execution. **This is how to pause a campaign.** It becomes editable again; `submit_campaign` resumes it. |
 | `delete_campaign(campaignId)` | Delete a draft (not submitted), e.g. a test. Refused for submitted campaigns: withdraw first. A copy is kept, so the Campaign Designer team can recover a mistaken delete. |
 | `get_link(campaignId)` | A fresh canvas link. |
@@ -69,7 +69,7 @@ Once the tools are available, call `list_campaigns`. A list (possibly empty) mea
 Every campaign response carries `state` and `allowedActions`.
 
 ```
- start_campaign / copy_campaign
+ create_campaign / copy_campaign
             │
             ▼
          DRAFT ──── designer builds ────► READY ◄──────────────┐
@@ -96,7 +96,8 @@ Every campaign response carries `state` and `allowedActions`.
 
 ## How to use it
 
-1. **Gather the idea.** Before starting, make sure you have what only your user knows, or ask briefly: what customers should do differently; how success is judged; any incentive that **already exists** (with exact terms); timing; message limits. Put all of it in `idea`.
+1. **Gather the brief.** Before starting, make sure you have what only your user knows, or ask briefly: what customers should do differently; how success is judged; any incentive that **already exists** (with exact terms); timing; message limits. Put all of it in `brief`; a long brief is fine, and the more it has, the fewer questions come back.
+   **Ask your user for any data they have, and include it.** It improves the design more than anything else: segment or customer counts, spend or usage patterns, past campaign results (sent, responses, conversions by channel), activation or dormancy rates, opt-in rates, top spend categories. Paste it as it is (tables, CSV, numbers in text). The designer builds and sizes the buckets from it and marks them as based on their data; it never invents numbers.
 2. **Ask or assume.** If your user wants a quick first draft, or says "don't ask me anything", use `questions: "assume"`. Otherwise use `"ask"`.
 3. **Wait.** Tell your user it takes a few minutes, then poll `get_campaign` with `waitSeconds: 50`. Don't poll faster.
 4. **Questions** (state `draft` with `questions`). Show each question with its options and its "why", numbered, so your user can answer quickly. Never invent business facts (offers, limits, dates, numbers). If they don't know or don't care, skip it: the designer will assume and say so. Send with `answer_questions`.

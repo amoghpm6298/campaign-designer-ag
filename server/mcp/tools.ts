@@ -46,20 +46,24 @@ const QUESTION_TYPES: Record<string, string> = { yesno: 'yesno', single: 'single
 
 export const MCP_TOOLS = [
   {
-    name: 'start_campaign',
+    name: 'create_campaign',
     description:
-      'Start a new campaign from a broad idea, for the bank this token is set up for. Hyperface\'s campaign agent designs it (buckets and journeys); with questions: "ask" it may first come back with clarifying questions, with "assume" it decides those itself and builds. This returns at once with a campaignId and a canvas link; then call get_campaign to follow it. Put everything you already know into the idea: goal, audience, incentive, timing, limits.',
+      'Create a new campaign for the bank this token is set up for. Hyperface\'s campaign designer designs it (buckets of customers and a message journey for each); with questions: "ask" it may first come back with clarifying questions, with "assume" it decides those itself and builds. Returns at once with a campaignId and a canvas link; then follow it with get_campaign. Put everything you know into brief: the more it has, the fewer questions and the better the design. Before calling, ask your human whether they have any data to share, and include it: it is the single biggest improvement to the design.',
     inputSchema: {
       type: 'object',
       properties: {
-        idea: { type: 'string', description: 'What the campaign should achieve, in plain words.' },
+        brief: {
+          type: 'string',
+          description:
+            'The campaign brief. Anything from one line ("get dormant cardholders spending again before Diwali") to a full brief: goal, audience, how success is judged, any incentive that already exists (exact terms), timing and dates, message limits, notes, constraints, past results, data, or a whole pasted document. Long is fine. DATA HELPS MOST: segment or customer counts, spend or usage patterns, past campaign results (sent, response, conversion by channel), activation or dormancy rates, opt-in rates, top spend categories. The designer uses it to shape and size the buckets and journeys, and marks them as based on your data; it never invents numbers itself.',
+        },
         questions: {
           type: 'string',
           enum: ['ask', 'assume'],
-          description: '"ask" (default): the agent may come back with clarifying questions (get_campaign then lists them, with answer_questions allowed). "assume": no questions come back; the agent makes its own calls, lists them as assumptions, and builds straight away. Choose "assume" when your human wants a first draft fast or cannot answer now; they can still correct anything with request_changes.',
+          description: '"ask" (default): the designer may come back with clarifying questions (get_campaign then lists them, with answer_questions allowed). "assume": no questions come back; it makes its own calls, lists them as assumptions, and builds straight away. Choose "assume" when your human wants a first draft fast or cannot answer now; they can still correct anything with request_changes.',
         },
       },
-      required: ['idea'],
+      required: ['brief'],
     },
   },
   {
@@ -111,7 +115,7 @@ export const MCP_TOOLS = [
     description:
       'Make a new editable draft from an existing campaign (any state, even submitted), then adapt it with request_changes. The copy keeps the campaign, the designer\'s reasoning and the chat, so the designer adapts it instead of starting over; the original is never changed. ' +
       'USE IT when your human wants a variant of something that already exists: the same campaign for a new season or month ("make this the Christmas version"), a different audience or bank segment with the same idea, a different channel mix or cadence, or an A/B alternative to compare with the original. Also to change a submitted campaign while leaving it as it is. ' +
-      'DO NOT use it when the goal itself is different (e.g. from card activation to EMI conversion): the buckets were built around the old goal, so start_campaign gives a cleaner design. Same bank only. Returns the new campaignId and link; name is optional (default "Copy of …").',
+      'DO NOT use it when the goal itself is different (e.g. from card activation to EMI conversion): the buckets were built around the old goal, so create_campaign gives a cleaner design. Same bank only. Returns the new campaignId and link; name is optional (default "Copy of …").',
     inputSchema: { type: 'object', properties: { campaignId: { type: 'string' }, name: { type: 'string', description: 'Name for the copy, e.g. "Christmas Dormant Reactivation".' } }, required: ['campaignId'] },
   },
   {
@@ -259,9 +263,12 @@ export function campaignStatus(caller: Caller, id: string): Result {
 
 export async function callTool(caller: Caller, name: string, args: Record<string, unknown>): Promise<Result> {
   switch (name) {
+    case 'create_campaign':
     case 'start_campaign': {
-      const idea = typeof args.idea === 'string' ? args.idea.trim() : '';
-      if (!idea) throw new ToolError('idea is required: describe the campaign in plain words.');
+      // "start_campaign" and "idea" are the names it first shipped with; still accepted.
+      const raw = typeof args.brief === 'string' ? args.brief : typeof args.idea === 'string' ? args.idea : '';
+      const idea = raw.trim();
+      if (!idea) throw new ToolError('brief is required: describe the campaign, from one line to a full brief.');
       const questionMode = args.questions === 'assume' ? 'assume' : 'ask';
       const id = newId();
       const r = startTurn(id, caller.tenantId, { content: idea }, { questionMode });
