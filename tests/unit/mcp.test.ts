@@ -89,7 +89,7 @@ describe('a campaign through the MCP', () => {
     expect((await tool('request_changes', { campaignId: id, request: 'x' })).isError).toBe(true);
 
     let st = await tool('get_campaign', { campaignId: id, waitSeconds: 5 });
-    expect(st.data.status).toBe('needs_answers');
+    expect(st.data).toMatchObject({ state: 'draft', allowedActions: ['answer_questions', 'request_changes', 'delete_campaign'] });
     const qs = st.data.questions as { id: string; question: string; why?: string; options: string[] }[];
     expect(qs[0]).toMatchObject({ question: 'Is there a live offer?', why: 'Messages may only mention a real offer.', options: ['Yes', 'No'] });
 
@@ -101,7 +101,7 @@ describe('a campaign through the MCP', () => {
     expect(seen[1].skipped).toEqual([qs[1].id]);
 
     st = await tool('get_campaign', { campaignId: id, waitSeconds: 5 });
-    expect(st.data.status).toBe('ready');
+    expect(st.data).toMatchObject({ state: 'ready', allowedActions: ['request_changes', 'submit_campaign', 'copy_campaign', 'delete_campaign'] });
     const brief = st.data.brief as { bucketCount: number; totalMessages: number; buckets: { name: string; journey: string; firstPath: string }[]; membership: string };
     expect(brief).toMatchObject({ bucketCount: 1, totalMessages: 1, membership: 'one-time: the list is fixed at launch' });
     expect(brief.buckets[0].name).toBe('Dormant');
@@ -123,9 +123,9 @@ describe('a campaign through the MCP', () => {
     expect((await tool('submit_campaign', { campaignId: id, startDate: day(5), endDate: day(2) })).text).toMatch(/must be after startDate/);
     expect((await tool('submit_campaign', { campaignId: id, startDate: day(1), endDate: day(3) })).text).toMatch(/runs 2 days.*"Dormant" takes about 3 days/);
     const sub = await tool('submit_campaign', { campaignId: id, startDate: day(1), endDate: day(30) });
-    expect(sub.data).toMatchObject({ status: 'scheduled', submitted: true, submittedBy: 'growth', startDate: day(1), endDate: day(30) }); // starts tomorrow
+    expect(sub.data).toMatchObject({ state: 'scheduled', allowedActions: ['withdraw_campaign', 'copy_campaign'], submittedBy: 'growth', startDate: day(1), endDate: day(30) }); // starts tomorrow
     expect((await tool('get_campaign', { campaignId: id })).data).toMatchObject({ startDate: day(1), endDate: day(30) });
-    expect((await tool('get_campaign', { campaignId: id })).data.status).toBe('scheduled');
+    expect((await tool('get_campaign', { campaignId: id })).data.state).toBe('scheduled');
     expect(listCampaigns('TEN-YES')[0].submitted?.by).toBe('growth');
 
     // Locked everywhere.
@@ -135,18 +135,18 @@ describe('a campaign through the MCP', () => {
 
     // Withdraw (= pause): editable again, recorded, and it can be resubmitted.
     const w = await tool('withdraw_campaign', { campaignId: id });
-    expect(w.data).toMatchObject({ status: 'ready', withdrawnBy: 'growth' });
+    expect(w.data).toMatchObject({ state: 'ready', withdrawnBy: 'growth' });
     expect((await tool('get_campaign', { campaignId: id })).data.lastWithdrawn).toMatchObject({ by: 'growth' });
     expect((await tool('withdraw_campaign', { campaignId: id })).text).toMatch(/not submitted/);
-    expect((await tool('submit_campaign', { campaignId: id })).data.status).toBe('scheduled');
+    expect((await tool('submit_campaign', { campaignId: id })).data.state).toBe('scheduled');
 
     // Copy a submitted campaign: a new editable draft with the design and chat; the original stays submitted.
     const copy = await tool('copy_campaign', { campaignId: id, name: 'Christmas push' });
     const copyId = String(copy.data.campaignId);
     expect(copyId).not.toBe(id);
-    expect(copy.data).toMatchObject({ status: 'ready', copiedFrom: id });
+    expect(copy.data).toMatchObject({ state: 'ready', copiedFrom: id });
     expect((copy.data.brief as { name: string; bucketCount: number })).toMatchObject({ name: 'Christmas push', bucketCount: 1 });
-    expect((await tool('get_campaign', { campaignId: id })).data.status).toBe('scheduled');
+    expect((await tool('get_campaign', { campaignId: id })).data.state).toBe('scheduled');
     const copyChat = loadChat(copyId) as { turns: { content: string }[] };
     expect(copyChat.turns.at(-1)!.content).toMatch(/This is a copy of "Diwali"/);
     expect((await tool('request_changes', { campaignId: copyId, request: 'make it SMS-first' })).isError).toBe(false);
@@ -155,9 +155,10 @@ describe('a campaign through the MCP', () => {
   it('delete_campaign removes a draft', async () => {
     const id = String((await tool('start_campaign', { idea: 'test draft' })).data.campaignId);
     await waitForTurn(id, 2000);
-    expect((await tool('delete_campaign', { campaignId: id })).data.status).toBe('deleted');
+    expect((await tool('delete_campaign', { campaignId: id })).data.state).toBe('deleted');
     expect(listCampaigns('TEN-YES').some((c) => c.sessionId === id)).toBe(false);
-    expect((await tool('get_campaign', { campaignId: id })).isError).toBe(true);
+    expect((await tool('get_campaign', { campaignId: id })).data).toMatchObject({ state: 'deleted', allowedActions: [] });
+    expect((await tool('request_changes', { campaignId: id, request: 'x' })).isError).toBe(true);
   });
 
   it('a token only sees its own bank\'s campaigns', async () => {
@@ -171,10 +172,10 @@ describe('a campaign through the MCP', () => {
 
   it('questions: "assume" never stops for answers: questions are skipped for the caller and it builds', async () => {
     const start = await tool('start_campaign', { idea: 'Diwali spend push', questions: 'assume' });
-    expect(start.data.questions).toBe('assume');
+    expect(start.data).toMatchObject({ questionMode: 'assume', state: 'draft', allowedActions: [] });
     const id = String(start.data.campaignId);
     const st = await tool('get_campaign', { campaignId: id, waitSeconds: 5 });
-    expect(st.data.status).toBe('ready');
+    expect(st.data.state).toBe('ready');
     // The agent asked once; the same Skip the app sends went back, with every question id.
     expect(seen).toHaveLength(2);
     expect(seen[1].skipped).toHaveLength(2);
@@ -289,6 +290,21 @@ describe('submitted campaigns: scheduled, active, ended', () => {
     expect(submittedStage(sub, at('2027-01-01'))).toBe('ended');
     expect(submittedStage({}, at('2026-12-05'))).toBe('submitted'); // submitted before dates existed
     expect(submittedStage(sub, new Date('2026-11-30T19:00:00Z'))).toBe('active'); // already 1 Dec in India
+  });
+});
+
+describe('an ended campaign', () => {
+  it('cannot be withdrawn, only copied', async () => {
+    const { submitCampaign } = await import('../../server/campaignFiles');
+    const id = String((await tool('start_campaign', { idea: 'x' })).data.campaignId);
+    await waitForTurn(id, 2000);
+    await tool('answer_questions', { campaignId: id, skip: 'all' });
+    await waitForTurn(id, 2000);
+    submitCampaign(id, 'TEN-YES', 'growth', { startDate: '2020-01-01', endDate: '2020-02-01' }); // long over
+    const st = await tool('get_campaign', { campaignId: id });
+    expect(st.data).toMatchObject({ state: 'ended', allowedActions: ['copy_campaign'] });
+    expect((await tool('withdraw_campaign', { campaignId: id })).text).toMatch(/has ended/);
+    expect((await tool('list_campaigns')).data.campaigns).toEqual(expect.arrayContaining([expect.objectContaining({ campaignId: id, state: 'ended' })]));
   });
 });
 

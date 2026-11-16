@@ -3,7 +3,7 @@
 // canvas link. The caller's agent never designs anything itself.
 import { checkJourneys } from '../agent/compile';
 import type { AgentQuestion, AgentState } from '../agent/types';
-import { copyCampaign, deleteCampaign, listCampaigns, loadChat, loadStores, loadSubmission, loadWithdrawals, submitCampaign, withdrawCampaign, LOCKED } from '../campaignFiles';
+import { copyCampaign, deleteCampaign, findDeleted, listCampaigns, loadChat, loadStores, loadSubmission, loadWithdrawals, submitCampaign, withdrawCampaign, LOCKED } from '../campaignFiles';
 import { currentEntries } from '../../src/designer/v2/contextView';
 import type { AnswerItem } from '../../src/designer/v2/types';
 import { isRunning, runningStep, startTurn, waitForTurn, type StoredChat } from './runner';
@@ -56,7 +56,7 @@ export const MCP_TOOLS = [
         questions: {
           type: 'string',
           enum: ['ask', 'assume'],
-          description: '"ask" (default): the agent may come back with clarifying questions (status "needs_answers"). "assume": no questions come back; the agent makes its own calls, lists them as assumptions, and builds straight away. Choose "assume" when your human wants a first draft fast or cannot answer now; they can still correct anything with request_changes.',
+          description: '"ask" (default): the agent may come back with clarifying questions (get_campaign then lists them, with answer_questions allowed). "assume": no questions come back; the agent makes its own calls, lists them as assumptions, and builds straight away. Choose "assume" when your human wants a first draft fast or cannot answer now; they can still correct anything with request_changes.',
         },
       },
       required: ['idea'],
@@ -65,7 +65,7 @@ export const MCP_TOOLS = [
   {
     name: 'get_campaign',
     description:
-      'Where a campaign is. When "ready" (or submitted: scheduled, active, ended) it carries a brief: the campaign in words, goal, who joins, how many buckets, each bucket\'s who / why stuck / journey in words, and the agent\'s assumptions; use it to tell your human what was built. status is one of: "working" (the agent is designing; call again), "needs_answers" (answer its questions with answer_questions), "ready" (designed and built: show your human the summary and the link), "waiting_for_reply" (the agent replied without building: respond with request_changes), "scheduled" / "active" / "ended" (submitted for execution and locked: before its start date, between its dates, after its end date), "error". waitSeconds (up to 50) waits for the agent to finish before answering, so poll with it instead of calling in a tight loop. A design usually takes 3-7 minutes.',
+      'Where a campaign is. Every campaign response has state and allowedActions. state is one of: "draft" (being designed: the designer is working, has questions for you, or replied), "ready" (designed and built), "scheduled" / "active" / "ended" (submitted for execution and locked: before, between or after its dates), "deleted". allowedActions lists the only tools you may call next for it (get_campaign, get_link and list_campaigns are always allowed); when it is empty the designer is working, so call again. In draft with questions, they are listed with options and why; when ready or submitted there is a brief (summary, dates, buckets, journeys, assumptions) to tell your human what was built. waitSeconds (up to 50) waits for the designer before answering: poll with it, not in a tight loop. A design usually takes 3-7 minutes.',
     inputSchema: {
       type: 'object',
       properties: { campaignId: { type: 'string' }, waitSeconds: { type: 'number', description: 'Wait up to this many seconds (max 50) while the agent is working.' } },
@@ -75,7 +75,7 @@ export const MCP_TOOLS = [
   {
     name: 'answer_questions',
     description:
-      'Answer the agent\'s questions (from get_campaign when status is "needs_answers"). Answer with one of the question\'s options, or any text of your own. Ask your human when you do not know; never invent business facts (incentives, limits, dates). Skipped or unanswered questions are assumed by the agent, which says what it assumed. Returns at once; then poll get_campaign.',
+      'Answer the agent\'s questions (listed by get_campaign when allowedActions includes answer_questions). Answer with one of the question\'s options, or any text of your own. Ask your human when you do not know; never invent business facts (incentives, limits, dates). Skipped or unanswered questions are assumed by the agent, which says what it assumed. Returns at once; then poll get_campaign.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -109,7 +109,7 @@ export const MCP_TOOLS = [
   {
     name: 'copy_campaign',
     description:
-      'Make a new editable draft from an existing campaign (any status, even submitted), then adapt it with request_changes. The copy keeps the campaign, the designer\'s reasoning and the chat, so the designer adapts it instead of starting over; the original is never changed. ' +
+      'Make a new editable draft from an existing campaign (any state, even submitted), then adapt it with request_changes. The copy keeps the campaign, the designer\'s reasoning and the chat, so the designer adapts it instead of starting over; the original is never changed. ' +
       'USE IT when your human wants a variant of something that already exists: the same campaign for a new season or month ("make this the Christmas version"), a different audience or bank segment with the same idea, a different channel mix or cadence, or an A/B alternative to compare with the original. Also to change a submitted campaign while leaving it as it is. ' +
       'DO NOT use it when the goal itself is different (e.g. from card activation to EMI conversion): the buckets were built around the old goal, so start_campaign gives a cleaner design. Same bank only. Returns the new campaignId and link; name is optional (default "Copy of …").',
     inputSchema: { type: 'object', properties: { campaignId: { type: 'string' }, name: { type: 'string', description: 'Name for the copy, e.g. "Christmas Dormant Reactivation".' } }, required: ['campaignId'] },
@@ -133,7 +133,7 @@ export const MCP_TOOLS = [
   },
   {
     name: 'list_campaigns',
-    description: 'Every campaign for this token\'s bank, newest first, with its status and canvas link.',
+    description: 'Every campaign for this token\'s bank, newest first, with its state, allowedActions, dates and canvas link.',
     inputSchema: { type: 'object', properties: {} },
   },
 ];
@@ -158,26 +158,72 @@ function openQuestions(chat: StoredChat): AgentQuestion[] {
   return ((chat.state as AgentState | null)?.questions ?? []).filter((q) => asked.has(q.id) && !q.answer?.trim());
 }
 
+/** The one vocabulary for where a campaign is. */
+export type CampaignState = 'draft' | 'ready' | 'scheduled' | 'active' | 'ended' | 'deleted';
+
+/** What the caller may do next, per state (get_campaign, get_link and list_campaigns are always available). */
+const ACTIONS = {
+  working: [] as string[],
+  questions: ['answer_questions', 'request_changes', 'delete_campaign'],
+  draft: ['request_changes', 'delete_campaign'],
+  ready: ['request_changes', 'submit_campaign', 'copy_campaign', 'delete_campaign'],
+  scheduled: ['withdraw_campaign', 'copy_campaign'],
+  active: ['withdraw_campaign', 'copy_campaign'],
+  ended: ['copy_campaign'],
+  deleted: [] as string[],
+};
+
+const stageOf = (sub: Parameters<typeof submittedStage>[0]): 'scheduled' | 'active' | 'ended' => {
+  const st = submittedStage(sub);
+  return st === 'submitted' ? 'active' : st; // submitted before dates existed: treat as running
+};
+
+/** A deleted campaign of this bank, if there is one. */
+function deletedState(caller: Caller, id: string): Result | null {
+  const d = findDeleted(id);
+  if (!d || d.tenantId !== caller.tenantId) return null;
+  return { campaignId: id, state: 'deleted', deletedAt: d.deletedAt, allowedActions: ACTIONS.deleted, message: 'This campaign was deleted. The Campaign Designer team can recover it if that was a mistake.' };
+}
+
 export function campaignStatus(caller: Caller, id: string): Result {
-  const chat = chatFor(caller, id);
+  let chat: StoredChat;
+  try {
+    chat = chatFor(caller, id);
+  } catch (e) {
+    const gone = deletedState(caller, id);
+    if (gone) return gone;
+    throw e;
+  }
   const base: Result = { campaignId: id, ...linkInfo(caller, id) };
   const sub = loadSubmission(id);
   if (sub) {
     const st = loadStores(id);
-    return { ...base, status: submittedStage(sub), submitted: true, submittedAt: sub.at, submittedBy: sub.by, startDate: sub.startDate, endDate: sub.endDate, brief: st.campaign ? campaignBrief(st.campaign, st.context) : null };
+    const state = stageOf(sub);
+    return {
+      ...base,
+      state,
+      allowedActions: ACTIONS[state],
+      submittedAt: sub.at,
+      submittedBy: sub.by,
+      startDate: sub.startDate,
+      endDate: sub.endDate,
+      brief: st.campaign ? campaignBrief(st.campaign, st.context) : null,
+    };
   }
   const ws = loadWithdrawals(id);
   if (ws.length) Object.assign(base, { lastWithdrawn: { at: ws[ws.length - 1].at, by: ws[ws.length - 1].by } });
-  if (isRunning(id)) return { ...base, status: 'working', doing: runningStep(id) };
+  const wasBuilt = !!(chat.lastBuilt || (chat.state as AgentState | null)?.flags?.campaignBuilt);
+  if (isRunning(id)) return { ...base, state: 'draft', allowedActions: ACTIONS.working, doing: runningStep(id), next: 'The designer is working. Call get_campaign with waitSeconds: 50.' };
   const last = [...chat.turns].reverse().find((t) => t.role === 'assistant');
-  if (!last) return { ...base, status: 'working', doing: 'Starting' };
-  if (last.error) return { ...base, status: 'error', error: last.error, next: 'Try request_changes again; if it keeps failing, tell your human.' };
+  if (!last) return { ...base, state: 'draft', allowedActions: ACTIONS.working, doing: 'Starting', next: 'Call get_campaign with waitSeconds: 50.' };
+  if (last.error) return { ...base, state: 'draft', allowedActions: ACTIONS.draft, error: last.error, next: 'Something failed. Try request_changes again; if it keeps failing, tell your human.' };
   const message = plain(last.content ?? '');
   const open = openQuestions(chat);
   if (open.length)
     return {
       ...base,
-      status: 'needs_answers',
+      state: 'draft',
+      allowedActions: ACTIONS.questions,
       message,
       questions: open.map((q) => ({
         id: q.id,
@@ -188,15 +234,16 @@ export function campaignStatus(caller: Caller, id: string): Result {
         options: q.answerType === 'yesno' ? ['Yes', 'No'] : q.options ?? [],
         otherAllowed: true,
       })),
+      next: 'Relay these questions to your human and send the answers with answer_questions (skip what they do not know).',
     };
-  const state = chat.state as AgentState | null;
-  if (chat.lastBuilt || state?.flags?.campaignBuilt) {
+  if (wasBuilt) {
     const stores = loadStores(id);
     const c = stores.campaign;
     const summary = listCampaigns(caller.tenantId).find((x) => x.sessionId === id);
     return {
       ...base,
-      status: 'ready',
+      state: 'ready',
+      allowedActions: ACTIONS.ready,
       name: c?.name ?? summary?.name,
       message,
       brief: c ? campaignBrief(c, stores.context) : null,
@@ -204,10 +251,10 @@ export function campaignStatus(caller: Caller, id: string): Result {
         .filter((e) => e.source === 'assumption')
         .map((e) => `${e.topic}: ${e.text}`),
       version: summary?.version ?? 0,
-      next: 'Show your human the summary and the link. Send changes with request_changes; submit only when they say it is good to go.',
+      next: 'Show your human the summary, dates and link. Send changes with request_changes; submit only when they say it is good to go and confirm the dates.',
     };
   }
-  return { ...base, status: 'waiting_for_reply', message, next: 'Reply to the agent with request_changes.' };
+  return { ...base, state: 'draft', allowedActions: ACTIONS.draft, message, next: 'The designer replied without building. Relay its message and answer with request_changes.' };
 }
 
 export async function callTool(caller: Caller, name: string, args: Record<string, unknown>): Promise<Result> {
@@ -222,15 +269,15 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       return {
         campaignId: id,
         ...linkInfo(caller, id),
-        status: 'working',
-        questions: questionMode,
-        next: questionMode === 'assume' ? 'Call get_campaign with waitSeconds: 50 until it is "ready"; its assumptions come with it.' : 'Call get_campaign with waitSeconds: 50 until the status changes (it may be "needs_answers").',
+        state: 'draft',
+        allowedActions: ACTIONS.working,
+        questionMode,
+        next: questionMode === 'assume' ? 'Call get_campaign with waitSeconds: 50 until state is "ready"; its assumptions come with it.' : 'Call get_campaign with waitSeconds: 50 until it changes (it may come back with questions).',
       };
     }
 
     case 'get_campaign': {
       const id = String(args.campaignId ?? '');
-      chatFor(caller, id);
       const wait = Math.min(50, Math.max(0, Number(args.waitSeconds) || 0));
       if (wait && isRunning(id)) await waitForTurn(id, wait * 1000);
       return campaignStatus(caller, id);
@@ -266,7 +313,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       const answerSet: AnswerItem[] = open.map((q) => ({ aspect: q.aspect, question: plain(q.text), ...(q.why ? { why: q.why } : {}), ...(answers[q.id] ? { answer: answers[q.id] } : { skipped: true }) }));
       const r = startTurn(id, caller.tenantId, { content, answerSet }, { answers, skipped });
       if (!r.ok) throw new ToolError(r.error);
-      return { campaignId: id, ...linkInfo(caller, id), status: 'working', answered: Object.keys(answers).length, skipped: skipped.length, next: 'Call get_campaign with waitSeconds: 50 until the status changes.' };
+      return { campaignId: id, ...linkInfo(caller, id), state: 'draft', allowedActions: ACTIONS.working, answered: Object.keys(answers).length, skipped: skipped.length, next: 'Call get_campaign with waitSeconds: 50 until it changes.' };
     }
 
     case 'request_changes': {
@@ -276,7 +323,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       if (!request) throw new ToolError('request is required: say what to change, in plain words.');
       const r = startTurn(id, caller.tenantId, { content: request });
       if (!r.ok) throw new ToolError(r.error);
-      return { campaignId: id, ...linkInfo(caller, id), status: 'working', next: 'Call get_campaign with waitSeconds: 50 until the status changes.' };
+      return { campaignId: id, ...linkInfo(caller, id), state: 'draft', allowedActions: ACTIONS.working, next: 'Call get_campaign with waitSeconds: 50 until it changes.' };
     }
 
     case 'submit_campaign': {
@@ -285,7 +332,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       if (loadSubmission(id)) throw new ToolError(LOCKED);
       if (isRunning(id)) throw new ToolError('The agent is still working on this campaign. Wait until get_campaign says "ready".');
       const st = campaignStatus(caller, id);
-      if (st.status !== 'ready') throw new ToolError(`Only a ready campaign can be submitted; this one is "${String(st.status)}".`);
+      if (st.state !== 'ready') throw new ToolError(`Only a ready campaign can be submitted; this one is "${String(st.state)}"${(st.allowedActions as string[]).length ? ` (now: ${(st.allowedActions as string[]).join(', ')})` : ' and the designer is still working'}.`);
       // Dates given with the call set (or change) the campaign's own dates first, with the same rules as anywhere else.
       if (args.startDate !== undefined || args.endDate !== undefined) {
         const cur = loadStores(id).campaign?.schedule;
@@ -310,8 +357,8 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       return {
         campaignId: id,
         ...linkInfo(caller, id),
-        status: submittedStage(sub),
-        submitted: true,
+        state: stageOf(sub),
+        allowedActions: ACTIONS[stageOf(sub)],
         submittedAt: sub.at,
         submittedBy: sub.by,
         startDate: sch.startDate,
@@ -340,7 +387,9 @@ export async function callTool(caller: Caller, name: string, args: Record<string
     case 'withdraw_campaign': {
       const id = String(args.campaignId ?? '');
       const chat = chatFor(caller, id);
-      if (!loadSubmission(id)) throw new ToolError('This campaign is not submitted, so there is nothing to withdraw.');
+      const subNow = loadSubmission(id);
+      if (!subNow) throw new ToolError('This campaign is not submitted, so there is nothing to withdraw.');
+      if (stageOf(subNow) === 'ended') throw new ToolError('This campaign has ended, so there is nothing to withdraw or pause. To run it again, copy_campaign and submit the copy with new dates.');
       const w = withdrawCampaign(id, chat.tenantId, caller.label);
       return {
         ...campaignStatus(caller, id),
@@ -356,7 +405,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       if (loadSubmission(id)) throw new ToolError('This campaign is submitted for execution, so it cannot be deleted. Withdraw it first if your human really wants it gone.');
       if (isRunning(id)) throw new ToolError('The agent is still working on this campaign. Wait for it to finish, then delete.');
       deleteCampaign(id, chat.tenantId);
-      return { campaignId: id, status: 'deleted', message: 'Deleted. It no longer appears in list_campaigns and its links no longer work. Hyperface keeps a copy, so the Campaign Designer team can recover it if this was a mistake.' };
+      return { campaignId: id, state: 'deleted', allowedActions: ACTIONS.deleted, message: 'Deleted. It no longer appears in list_campaigns and its links no longer work. Hyperface keeps a copy, so the Campaign Designer team can recover it if this was a mistake.' };
     }
 
     case 'get_link': {
@@ -370,7 +419,10 @@ export async function callTool(caller: Caller, name: string, args: Record<string
         campaigns: listCampaigns(caller.tenantId).map((c) => ({
           campaignId: c.sessionId,
           name: c.name,
-          status: c.submitted ? submittedStage(c.submitted) : isRunning(c.sessionId) ? 'working' : c.built ? 'ready' : 'draft',
+          ...(() => {
+            const st = campaignStatus(caller, c.sessionId);
+            return { state: st.state, allowedActions: st.allowedActions };
+          })(),
           buckets: c.buckets,
           messages: c.messages,
           startDate: c.schedule?.startDate ?? null,

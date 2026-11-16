@@ -54,7 +54,7 @@ Once the tools are available, call `list_campaigns`. A list (possibly empty) mea
 | Tool | Use |
 |---|---|
 | `start_campaign(idea, questions)` | Start a campaign. `questions`: `"ask"` (default) lets the designer come back with clarifying questions; `"assume"` means none: it makes its own calls, lists them as assumptions and builds. Returns a campaign id and link at once; the design takes 3–7 minutes. |
-| `get_campaign(campaignId, waitSeconds)` | Status and results. Always pass `waitSeconds: 50` while it is working, and call again until the status changes. |
+| `get_campaign(campaignId, waitSeconds)` | Where the campaign is (`state`, `allowedActions`) and its results. Always pass `waitSeconds: 50` while the designer is working, and call again until it changes. |
 | `answer_questions(campaignId, answers, skip)` | Answer the designer's questions (`answers`: question id → text) or skip some or `"all"`. |
 | `request_changes(campaignId, request)` | Any change, in plain words. Also how to reply to the designer. |
 | `submit_campaign(campaignId, startDate, endDate)` | Submit for execution. Locks the campaign. Dates (YYYY-MM-DD) are optional if the campaign already has them; pass them to set or change them. Start today or later, end after the start (a recurring campaign can use a far-off end). Refused if a journey doesn't fit between the dates. |
@@ -62,17 +62,45 @@ Once the tools are available, call `list_campaigns`. A list (possibly empty) mea
 | `withdraw_campaign(campaignId)` | Take a submitted (scheduled or active) campaign back from execution. **This is how to pause a campaign.** It becomes editable again; `submit_campaign` resumes it. |
 | `delete_campaign(campaignId)` | Delete a draft (not submitted), e.g. a test. Refused for submitted campaigns: withdraw first. A copy is kept, so the Campaign Designer team can recover a mistaken delete. |
 | `get_link(campaignId)` | A fresh canvas link. |
-| `list_campaigns()` | All IBL campaigns with status and link. |
+| `list_campaigns()` | All IBL campaigns with state, allowed actions, dates and link. |
 
-Statuses from `get_campaign`: `working` (wait and call again) · `needs_answers` (relay the questions) · `ready` (show the result) · `waiting_for_reply` (the designer asked something in its message: relay it, send the answer with `request_changes`) · `scheduled` / `active` / `ended` (submitted for execution and locked: before its start date, between its dates, after its end date) · `error` (tell your user; try once more).
+## Campaign states
+
+Every campaign response carries `state` and `allowedActions`.
+
+```
+ start_campaign / copy_campaign
+            │
+            ▼
+         DRAFT ──── designer builds ────► READY ◄──────────────┐
+  (designing: working, asking,            │  │                 │
+   or replied to you)                     │  └ request_changes │
+            │                             │    (back to DRAFT) │
+            │                    submit_campaign               │
+            │                    (dates checked)               │
+            │                             ▼                    │
+            │        SCHEDULED ──start date──► ACTIVE ──end date──► ENDED
+            │         (before start)      (between dates)     (after end)
+            │              └──── withdraw_campaign (= pause) ───┘
+            │                    back to READY
+            ▼
+  delete_campaign (DRAFT or READY only) ──► DELETED
+```
+
+- `draft`: being designed. While the designer is working, `allowedActions` is empty: wait and call `get_campaign` again. If it has **questions**, they are listed and `answer_questions` is allowed. If it **replied** without building (it asked something in its message), answer with `request_changes`. If something **failed**, `error` says so: try `request_changes` once more, then tell your user.
+- `ready`: designed and built, with a brief. Change it, submit it, copy it or delete it.
+- `scheduled` / `active` / `ended`: submitted for execution and locked; which one depends on today's date and the campaign's dates. Scheduled and active campaigns can be withdrawn (paused). Ended ones can only be copied.
+- `deleted`: gone from the list; the Campaign Designer team can recover it.
+
+**Rule: only call a tool that is in `allowedActions`** for that campaign (`get_campaign`, `get_link` and `list_campaigns` are always fine). Anything else will be refused.
 
 ## How to use it
 
 1. **Gather the idea.** Before starting, make sure you have what only your user knows, or ask briefly: what customers should do differently; how success is judged; any incentive that **already exists** (with exact terms); timing; message limits. Put all of it in `idea`.
 2. **Ask or assume.** If your user wants a quick first draft, or says "don't ask me anything", use `questions: "assume"`. Otherwise use `"ask"`.
 3. **Wait.** Tell your user it takes a few minutes, then poll `get_campaign` with `waitSeconds: 50`. Don't poll faster.
-4. **Questions** (`needs_answers`). Show each question with its options and its "why", numbered, so your user can answer quickly. Never invent business facts (offers, limits, dates, numbers). If they don't know or don't care, skip it: the designer will assume and say so. Send with `answer_questions`.
-5. **Ready.** Tell your user what was built, from `brief`: the `summary`; the dates it runs (`startDate` → `endDate`); the buckets (name, who, why they're stuck); how each journey works; and `assumptions`, flagged clearly so they can correct them. Give them the `link`.
+4. **Questions** (state `draft` with `questions`). Show each question with its options and its "why", numbered, so your user can answer quickly. Never invent business facts (offers, limits, dates, numbers). If they don't know or don't care, skip it: the designer will assume and say so. Send with `answer_questions`.
+5. **Ready** (state `ready`). Tell your user what was built, from `brief`: the `summary`; the dates it runs (`startDate` → `endDate`); the buckets (name, who, why they're stuck); how each journey works; and `assumptions`, flagged clearly so they can correct them. Give them the `link`.
 6. **Changes.** Pass requests on in their words with `request_changes`, then wait and report what changed.
 7. **Submit** only when your user explicitly says the campaign is good to go. First confirm the **start and end dates** with them (the brief shows the designer's proposal); pass `startDate` and `endDate` if they want different ones. The campaign is then locked.
 8. **Variants**: when your user wants "the same campaign but for …", use `copy_campaign`, then `request_changes` on the copy.

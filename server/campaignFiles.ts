@@ -270,6 +270,21 @@ export function copyCampaign(fromId: string, tenantId: string, name?: string, di
   return { sessionId, name: newName };
 }
 
+/** A deleted campaign: its bank and when it was deleted, from the newest copy in .deleted/. */
+export function findDeleted(sessionId: string, dir = campaignDir()): { tenantId: string; deletedAt: string } | null {
+  sessionFolder(sessionId, dir); // validates the id
+  const bin = join(dir, '.deleted');
+  if (!existsSync(bin)) return null;
+  const hit = readdirSync(bin)
+    .filter((n) => n.startsWith(`${sessionId}-`) && /^\d+$/.test(n.slice(sessionId.length + 1)))
+    .sort()
+    .pop();
+  if (!hit) return null;
+  const folder = join(bin, hit);
+  const tenantId = readStamped<unknown>(join(folder, 'campaign.json'))?.tenantId || readStamped<unknown>(join(folder, 'chat.json'))?.tenantId || '';
+  return { tenantId, deletedAt: new Date(Number(hit.slice(sessionId.length + 1))).toISOString() };
+}
+
 /**
  * Deletes a campaign from the Campaigns page. The folder is moved into
  * `.deleted/` (not erased), so a mistaken delete can still be recovered by hand.
