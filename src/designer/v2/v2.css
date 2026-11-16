@@ -429,3 +429,7 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-after-stop { margin-top: 4px; font-weight: 600; color: #344054; }
 .cv-after-stop.unset { color: #b54708; }
 .cv-end.out-held_back { background: #f9f6ff; border-color: #b692f6; color: #53389e; }
+
+/* Submitted for execution: locked. */
+.cv-submitted { font-size: 12px; font-weight: 600; color: #175cd3; background: #eff8ff; border: 1px solid #b2ddff; border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+.cv-camp-status.submitted { background: #eff8ff; color: #175cd3; }

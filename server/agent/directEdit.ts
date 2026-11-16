@@ -2,7 +2,7 @@
 // control, no agent involved. Each one is applied through the same state
 // transitions the agent's tools use, rebuilt (code only), saved, noted in the
 // context, and recorded as a version. Also: restoring an old version.
-import { loadStores, saveCampaignObject, saveContext } from '../campaignFiles';
+import { LOCKED, loadStores, loadSubmission, saveCampaignObject, saveContext } from '../campaignFiles';
 import { ensureBaseline, getVersion, recordVersion, type Version } from '../campaignVersions';
 import { addContext, editJourney, emptyContext, initialState, updateCampaign, upsertBucket } from './state';
 import { findStep } from './stepIds';
@@ -121,6 +121,7 @@ function finish(sessionId: string, tenantId: string, before: AgentState, after: 
 }
 
 export function directEdit(sessionId: string, tenantId: string, op: DirectOp): DirectResult {
+  if (loadSubmission(sessionId)) return fail(LOCKED);
   const state = stateFromDisk(sessionId);
   if (!state) return fail('This chat has no campaign yet.');
   const r = apply(state, op);
@@ -129,6 +130,7 @@ export function directEdit(sessionId: string, tenantId: string, op: DirectOp): D
 }
 
 export function restoreVersion(sessionId: string, tenantId: string, n: number): DirectResult {
+  if (loadSubmission(sessionId)) return fail(LOCKED);
   const state = stateFromDisk(sessionId);
   if (!state) return fail('This chat has no campaign yet.');
   const v = getVersion(sessionId, n);

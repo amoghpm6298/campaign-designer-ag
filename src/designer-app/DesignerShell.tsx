@@ -30,7 +30,8 @@ export function DesignerShell() {
     history.replaceState(null, '', url);
   }, [openId]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [tenantId, setTenantId] = useState<string>(loadTenantId() ?? '');
+  // A link from the MCP names its bank (?bank=), so it opens on the right one whatever this browser last used.
+  const [tenantId, setTenantId] = useState<string>(() => new URLSearchParams(location.search).get('bank') ?? loadTenantId() ?? '');
   // THE SEED IS RECOMPUTED EVERY LOAD, and the user's changes are applied on
   // top. It used to be read wholesale from localStorage and returned early if
   // present, which froze all 35 entries the first time anyone edited one —

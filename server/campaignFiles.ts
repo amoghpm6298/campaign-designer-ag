@@ -186,6 +186,30 @@ export function saveChat(sessionId: string, tenantId: string, chat: unknown, dir
   writeStamped(join(sessionFolder(sessionId, dir), 'chat.json'), sessionId, tenantId, chat);
 }
 
+/** Who submitted a campaign for execution, and when. Once present, the campaign is locked. */
+export interface Submission {
+  at: string;
+  by: string;
+}
+
+export function loadSubmission(sessionId: string, dir = campaignDir()): Submission | null {
+  try {
+    return readStamped<Submission>(join(sessionFolder(sessionId, dir), 'submission.json'))?.body ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Marks a campaign "Submitted for execution". From then on nothing may change it. */
+export function submitCampaign(sessionId: string, tenantId: string, by: string, dir = campaignDir()): Submission {
+  if (loadSubmission(sessionId, dir)) throw new Error('This campaign was already submitted for execution.');
+  const sub: Submission = { at: new Date().toISOString(), by };
+  writeStamped(join(sessionFolder(sessionId, dir), 'submission.json'), sessionId, tenantId, sub);
+  return sub;
+}
+
+export const LOCKED = 'This campaign was submitted for execution and is locked.';
+
 /**
  * Deletes a campaign from the Campaigns page. The folder is moved into
  * `.deleted/` (not erased), so a mistaken delete can still be recovered by hand.
@@ -196,6 +220,7 @@ export function deleteCampaign(sessionId: string, tenantId: string, dir = campai
   if (!existsSync(folder)) throw new Error('No such campaign.');
   const owner = readStamped<unknown>(join(folder, 'campaign.json'))?.tenantId || readStamped<unknown>(join(folder, 'chat.json'))?.tenantId;
   if (owner && owner !== tenantId) throw new Error('This campaign belongs to another bank.');
+  if (loadSubmission(sessionId, dir)) throw new Error(LOCKED);
   const bin = join(dir, '.deleted');
   mkdirSync(bin, { recursive: true });
   renameSync(folder, join(bin, `${sessionId}-${Date.now()}`));
@@ -213,6 +238,7 @@ export interface CampaignSummary {
   refresh?: string;
   version: number;
   updatedAt: string;
+  submitted?: Submission;
 }
 
 /** Every saved campaign for a bank, newest first: what the Campaigns page shows. */
@@ -260,6 +286,7 @@ export function listCampaigns(tenantId: string, dir = campaignDir()): CampaignSu
       ...(c?.membership?.type === 'open' ? { refresh: c.membership.refresh ?? 'weekly' } : {}),
       version,
       updatedAt: [camp?.updatedAt, chat?.updatedAt].filter(Boolean).sort().pop() ?? '',
+      ...(loadSubmission(name, dir) ? { submitted: loadSubmission(name, dir)! } : {}),
     });
   }
   return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

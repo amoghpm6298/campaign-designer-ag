@@ -231,6 +231,29 @@ export function agentApiPlugin(): Plugin {
       server.middlewares.use(async (req, res, next) => {
         let url = (req.url ?? '').split('?')[0];
         if (base && url.startsWith(base + '/')) url = url.slice(base.length);
+        // The MCP for teammates' own agents: token auth, not the app password. See server/mcp/.
+        if (url === '/mcp') {
+          try {
+            const mcp = await load('mcp/handler.ts');
+            const proto = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0];
+            const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost');
+            const out = await (mcp.handleMcpHttp as (i: unknown) => Promise<{ status: number; json?: unknown; headers?: Record<string, string> }>)({
+              method: req.method ?? 'GET',
+              auth: req.headers.authorization,
+              body: req.method === 'POST' ? await readBody(req) : undefined,
+              tokens: (mcp.parseTokens as (r: string | undefined) => unknown[])(process.env.MCP_TOKENS),
+              appUrl: `${proto}://${host}${base}`,
+            });
+            for (const [k, v] of Object.entries(out.headers ?? {})) res.setHeader(k, v);
+            if (out.json === undefined) {
+              res.statusCode = out.status;
+              return void res.end();
+            }
+            return send(res, out.status, out.json);
+          } catch (e) {
+            return send(res, 500, { error: (e as Error).message });
+          }
+        }
         if (!url.startsWith('/api/')) return next();
         try {
           if (url === '/api/version') return send(res, 200, { version: SERVER_VERSION });
@@ -239,6 +262,13 @@ export function agentApiPlugin(): Plugin {
             const agent = await load('agent/loop.ts');
             const body = (await readBody(req)) as Record<string, unknown>;
             if (!Array.isArray(body?.messages)) return send(res, 400, { error: 'messages[] is required' });
+            // A submitted campaign is locked; one the MCP is working on takes no second turn.
+            if (typeof body.sessionId === 'string') {
+              const files = await load('campaignFiles.ts');
+              if ((files.loadSubmission as (s: string) => unknown)(body.sessionId)) return send(res, 409, { error: String(files.LOCKED) });
+              const runner = await load('mcp/runner.ts');
+              if ((runner.isRunning as (s: string) => boolean)(body.sessionId)) return send(res, 409, { error: 'The agent is already working on this campaign (requested from another tool). Reload in a minute.' });
+            }
             const gen = (agent.agentStream as (r: unknown) => AsyncGenerator<unknown, unknown>)({
               sessionId: String(body.sessionId ?? `s-${Date.now()}`),
               messages: body.messages,
@@ -268,7 +298,7 @@ export function agentApiPlugin(): Plugin {
             const sessionId = new URL(req.url ?? '', 'http://x').searchParams.get('sessionId') ?? '';
             try {
               const stores = (files.loadStores as (id: string) => { campaign: unknown; context: unknown })(sessionId);
-              return send(res, 200, { campaign: stores.campaign ?? null, context: stores.context ?? null });
+              return send(res, 200, { campaign: stores.campaign ?? null, context: stores.context ?? null, submission: (files.loadSubmission as (s: string) => unknown)(sessionId) });
             } catch {
               return send(res, 400, { error: 'Not a valid session id.' });
             }

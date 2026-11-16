@@ -83,6 +83,8 @@ export function passwordGate(password: string | undefined, base: string) {
     // Left open for the deploy's health check, like the Offer Creation
     // Agent's /healthz. It says only whether a key is set and which model.
     if (url === '/api/health' || url === `${prefix}api/health`) return next();
+    // The MCP checks its own bearer token (server/mcp/handler.ts).
+    if (url === '/mcp' || url === `${prefix}mcp`) return next();
 
     if (authed(req)) return next();
 

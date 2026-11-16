@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, MoreHorizontal, Trash2, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
 import { apiUrl } from '../api';
-import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, type Stores } from './api';
+import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, type Stores, type Submission } from './api';
 import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
 import { VersionMenu } from './VersionMenu';
@@ -84,10 +84,15 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   const [state, setState] = useState<AgentState | null>(withoutCampaign(fresh?.state ?? null));
   // The campaign object and its context, as saved on the server for this chat.
   const [stores, setStores] = useState<Stores>({ campaign: null, context: null });
+  const [submission, setSubmission] = useState<Submission | null>(null);
   useEffect(() => {
     let live = true;
     fetchStores(sessionId)
-      .then((st) => live && setStores((cur) => (cur.campaign || cur.context ? cur : st)))
+      .then(({ submission: sub, ...st }) => {
+        if (!live) return;
+        setSubmission(sub);
+        setStores((cur) => (cur.campaign || cur.context ? cur : st));
+      })
       .catch(() => {
         /* offline: the canvas stays empty until the next turn */
       });
@@ -156,7 +161,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   const buckets = plan?.buckets.length ?? 0;
 
   const send = (text: string, opts: { answers?: Record<string, string>; skipped?: string[]; answerSet?: AnswerItem[]; focus?: Focus; focusLabel?: string; repair?: boolean } = {}) => {
-    if (busy || !text.trim() || viewing) return;
+    if (busy || !text.trim() || viewing || submission) return;
     const before = stores.campaign;
     const next: V2Turn[] = [
       ...turns,
@@ -377,6 +382,11 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             {tenant.displayName}
           </span>
         </div>
+        {submission && (
+          <span className="cv-submitted" title={`Submitted by ${submission.by}`}>
+            Submitted for execution · {new Date(submission.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {submission.by}
+          </span>
+        )}
         <span
           className={`cv-wh${tenant.warehouseAccess ? ' on' : ''}`}
           title={tenant.warehouseAccess ? "Live bank data access is ON: buckets are explored and sized from this bank's data" : "Live bank data access is OFF for this bank: buckets are hypotheses from your answers and the agent's knowledge"}
@@ -389,7 +399,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           <MoreHorizontal size={14} /> Activity
         </button>
         <span className="cv-del-wrap">
-          <button className="cv-btn cv-btn-del" disabled={busy} title={busy ? 'Wait for the agent to finish' : 'Delete this campaign'} onClick={() => setConfirmDelete((v) => (v ? null : 'ask'))}>
+          <button className="cv-btn cv-btn-del" disabled={busy || !!submission} title={busy ? 'Wait for the agent to finish' : 'Delete this campaign'} onClick={() => setConfirmDelete((v) => (v ? null : 'ask'))}>
             <Trash2 size={14} /> Delete
           </button>
           {confirmDelete && (
@@ -420,7 +430,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               changed={changedSet}
               focus={focus}
               onOpenNode={setDrawerId}
-              edit={editApi}
+              edit={submission ? undefined : editApi}
               onPaneClick={() => setEditing(null)}
               bankName={(tenant.issuer || tenant.displayName).replace(/\s*\(.*?\)\s*/g, '').trim()}
               links={links}
@@ -477,10 +487,10 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           turns={turns}
           live={live}
           busy={busy}
-          cue={cue}
-          placeholder={viewing ? 'Viewing an old version. Go back to current to make changes.' : formQuestions.length ? 'Or reply in your own words…' : built ? 'Ask for a change, or point at any box on the canvas…' : 'Message the agent…'}
+          cue={submission ? null : cue}
+          placeholder={submission ? 'Submitted for execution. This campaign is locked.' : viewing ? 'Viewing an old version. Go back to current to make changes.' : formQuestions.length ? 'Or reply in your own words…' : built ? 'Ask for a change, or point at any box on the canvas…' : 'Message the agent…'}
           onSend={(t) => send(t)}
-          locked={!!viewing}
+          locked={!!viewing || !!submission}
           onShowFocus={showFocus}
         />
       </div>

@@ -20,6 +20,7 @@ export interface CampaignSummary {
   refresh?: string;
   version: number;
   updatedAt: string;
+  submitted?: { at: string; by: string };
 }
 
 const ago = (iso: string) => {
@@ -81,7 +82,7 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
           {list.map((c) => (
             <button key={c.sessionId} className="cv-camp" onClick={() => onOpen(c.sessionId)}>
               <span className="cv-camp-top">
-                <span className={`cv-camp-status ${c.built ? 'built' : 'draft'}`}>{c.built ? 'Built' : 'Draft'}</span>
+                <span className={`cv-camp-status ${c.submitted ? 'submitted' : c.built ? 'built' : 'draft'}`}>{c.submitted ? 'Submitted' : c.built ? 'Built' : 'Draft'}</span>
                 {c.membership && <span className="cv-camp-mode">{c.membership === 'recurring' ? `Recurring · ${c.refresh}` : 'One-time'}</span>}
               </span>
               <b className="cv-camp-name">{c.name}</b>

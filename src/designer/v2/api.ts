@@ -84,12 +84,18 @@ export interface Stores {
   context: CampaignContext | null;
 }
 
+/** Submitted for execution: who and when. A submitted campaign is locked. */
+export interface Submission {
+  at: string;
+  by: string;
+}
+
 /** The campaign object and its context, as this chat has them on file on the server. */
-export async function fetchStores(sessionId: string): Promise<Stores> {
+export async function fetchStores(sessionId: string): Promise<Stores & { submission: Submission | null }> {
   const res = await fetch(apiUrl(`/api/campaign?sessionId=${encodeURIComponent(sessionId)}`));
-  if (!res.ok) return { campaign: null, context: null };
-  const body = (await res.json()) as Partial<Stores>;
-  return { campaign: body.campaign ?? null, context: body.context ?? null };
+  if (!res.ok) return { campaign: null, context: null, submission: null };
+  const body = (await res.json()) as Partial<Stores> & { submission?: Submission | null };
+  return { campaign: body.campaign ?? null, context: body.context ?? null, submission: body.submission ?? null };
 }
 
 export interface EditResult {
