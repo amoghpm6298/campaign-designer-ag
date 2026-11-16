@@ -147,9 +147,12 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
     }
   };
   const abortRef = useRef<AbortController | null>(null);
+  // Opened from a signed view link (?view=…): this one campaign, read-only.
+  const viewOnly = useMemo(() => new URLSearchParams(location.search).has('view'), []);
+  const locked = !!submission || viewOnly;
 
   useEffect(() => {
-    if (!turns.length) return; // nothing to keep until the chat has started
+    if (!turns.length || viewOnly) return; // nothing to keep until the chat has started; a view never writes
     saveChat({ sessionId, tenantId: tenant.tenantId, turns, state, changed, changeFocus, lastBuilt, repairKey });
   }, [sessionId, tenant.tenantId, turns, state, changed, changeFocus, lastBuilt, repairKey]);
 
@@ -161,7 +164,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   const buckets = plan?.buckets.length ?? 0;
 
   const send = (text: string, opts: { answers?: Record<string, string>; skipped?: string[]; answerSet?: AnswerItem[]; focus?: Focus; focusLabel?: string; repair?: boolean } = {}) => {
-    if (busy || !text.trim() || viewing || submission) return;
+    if (busy || !text.trim() || viewing || locked) return;
     const before = stores.campaign;
     const next: V2Turn[] = [
       ...turns,
@@ -294,7 +297,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // gets one automatic-fix turn per problem set. The message is the app's,
   // shown as "Automatic fix", never as the manager's.
   useEffect(() => {
-    if (busy || viewing || !stores.campaign || !turns.length) return;
+    if (busy || viewing || viewOnly || submission || !stores.campaign || !turns.length) return;
     let live = true;
     fetchProblems(sessionId, tenant.tenantId).then((problems) => {
       const key = problems.join('|');
@@ -319,7 +322,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
 
   const lastAssistant = [...turns].reverse().find((t) => t.role === 'assistant');
   const openIds = new Set((state?.questions ?? []).filter((q) => !q.answer?.trim()).map((q) => q.id));
-  const formQuestions = busy ? [] : (lastAssistant?.questions ?? []).filter((q) => openIds.has(q.id));
+  const formQuestions = busy || submission || new URLSearchParams(location.search).has('view') ? [] : (lastAssistant?.questions ?? []).filter((q) => openIds.has(q.id));
   const built = !!state?.flags.campaignBuilt;
 
   const showMe = () => {
@@ -372,9 +375,11 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   return (
     <div className="cv-wrap">
       <header className="cv-top">
-        <button className="cv-back" onClick={onBack} title="All campaigns">
-          <ArrowLeft size={16} />
-        </button>
+        {!viewOnly && (
+          <button className="cv-back" onClick={onBack} title="All campaigns">
+            <ArrowLeft size={16} />
+          </button>
+        )}
         <div className="cv-title">
           <b>{plan?.name || 'New campaign'}</b>
           <span className="cv-sub">
@@ -382,6 +387,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             {tenant.displayName}
           </span>
         </div>
+        {viewOnly && <span className="cv-viewonly">View only</span>}
         {submission && (
           <span className="cv-submitted" title={`Submitted by ${submission.by}`}>
             Submitted for execution · {new Date(submission.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {submission.by}
@@ -399,7 +405,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           <MoreHorizontal size={14} /> Activity
         </button>
         <span className="cv-del-wrap">
-          <button className="cv-btn cv-btn-del" disabled={busy || !!submission} title={busy ? 'Wait for the agent to finish' : 'Delete this campaign'} onClick={() => setConfirmDelete((v) => (v ? null : 'ask'))}>
+          <button className="cv-btn cv-btn-del" disabled={busy || locked} title={busy ? 'Wait for the agent to finish' : 'Delete this campaign'} onClick={() => setConfirmDelete((v) => (v ? null : 'ask'))}>
             <Trash2 size={14} /> Delete
           </button>
           {confirmDelete && (
@@ -430,7 +436,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               changed={changedSet}
               focus={focus}
               onOpenNode={setDrawerId}
-              edit={submission ? undefined : editApi}
+              edit={locked ? undefined : editApi}
               onPaneClick={() => setEditing(null)}
               bankName={(tenant.issuer || tenant.displayName).replace(/\s*\(.*?\)\s*/g, '').trim()}
               links={links}
@@ -487,10 +493,10 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           turns={turns}
           live={live}
           busy={busy}
-          cue={submission ? null : cue}
-          placeholder={submission ? 'Submitted for execution. This campaign is locked.' : viewing ? 'Viewing an old version. Go back to current to make changes.' : formQuestions.length ? 'Or reply in your own words…' : built ? 'Ask for a change, or point at any box on the canvas…' : 'Message the agent…'}
+          cue={locked ? null : cue}
+          placeholder={viewOnly ? 'View-only link. Open the app with the password to make changes.' : submission ? 'Submitted for execution. This campaign is locked.' : viewing ? 'Viewing an old version. Go back to current to make changes.' : formQuestions.length ? 'Or reply in your own words…' : built ? 'Ask for a change, or point at any box on the canvas…' : 'Message the agent…'}
           onSend={(t) => send(t)}
-          locked={!!viewing || !!submission}
+          locked={!!viewing || locked}
           onShowFocus={showFocus}
         />
       </div>

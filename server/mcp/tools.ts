@@ -4,9 +4,11 @@
 import { checkJourneys } from '../agent/compile';
 import type { AgentQuestion, AgentState } from '../agent/types';
 import { listCampaigns, loadChat, loadStores, loadSubmission, submitCampaign, LOCKED } from '../campaignFiles';
-import { bucketContext, currentEntries } from '../../src/designer/v2/contextView';
+import { currentEntries } from '../../src/designer/v2/contextView';
 import type { AnswerItem } from '../../src/designer/v2/types';
 import { isRunning, runningStep, startTurn, waitForTurn, type StoredChat } from './runner';
+import { campaignBrief } from './brief';
+import { VIEW_HOURS, makeViewToken } from '../viewLinks';
 
 /** Who is calling: the shared token's label and the one bank it may work on. */
 export interface Caller {
@@ -19,7 +21,21 @@ export interface Caller {
 type Result = Record<string, unknown>;
 class ToolError extends Error {}
 
-const link = (c: Caller, id: string) => `${c.appUrl}/designer.html?c=${encodeURIComponent(id)}&bank=${encodeURIComponent(c.tenantId)}`;
+/**
+ * The canvas link. With LINK_SECRET set it is a signed view link: this one
+ * campaign, read-only, no password, for 24 hours. Every call hands out a fresh one.
+ */
+const linkInfo = (c: Caller, id: string): { link: string; linkExpiresAt?: string; linkNote: string } => {
+  const plainLink = `${c.appUrl}/designer.html?c=${encodeURIComponent(id)}&bank=${encodeURIComponent(c.tenantId)}`;
+  const secret = process.env.LINK_SECRET;
+  if (!secret) return { link: plainLink, linkNote: 'Opening it needs the app password.' };
+  const token = makeViewToken(secret, id);
+  return {
+    link: `${plainLink}&view=${token}`,
+    linkExpiresAt: new Date(Number(token.split('.')[0]) * 1000).toISOString(),
+    linkNote: `Opens this campaign read-only, no password needed, for ${VIEW_HOURS} hours. After that, call get_link for a fresh one.`,
+  };
+};
 const newId = () => `cv-${Date.now().toString(36)}`;
 const plain = (s: string) => s.replace(/\*\*/g, '');
 
@@ -29,13 +45,24 @@ export const MCP_TOOLS = [
   {
     name: 'start_campaign',
     description:
-      'Start a new campaign from a broad idea, for the bank this token is set up for. Hyperface\'s campaign agent designs it (questions first, then buckets and journeys). This returns at once with a campaignId and a canvas link; then call get_campaign to follow it. Put everything you already know into the idea: goal, audience, incentive, timing, limits.',
-    inputSchema: { type: 'object', properties: { idea: { type: 'string', description: 'What the campaign should achieve, in plain words.' } }, required: ['idea'] },
+      'Start a new campaign from a broad idea, for the bank this token is set up for. Hyperface\'s campaign agent designs it (buckets and journeys); with questions: "ask" it may first come back with clarifying questions, with "assume" it decides those itself and builds. This returns at once with a campaignId and a canvas link; then call get_campaign to follow it. Put everything you already know into the idea: goal, audience, incentive, timing, limits.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        idea: { type: 'string', description: 'What the campaign should achieve, in plain words.' },
+        questions: {
+          type: 'string',
+          enum: ['ask', 'assume'],
+          description: '"ask" (default): the agent may come back with clarifying questions (status "needs_answers"). "assume": no questions come back; the agent makes its own calls, lists them as assumptions, and builds straight away. Choose "assume" when your human wants a first draft fast or cannot answer now; they can still correct anything with request_changes.',
+        },
+      },
+      required: ['idea'],
+    },
   },
   {
     name: 'get_campaign',
     description:
-      'Where a campaign is. status is one of: "working" (the agent is designing; call again), "needs_answers" (answer its questions with answer_questions), "ready" (designed and built: show your human the summary and the link), "waiting_for_reply" (the agent replied without building: respond with request_changes), "submitted" (locked for execution), "error". waitSeconds (up to 50) waits for the agent to finish before answering, so poll with it instead of calling in a tight loop. A design usually takes 3-7 minutes.',
+      'Where a campaign is. When "ready" (or "submitted") it carries a brief: the campaign in words, goal, who joins, how many buckets, each bucket\'s who / why stuck / journey in words, and the agent\'s assumptions; use it to tell your human what was built. status is one of: "working" (the agent is designing; call again), "needs_answers" (answer its questions with answer_questions), "ready" (designed and built: show your human the summary and the link), "waiting_for_reply" (the agent replied without building: respond with request_changes), "submitted" (locked for execution), "error". waitSeconds (up to 50) waits for the agent to finish before answering, so poll with it instead of calling in a tight loop. A design usually takes 3-7 minutes.',
     inputSchema: {
       type: 'object',
       properties: { campaignId: { type: 'string' }, waitSeconds: { type: 'number', description: 'Wait up to this many seconds (max 50) while the agent is working.' } },
@@ -69,6 +96,11 @@ export const MCP_TOOLS = [
     inputSchema: { type: 'object', properties: { campaignId: { type: 'string' } }, required: ['campaignId'] },
   },
   {
+    name: 'get_link',
+    description: 'A fresh canvas link for a campaign. Links open the campaign read-only with no password for 24 hours; call this when one has expired.',
+    inputSchema: { type: 'object', properties: { campaignId: { type: 'string' } }, required: ['campaignId'] },
+  },
+  {
     name: 'list_campaigns',
     description: 'Every campaign for this token\'s bank, newest first, with its status and canvas link.',
     inputSchema: { type: 'object', properties: {} },
@@ -97,9 +129,12 @@ function openQuestions(chat: StoredChat): AgentQuestion[] {
 
 export function campaignStatus(caller: Caller, id: string): Result {
   const chat = chatFor(caller, id);
-  const base = { campaignId: id, link: link(caller, id) };
+  const base = { campaignId: id, ...linkInfo(caller, id) };
   const sub = loadSubmission(id);
-  if (sub) return { ...base, status: 'submitted', submittedAt: sub.at, submittedBy: sub.by };
+  if (sub) {
+    const st = loadStores(id);
+    return { ...base, status: 'submitted', submittedAt: sub.at, submittedBy: sub.by, brief: st.campaign ? campaignBrief(st.campaign, st.context) : null };
+  }
   if (isRunning(id)) return { ...base, status: 'working', doing: runningStep(id) };
   const last = [...chat.turns].reverse().find((t) => t.role === 'assistant');
   if (!last) return { ...base, status: 'working', doing: 'Starting' };
@@ -125,16 +160,13 @@ export function campaignStatus(caller: Caller, id: string): Result {
   if (chat.lastBuilt || state?.flags?.campaignBuilt) {
     const stores = loadStores(id);
     const c = stores.campaign;
-    const views = bucketContext(stores.context?.entries ?? []);
     const summary = listCampaigns(caller.tenantId).find((x) => x.sessionId === id);
     return {
       ...base,
       status: 'ready',
       name: c?.name ?? summary?.name,
       message,
-      buckets: [...(c?.buckets ?? [])]
-        .sort((a, b) => a.priority - b.priority)
-        .map((b) => ({ name: b.name, who: views[b.id]?.behaviour ?? null, size: typeof views[b.id]?.size === 'number' ? views[b.id]!.size : 'unknown' })),
+      brief: c ? campaignBrief(c, stores.context) : null,
       assumptions: currentEntries(stores.context?.entries ?? [], { kind: 'brief' })
         .filter((e) => e.source === 'assumption')
         .map((e) => `${e.topic}: ${e.text}`),
@@ -150,10 +182,17 @@ export async function callTool(caller: Caller, name: string, args: Record<string
     case 'start_campaign': {
       const idea = typeof args.idea === 'string' ? args.idea.trim() : '';
       if (!idea) throw new ToolError('idea is required: describe the campaign in plain words.');
+      const questionMode = args.questions === 'assume' ? 'assume' : 'ask';
       const id = newId();
-      const r = startTurn(id, caller.tenantId, { content: idea });
+      const r = startTurn(id, caller.tenantId, { content: idea }, { questionMode });
       if (!r.ok) throw new ToolError(r.error);
-      return { campaignId: id, link: link(caller, id), status: 'working', next: 'Call get_campaign with waitSeconds: 50 until the status changes.' };
+      return {
+        campaignId: id,
+        ...linkInfo(caller, id),
+        status: 'working',
+        questions: questionMode,
+        next: questionMode === 'assume' ? 'Call get_campaign with waitSeconds: 50 until it is "ready"; its assumptions come with it.' : 'Call get_campaign with waitSeconds: 50 until the status changes (it may be "needs_answers").',
+      };
     }
 
     case 'get_campaign': {
@@ -194,7 +233,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       const answerSet: AnswerItem[] = open.map((q) => ({ aspect: q.aspect, question: plain(q.text), ...(q.why ? { why: q.why } : {}), ...(answers[q.id] ? { answer: answers[q.id] } : { skipped: true }) }));
       const r = startTurn(id, caller.tenantId, { content, answerSet }, { answers, skipped });
       if (!r.ok) throw new ToolError(r.error);
-      return { campaignId: id, link: link(caller, id), status: 'working', answered: Object.keys(answers).length, skipped: skipped.length, next: 'Call get_campaign with waitSeconds: 50 until the status changes.' };
+      return { campaignId: id, ...linkInfo(caller, id), status: 'working', answered: Object.keys(answers).length, skipped: skipped.length, next: 'Call get_campaign with waitSeconds: 50 until the status changes.' };
     }
 
     case 'request_changes': {
@@ -204,7 +243,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       if (!request) throw new ToolError('request is required: say what to change, in plain words.');
       const r = startTurn(id, caller.tenantId, { content: request });
       if (!r.ok) throw new ToolError(r.error);
-      return { campaignId: id, link: link(caller, id), status: 'working', next: 'Call get_campaign with waitSeconds: 50 until the status changes.' };
+      return { campaignId: id, ...linkInfo(caller, id), status: 'working', next: 'Call get_campaign with waitSeconds: 50 until the status changes.' };
     }
 
     case 'submit_campaign': {
@@ -218,7 +257,13 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       const broken = c ? checkJourneys(c, undefined, true, true) : ['There is no campaign yet.'];
       if (broken.length) throw new ToolError(`Not submitted: these need fixing first (send them with request_changes):\n- ${broken.join('\n- ')}`);
       const sub = submitCampaign(id, chat.tenantId, caller.label);
-      return { campaignId: id, link: link(caller, id), status: 'submitted', submittedAt: sub.at, submittedBy: sub.by, message: 'Submitted for execution. The campaign is now locked.' };
+      return { campaignId: id, ...linkInfo(caller, id), status: 'submitted', submittedAt: sub.at, submittedBy: sub.by, message: 'Submitted for execution. The campaign is now locked.' };
+    }
+
+    case 'get_link': {
+      const id = String(args.campaignId ?? '');
+      chatFor(caller, id);
+      return { campaignId: id, ...linkInfo(caller, id) };
     }
 
     case 'list_campaigns':
@@ -230,7 +275,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
           buckets: c.buckets,
           messages: c.messages,
           updatedAt: c.updatedAt,
-          link: link(caller, c.sessionId),
+          ...linkInfo(caller, c.sessionId),
         })),
       };
 

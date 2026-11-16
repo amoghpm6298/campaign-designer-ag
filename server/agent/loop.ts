@@ -16,6 +16,7 @@ import { focusSection } from './focus';
 import { listLinks } from '../links';
 import { getBankSettings } from '../bankSettings';
 import { checkJourneys } from './compile';
+import { currentEntries } from '../../src/designer/v2/contextView';
 import { ensureBaseline, recordVersion, setSummary, summariseVersion, type VersionEntry } from '../campaignVersions';
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
@@ -127,6 +128,8 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   let state: AgentState = withStoresFromDisk(normaliseState(req.state), req.sessionId);
   // What the campaign was when this turn started: a turn that changes it becomes a version.
   const startCampaign = state.campaign;
+  const turnStart = new Date().toISOString();
+  let briefAsked = false;
   const base = (extra: Partial<AgentResponse>): AgentResponse => ({
     sessionId: req.sessionId,
     runId,
@@ -252,6 +255,17 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
             });
             yield* drain();
             conversation.push({ role: 'user', content: `AUTOMATIC FIX (end of turn): these problems remain in the campaign:\n${problems.map((p) => `- ${p}`).join('\n')}\nFix each one with the least change that works (an undecided ending is yours to design, not to paper over), rebuild, and add what you fixed or decided to your reply.` });
+            continue;
+          }
+        }
+        // The campaign changed and was rebuilt, but the brief still describes the old one.
+        if (!wrapUp && !asked.length && !briefAsked && built && state.campaign !== startCampaign) {
+          const brief = currentEntries(state.context.entries, { kind: 'note', topic: 'campaign brief' })[0];
+          if (!brief || brief.at < turnStart) {
+            briefAsked = true;
+            em.emit('model.tool_call.completed', 'understanding', 'Sent back to write the campaign brief', { status: 'ok', correlationId: 'brief', data: { tool: 'repair', input: ['campaign brief'], round } });
+            yield* drain();
+            conversation.push({ role: 'user', content: 'AUTOMATIC CHECK (end of turn): the campaign changed but the campaign brief was not rewritten. Write it now with add_context (kind "note", topic "campaign brief") so it describes the campaign as it is now, then finish. Change nothing else.' });
             continue;
           }
         }

@@ -223,7 +223,7 @@ export function agentApiPlugin(): Plugin {
       const load = viteLoader(server);
       // Hosted copy only (APP_PASSWORD in its .env). First, so it covers
       // the page, every module and /api.
-      const gate = passwordGate(process.env.APP_PASSWORD, server.config.base);
+      const gate = passwordGate(process.env.APP_PASSWORD, server.config.base, process.env.LINK_SECRET);
       if (gate) server.middlewares.use(gate);
       // Hosted under a sub-path (`vite --base /x/`), requests arrive as
       // /x/api/...; this middleware runs before Vite strips the base.

@@ -10,6 +10,9 @@ import { setStreamForTests, isRunning, waitForTurn } from '../../server/mcp/runn
 import { addQuestions, initialState, recordAnswers } from '../../server/agent/state';
 import { listCampaigns, loadChat, saveCampaignObject } from '../../server/campaignFiles';
 import { directEdit } from '../../server/agent/directEdit';
+import { checkViewToken, makeViewToken, viewAllows } from '../../server/viewLinks';
+import { passwordGate } from '../../server/passwordGate';
+import { systemPrompt } from '../../server/agent/prompt';
 import type { AgentRequest, AgentResponse, AgentState, CampaignObject } from '../../server/agent/types';
 
 const TOKEN = 'test-token-0123456789abcdef';
@@ -68,7 +71,7 @@ describe('the MCP endpoint', () => {
     expect(init.result.instructions).toMatch(/submit_campaign only after/);
     expect((await call({ jsonrpc: '2.0', method: 'notifications/initialized' })).status).toBe(202);
     const list = (await call({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).json as { result: { tools: { name: string }[] } };
-    expect(list.result.tools.map((t) => t.name)).toEqual(['start_campaign', 'get_campaign', 'answer_questions', 'request_changes', 'submit_campaign', 'list_campaigns']);
+    expect(list.result.tools.map((t) => t.name)).toEqual(['start_campaign', 'get_campaign', 'answer_questions', 'request_changes', 'submit_campaign', 'get_link', 'list_campaigns']);
   });
 });
 
@@ -96,7 +99,11 @@ describe('a campaign through the MCP', () => {
 
     st = await tool('get_campaign', { campaignId: id, waitSeconds: 5 });
     expect(st.data.status).toBe('ready');
-    expect(st.data.buckets).toEqual([{ name: 'Dormant', who: null, size: 'unknown' }]);
+    const brief = st.data.brief as { bucketCount: number; totalMessages: number; buckets: { name: string; journey: string; firstPath: string }[]; membership: string };
+    expect(brief).toMatchObject({ bucketCount: 1, totalMessages: 1, membership: 'one-time: the list is fixed at launch' });
+    expect(brief.buckets[0].name).toBe('Dormant');
+    expect(brief.buckets[0].journey).toBe("1 message (SMS) across its paths; one straight path; customers who don't convert end as: didn't respond.");
+    expect(brief.buckets[0].firstPath).toBe('SMS "Nudge" → wait 3 days → check the goal → end (didn\'t respond)');
 
     // The chat file has the app's own shape: user turns (with the answer set), assistant turns with questions.
     const chat = loadChat(id) as { tenantId: string; turns: { role: string; answerSet?: unknown[]; questions?: unknown[] }[]; lastBuilt: boolean; state: { campaign: { buckets: unknown[] } } };
@@ -124,5 +131,87 @@ describe('a campaign through the MCP', () => {
     const other = parseTokens(`risk:other-token-0123456789ab:TEN-IBL`);
     const r = await handleMcpHttp({ method: 'POST', auth: 'Bearer other-token-0123456789ab', body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_campaign', arguments: { campaignId: id } } }, tokens: other, appUrl: '' });
     expect(JSON.stringify(r.json)).toMatch(/No campaign .* for this bank/);
+  });
+
+  it('questions: "assume" never stops for answers: questions are skipped for the caller and it builds', async () => {
+    const start = await tool('start_campaign', { idea: 'Diwali spend push', questions: 'assume' });
+    expect(start.data.questions).toBe('assume');
+    const id = String(start.data.campaignId);
+    const st = await tool('get_campaign', { campaignId: id, waitSeconds: 5 });
+    expect(st.data.status).toBe('ready');
+    // The agent asked once; the same Skip the app sends went back, with every question id.
+    expect(seen).toHaveLength(2);
+    expect(seen[1].skipped).toHaveLength(2);
+    expect(seen[1].answers).toBeUndefined();
+    const chat = loadChat(id) as { questionMode: string; turns: { role: string; content: string }[] };
+    expect(chat.questionMode).toBe('assume');
+    expect(chat.turns.map((t) => t.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+    expect(chat.turns[2].content).toBe('Skipped these questions.');
+  });
+});
+
+describe('signed view links', () => {
+  const SECRET = 'link-secret-for-tests';
+  it('are valid for 24 hours, for one campaign only', () => {
+    const t = makeViewToken(SECRET, 'cv-a', 24, 0);
+    expect(checkViewToken(SECRET, 'cv-a', t, 23 * 3600 * 1000)).toBe(true);
+    expect(checkViewToken(SECRET, 'cv-a', t, 25 * 3600 * 1000)).toBe(false); // expired
+    expect(checkViewToken(SECRET, 'cv-b', t, 0)).toBe(false); // another campaign
+    expect(checkViewToken('other-secret', 'cv-a', t, 0)).toBe(false);
+  });
+
+  it('allow only reading that campaign', () => {
+    const q = (s: string) => new URLSearchParams(s);
+    expect(viewAllows('cv-a', 'GET', '/designer.html', q(''))).toBe(true);
+    expect(viewAllows('cv-a', 'GET', '/api/campaign', q('sessionId=cv-a'))).toBe(true);
+    expect(viewAllows('cv-a', 'GET', '/api/campaign', q('sessionId=cv-b'))).toBe(false);
+    expect(viewAllows('cv-a', 'GET', '/api/campaigns', q('tenantId=TEN-IBL'))).toBe(false);
+    expect(viewAllows('cv-a', 'POST', '/api/agent/stream', q(''))).toBe(false);
+    expect(viewAllows('cv-a', 'POST', '/api/campaign/chat', q(''))).toBe(false);
+    expect(viewAllows('cv-a', 'DELETE', '/api/campaign', q('sessionId=cv-a'))).toBe(false);
+    expect(viewAllows('cv-a', 'POST', '/api/tenants', q(''))).toBe(true);
+  });
+
+  it('the gate lets a valid link in, then keeps it to reads of that campaign', async () => {
+    const gate = passwordGate('app-password', '/cd/', SECRET)!;
+    const run = (url: string, cookie = '', method = 'GET') =>
+      new Promise<{ next: boolean; status?: number; setCookie?: string }>((resolve) => {
+        const headers: Record<string, string> = {};
+        const res = {
+          statusCode: 200,
+          setHeader: (k: string, v: string) => (headers[k.toLowerCase()] = v),
+          end: () => resolve({ next: false, status: res.statusCode }),
+        };
+        void gate({ url, method, headers: { cookie } } as never, res as never, () => resolve({ next: true, setCookie: headers['set-cookie'] }));
+      });
+    const token = makeViewToken(SECRET, 'cv-a');
+    const first = await run(`/cd/designer.html?c=cv-a&bank=TEN-IBL&view=${token}`);
+    expect(first.next).toBe(true);
+    const cookie = first.setCookie!.split(';')[0];
+    expect(cookie).toBe(`cda_view=cv-a.${token}`);
+    expect((await run('/cd/api/campaign?sessionId=cv-a', cookie)).next).toBe(true);
+    expect((await run('/cd/api/campaign?sessionId=cv-b', cookie)).status).toBe(403);
+    expect((await run('/cd/api/agent/stream', cookie, 'POST')).status).toBe(403);
+    expect((await run(`/cd/designer.html?c=cv-a&view=${makeViewToken(SECRET, 'cv-a', -1)}`)).status).toBe(401); // expired: password page
+    expect((await run('/cd/designer.html')).status).toBe(401); // no link, no cookie
+  });
+
+  it('the MCP hands out a fresh view link with its expiry; get_link renews it', async () => {
+    process.env.LINK_SECRET = SECRET;
+    try {
+      const id = String((await tool('start_campaign', { idea: 'x' })).data.campaignId);
+      await waitForTurn(id, 2000);
+      const r = await tool('get_link', { campaignId: id });
+      expect(String(r.data.link)).toMatch(new RegExp(`designer\\.html\\?c=${id}&bank=TEN-YES&view=\\d+\\.`));
+      expect(Date.parse(String(r.data.linkExpiresAt)) - Date.now()).toBeGreaterThan(23 * 3600 * 1000);
+    } finally {
+      delete process.env.LINK_SECRET;
+    }
+  });
+});
+
+describe('the campaign brief', () => {
+  it('the main agent writes it after every build', () => {
+    expect(systemPrompt(false)).toMatch(/CAMPAIGN BRIEF: add_context kind "note", topic "campaign brief"/);
   });
 });

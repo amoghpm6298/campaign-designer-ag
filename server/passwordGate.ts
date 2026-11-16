@@ -8,6 +8,7 @@
 // under /campaigndesigneragent/.
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { VIEW_COOKIE, checkViewToken, parseViewCookie, viewAllows } from './viewLinks.ts';
 
 const COOKIE = 'cda_auth';
 const MAX_AGE = 30 * 24 * 3600;
@@ -41,18 +42,21 @@ function readForm(req: IncomingMessage): Promise<URLSearchParams> {
 type Next = (err?: unknown) => void;
 
 /** Returns null when APP_PASSWORD is unset, so callers register nothing. */
-export function passwordGate(password: string | undefined, base: string) {
+/** `linkSecret` (LINK_SECRET) turns on signed view links: one campaign, read-only, no password. See viewLinks.ts. */
+export function passwordGate(password: string | undefined, base: string, linkSecret?: string) {
   if (!password) return null;
   const token = digest(password);
   const prefix = base.endsWith('/') ? base : `${base}/`;
   const loginPath = `${prefix}login`;
   const home = `${prefix}designer.html`;
 
-  const authed = (req: IncomingMessage) => {
-    const got = (req.headers.cookie ?? '')
+  const cookie = (req: IncomingMessage, name: string) =>
+    (req.headers.cookie ?? '')
       .split(/;\s*/)
-      .find((c) => c.startsWith(`${COOKIE}=`))
-      ?.slice(COOKIE.length + 1);
+      .find((c) => c.startsWith(`${name}=`))
+      ?.slice(name.length + 1);
+  const authed = (req: IncomingMessage) => {
+    const got = cookie(req, COOKIE);
     return !!got && got.length === token.length && timingSafeEqual(Buffer.from(got), Buffer.from(token));
   };
 
@@ -87,6 +91,27 @@ export function passwordGate(password: string | undefined, base: string) {
     if (url === '/mcp' || url === `${prefix}mcp`) return next();
 
     if (authed(req)) return next();
+
+    // A signed view link: one campaign, read-only, no password.
+    if (linkSecret) {
+      const q = new URL(req.url ?? '', 'http://x').searchParams;
+      const path = url.startsWith(prefix) ? `/${url.slice(prefix.length)}` : url;
+      const sid = q.get('c') ?? '';
+      const token = q.get('view') ?? '';
+      if (url === home && sid && token && checkViewToken(linkSecret, sid, token)) {
+        const exp = Number(token.split('.')[0]);
+        const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+        res.setHeader('set-cookie', `${VIEW_COOKIE}=${sid}.${token}; Path=${prefix}; HttpOnly; SameSite=Lax; Max-Age=${Math.max(0, exp - Math.floor(Date.now() / 1000))}${secure}`);
+        return next();
+      }
+      const view = parseViewCookie(linkSecret, cookie(req, VIEW_COOKIE));
+      if (view) {
+        if (viewAllows(view.sessionId, req.method ?? 'GET', path, q)) return next();
+        res.statusCode = 403;
+        res.setHeader('content-type', 'application/json');
+        return res.end(JSON.stringify({ error: 'This link is view-only.' }));
+      }
+    }
 
     if (url.includes('/api/')) {
       res.statusCode = 401;

@@ -21,6 +21,8 @@ export interface StoredChat {
   changeFocus?: unknown;
   repairKey?: string;
   lastBuilt?: boolean;
+  /** Set by start_campaign: "assume" skips any questions the agent asks, so it assumes and builds. */
+  questionMode?: 'ask' | 'assume';
 }
 
 type Stream = (req: AgentRequest) => AsyncGenerator<unknown, AgentResponse>;
@@ -52,21 +54,40 @@ export interface UserTurn {
  * Starts one turn in the background and returns at once. Refuses a locked
  * campaign or one already working.
  */
-export function startTurn(sessionId: string, tenantId: string, user: UserTurn, opts: { answers?: Record<string, string>; skipped?: string[] } = {}): { ok: true } | { ok: false; error: string } {
+export function startTurn(sessionId: string, tenantId: string, user: UserTurn, opts: { answers?: Record<string, string>; skipped?: string[]; questionMode?: 'ask' | 'assume' } = {}): { ok: true } | { ok: false; error: string } {
   if (loadSubmission(sessionId)) return { ok: false, error: LOCKED };
   if (running.has(sessionId)) return { ok: false, error: 'The agent is still working on this campaign. Check back with get_campaign.' };
-  const chat = (loadChat(sessionId) as StoredChat | null) ?? { sessionId, tenantId, turns: [], state: null };
+  const loaded = loadChat(sessionId) as StoredChat | null;
+  const chat: StoredChat = loaded ?? { sessionId, tenantId, turns: [], state: null, ...(opts.questionMode ? { questionMode: opts.questionMode } : {}) };
   if (chat.tenantId && chat.tenantId !== tenantId) return { ok: false, error: 'This campaign belongs to another bank.' };
 
   const entry = { startedAt: new Date().toISOString(), step: 'Thinking…', done: Promise.resolve() };
-  entry.done = runTurn(chat, sessionId, tenantId, user, opts, (step) => {
+  const onStep = (step: string) => {
     entry.step = step;
-  }).finally(() => running.delete(sessionId));
+  };
+  entry.done = (async () => {
+    let asked = await runTurn(chat, sessionId, tenantId, user, opts, onStep);
+    // "assume": whatever the agent asks is skipped for the caller, exactly as the app's Skip does,
+    // so it makes its own calls, says what it assumed, and goes on. At most twice per request.
+    for (let i = 0; i < 2 && chat.questionMode === 'assume' && asked.length; i++) {
+      const now = (loadChat(sessionId) as StoredChat | null) ?? chat;
+      onStep('Assuming the answers…');
+      asked = await runTurn(
+        now,
+        sessionId,
+        tenantId,
+        { content: 'Skipped these questions.', answerSet: asked.map((q) => ({ aspect: q.aspect, question: q.text.replace(/\*\*/g, ''), ...(q.why ? { why: q.why } : {}), skipped: true })) },
+        { skipped: asked.map((q) => q.id) },
+        onStep,
+      );
+    }
+  })().finally(() => running.delete(sessionId));
   running.set(sessionId, entry);
   return { ok: true };
 }
 
-async function runTurn(chat: StoredChat, sessionId: string, tenantId: string, user: UserTurn, opts: { answers?: Record<string, string>; skipped?: string[] }, onStep: (s: string) => void): Promise<void> {
+/** One agent turn, saved as the app saves it. Returns the questions it asked, if any. */
+async function runTurn(chat: StoredChat, sessionId: string, tenantId: string, user: UserTurn, opts: { answers?: Record<string, string>; skipped?: string[] }, onStep: (s: string) => void): Promise<AgentQuestion[]> {
   const before = loadStores(sessionId).campaign;
   const turns: V2Turn[] = [...chat.turns, { role: 'user', content: user.content, ...(user.answerSet ? { answerSet: user.answerSet } : {}) }];
   // Saved straight away, so the link shows the request while the agent works.
@@ -109,7 +130,9 @@ async function runTurn(chat: StoredChat, sessionId: string, tenantId: string, us
       changeFocus: null,
       lastBuilt: !!r.graph,
     });
+    return (r.questionItems ?? []) as AgentQuestion[];
   } catch (e) {
     saveChat(sessionId, tenantId, { ...chat, sessionId, tenantId, turns: [...turns, { role: 'assistant', content: '', events, error: (e as Error).message }] });
+    return [];
   }
 }

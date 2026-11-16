@@ -433,3 +433,4 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 /* Submitted for execution: locked. */
 .cv-submitted { font-size: 12px; font-weight: 600; color: #175cd3; background: #eff8ff; border: 1px solid #b2ddff; border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
 .cv-camp-status.submitted { background: #eff8ff; color: #175cd3; }
+.cv-viewonly { font-size: 12px; font-weight: 600; color: #344054; background: #f2f4f7; border: 1px solid #d0d5dd; border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
