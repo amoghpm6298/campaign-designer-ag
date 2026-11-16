@@ -212,9 +212,9 @@ export function submitCampaign(sessionId: string, tenantId: string, by: string, 
   return sub;
 }
 
-export const LOCKED = 'This campaign was submitted for execution and is locked. Withdraw it first to change it.';
+export const LOCKED = 'This campaign was submitted for execution and is locked. Stop it first to change it.';
 
-/** A submission taken back: who withdrew it, when, and the submission it ended. */
+/** A campaign stopped (taken back from execution): who stopped it, when, and the submission it ended. */
 export interface Withdrawal {
   at: string;
   by: string;
@@ -231,13 +231,13 @@ export function loadWithdrawals(sessionId: string, dir = campaignDir()): Withdra
 }
 
 /**
- * Takes a submitted campaign back from execution, so it can be changed again
- * (and resubmitted). While nothing executes this is also how a campaign is
- * paused. Every withdrawal is kept, with who and when.
+ * Stops a submitted campaign: it goes back to Ready, editable, and can be
+ * submitted again later. Customers' progress is not held (this is a stop, not
+ * a pause). Every stop is kept, with who and when.
  */
 export function withdrawCampaign(sessionId: string, tenantId: string, by: string, dir = campaignDir()): Withdrawal {
   const sub = loadSubmission(sessionId, dir);
-  if (!sub) throw new Error('This campaign is not submitted, so there is nothing to withdraw.');
+  if (!sub) throw new Error('This campaign is not submitted, so there is nothing to stop.');
   const w: Withdrawal = { at: new Date().toISOString(), by, submittedAt: sub.at, submittedBy: sub.by };
   writeStamped(join(sessionFolder(sessionId, dir), 'withdrawals.json'), sessionId, tenantId, [...loadWithdrawals(sessionId, dir), w]);
   unlinkSync(join(sessionFolder(sessionId, dir), 'submission.json'));

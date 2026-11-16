@@ -59,8 +59,8 @@ Once the tools are available, call `list_campaigns`. A list (possibly empty) mea
 | `request_changes(campaignId, request)` | Any change, in plain words. Also how to reply to the designer. |
 | `submit_campaign(campaignId, startDate, endDate)` | Submit for execution. Locks the campaign. Dates (YYYY-MM-DD) are optional if the campaign already has them; pass them to set or change them. Start today or later, end after the start (a recurring campaign can use a far-off end). Refused if a journey doesn't fit between the dates. |
 | `copy_campaign(campaignId, name)` | A new editable draft from an existing campaign (even a submitted one), keeping the designer's reasoning and chat; the original is unchanged. Use it for a variant: a new season or month, a different audience, a different channel mix or cadence, an A/B alternative. For a different goal, use `create_campaign` instead. Then adapt it with `request_changes`. |
-| `withdraw_campaign(campaignId)` | Take a submitted (scheduled or active) campaign back from execution. **This is how to pause a campaign.** It becomes editable again; `submit_campaign` resumes it. |
-| `delete_campaign(campaignId)` | Delete a draft (not submitted), e.g. a test. Refused for submitted campaigns: withdraw first. A copy is kept, so the Campaign Designer team can recover a mistaken delete. |
+| `stop_campaign(campaignId)` | Stop a submitted (scheduled or active) campaign. It goes back to **ready**: editable again, and `submit_campaign` can send it out again later with new dates. Customers' progress is not kept, so it starts fresh. |
+| `delete_campaign(campaignId)` | Delete a draft (not submitted), e.g. a test. Refused for submitted campaigns: stop first. A copy is kept, so the Campaign Designer team can recover a mistaken delete. |
 | `get_link(campaignId)` | A fresh canvas link. |
 | `list_campaigns()` | All IBL campaigns with state, allowed actions, dates and link. |
 
@@ -81,15 +81,15 @@ Every campaign response carries `state` and `allowedActions`.
             │                             ▼                    │
             │        SCHEDULED ──start date──► ACTIVE ──end date──► ENDED
             │         (before start)      (between dates)     (after end)
-            │              └──── withdraw_campaign (= pause) ───┘
-            │                    back to READY
+            │              └──── stop_campaign ─────────────────┘
+            │                    back to READY (submit again to rerun)
             ▼
   delete_campaign (DRAFT or READY only) ──► DELETED
 ```
 
 - `draft`: being designed. While the designer is working, `allowedActions` is empty: wait and call `get_campaign` again. If it has **questions**, they are listed and `answer_questions` is allowed. If it **replied** without building (it asked something in its message), answer with `request_changes`. If something **failed**, `error` says so: try `request_changes` once more, then tell your user.
 - `ready`: designed and built, with a brief. Change it, submit it, copy it or delete it.
-- `scheduled` / `active` / `ended`: submitted for execution and locked; which one depends on today's date and the campaign's dates. Scheduled and active campaigns can be withdrawn (paused). Ended ones can only be copied.
+- `scheduled` / `active` / `ended`: submitted for execution and locked; which one depends on today's date and the campaign's dates. Scheduled and active campaigns can be stopped (back to ready). Ended ones can only be copied.
 - `deleted`: gone from the list; the Campaign Designer team can recover it.
 
 **Rule: only call a tool that is in `allowedActions`** for that campaign (`get_campaign`, `get_link` and `list_campaigns` are always fine). Anything else will be refused.
@@ -105,7 +105,7 @@ Every campaign response carries `state` and `allowedActions`.
 6. **Changes.** Pass requests on in their words with `request_changes`, then wait and report what changed.
 7. **Submit** only when your user explicitly says the campaign is good to go. First confirm the **start and end dates** with them (the brief shows the designer's proposal); pass `startDate` and `endDate` if they want different ones. The campaign is then locked.
 8. **Variants**: when your user wants "the same campaign but for …", use `copy_campaign`, then `request_changes` on the copy.
-9. **Pause or pull back**: if your user wants to pause a submitted campaign, or change it, use `withdraw_campaign`; resubmit with `submit_campaign` to resume. **Delete** only drafts, and only when your user asks.
+9. **Stop**: if your user wants a submitted campaign stopped, or wants to change it, use `stop_campaign`; it goes back to ready, and `submit_campaign` sends it out again (customers start fresh). **Delete** only drafts, and only when your user asks.
 
 ## Links
 

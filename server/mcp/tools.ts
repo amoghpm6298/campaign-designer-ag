@@ -107,7 +107,7 @@ export const MCP_TOOLS = [
   {
     name: 'submit_campaign',
     description:
-      'Submit a ready campaign for execution. Only call this after your human has explicitly said the campaign is good to go, and has confirmed its start and end dates (shown in the brief). Pass startDate and endDate (YYYY-MM-DD) if the campaign has none or your human wants different ones: the start must be today or later, the end after the start; a recurring campaign can use a far-off end date. Refused if a journey does not fit between the dates. It locks the campaign: no further changes (withdraw_campaign to change or pause it).',
+      'Submit a ready campaign for execution. Only call this after your human has explicitly said the campaign is good to go, and has confirmed its start and end dates (shown in the brief). Pass startDate and endDate (YYYY-MM-DD) if the campaign has none or your human wants different ones: the start must be today or later, the end after the start; a recurring campaign can use a far-off end date. Refused if a journey does not fit between the dates. It locks the campaign: no further changes (stop_campaign to change it).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -122,20 +122,20 @@ export const MCP_TOOLS = [
     name: 'copy_campaign',
     description:
       'Make a new editable draft from an existing campaign (any state, even submitted), then adapt it with request_changes. The copy keeps the campaign, the designer\'s reasoning and the chat, so the designer adapts it instead of starting over; the original is never changed. ' +
-      'USE IT when your human wants a variant of something that already exists: the same campaign for a new season or month ("make this the Christmas version"), a different audience or bank segment with the same idea, a different channel mix or cadence, or an A/B alternative to compare with the original. Also to change a submitted campaign while leaving it as it is. ' +
+      'USE IT when your human wants a variant of something that already exists: the same campaign for a new season or month ("make this the Christmas version"), a different audience or bank segment with the same idea, a different channel mix or cadence, or an A/B alternative to compare with the original. Also to change a submitted campaign while leaving it running as it is. ' +
       'DO NOT use it when the goal itself is different (e.g. from card activation to EMI conversion): the buckets were built around the old goal, so create_campaign gives a cleaner design. Same bank only. Returns the new campaignId and link; name is optional (default "Copy of …").',
     inputSchema: { type: 'object', properties: { campaignId: { type: 'string' }, name: { type: 'string', description: 'Name for the copy, e.g. "Christmas Dormant Reactivation".' } }, required: ['campaignId'] },
   },
   {
-    name: 'withdraw_campaign',
+    name: 'stop_campaign',
     description:
-      'Take a submitted campaign back from execution. This is also how to PAUSE a campaign: withdraw it. It becomes editable again (request_changes works), and submit_campaign sends it back for execution (resume). Only after your human asks for it. Who withdrew it and when is recorded.',
+      'Stop a submitted (scheduled or active) campaign. It goes back to ready: editable again (request_changes works), and submit_campaign can send it out again later with new dates. Customers\' progress is not kept, so submitting again starts it fresh. Only after your human asks for it. Who stopped it and when is recorded.',
     inputSchema: { type: 'object', properties: { campaignId: { type: 'string' } }, required: ['campaignId'] },
   },
   {
     name: 'delete_campaign',
     description:
-      'Delete a campaign that has NOT been submitted (a draft, e.g. a test). Refused for a submitted campaign: withdraw it first. Only after your human asks for it. It disappears from the list and its links stop working; Hyperface keeps a copy, so a mistaken delete can be recovered by the Campaign Designer team.',
+      'Delete a campaign that has NOT been submitted (a draft, e.g. a test). Refused for a submitted campaign: stop it first. Only after your human asks for it. It disappears from the list and its links stop working; Hyperface keeps a copy, so a mistaken delete can be recovered by the Campaign Designer team.',
     inputSchema: { type: 'object', properties: { campaignId: { type: 'string' } }, required: ['campaignId'] },
   },
   {
@@ -179,8 +179,8 @@ const ACTIONS = {
   questions: ['answer_questions', 'request_changes', 'delete_campaign'],
   draft: ['request_changes', 'delete_campaign'],
   ready: ['request_changes', 'submit_campaign', 'copy_campaign', 'delete_campaign'],
-  scheduled: ['withdraw_campaign', 'copy_campaign'],
-  active: ['withdraw_campaign', 'copy_campaign'],
+  scheduled: ['stop_campaign', 'copy_campaign'],
+  active: ['stop_campaign', 'copy_campaign'],
   ended: ['copy_campaign'],
   deleted: [] as string[],
 };
@@ -223,7 +223,7 @@ export function campaignStatus(caller: Caller, id: string): Result {
     };
   }
   const ws = loadWithdrawals(id);
-  if (ws.length) Object.assign(base, { lastWithdrawn: { at: ws[ws.length - 1].at, by: ws[ws.length - 1].by } });
+  if (ws.length) Object.assign(base, { lastStopped: { at: ws[ws.length - 1].at, by: ws[ws.length - 1].by } });
   const wasBuilt = !!(chat.lastBuilt || (chat.state as AgentState | null)?.flags?.campaignBuilt);
   if (isRunning(id)) return { ...base, state: 'draft', allowedActions: ACTIONS.working, doing: runningStep(id), next: 'The designer is working. Call get_campaign with waitSeconds: 50.' };
   const last = [...chat.turns].reverse().find((t) => t.role === 'assistant');
@@ -387,25 +387,27 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       };
     }
 
+    case 'stop_campaign':
     case 'withdraw_campaign': {
+      // "withdraw_campaign" is the name it first shipped with; still accepted.
       const id = String(args.campaignId ?? '');
       const chat = chatFor(caller, id);
       const subNow = loadSubmission(id);
-      if (!subNow) throw new ToolError('This campaign is not submitted, so there is nothing to withdraw.');
-      if (stageOf(subNow) === 'ended') throw new ToolError('This campaign has ended, so there is nothing to withdraw or pause. To run it again, copy_campaign and submit the copy with new dates.');
+      if (!subNow) throw new ToolError('This campaign is not submitted, so there is nothing to stop.');
+      if (stageOf(subNow) === 'ended') throw new ToolError('This campaign has ended, so there is nothing to stop. To run it again, copy_campaign and submit the copy with new dates.');
       const w = withdrawCampaign(id, chat.tenantId, caller.label);
       return {
         ...campaignStatus(caller, id),
-        withdrawnAt: w.at,
-        withdrawnBy: w.by,
-        message: 'Withdrawn from execution (paused). The campaign can be changed again; submit_campaign sends it back for execution.',
+        stoppedAt: w.at,
+        stoppedBy: w.by,
+        message: 'Stopped. The campaign is ready again: it can be changed, and submit_campaign sends it out again (customers start fresh).',
       };
     }
 
     case 'delete_campaign': {
       const id = String(args.campaignId ?? '');
       const chat = chatFor(caller, id);
-      if (loadSubmission(id)) throw new ToolError('This campaign is submitted for execution, so it cannot be deleted. Withdraw it first if your human really wants it gone.');
+      if (loadSubmission(id)) throw new ToolError('This campaign is submitted for execution, so it cannot be deleted. Stop it first if your human really wants it gone.');
       if (isRunning(id)) throw new ToolError('The agent is still working on this campaign. Wait for it to finish, then delete.');
       deleteCampaign(id, chat.tenantId);
       return { campaignId: id, state: 'deleted', allowedActions: ACTIONS.deleted, message: 'Deleted. It no longer appears in list_campaigns and its links no longer work. Hyperface keeps a copy, so the Campaign Designer team can recover it if this was a mistake.' };

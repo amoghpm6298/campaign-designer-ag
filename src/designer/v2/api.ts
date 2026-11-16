@@ -92,7 +92,7 @@ export interface Submission {
   endDate?: string;
 }
 
-/** A submission taken back (also how a campaign is paused). */
+/** A campaign stopped: back to Ready (customers' progress is not kept). */
 export interface Withdrawal {
   at: string;
   by: string;

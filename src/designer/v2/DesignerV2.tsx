@@ -95,8 +95,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   const [lastWithdrawal, setLastWithdrawal] = useState<Withdrawal | null>(null);
   const [withdrawing, setWithdrawing] = useState<'ask' | 'busy' | string | null>(null);
   const [submitting, setSubmitting] = useState<'ask' | 'busy' | string | null>(null);
-  // The withdraw action, named for where the campaign is.
-  const pauseLabel = submission ? (submittedStage(submission) === 'scheduled' ? 'Unschedule' : submittedStage(submission) === 'active' ? 'Pause campaign' : 'Withdraw') : 'Withdraw';
+  const pauseLabel = 'Stop campaign';
   const [subStart, setSubStart] = useState('');
   const [subEnd, setSubEnd] = useState('');
   useEffect(() => {
@@ -435,13 +434,13 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         )}
         {submission && !viewOnly && submittedStage(submission) !== 'ended' && (
           <span className="cv-del-wrap">
-            <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title="Take it back from execution; it becomes editable again">
+            <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title="Stop it: back to Ready, editable; you can submit it again">
               {pauseLabel}
             </button>
             {withdrawing && (
               <div className="cv-del-pop cv-pop-left" role="dialog" aria-label={pauseLabel}>
                 <b>{pauseLabel}?</b>
-                <p>{submittedStage(submission) === 'scheduled' ? 'It will not start on its date. It becomes editable again; submit it again to reschedule.' : 'It stops being live and becomes editable again. Use Resume campaign to put it back.'}</p>
+                <p>It goes back to Ready: editable, and you can submit it again with new dates. Customers' progress is not kept, so it starts fresh next time.</p>
                 {withdrawing !== 'ask' && withdrawing !== 'busy' && <p className="cv-del-err">{withdrawing}</p>}
                 <div className="cv-del-btns">
                   <button className="cv-btn" onClick={() => setWithdrawing(null)}>
@@ -453,7 +452,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
                     onClick={async () => {
                       setWithdrawing('busy');
                       const r = await withdrawCampaign(sessionId, tenant.tenantId);
-                      if (!r.ok) return setWithdrawing(r.error ?? 'Could not withdraw.');
+                      if (!r.ok) return setWithdrawing(r.error ?? 'Could not stop it.');
                       setSubmission(null);
                       setLastWithdrawal(r.withdrawal ?? null);
                       setWithdrawing(null);
@@ -477,12 +476,12 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
                 setSubmitting((v) => (v ? null : 'ask'));
               }}
             >
-              {lastWithdrawal ? 'Resume campaign' : 'Submit for execution'}
+              Submit for execution
             </button>
             {submitting && (
               <div className="cv-del-pop cv-pop-left" role="dialog" aria-label="Submit for execution">
-                <b>{lastWithdrawal ? 'Resume campaign' : 'Submit for execution'}</b>
-                <p>Confirm when it runs. Once submitted it is locked; withdraw it to pause or change it.</p>
+                <b>Submit for execution</b>
+                <p>Confirm when it runs. Once submitted it is locked; stop it to change it.</p>
                 <div className="cv-pop-dates" style={{ marginTop: 8 }}>
                   <label>
                     <span>Starts</span>
@@ -518,8 +517,8 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           </span>
         )}
         {!submission && lastWithdrawal && (
-          <span className="cv-withdrawn" title="Taken back from execution; it can be changed and submitted again">
-            Paused · {new Date(lastWithdrawal.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {lastWithdrawal.by}
+          <span className="cv-withdrawn" title="Stopped: it can be changed and submitted again">
+            Stopped · {new Date(lastWithdrawal.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {lastWithdrawal.by}
           </span>
         )}
         <span

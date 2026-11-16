@@ -312,7 +312,7 @@ export function agentApiPlugin(): Plugin {
               return send(res, 400, { ok: false, error: (e as Error).message });
             }
           }
-          // Take a submitted campaign back from execution (also how it is paused).
+          // Stop a submitted campaign: back to Ready, editable; it can be submitted again.
           if (url === '/api/campaign/withdraw' && req.method === 'POST') {
             const files = await load('campaignFiles.ts');
             const body = (await readBody(req)) as { sessionId?: string; tenantId?: string };
