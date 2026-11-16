@@ -2,6 +2,7 @@
 // the campaign context (what supports it), flags, timeline and questions.
 // No I/O, no model calls, so every rule here is unit-testable.
 
+import { parseSchedule } from './schedule';
 import { EXIT_OUTCOMES, type BpAudienceGroup, type BpStep } from '../blueprint';
 import { carryIds, idsIn } from './stepIds';
 import {
@@ -386,6 +387,15 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
     next.maxAttempts = n;
     changed.push('maxAttempts');
   }
+  if (input.schedule === null) {
+    next.schedule = null;
+    changed.push('schedule');
+  } else if (input.schedule !== undefined) {
+    const res = parseSchedule(input.schedule);
+    if ('error' in res) return { state, said: '', error: res.error };
+    next.schedule = res.value;
+    changed.push('schedule');
+  }
   if (input.afterJourney === null) {
     next.afterJourney = null;
     changed.push('afterJourney');
@@ -396,10 +406,10 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
     changed.push('afterJourney');
   }
   if (!changed.length)
-    return { state, said: '', error: 'Nothing to update. The campaign takes: name, description, goal, entry, membership, everyoneElse, afterJourney, maxAttempts. Reasoning (why, guardrails, measurement) goes in the context with add_context.' };
+    return { state, said: '', error: 'Nothing to update. The campaign takes: name, description, goal, entry, membership, everyoneElse, schedule, afterJourney, maxAttempts. Reasoning (why, guardrails, measurement) goes in the context with add_context.' };
   let out: AgentState = { ...state, campaign: next };
   out = log(out, 'agent', 'plan_section_updated', `Updated the campaign (${changed.join(', ')})`);
-  if (state.flags.campaignBuilt && changed.some((c) => ['goal', 'entry', 'membership', 'everyoneElse', 'afterJourney', 'maxAttempts', 'name'].includes(c))) out = markStale(out, 'The campaign');
+  if (state.flags.campaignBuilt && changed.some((c) => ['goal', 'entry', 'membership', 'everyoneElse', 'schedule', 'afterJourney', 'maxAttempts', 'name'].includes(c))) out = markStale(out, 'The campaign');
   return { state: out, said: `Campaign updated: ${changed.join(', ')}.` };
 }
 

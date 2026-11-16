@@ -88,14 +88,32 @@ export interface Stores {
 export interface Submission {
   at: string;
   by: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+/** A submission taken back (also how a campaign is paused). */
+export interface Withdrawal {
+  at: string;
+  by: string;
+}
+
+export async function copyCampaign(sessionId: string, tenantId: string): Promise<{ ok: boolean; sessionId?: string; name?: string; error?: string }> {
+  const res = await fetch(apiUrl('/api/campaign/copy'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, tenantId }) });
+  return (await res.json().catch(() => ({ ok: false, error: 'Could not reach the server.' }))) as { ok: boolean; sessionId?: string; name?: string; error?: string };
+}
+
+export async function withdrawCampaign(sessionId: string, tenantId: string): Promise<{ ok: boolean; withdrawal?: Withdrawal; error?: string }> {
+  const res = await fetch(apiUrl('/api/campaign/withdraw'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, tenantId }) });
+  return (await res.json().catch(() => ({ ok: false, error: 'Could not reach the server.' }))) as { ok: boolean; withdrawal?: Withdrawal; error?: string };
 }
 
 /** The campaign object and its context, as this chat has them on file on the server. */
-export async function fetchStores(sessionId: string): Promise<Stores & { submission: Submission | null }> {
+export async function fetchStores(sessionId: string): Promise<Stores & { submission: Submission | null; lastWithdrawal: Withdrawal | null }> {
   const res = await fetch(apiUrl(`/api/campaign?sessionId=${encodeURIComponent(sessionId)}`));
-  if (!res.ok) return { campaign: null, context: null, submission: null };
-  const body = (await res.json()) as Partial<Stores> & { submission?: Submission | null };
-  return { campaign: body.campaign ?? null, context: body.context ?? null, submission: body.submission ?? null };
+  if (!res.ok) return { campaign: null, context: null, submission: null, lastWithdrawal: null };
+  const body = (await res.json()) as Partial<Stores> & { submission?: Submission | null; lastWithdrawal?: Withdrawal | null };
+  return { campaign: body.campaign ?? null, context: body.context ?? null, submission: body.submission ?? null, lastWithdrawal: body.lastWithdrawal ?? null };
 }
 
 export interface EditResult {

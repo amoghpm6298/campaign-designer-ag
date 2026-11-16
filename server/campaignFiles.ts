@@ -190,6 +190,9 @@ export function saveChat(sessionId: string, tenantId: string, chat: unknown, dir
 export interface Submission {
   at: string;
   by: string;
+  /** The dates it was submitted to run between (YYYY-MM-DD). */
+  startDate?: string;
+  endDate?: string;
 }
 
 export function loadSubmission(sessionId: string, dir = campaignDir()): Submission | null {
@@ -201,14 +204,71 @@ export function loadSubmission(sessionId: string, dir = campaignDir()): Submissi
 }
 
 /** Marks a campaign "Submitted for execution". From then on nothing may change it. */
-export function submitCampaign(sessionId: string, tenantId: string, by: string, dir = campaignDir()): Submission {
+export function submitCampaign(sessionId: string, tenantId: string, by: string, dates?: { startDate: string; endDate: string }, dir = campaignDir()): Submission {
   if (loadSubmission(sessionId, dir)) throw new Error('This campaign was already submitted for execution.');
-  const sub: Submission = { at: new Date().toISOString(), by };
+  const sub: Submission = { at: new Date().toISOString(), by, ...(dates ? { startDate: dates.startDate, endDate: dates.endDate } : {}) };
   writeStamped(join(sessionFolder(sessionId, dir), 'submission.json'), sessionId, tenantId, sub);
   return sub;
 }
 
-export const LOCKED = 'This campaign was submitted for execution and is locked.';
+export const LOCKED = 'This campaign was submitted for execution and is locked. Withdraw it first to change it.';
+
+/** A submission taken back: who withdrew it, when, and the submission it ended. */
+export interface Withdrawal {
+  at: string;
+  by: string;
+  submittedAt: string;
+  submittedBy: string;
+}
+
+export function loadWithdrawals(sessionId: string, dir = campaignDir()): Withdrawal[] {
+  try {
+    return readStamped<Withdrawal[]>(join(sessionFolder(sessionId, dir), 'withdrawals.json'))?.body ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Takes a submitted campaign back from execution, so it can be changed again
+ * (and resubmitted). While nothing executes this is also how a campaign is
+ * paused. Every withdrawal is kept, with who and when.
+ */
+export function withdrawCampaign(sessionId: string, tenantId: string, by: string, dir = campaignDir()): Withdrawal {
+  const sub = loadSubmission(sessionId, dir);
+  if (!sub) throw new Error('This campaign is not submitted, so there is nothing to withdraw.');
+  const w: Withdrawal = { at: new Date().toISOString(), by, submittedAt: sub.at, submittedBy: sub.by };
+  writeStamped(join(sessionFolder(sessionId, dir), 'withdrawals.json'), sessionId, tenantId, [...loadWithdrawals(sessionId, dir), w]);
+  unlinkSync(join(sessionFolder(sessionId, dir), 'submission.json'));
+  return w;
+}
+
+/**
+ * A new editable draft from an existing campaign (any status), same bank:
+ * the campaign object, its context (the designer's notes and reasoning) and
+ * the chat, with a note that it is a copy. Not copied: submission, withdrawals
+ * and versions; the copy starts fresh.
+ */
+export function copyCampaign(fromId: string, tenantId: string, name?: string, dir = campaignDir()): { sessionId: string; name: string } {
+  const from = sessionFolder(fromId, dir);
+  if (!existsSync(from)) throw new Error('No such campaign.');
+  const camp = readStamped<CampaignObject>(join(from, 'campaign.json'));
+  const chat = readStamped<{ turns?: unknown[]; [k: string]: unknown }>(join(from, 'chat.json'));
+  const owner = camp?.tenantId || chat?.tenantId;
+  if (owner !== tenantId) throw new Error('This campaign belongs to another bank.');
+  if (!camp?.body) throw new Error('This campaign has nothing built to copy yet.');
+  const sessionId = `cv-${Date.now().toString(36)}`;
+  const original = camp.body.name || 'the original campaign';
+  const newName = (name ?? '').trim() || `Copy of ${original}`;
+  saveCampaignObject(sessionId, tenantId, { ...camp.body, name: newName }, dir);
+  const ctx = readStamped<CampaignContext>(join(from, 'context.json'));
+  if (ctx?.body) saveContext(sessionId, tenantId, ctx.body, dir);
+  if (chat?.body) {
+    const note = { role: 'assistant', content: `This is a copy of "${original}" (${fromId}), named "${newName}". The original is unchanged; everything from here on changes only this copy.` };
+    writeStamped(join(sessionFolder(sessionId, dir), 'chat.json'), sessionId, tenantId, { ...chat.body, sessionId, tenantId, turns: [...(chat.body.turns ?? []), note], changed: [] });
+  }
+  return { sessionId, name: newName };
+}
 
 /**
  * Deletes a campaign from the Campaigns page. The folder is moved into
@@ -239,6 +299,7 @@ export interface CampaignSummary {
   version: number;
   updatedAt: string;
   submitted?: Submission;
+  schedule?: { startDate: string; endDate: string } | null;
 }
 
 /** Every saved campaign for a bank, newest first: what the Campaigns page shows. */
@@ -287,6 +348,7 @@ export function listCampaigns(tenantId: string, dir = campaignDir()): CampaignSu
       version,
       updatedAt: [camp?.updatedAt, chat?.updatedAt].filter(Boolean).sort().pop() ?? '',
       ...(loadSubmission(name, dir) ? { submitted: loadSubmission(name, dir)! } : {}),
+      ...(c?.schedule ? { schedule: c.schedule } : {}),
     });
   }
   return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

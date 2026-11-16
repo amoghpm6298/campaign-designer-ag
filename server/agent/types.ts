@@ -91,6 +91,8 @@ export interface CampaignObject {
    * ending. Recurring campaigns only.
    */
   maxAttempts?: number | null;
+  /** When the campaign runs: start and end dates, YYYY-MM-DD (India time). Every campaign has both. */
+  schedule?: { startDate: string; endDate: string } | null;
 }
 
 export type AfterOutcome = 'converted' | 'no_response' | 'not_reachable' | 'declined';

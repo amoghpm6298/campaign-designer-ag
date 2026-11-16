@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { buildFromBlueprint, type BpStep } from '../../server/blueprint';
 import { checkJourneys, endingGaps, planToBlueprint } from '../../server/agent/compile';
 import { initialState, journeyErrors, parseAfterJourney } from '../../server/agent/state';
+import { longestPathHours, parseSchedule, todayIST } from '../../server/agent/schedule';
 import { runToolCall, type ToolEnv } from '../../server/agent/tools';
 import { resolveTenant } from '../../server/tenants';
 import { diffCampaigns } from '../../server/agent/versionDiff';
@@ -284,3 +285,39 @@ describe('goal checks: the agent places them, the builder adds none', () => {
     expect(build([send('A'), { kind: 'wait', durationHours: 72 }, { kind: 'goalCheck' }, exit('no_response')] as unknown as BpStep[])).toBe(1);
   });
 });
+
+describe('campaign dates', () => {
+  const day = (n: number) => todayIST(new Date(Date.now() + n * 86400000));
+  it('accept today or any future start, need an end after it, and refuse past or unreal dates', () => {
+    expect(parseSchedule({ startDate: day(0), endDate: day(10) })).toEqual({ value: { startDate: day(0), endDate: day(10) } });
+    expect(parseSchedule({ startDate: day(400), endDate: day(2000) })).toMatchObject({ value: {} }); // far future is fine
+    expect(parseSchedule({ startDate: day(-1), endDate: day(10) })).toMatchObject({ error: expect.stringMatching(/in the past/) });
+    expect(parseSchedule({ startDate: day(3), endDate: day(3) })).toMatchObject({ error: expect.stringMatching(/after startDate/) });
+    expect(parseSchedule({ startDate: day(3) })).toMatchObject({ error: expect.stringMatching(/endDate is required/) });
+    expect(parseSchedule({ startDate: '2026-02-30', endDate: day(10) })).toMatchObject({ error: expect.stringMatching(/real date/) });
+  });
+
+  it('are set through create_campaign / edit_campaign and refused when wrong', () => {
+    const s = runToolCall('create_campaign', { name: 'A', schedule: { startDate: day(1), endDate: day(20) } }, initialState(), env());
+    expect(s.state.campaign.schedule).toEqual({ startDate: day(1), endDate: day(20) });
+    expect(runToolCall('edit_campaign', { schedule: { startDate: day(-3), endDate: day(20) } }, s.state, env()).ok).toBe(false);
+  });
+
+  it('a journey longer than the window is an open decision for the agent', () => {
+    const j = [send('First'), { kind: 'wait', durationHours: 240 }, { kind: 'goalCheck' }, exit('no_response')] as unknown as BpStep[];
+    expect(endingGaps(campaign(j, { schedule: { startDate: day(1), endDate: day(6) } })).join(' ')).toMatch(/longest path takes about 10 days, but the campaign runs only 5 days/);
+    expect(endingGaps(campaign(j, { schedule: { startDate: day(1), endDate: day(30) } })).join(' ')).not.toMatch(/longest path/);
+    expect(longestPathHours(designed([send('E', 'EMAIL'), win, gc, exit('no_response')]))).toBe(48 + 96);
+  });
+
+  it('can be changed on the canvas directly, as a new version', () => {
+    const c = campaign(designed([send('Email try', 'EMAIL'), win, gc, exit('no_response')]));
+    saveCampaignObject('dd1', 'TEN-YES', c);
+    const r = directEdit('dd1', 'TEN-YES', { op: 'schedule', startDate: day(2), endDate: day(40) });
+    expect(r.ok).toBe(true);
+    expect(r.campaign?.schedule).toEqual({ startDate: day(2), endDate: day(40) });
+    expect(JSON.stringify(diffCampaigns(c, r.campaign!))).toMatch(/dates: dates not set → /);
+    expect(directEdit('dd1', 'TEN-YES', { op: 'schedule', startDate: day(-2), endDate: day(40) }).ok).toBe(false);
+  });
+});
+

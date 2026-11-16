@@ -13,7 +13,8 @@ export type DirectOp =
   | { op: 'split'; bucketId: string; stepId: string; pcts: number[] }
   | { op: 'wait'; bucketId: string; stepId: string; days: number }
   | { op: 'afterJourney'; outcome: AfterOutcome; value: number | 'leave' }
-  | { op: 'maxAttempts'; value: number };
+  | { op: 'maxAttempts'; value: number }
+  | { op: 'schedule'; startDate: string; endDate: string };
 
 const rejoinIn = (d: number) => (d === 0 ? 'Can rejoin at the next refresh' : `Can rejoin in ${d} day${d === 1 ? '' : 's'}`);
 const AFTER_CHOICES: [string, string][] = [['leave', 'Leaves the campaign'], ...[0, 7, 14, 30, 60, 90].map((d): [string, string] => [String(d), rejoinIn(d)])];
@@ -90,13 +91,34 @@ export function EditPopover({
   const [holdout, setHoldout] = useState<number>(bucket?.holdoutPct ?? 0);
   const [days, setDays] = useState<number>(() => Math.round(((waitHours(st) ?? 24) / 24) * 10) / 10);
   const total = pcts.reduce((a, b) => a + b, 0);
+  const [startDate, setStartDate] = useState(campaign?.schedule?.startDate ?? '');
+  const [endDate, setEndDate] = useState(campaign?.schedule?.endDate ?? '');
+  const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
   let control: React.ReactNode = null;
   if (data.kind === 'entry') {
     const cur = !m ? '' : m.type === 'locked' ? 'once' : (m.refresh ?? 'weekly');
     control = (
       <div className="cv-pop-control">
-        <span className="cv-pop-label">How new customers come in</span>
+        <span className="cv-pop-label">Campaign dates</span>
+        <div className="cv-pop-dates">
+          <label>
+            <span>Starts</span>
+            <input type="date" value={startDate} min={todayIST} disabled={saving} onChange={(e) => setStartDate(e.target.value)} />
+          </label>
+          <label>
+            <span>Ends</span>
+            <input type="date" value={endDate} min={startDate || todayIST} disabled={saving} onChange={(e) => setEndDate(e.target.value)} />
+          </label>
+          <button
+            className="cv-btn"
+            disabled={saving || !startDate || !endDate || (startDate === campaign?.schedule?.startDate && endDate === campaign?.schedule?.endDate)}
+            onClick={() => direct({ op: 'schedule', startDate, endDate })}
+          >
+            Save dates
+          </button>
+        </div>
+        <span className="cv-pop-label" style={{ marginTop: 10 }}>How new customers come in</span>
         <div className="cv-seg">
           {(
             [

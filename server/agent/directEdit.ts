@@ -2,6 +2,7 @@
 // control, no agent involved. Each one is applied through the same state
 // transitions the agent's tools use, rebuilt (code only), saved, noted in the
 // context, and recorded as a version. Also: restoring an old version.
+import { scheduleText } from './schedule';
 import { LOCKED, loadStores, loadSubmission, saveCampaignObject, saveContext } from '../campaignFiles';
 import { ensureBaseline, getVersion, recordVersion, type Version } from '../campaignVersions';
 import { addContext, editJourney, emptyContext, initialState, updateCampaign, upsertBucket } from './state';
@@ -19,7 +20,8 @@ export type DirectOp =
   | { op: 'split'; bucketId: string; stepId: string; pcts: number[] }
   | { op: 'wait'; bucketId: string; stepId: string; days: number }
   | { op: 'afterJourney'; outcome: AfterOutcome; value: number | 'leave' }
-  | { op: 'maxAttempts'; value: number };
+  | { op: 'maxAttempts'; value: number }
+  | { op: 'schedule'; startDate: string; endDate: string };
 
 export interface DirectResult {
   ok: boolean;
@@ -42,6 +44,12 @@ function apply(state: AgentState, op: DirectOp): { state: AgentState; said: stri
     if (res.error) return { error: res.error };
     const txt = (m: typeof prev) => (!m ? 'not decided' : m.type === 'open' ? `recurring, ${m.refresh ?? 'weekly'}` : 'one-time');
     return { state: res.state, said: `Refresh: ${txt(prev)} → ${txt(res.state.campaign.membership)}` };
+  }
+  if (op.op === 'schedule') {
+    const prev = c.schedule;
+    const res = updateCampaign(state, { schedule: { startDate: op.startDate, endDate: op.endDate } });
+    if (res.error) return { error: res.error };
+    return { state: res.state, said: `Campaign dates: ${scheduleText(prev)} → ${scheduleText(res.state.campaign.schedule)}` };
   }
   if (op.op === 'maxAttempts') {
     const prev = c.maxAttempts;

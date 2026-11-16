@@ -10,6 +10,7 @@
 //
 // First match wins, which is what keeps the buckets mutually exclusive.
 
+import { daysBetween, longestPathHours } from './schedule';
 import type { BpStep, CampaignBlueprint } from '../blueprint';
 import type { CampaignObject } from './types';
 import { linkProblem, type BankLink } from '../links';
@@ -219,6 +220,21 @@ export function endingGaps(campaign: CampaignObject, since?: CampaignObject): st
   const shapeChanged = !since || since.membership !== campaign.membership || !since.buckets.some((b) => b.journey?.length);
   if (shapeChanged && campaign.membership?.type === 'open' && campaign.buckets.some((b) => b.journey?.length) && !campaign.afterJourney)
     out.push('This campaign is recurring, but what happens after the journey is not decided: for each outcome (no_response, not_reachable, declined, converted), how many days before the customer may come back and be bucketed again, or "leave". Set afterJourney with edit_campaign.');
+  // Every journey must fit between the campaign's dates.
+  const sch = campaign.schedule;
+  if (sch) {
+    const windowDays = daysBetween(sch.startDate, sch.endDate);
+    const scheduleChanged = !since || since.schedule !== sch;
+    const lanes = [...campaign.buckets.map((b) => ({ id: b.id, name: `Bucket "${b.name}"`, journey: b.journey })), ...(campaign.everyoneElse?.approach === 'journey' ? [{ id: 'everyone_else', name: 'Everyone else', journey: campaign.everyoneElse.journey }] : [])];
+    for (const l of lanes) {
+      if (!l.journey?.length) continue;
+      const before = l.id === 'everyone_else' ? since?.everyoneElse?.journey : since?.buckets.find((x) => x.id === l.id)?.journey;
+      if (!scheduleChanged && since && before === l.journey) continue;
+      const days = Math.ceil(longestPathHours(l.journey) / 24);
+      if (days > windowDays)
+        out.push(`${l.name}: its longest path takes about ${days} days, but the campaign runs only ${windowDays} days (${sch.startDate} → ${sch.endDate}). Shorten the journey or move the dates.`);
+    }
+  }
   // The stopping rule.
   const recurring = campaign.membership?.type === 'open' && campaign.buckets.some((b) => b.journey?.length);
   if (shapeChanged && recurring && !campaign.maxAttempts)

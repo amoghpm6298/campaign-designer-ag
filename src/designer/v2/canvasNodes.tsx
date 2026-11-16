@@ -308,6 +308,9 @@ function Hexagon({ data, color, fill, icon, kind, children }: { data: CdNodeData
   );
 }
 
+/** "20 Nov 2026" from "2026-11-20". */
+const fmtDay = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+
 function CdNodeBody({ data }: { data: CdNodeData }) {
   const st = (data.step ?? {}) as CStep;
   let body: React.ReactNode;
@@ -322,6 +325,7 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
             <span className={`cv-mode-tag ${m?.type === 'open' ? 'rec' : m ? 'once' : 'none'}`}>{m ? (m.type === 'open' ? `Recurring · ${titleCase(m.refresh ?? 'weekly')}` : 'One-time') : 'One-time or recurring: not decided'}</span>
             {c?.goal && <span className="dc-node-meta">Success: {c.goal.eventType}</span>}
           </div>
+          <div className={`cv-entry-dates${c?.schedule ? '' : ' unset'}`}>{c?.schedule ? `Runs ${fmtDay(c.schedule.startDate)} → ${fmtDay(c.schedule.endDate)}` : 'Campaign dates: not set'}</div>
           <div className="dc-node-meta">
             {m?.type === 'open'
               ? `New matching customers join every ${m.refresh === 'daily' ? 'day' : m.refresh === 'monthly' ? 'month' : 'week'}. Nobody re-enters while their journey is running.`

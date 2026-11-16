@@ -6,6 +6,7 @@ import { Layers, MessageSquare, Plus, RefreshCw, Send } from 'lucide-react';
 import { apiUrl } from '../api';
 import type { KnowledgeBase, Tenant } from '../types';
 import { DesignerV2, loadChat, type Stored } from './DesignerV2';
+import { STAGE_LABEL, submittedStage } from './lifecycle';
 import './v2.css';
 
 export interface CampaignSummary {
@@ -20,7 +21,7 @@ export interface CampaignSummary {
   refresh?: string;
   version: number;
   updatedAt: string;
-  submitted?: { at: string; by: string };
+  submitted?: { at: string; by: string; startDate?: string; endDate?: string };
 }
 
 const ago = (iso: string) => {
@@ -82,7 +83,11 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
           {list.map((c) => (
             <button key={c.sessionId} className="cv-camp" onClick={() => onOpen(c.sessionId)}>
               <span className="cv-camp-top">
-                <span className={`cv-camp-status ${c.submitted ? 'submitted' : c.built ? 'built' : 'draft'}`}>{c.submitted ? 'Submitted' : c.built ? 'Built' : 'Draft'}</span>
+                {c.submitted ? (
+                  <span className={`cv-camp-status st-${submittedStage(c.submitted)}`}>{STAGE_LABEL[submittedStage(c.submitted)]}</span>
+                ) : (
+                  <span className={`cv-camp-status ${c.built ? 'built' : 'draft'}`}>{c.built ? 'Ready' : 'Draft'}</span>
+                )}
                 {c.membership && <span className="cv-camp-mode">{c.membership === 'recurring' ? `Recurring · ${c.refresh}` : 'One-time'}</span>}
               </span>
               <b className="cv-camp-name">{c.name}</b>

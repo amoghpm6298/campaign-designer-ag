@@ -25,7 +25,7 @@ Run this, with the token in place of `<team token>`:
 claude mcp add --transport http --scope user campaign-designer https://ai.product.hyperface.co/campaigndesigneragent/mcp --header "Authorization: Bearer <team token>"
 ```
 
-Then tell your user: "Done. Restart Claude Code (or open a new session) so the Campaign Designer tools load, then type `/mcp` to check that **campaign-designer** is connected with 7 tools." The tools only appear in a new session.
+Then tell your user: "Done. Restart Claude Code (or open a new session) so the Campaign Designer tools load, then type `/mcp` to check that **campaign-designer** is connected with 10 tools." The tools only appear in a new session.
 
 ### If you are Claude Desktop or another app that cannot run commands
 
@@ -57,11 +57,14 @@ Once the tools are available, call `list_campaigns`. A list (possibly empty) mea
 | `get_campaign(campaignId, waitSeconds)` | Status and results. Always pass `waitSeconds: 50` while it is working, and call again until the status changes. |
 | `answer_questions(campaignId, answers, skip)` | Answer the designer's questions (`answers`: question id → text) or skip some or `"all"`. |
 | `request_changes(campaignId, request)` | Any change, in plain words. Also how to reply to the designer. |
-| `submit_campaign(campaignId)` | Submit for execution. Locks the campaign. |
+| `submit_campaign(campaignId, startDate, endDate)` | Submit for execution. Locks the campaign. Dates (YYYY-MM-DD) are optional if the campaign already has them; pass them to set or change them. Start today or later, end after the start (a recurring campaign can use a far-off end). Refused if a journey doesn't fit between the dates. |
+| `copy_campaign(campaignId, name)` | A new editable draft from an existing campaign (even a submitted one), keeping the designer's reasoning and chat; the original is unchanged. Use it for a variant: a new season or month, a different audience, a different channel mix or cadence, an A/B alternative. For a different goal, use `start_campaign` instead. Then adapt it with `request_changes`. |
+| `withdraw_campaign(campaignId)` | Take a submitted (scheduled or active) campaign back from execution. **This is how to pause a campaign.** It becomes editable again; `submit_campaign` resumes it. |
+| `delete_campaign(campaignId)` | Delete a draft (not submitted), e.g. a test. Refused for submitted campaigns: withdraw first. A copy is kept, so the Campaign Designer team can recover a mistaken delete. |
 | `get_link(campaignId)` | A fresh canvas link. |
 | `list_campaigns()` | All IBL campaigns with status and link. |
 
-Statuses from `get_campaign`: `working` (wait and call again) · `needs_answers` (relay the questions) · `ready` (show the result) · `waiting_for_reply` (the designer asked something in its message: relay it, send the answer with `request_changes`) · `submitted` (locked) · `error` (tell your user; try once more).
+Statuses from `get_campaign`: `working` (wait and call again) · `needs_answers` (relay the questions) · `ready` (show the result) · `waiting_for_reply` (the designer asked something in its message: relay it, send the answer with `request_changes`) · `scheduled` / `active` / `ended` (submitted for execution and locked: before its start date, between its dates, after its end date) · `error` (tell your user; try once more).
 
 ## How to use it
 
@@ -69,9 +72,11 @@ Statuses from `get_campaign`: `working` (wait and call again) · `needs_answers`
 2. **Ask or assume.** If your user wants a quick first draft, or says "don't ask me anything", use `questions: "assume"`. Otherwise use `"ask"`.
 3. **Wait.** Tell your user it takes a few minutes, then poll `get_campaign` with `waitSeconds: 50`. Don't poll faster.
 4. **Questions** (`needs_answers`). Show each question with its options and its "why", numbered, so your user can answer quickly. Never invent business facts (offers, limits, dates, numbers). If they don't know or don't care, skip it: the designer will assume and say so. Send with `answer_questions`.
-5. **Ready.** Tell your user what was built, from `brief`: the `summary`; the buckets (name, who, why they're stuck); how each journey works; and `assumptions`, flagged clearly so they can correct them. Give them the `link`.
+5. **Ready.** Tell your user what was built, from `brief`: the `summary`; the dates it runs (`startDate` → `endDate`); the buckets (name, who, why they're stuck); how each journey works; and `assumptions`, flagged clearly so they can correct them. Give them the `link`.
 6. **Changes.** Pass requests on in their words with `request_changes`, then wait and report what changed.
-7. **Submit** only when your user explicitly says the campaign is good to go. It is final: the campaign is locked.
+7. **Submit** only when your user explicitly says the campaign is good to go. First confirm the **start and end dates** with them (the brief shows the designer's proposal); pass `startDate` and `endDate` if they want different ones. The campaign is then locked.
+8. **Variants**: when your user wants "the same campaign but for …", use `copy_campaign`, then `request_changes` on the copy.
+9. **Pause or pull back**: if your user wants to pause a submitted campaign, or change it, use `withdraw_campaign`; resubmit with `submit_campaign` to resume. **Delete** only drafts, and only when your user asks.
 
 ## Links
 

@@ -9,6 +9,7 @@ import { currentEntries } from '../../src/designer/v2/contextView';
 import { endingGaps, linkProblemsIn } from './compile';
 import { walkSteps } from './stepIds';
 import type { BankLink } from '../links';
+import { scheduleText, todayIST } from './schedule';
 
 const CORE = `You are a campaign strategist for an Indian card-programme marketing platform, working for the issuer named in the context. In one conversation with a campaign manager you take a business goal all the way to a built campaign.
 
@@ -50,6 +51,7 @@ There are no approvals. You ask what you need, then you design and build the who
 - Buckets: 3-6 mutually exclusive behavioural buckets, each with a clearly different lever. In the campaign (create_bucket): name; priority (lower is checked first; first match wins — most specific first); rule (conditions the platform evaluates); holdoutPct (0: no holdout unless the manager explicitly asks to measure lift against a control group; then hold back the share they ask for, or suggest 5-10%, in the buckets they name); journey. In the context (add_context, kind "bucket", with its bucketId): behaviour (plain words), thesis (why stuck → the lever), evidence (data {level: measured / manager / hypothesis}, the numbers or quotes as text), metric.
 - If a behaviour cannot be expressed exactly with the platform's attributes (an aggregate like "spends mostly on electronics"), use the nearest expressible rule and say what that trades away in the bucket's evidence entry, or name the Smart Tag the bank would need.
 - Campaign settings (create_campaign, then edit_campaign for changes): entry (everyone eligible who has not reached the goal), goal event, membership, and everyoneElse (a journey for customers in no bucket, or deliberately none). Their reasoning goes in the context as notes (add_context, kind "note"): segmentation (why these buckets, in this order), measurement, guardrails, everyone_else (why).
+- Dates (schedule in create_campaign / edit_campaign): startDate and endDate, from the window the manager gave or your stated assumption. Today or later; every campaign has an end date (a recurring one can use a far-off one). Make sure every journey fits between them.
 - A journey per bucket (create_bucket with journey). Each is isolated: built on that bucket's thesis, not a copy with the name changed.
   - The first message attacks the bucket's lever. Write each message as the customer will read it, leading with what they get, action in the CTA. Give each send a short name. Nothing you write is bank-approved; do not imply it is.
   - Most messages ask the customer to do something, so give them the way to do it: attach a link from list_links. You may leave a message without a link when it only keeps the customer informed, or when the bank has no suitable link for the action — in that case say so, and note the missing destination. Never write a URL, web address, domain or short link anywhere in copy or CTA. In SMS the short link is added to the end of the message, so an SMS is sent as: your copy, then the CTA and a colon, then the short link (e.g. "…ready to use. Activate now: https://indus.in/Ac7k2"). So do not end SMS copy with a colon or repeat the CTA in it, and keep the whole thing, link included (list_links gives its length), within 160 characters. On WhatsApp and email the CTA becomes a button.
@@ -197,6 +199,7 @@ export function statusBlock(s: AgentState, links?: BankLink[], smsFallback = tru
   const timeline = s.timeline.slice(-12).map((t) => `- ${t.actor}: ${t.note}`).join('\n') || '- (nothing yet)';
   return [
     '[APP STATUS — written by the application, current as of this message]',
+    `Today: ${todayIST()} (India). Campaign dates: ${scheduleText(c.schedule)}.`,
     '## Flags',
     fmtFlags(s),
     '## On file (read with get_campaign / get_context)',

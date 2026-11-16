@@ -84,7 +84,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'create_campaign',
     title: 'Creating the campaign',
     description:
-      'Create the campaign, once, in the CAMPAIGN OBJECT (saved straight to file). Same fields as edit_campaign: name, description, goal, entry, membership, everyoneElse, and for recurring campaigns maxAttempts and afterJourney.',
+      'Create the campaign, once, in the CAMPAIGN OBJECT (saved straight to file). Same fields as edit_campaign: name, description, goal, entry, membership, everyoneElse, schedule (start and end dates), and for recurring campaigns maxAttempts and afterJourney.',
     input_schema: {
       type: 'object',
       properties: {
@@ -94,6 +94,12 @@ const BASE_TOOLS: ToolDef[] = [
         entry: { type: 'object', properties: { entity: { type: 'string' }, conditions: { type: 'array', items: CONDITION }, groups: { type: 'array', items: GROUP } }, required: ['entity'] },
         membership: { type: 'object', properties: { type: { type: 'string', enum: ['locked', 'open'] }, refresh: { type: 'string', enum: ['daily', 'weekly', 'monthly'] } }, required: ['type'] },
         everyoneElse: { type: 'object', properties: { approach: { type: 'string', enum: ['journey', 'none'] }, journey: STEPS }, required: ['approach'] },
+        schedule: {
+          type: 'object',
+          description: 'When the campaign runs: startDate and endDate, YYYY-MM-DD. Start today or later; every campaign has an end date (a recurring one can use a far-off one). Set it from the window the manager gave, or your stated assumption.',
+          properties: { startDate: { type: 'string' }, endDate: { type: 'string' } },
+          required: ['startDate', 'endDate'],
+        },
         maxAttempts: { type: 'number', description: 'Recurring campaigns: the stopping rule. The most times one customer goes through this campaign (usually 2). After their last time they leave for good, whatever their ending.' },
         afterJourney: {
           type: 'object',
@@ -118,6 +124,12 @@ const BASE_TOOLS: ToolDef[] = [
         entry: { type: 'object', properties: { entity: { type: 'string' }, conditions: { type: 'array', items: CONDITION }, groups: { type: 'array', items: GROUP } }, required: ['entity'] },
         membership: { type: 'object', properties: { type: { type: 'string', enum: ['locked', 'open'] }, refresh: { type: 'string', enum: ['daily', 'weekly', 'monthly'] } }, required: ['type'] },
         everyoneElse: { type: 'object', properties: { approach: { type: 'string', enum: ['journey', 'none'] }, journey: STEPS }, required: ['approach'] },
+        schedule: {
+          type: 'object',
+          description: 'When the campaign runs: startDate and endDate, YYYY-MM-DD. Start today or later; every campaign has an end date (a recurring one can use a far-off one). Set it from the window the manager gave, or your stated assumption.',
+          properties: { startDate: { type: 'string' }, endDate: { type: 'string' } },
+          required: ['startDate', 'endDate'],
+        },
         maxAttempts: { type: 'number', description: 'Recurring campaigns: the stopping rule. The most times one customer goes through this campaign (usually 2). After their last time they leave for good, whatever their ending.' },
         afterJourney: {
           type: 'object',

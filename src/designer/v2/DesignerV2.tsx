@@ -6,10 +6,10 @@
 // that points at the canvas. No stages, no approvals: questions, then the
 // whole campaign in one go, then changes by asking in the chat.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Eye, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Copy, Eye, MoreHorizontal, Trash2, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
 import { apiUrl } from '../api';
-import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, type Stores, type Submission } from './api';
+import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, type Stores, type Submission, type Withdrawal } from './api';
 import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
 import { VersionMenu } from './VersionMenu';
@@ -18,6 +18,7 @@ import { CampaignCanvas } from './CampaignCanvas';
 import { buildCanvasModel, classifyChanges, diffChangedSteps, type CStep } from './canvasModel';
 import { ChatPanel, type Cue } from './ChatPanel';
 import { mergeEvent, plainText } from './logic';
+import { STAGE_LABEL, submittedStage } from './lifecycle';
 import { NodeDrawer } from './NodeDrawer';
 import { QuestionOverlay } from './QuestionOverlay';
 import { FLAG_LABELS, FLAG_ORDER, type AgentState, type CampaignContext, type CampaignObject, type AnswerItem, type Focus, type V2Event, type V2Turn, type VersionEntry } from './types';
@@ -76,6 +77,12 @@ function cancelChatSave() {
   clearTimeout(saveTimer);
 }
 
+/** "20 Nov" (or "20 Nov 2027" outside this year) from "2026-11-20". */
+const fmtShortDay = (d: string) => {
+  const dt = new Date(`${d}T00:00:00Z`);
+  return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(dt.getUTCFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}), timeZone: 'UTC' });
+};
+
 export const newCampaignId = () => `cv-${Date.now().toString(36)}`;
 
 export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { knowledge: KnowledgeBase; tenant: Tenant; sessionId: string; initial: Stored | null; onBack: () => void }) {
@@ -85,12 +92,15 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // The campaign object and its context, as saved on the server for this chat.
   const [stores, setStores] = useState<Stores>({ campaign: null, context: null });
   const [submission, setSubmission] = useState<Submission | null>(null);
+  const [lastWithdrawal, setLastWithdrawal] = useState<Withdrawal | null>(null);
+  const [withdrawing, setWithdrawing] = useState<'ask' | 'busy' | string | null>(null);
   useEffect(() => {
     let live = true;
     fetchStores(sessionId)
-      .then(({ submission: sub, ...st }) => {
+      .then(({ submission: sub, lastWithdrawal: lw, ...st }) => {
         if (!live) return;
         setSubmission(sub);
+        setLastWithdrawal(lw);
         setStores((cur) => (cur.campaign || cur.context ? cur : st));
       })
       .catch(() => {
@@ -408,8 +418,47 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           </span>
         </div>
         {submission && (
-          <span className="cv-submitted" title={`Submitted by ${submission.by}`}>
-            Submitted for execution · {new Date(submission.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {submission.by}
+          <span className={`cv-submitted st-${submittedStage(submission)}`} title={`Submitted by ${submission.by} on ${new Date(submission.at).toLocaleString()}`}>
+            {STAGE_LABEL[submittedStage(submission)]}{submittedStage(submission) === 'submitted' ? ' for execution' : ''}
+            {submission.startDate && submission.endDate ? ` · runs ${fmtShortDay(submission.startDate)} → ${fmtShortDay(submission.endDate)}` : ''} · {submission.by}
+          </span>
+        )}
+        {submission && !viewOnly && (
+          <span className="cv-del-wrap">
+            <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title="Take it back from execution (this is also how to pause it)">
+              Withdraw
+            </button>
+            {withdrawing && (
+              <div className="cv-del-pop" role="dialog" aria-label="Withdraw campaign">
+                <b>Withdraw from execution?</b>
+                <p>This pauses the campaign and makes it editable again. Submit it again to resume.</p>
+                {withdrawing !== 'ask' && withdrawing !== 'busy' && <p className="cv-del-err">{withdrawing}</p>}
+                <div className="cv-del-btns">
+                  <button className="cv-btn" onClick={() => setWithdrawing(null)}>
+                    Cancel
+                  </button>
+                  <button
+                    className="cv-btn primary"
+                    disabled={withdrawing === 'busy'}
+                    onClick={async () => {
+                      setWithdrawing('busy');
+                      const r = await withdrawCampaign(sessionId, tenant.tenantId);
+                      if (!r.ok) return setWithdrawing(r.error ?? 'Could not withdraw.');
+                      setSubmission(null);
+                      setLastWithdrawal(r.withdrawal ?? null);
+                      setWithdrawing(null);
+                    }}
+                  >
+                    {withdrawing === 'busy' ? 'Withdrawing…' : 'Withdraw'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </span>
+        )}
+        {!submission && lastWithdrawal && (
+          <span className="cv-withdrawn" title="Taken back from execution; it can be changed and submitted again">
+            Withdrawn · {new Date(lastWithdrawal.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {lastWithdrawal.by}
           </span>
         )}
         <span
@@ -420,6 +469,19 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         </span>
         <span className="cv-top-gap" />
         {versions.length > 0 && !viewOnly && <VersionMenu versions={versions} viewing={viewing?.v.n ?? null} onView={view} />}
+        {!viewOnly && stores.campaign && (
+          <button
+            className="cv-btn"
+            disabled={busy}
+            title="Make an editable copy to adapt: a new season, audience or channel mix. The original stays as it is."
+            onClick={async () => {
+              const r = await copyCampaign(sessionId, tenant.tenantId);
+              if (r.ok && r.sessionId) window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/designer.html?c=${encodeURIComponent(r.sessionId)}&bank=${encodeURIComponent(tenant.tenantId)}`;
+            }}
+          >
+            <Copy size={14} /> Duplicate
+          </button>
+        )}
         <button className="cv-btn" onClick={() => setActivity((v) => !v)}>
           <MoreHorizontal size={14} /> Activity
         </button>

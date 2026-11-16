@@ -95,6 +95,8 @@ export function campaignBrief(c: CampaignObject, context: CampaignContext | null
     // Written by the campaign's own agent after every build; the description if it has not written one yet.
     summary: noteText(entries, 'campaign brief') ?? c.description ?? null,
     goal: c.goal ? `${c.goal.eventType} (${c.goal.eventCategory})` : null,
+    startDate: c.schedule?.startDate ?? null,
+    endDate: c.schedule?.endDate ?? null,
     success: currentEntries(entries, { kind: 'brief', topic: 'Success' })[0]?.text ?? null,
     membership: membershipText(c),
     ...(c.maxAttempts ? { timesThroughAtMost: c.maxAttempts } : {}),

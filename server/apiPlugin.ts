@@ -291,6 +291,27 @@ export function agentApiPlugin(): Plugin {
             return void (await streamSse(res, gen));
           }
           // The campaign object and context this chat has on file, so the canvas survives a reload.
+          // A new editable draft from an existing campaign.
+          if (url === '/api/campaign/copy' && req.method === 'POST') {
+            const files = await load('campaignFiles.ts');
+            const body = (await readBody(req)) as { sessionId?: string; tenantId?: string };
+            try {
+              return send(res, 200, { ok: true, ...((files.copyCampaign as (s: string, t: string) => object)(String(body.sessionId ?? ''), String(body.tenantId ?? ''))) });
+            } catch (e) {
+              return send(res, 400, { ok: false, error: (e as Error).message });
+            }
+          }
+          // Take a submitted campaign back from execution (also how it is paused).
+          if (url === '/api/campaign/withdraw' && req.method === 'POST') {
+            const files = await load('campaignFiles.ts');
+            const body = (await readBody(req)) as { sessionId?: string; tenantId?: string };
+            try {
+              const w = (files.withdrawCampaign as (s: string, t: string, by: string) => unknown)(String(body.sessionId ?? ''), String(body.tenantId ?? ''), 'the app');
+              return send(res, 200, { ok: true, withdrawal: w });
+            } catch (e) {
+              return send(res, 400, { ok: false, error: (e as Error).message });
+            }
+          }
           if (url === '/api/campaign' && req.method === 'DELETE') {
             const files = await load('campaignFiles.ts');
             const q = new URL(req.url ?? '', 'http://x').searchParams;
@@ -306,7 +327,8 @@ export function agentApiPlugin(): Plugin {
             const sessionId = new URL(req.url ?? '', 'http://x').searchParams.get('sessionId') ?? '';
             try {
               const stores = (files.loadStores as (id: string) => { campaign: unknown; context: unknown })(sessionId);
-              return send(res, 200, { campaign: stores.campaign ?? null, context: stores.context ?? null, submission: (files.loadSubmission as (s: string) => unknown)(sessionId) });
+              const ws = (files.loadWithdrawals as (s: string) => unknown[])(sessionId);
+              return send(res, 200, { campaign: stores.campaign ?? null, context: stores.context ?? null, submission: (files.loadSubmission as (s: string) => unknown)(sessionId), lastWithdrawal: ws[ws.length - 1] ?? null });
             } catch {
               return send(res, 400, { error: 'Not a valid session id.' });
             }

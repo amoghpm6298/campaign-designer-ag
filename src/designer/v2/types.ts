@@ -59,6 +59,7 @@ export interface CampaignObject {
   afterJourney?: Partial<Record<AfterOutcome, number | 'leave'>> | null;
   /** The stopping rule: the most times one customer goes through this campaign. */
   maxAttempts?: number | null;
+  schedule?: { startDate: string; endDate: string } | null;
 }
 
 export type AfterOutcome = 'no_response' | 'not_reachable' | 'declined' | 'converted';
