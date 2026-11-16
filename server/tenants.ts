@@ -74,6 +74,9 @@ const TENANTS: TenantConfig[] = [
       { channel: 'RCS', relativeCost: 2, available: false },
     ],
     bankContextFile: '../agent-proto/context/bank-context.json',
+
+    // Yes Bank mock warehouse (same shape as IndusInd's), used only where the file is present.
+    warehouse: { bank: 'yesbank' },
   },
   {
     // Kept so the template-matching capability can still be demonstrated.
