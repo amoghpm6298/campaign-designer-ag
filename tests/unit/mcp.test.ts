@@ -102,6 +102,18 @@ describe('a campaign through the MCP', () => {
 
     st = await tool('get_campaign', { campaignId: id, waitSeconds: 5 });
     expect(st.data).toMatchObject({ state: 'ready', allowedActions: ['request_changes', 'submit_campaign', 'copy_campaign', 'delete_campaign'] });
+    // details: the full design along with the summary; only when asked for.
+    expect(st.data.details).toBeUndefined();
+    const full = (await tool('get_campaign', { campaignId: id, details: true })).data;
+    expect(full.brief).toBeTruthy();
+    const d = full.details as { goal: unknown; buckets: { name: string; rule: unknown; journey: { kind: string; id?: string }[] }[]; versions: unknown[] };
+    expect(d.goal).toEqual({ eventCategory: 'Transaction Events', eventType: 'Transaction' });
+    expect(d.buckets[0]).toMatchObject({ name: 'Dormant', rule: [{ entity: 'Card', conditions: [] }] });
+    expect(d.buckets[0].journey.map((x) => x.kind)).toEqual(['send', 'wait', 'goalCheck', 'exit']);
+    expect(JSON.stringify(d.buckets[0].journey)).not.toMatch(/"id":/); // internal step ids left out
+    const notes = (full.details as { context: { kind: string; source: string; text: string }[] }).context;
+    expect(Array.isArray(notes)).toBe(true); // the stand-in agent writes no notebook; the shape is checked below
+    expect(notes.every((n) => n.kind !== 'sizing')).toBe(true);
     const brief = st.data.brief as { bucketCount: number; totalMessages: number; buckets: { name: string; journey: string; firstPath: string }[]; membership: string };
     expect(brief).toMatchObject({ bucketCount: 1, totalMessages: 1, membership: 'one-time: the list is fixed at launch' });
     expect(brief.buckets[0].name).toBe('Dormant');
@@ -316,6 +328,27 @@ describe('create_campaign', () => {
     await waitForTurn(id, 2000);
     expect((await tool('start_campaign', { idea: 'old name' })).data.state).toBe('draft');
     expect((await tool('create_campaign', {})).text).toMatch(/brief is required/);
+  });
+});
+
+describe('details: the notebook', () => {
+  it('carries the current notes with their source, and never sizing SQL', async () => {
+    const { campaignDetails } = await import('../../server/mcp/details');
+    const at = '2026-11-16T00:00:00Z';
+    const ctx = { entries: [
+      { id: 'c1', at, kind: 'answer', topic: 'Goal', text: 'Spend', source: 'manager' },
+      { id: 'c2', at, kind: 'brief', topic: 'Timing', text: 'old', source: 'agent' },
+      { id: 'c3', at: '2026-11-16T01:00:00Z', kind: 'brief', topic: 'Timing', text: 'Before 7 Nov', source: 'assumption' },
+      { id: 'c4', at, kind: 'sizing', topic: 'size', bucketId: 'b1', text: '6,943', source: 'data', data: { sql: 'SELECT customer_id FROM customers' } },
+      { id: 'c5', at, kind: 'bucket', topic: 'evidence', bucketId: 'b1', text: 'From data', source: 'data', data: { level: 'measured' } },
+    ] };
+    const d = campaignDetails('cv-x', campaign as never, ctx as never);
+    expect(d.context).toEqual([
+      { kind: 'answer', topic: 'Goal', text: 'Spend', source: 'you said', at },
+      { kind: 'brief', topic: 'Timing', text: 'Before 7 Nov', source: 'assumption', at: '2026-11-16T01:00:00Z' }, // only the current version
+      { kind: 'bucket', topic: 'evidence', bucketId: 'b1', text: 'From data', source: 'from data', evidence: 'measured', at },
+    ]);
+    expect(JSON.stringify(d)).not.toMatch(/SELECT/);
   });
 });
 

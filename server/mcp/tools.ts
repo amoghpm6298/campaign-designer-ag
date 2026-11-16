@@ -8,6 +8,7 @@ import { currentEntries } from '../../src/designer/v2/contextView';
 import type { AnswerItem } from '../../src/designer/v2/types';
 import { isRunning, runningStep, startTurn, waitForTurn, type StoredChat } from './runner';
 import { campaignBrief } from './brief';
+import { campaignDetails } from './details';
 import { submittedStage } from '../../src/designer/v2/lifecycle';
 import { directEdit } from '../agent/directEdit';
 import { daysBetween, longestPathHours, parseSchedule, scheduleText } from '../agent/schedule';
@@ -72,7 +73,15 @@ export const MCP_TOOLS = [
       'Where a campaign is. Every campaign response has state and allowedActions. state is one of: "draft" (being designed: the designer is working, has questions for you, or replied), "ready" (designed and built), "scheduled" / "active" / "ended" (submitted for execution and locked: before, between or after its dates), "deleted". allowedActions lists the only tools you may call next for it (get_campaign, get_link and list_campaigns are always allowed); when it is empty the designer is working, so call again. In draft with questions, they are listed with options and why; when ready or submitted there is a brief (summary, dates, buckets, journeys, assumptions) to tell your human what was built. waitSeconds (up to 50) waits for the designer before answering: poll with it, not in a tight loop. A design usually takes 3-7 minutes.',
     inputSchema: {
       type: 'object',
-      properties: { campaignId: { type: 'string' }, waitSeconds: { type: 'number', description: 'Wait up to this many seconds (max 50) while the agent is working.' } },
+      properties: {
+        campaignId: { type: 'string' },
+        waitSeconds: { type: 'number', description: 'Wait up to this many seconds (max 50) while the agent is working.' },
+        details: {
+          type: 'boolean',
+          description:
+            'true: also return the full design under "details", along with the brief: every setting (goal, entry rules, dates, membership, stopping rule, what happens after the journey), every bucket\'s rule and reasoning, every step of every journey (message copy, CTA, link, channel, timing, waits, goal checks, branches and their paths, A/B arms, endings), the designer\'s notebook (your answers, its notes and assumptions per topic, campaign-level reasoning, research; each with its source), and the version history. Large (often 20-60 KB): use it only when your human wants to inspect or review the design itself, not for routine status checks.',
+        },
+      },
       required: ['campaignId'],
     },
   },
@@ -287,7 +296,12 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       const id = String(args.campaignId ?? '');
       const wait = Math.min(50, Math.max(0, Number(args.waitSeconds) || 0));
       if (wait && isRunning(id)) await waitForTurn(id, wait * 1000);
-      return campaignStatus(caller, id);
+      const st = campaignStatus(caller, id);
+      if (args.details === true && st.state !== 'deleted' && !isRunning(id)) {
+        const stores = loadStores(id);
+        if (stores.campaign) st.details = campaignDetails(id, stores.campaign, stores.context);
+      }
+      return st;
     }
 
     case 'answer_questions': {
