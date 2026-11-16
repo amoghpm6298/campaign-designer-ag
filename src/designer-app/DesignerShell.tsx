@@ -12,6 +12,7 @@ import {
 import { newCampaignId } from '../designer/v2/DesignerV2';
 import { CampaignView, CampaignsHome } from '../designer/v2/CampaignsHome';
 import { KnowledgeBaseView } from '../designer/KnowledgeBaseView';
+import { ReloadPrompt } from './ReloadPrompt';
 import { listTenants, seedKnowledge } from '../designer/api';
 import { loadTenantId, saveTenantId } from '../designer/storage';
 import type { Capabilities, KnowledgeBase, Tenant } from '../designer/types';
@@ -80,6 +81,7 @@ export function DesignerShell() {
 
   return (
     <>
+      <ReloadPrompt />
       {/* THE RAIL \u2014 agent360's `Sidebar`, ported.
           White, 60px collapsed, 256px expanded, with the preference kept.
           It used to be navy, argued for as "the one dark surface, product

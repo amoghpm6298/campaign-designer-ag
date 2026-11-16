@@ -14,6 +14,9 @@ import { dirname } from 'node:path';
 
 /** This file's own directory, so run records land next to the scripted ones. */
 const here = dirname(fileURLToPath(import.meta.url));
+
+/** Changes on every deploy (the server restarts), so an open tab can tell it is running old code. */
+const SERVER_VERSION = String(Date.now());
 import type { Plugin, ViteDevServer } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { passwordGate } from './passwordGate.ts';
@@ -230,6 +233,7 @@ export function agentApiPlugin(): Plugin {
         if (base && url.startsWith(base + '/')) url = url.slice(base.length);
         if (!url.startsWith('/api/')) return next();
         try {
+          if (url === '/api/version') return send(res, 200, { version: SERVER_VERSION });
           // v2: one agent, one prompt, every tool. See server/agent/.
           if (url === '/api/agent/stream' && req.method === 'POST') {
             const agent = await load('agent/loop.ts');
