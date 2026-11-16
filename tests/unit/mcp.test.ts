@@ -216,3 +216,29 @@ describe('the campaign brief', () => {
     expect(systemPrompt(false)).toMatch(/CAMPAIGN BRIEF: add_context kind "note", topic "campaign brief"/);
   });
 });
+
+describe('log in to edit, from a view link', () => {
+  const gate = passwordGate('app-password', '/cd/', 'link-secret-for-tests')!;
+  const get = (url: string, cookie = '') =>
+    new Promise<{ status: number; location?: string; body?: string }>((resolve) => {
+      const headers: Record<string, string> = {};
+      const res = { statusCode: 200, setHeader: (k: string, v: string) => (headers[k.toLowerCase()] = v), end: (b?: string) => resolve({ status: res.statusCode, location: headers.location, body: b }) };
+      void gate({ url, method: 'GET', headers: { cookie } } as never, res as never, () => resolve({ status: 0 }));
+    });
+  const back = '/cd/designer.html?c=cv-a&bank=TEN-IBL';
+  it('shows the password page carrying the campaign to return to', async () => {
+    const r = await get(`/cd/login?next=${encodeURIComponent(back)}`);
+    expect(r.status).toBe(200);
+    expect(r.body).toContain(`name="next" value="${back.replace(/&/g, '&amp;')}"`);
+  });
+  it('sends someone already logged in straight back to the campaign', async () => {
+    const { createHash } = await import('node:crypto');
+    const cookie = `cda_auth=${createHash('sha256').update('campaigndesigneragent:app-password').digest('hex')}`;
+    expect(await get(`/cd/login?next=${encodeURIComponent(back)}`, cookie)).toMatchObject({ status: 303, location: back });
+  });
+  it('never returns anywhere outside the app', async () => {
+    const r = await get(`/cd/login?next=${encodeURIComponent('https://evil.example/x')}`);
+    expect(r.body).toContain('name="next" value="/cd/designer.html"');
+  });
+});
+

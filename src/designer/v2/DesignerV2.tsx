@@ -150,6 +150,12 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // Opened from a signed view link (?view=…): this one campaign, read-only.
   const viewOnly = useMemo(() => new URLSearchParams(location.search).has('view'), []);
   const locked = !!submission || viewOnly;
+  // The password page, then back to this same campaign, editable.
+  const loginToEdit = useMemo(() => {
+    const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+    const back = `${base}/designer.html?c=${encodeURIComponent(sessionId)}&bank=${encodeURIComponent(tenant.tenantId)}`;
+    return `${base}/login?next=${encodeURIComponent(back)}`;
+  }, [sessionId, tenant.tenantId]);
   const viewExpiry = useMemo(() => {
     const exp = Number((new URLSearchParams(location.search).get('view') ?? '').split('.')[0]);
     return exp ? new Date(exp * 1000).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '';
@@ -383,6 +389,9 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           <Eye size={16} />
           <b>View only</b>
           <span>You can look at this campaign but not change it.{viewExpiry ? ` This link works until ${viewExpiry}.` : ''}</span>
+          <a className="cv-viewbar-login" href={loginToEdit}>
+            Log in to edit
+          </a>
         </div>
       )}
       <header className="cv-top">

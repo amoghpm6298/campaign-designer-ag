@@ -17,14 +17,14 @@ const digest = (password: string) => createHash('sha256').update(`campaigndesign
 
 const escape = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
-const page = (action: string, error = '') => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+const page = (action: string, error = '', next = '') => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Campaign Designer</title><style>
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f7f9;font:15px/1.4 system-ui,-apple-system,sans-serif;color:#1d2433}
 form{background:#fff;padding:28px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);width:min(320px,calc(100vw - 32px));display:grid;gap:12px}
 h1{font-size:18px;margin:0 0 4px}input,button{font:inherit;padding:10px 12px;border-radius:8px;border:1px solid #cfd5df}
 button{background:#1d2433;color:#fff;border:0;cursor:pointer}.err{color:#b42318;font-size:13px;margin:0}</style></head>
 <body><form method="post" action="${escape(action)}"><h1>Campaign Designer</h1>
-<input type="password" name="password" placeholder="Password" autofocus required>
+<input type="password" name="password" placeholder="Password" autofocus required>${next ? `<input type="hidden" name="next" value="${escape(next)}">` : ''}
 ${error ? `<p class="err">${escape(error)}</p>` : ''}<button>Enter</button></form></body></html>`;
 
 function readForm(req: IncomingMessage): Promise<URLSearchParams> {
@@ -70,14 +70,28 @@ export function passwordGate(password: string | undefined, base: string, linkSec
   return async (req: IncomingMessage, res: ServerResponse, next: Next) => {
     const url = (req.url ?? '').split('?')[0];
 
+    // "Log in to edit" from a view link: back to the same campaign afterwards (only ever a page of this app).
+    const safeNext = (n: string | null | undefined) => (n && n.startsWith(prefix) && !n.startsWith('//') && !/[\\\r\n]/.test(n) ? n : home);
+    if (url === loginPath && req.method === 'GET') {
+      const next = safeNext(new URL(req.url ?? '', 'http://x').searchParams.get('next'));
+      if (authed(req)) {
+        res.statusCode = 303;
+        res.setHeader('location', next);
+        return res.end();
+      }
+      return html(res, 200, page(loginPath, '', next));
+    }
+
     if (url === loginPath && req.method === 'POST') {
       try {
-        const given = digest((await readForm(req)).get('password') ?? '');
-        if (given !== token) return html(res, 401, page(loginPath, 'Wrong password'));
+        const form = await readForm(req);
+        const next = safeNext(form.get('next'));
+        const given = digest(form.get('password') ?? '');
+        if (given !== token) return html(res, 401, page(loginPath, 'Wrong password', next));
         const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
         res.statusCode = 303;
         res.setHeader('set-cookie', `${COOKIE}=${token}; Path=${prefix}; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE}${secure}`);
-        res.setHeader('location', home);
+        res.setHeader('location', next);
         return res.end();
       } catch (e) {
         return next(e);
