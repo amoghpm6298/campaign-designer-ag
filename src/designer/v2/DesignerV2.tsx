@@ -432,90 +432,6 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             {submission.startDate && submission.endDate ? ` · runs ${fmtShortDay(submission.startDate)} → ${fmtShortDay(submission.endDate)}` : ''} · {submission.by}
           </span>
         )}
-        {submission && !viewOnly && submittedStage(submission) !== 'ended' && (
-          <span className="cv-del-wrap">
-            <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title="Stop it: back to Ready, editable; you can submit it again">
-              {pauseLabel}
-            </button>
-            {withdrawing && (
-              <div className="cv-del-pop cv-pop-left" role="dialog" aria-label={pauseLabel}>
-                <b>{pauseLabel}?</b>
-                <p>It goes back to Ready: editable, and you can submit it again with new dates. Customers' progress is not kept, so it starts fresh next time.</p>
-                {withdrawing !== 'ask' && withdrawing !== 'busy' && <p className="cv-del-err">{withdrawing}</p>}
-                <div className="cv-del-btns">
-                  <button className="cv-btn" onClick={() => setWithdrawing(null)}>
-                    Cancel
-                  </button>
-                  <button
-                    className="cv-btn primary"
-                    disabled={withdrawing === 'busy'}
-                    onClick={async () => {
-                      setWithdrawing('busy');
-                      const r = await withdrawCampaign(sessionId, tenant.tenantId);
-                      if (!r.ok) return setWithdrawing(r.error ?? 'Could not stop it.');
-                      setSubmission(null);
-                      setLastWithdrawal(r.withdrawal ?? null);
-                      setWithdrawing(null);
-                    }}
-                  >
-                    {withdrawing === 'busy' ? 'Working…' : pauseLabel}
-                  </button>
-                </div>
-              </div>
-            )}
-          </span>
-        )}
-        {!submission && !viewOnly && !viewing && (state?.flags.campaignBuilt || lastBuilt) && (
-          <span className="cv-del-wrap">
-            <button
-              className="cv-btn primary"
-              disabled={busy}
-              onClick={() => {
-                setSubStart(stores.campaign?.schedule?.startDate ?? '');
-                setSubEnd(stores.campaign?.schedule?.endDate ?? '');
-                setSubmitting((v) => (v ? null : 'ask'));
-              }}
-            >
-              Submit for execution
-            </button>
-            {submitting && (
-              <div className="cv-del-pop cv-pop-left" role="dialog" aria-label="Submit for execution">
-                <b>Submit for execution</b>
-                <p>Confirm when it runs. Once submitted it is locked; stop it to change it.</p>
-                <div className="cv-pop-dates" style={{ marginTop: 8 }}>
-                  <label>
-                    <span>Starts</span>
-                    <input type="date" value={subStart} min={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })} onChange={(e) => setSubStart(e.target.value)} />
-                  </label>
-                  <label>
-                    <span>Ends</span>
-                    <input type="date" value={subEnd} min={subStart || undefined} onChange={(e) => setSubEnd(e.target.value)} />
-                  </label>
-                </div>
-                {submitting !== 'ask' && submitting !== 'busy' && <p className="cv-del-err" style={{ whiteSpace: 'pre-wrap' }}>{submitting}</p>}
-                <div className="cv-del-btns">
-                  <button className="cv-btn" onClick={() => setSubmitting(null)}>
-                    Cancel
-                  </button>
-                  <button
-                    className="cv-btn primary"
-                    disabled={submitting === 'busy' || !subStart || !subEnd}
-                    onClick={async () => {
-                      setSubmitting('busy');
-                      const r = await submitCampaignApi(sessionId, tenant.tenantId, subStart, subEnd);
-                      if (!r.ok || !r.submission) return setSubmitting(r.error ?? 'Could not submit.');
-                      setSubmission(r.submission);
-                      setSubmitting(null);
-                      fetchStores(sessionId).then(({ campaign, context }) => setStores({ campaign, context }));
-                    }}
-                  >
-                    {submitting === 'busy' ? 'Submitting…' : 'Submit'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </span>
-        )}
         {!submission && lastWithdrawal && (
           <span className="cv-withdrawn" title="Stopped: it can be changed and submitted again">
             Stopped · {new Date(lastWithdrawal.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {lastWithdrawal.by}
@@ -567,7 +483,91 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           )}
         </span>
         )}
-
+        {/* The main action sits last, on the right: Submit for a ready campaign, Stop for a live one. */}
+        {submission && !viewOnly && submittedStage(submission) !== 'ended' && (
+          <span className="cv-del-wrap">
+            <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title="Stop it: back to Ready, editable; you can submit it again">
+              {pauseLabel}
+            </button>
+            {withdrawing && (
+              <div className="cv-del-pop" role="dialog" aria-label={pauseLabel}>
+                <b>{pauseLabel}?</b>
+                <p>It goes back to Ready: editable, and you can submit it again with new dates. Customers' progress is not kept, so it starts fresh next time.</p>
+                {withdrawing !== 'ask' && withdrawing !== 'busy' && <p className="cv-del-err">{withdrawing}</p>}
+                <div className="cv-del-btns">
+                  <button className="cv-btn" onClick={() => setWithdrawing(null)}>
+                    Cancel
+                  </button>
+                  <button
+                    className="cv-btn primary"
+                    disabled={withdrawing === 'busy'}
+                    onClick={async () => {
+                      setWithdrawing('busy');
+                      const r = await withdrawCampaign(sessionId, tenant.tenantId);
+                      if (!r.ok) return setWithdrawing(r.error ?? 'Could not stop it.');
+                      setSubmission(null);
+                      setLastWithdrawal(r.withdrawal ?? null);
+                      setWithdrawing(null);
+                    }}
+                  >
+                    {withdrawing === 'busy' ? 'Working…' : pauseLabel}
+                  </button>
+                </div>
+              </div>
+            )}
+          </span>
+        )}
+        {!submission && !viewOnly && !viewing && (state?.flags.campaignBuilt || lastBuilt) && (
+          <span className="cv-del-wrap">
+            <button
+              className="cv-btn primary"
+              disabled={busy}
+              onClick={() => {
+                setSubStart(stores.campaign?.schedule?.startDate ?? '');
+                setSubEnd(stores.campaign?.schedule?.endDate ?? '');
+                setSubmitting((v) => (v ? null : 'ask'));
+              }}
+            >
+              Submit for execution
+            </button>
+            {submitting && (
+              <div className="cv-del-pop" role="dialog" aria-label="Submit for execution">
+                <b>Submit for execution</b>
+                <p>Confirm when it runs. Once submitted it is locked; stop it to change it.</p>
+                <div className="cv-pop-dates" style={{ marginTop: 8 }}>
+                  <label>
+                    <span>Starts</span>
+                    <input type="date" value={subStart} min={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })} onChange={(e) => setSubStart(e.target.value)} />
+                  </label>
+                  <label>
+                    <span>Ends</span>
+                    <input type="date" value={subEnd} min={subStart || undefined} onChange={(e) => setSubEnd(e.target.value)} />
+                  </label>
+                </div>
+                {submitting !== 'ask' && submitting !== 'busy' && <p className="cv-del-err" style={{ whiteSpace: 'pre-wrap' }}>{submitting}</p>}
+                <div className="cv-del-btns">
+                  <button className="cv-btn" onClick={() => setSubmitting(null)}>
+                    Cancel
+                  </button>
+                  <button
+                    className="cv-btn primary"
+                    disabled={submitting === 'busy' || !subStart || !subEnd}
+                    onClick={async () => {
+                      setSubmitting('busy');
+                      const r = await submitCampaignApi(sessionId, tenant.tenantId, subStart, subEnd);
+                      if (!r.ok || !r.submission) return setSubmitting(r.error ?? 'Could not submit.');
+                      setSubmission(r.submission);
+                      setSubmitting(null);
+                      fetchStores(sessionId).then(({ campaign, context }) => setStores({ campaign, context }));
+                    }}
+                  >
+                    {submitting === 'busy' ? 'Submitting…' : 'Submit'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </span>
+        )}
       </header>
 
       <div className="cv-main">
