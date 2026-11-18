@@ -148,7 +148,7 @@ export const NODE_W: Record<CNodeKind, number> = {
   holdout: 240,
   send: 300,
   goalcheck: 176,
-  wait: 150,
+  wait: 220,
   waitForEvent: 250,
   branch: 220,
   experiment: 250,
@@ -173,7 +173,8 @@ export const NODE_H: Record<CNodeKind, number> = {
 };
 
 /** Kinds drawn as fixed shapes (their height never comes from measuring). */
-export const FIXED_SHAPES: CNodeKind[] = ['holdout', 'goalcheck', 'wait', 'waitForEvent', 'branch', 'experiment', 'condition', 'exit'];
+// Waits are boxes that grow when their AI rationale is opened, so they are measured.
+export const FIXED_SHAPES: CNodeKind[] = ['holdout', 'goalcheck', 'branch', 'experiment', 'condition', 'exit'];
 
 const LANE_GAP = 90;
 const ENTRY_GAP = 110;

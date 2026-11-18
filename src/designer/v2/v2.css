@@ -485,9 +485,13 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-why-row { margin-bottom: 6px; }
 .cv-why-row span { display: block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #7a52d1; }
 .cv-why-row p { margin: 1px 0 0; color: var(--neutral-900, #101828); }
-.cv-why-pill { position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; border: 1px solid #ddd6fe; background: #faf8ff; color: #6d48c7; font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap; cursor: pointer; }
-.cv-why-pill:hover, .cv-why-pill.on { background: #ede7ff; border-color: #c4b5fd; }
-.cv-chip-node { position: relative; }
+.cv-why-link { margin-top: 3px; display: inline-flex; align-items: center; gap: 2px; padding: 0; border: 0; background: none; font: inherit; font-size: 10.5px; font-weight: 600; color: #6d48c7; cursor: pointer; }
+.cv-why-link:hover, .cv-why-link.on { text-decoration: underline; }
+/* A wait is a box: its length, and its AI rationale on demand. */
+.cv-wait-box { height: auto; min-height: 38px; flex-direction: column; align-items: stretch; justify-content: center; padding: 8px 12px; }
+.cv-wait-row { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.cv-wait-box .cv-step-why { margin-top: 4px; align-self: center; font-size: 11px; }
+.cv-wait-box .cv-why-body { text-align: left; font-weight: 400; font-size: 11.5px; }
 .cv-why-panel { width: 290px; background: #fff; border: 1px solid #e4e7ec; border-radius: 10px; box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12); padding: 10px 12px 8px; }
 .cv-why-panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .cv-why-panel header b { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: #6d48c7; }
@@ -495,3 +499,4 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-pop-why { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; background: #faf8ff; border: 1px solid #ede7ff; }
 .cv-pop-why > b { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: #6d48c7; }
 .cv-pop-why .cv-why-body { margin-top: 3px; }
+.cv-why-hint { margin: 2px 0 0; font-size: 11px; font-style: italic; color: var(--gray-500); }

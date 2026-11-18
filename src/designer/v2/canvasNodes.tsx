@@ -167,7 +167,8 @@ function resolveCardLink(st: CStep, ch: string, links: BankLink[] | undefined, f
 
 /** Whether a step has any reasoning to show. */
 export function hasRationale(st: CStep | undefined): boolean {
-  return !!st && !!(stepRationale(st) || st.hypothesis?.trim() || st.successMetric?.trim());
+  // An A/B test always shows it: one that doesn't say what it tests is worth seeing too.
+  return !!st && (st.kind === 'experiment' || !!(stepRationale(st) || st.hypothesis?.trim() || st.successMetric?.trim()));
 }
 
 /** The designer's reasoning for a step: its AI rationale; for an experiment, what it tests and how the winner is judged. */
@@ -194,6 +195,7 @@ export function RationaleBody({ st }: { st: CStep }) {
         </>
       )}
       {why && <p className="cv-why-text">{why}</p>}
+      {st.kind === 'experiment' && !st.hypothesis?.trim() && !st.successMetric?.trim() && <p className="cv-why-hint">The designer hasn't written these for this test. Ask it in the chat to add them.</p>}
     </div>
   );
 }
@@ -229,16 +231,16 @@ function RationalePill({ st }: { st: CStep }) {
     <>
       <button
         type="button"
-        className={`cv-why-pill nodrag nopan${open ? ' on' : ''}`}
+        className={`cv-why-link nodrag nopan${open ? ' on' : ''}`}
         title="Why the designer put this here"
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
       >
-        <Sparkles size={11} /> AI rationale
+        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />} AI rationale
       </button>
-      <NodeToolbar isVisible={open && !api?.editingId} position={Position.Right} offset={110} className="nodrag nopan nowheel">
+      <NodeToolbar isVisible={open && !api?.editingId} position={Position.Right} offset={12} className="nodrag nopan nowheel">
         <div className="cv-why-panel" onClick={(e) => e.stopPropagation()}>
           <header>
             <b>
@@ -493,43 +495,50 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
       break;
     case 'wait':
       body = (
-        <div className={`cv-chip-node cv-wait${data.changed ? ' cv-shape-changed' : ''}`} style={{ width: data.width, height: data.height }}>
-          <Icon name="clock" />
-          <span>{fmtWait(waitHours(st))}</span>
-          <RationalePill st={st} />
+        <div className={`cv-chip-node cv-wait cv-wait-box${data.changed ? ' cv-shape-changed' : ''}`} style={{ width: data.width }}>
+          <div className="cv-wait-row">
+            <Icon name="clock" />
+            <span>{fmtWait(waitHours(st))}</span>
+          </div>
+          <RationaleToggle st={st} />
         </div>
       );
       break;
     case 'waitForEvent':
       body = (
-        <div className={`cv-chip-node cv-wait${data.changed ? ' cv-shape-changed' : ''}`} style={{ width: data.width, height: data.height }}>
-          <Icon name="bolt" />
-          <span>
-            Until {(st as { eventType?: string }).eventType ?? 'the event'}
-            {st.timeoutDays ? ` · up to ${st.timeoutDays} days` : ''}
-          </span>
-          <RationalePill st={st} />
+        <div className={`cv-chip-node cv-wait cv-wait-box${data.changed ? ' cv-shape-changed' : ''}`} style={{ width: data.width }}>
+          <div className="cv-wait-row">
+            <Icon name="bolt" />
+            <span>
+              Until {(st as { eventType?: string }).eventType ?? 'the event'}
+              {st.timeoutDays ? ` · up to ${st.timeoutDays} days` : ''}
+            </span>
+          </div>
+          <RationaleToggle st={st} />
         </div>
       );
       break;
     case 'branch':
       body = (
-        <Diamond data={data} color="#c98a12" fill="#fffaf0" icon="split3" kind="Branch" aside={<RationalePill st={st} />}>
+        <Diamond data={data} color="#c98a12" fill="#fffaf0" icon="split3" kind="Branch">
           <div className="cv-shape-label">{st.label || 'What did they do with the last message?'}</div>
+          <RationalePill st={st} />
         </Diamond>
       );
       break;
     case 'experiment':
       body = (
-        <Hexagon data={data} color="#7a52d1" fill="#f9f6ff" icon="flask" kind="A/B test" aside={<RationalePill st={st} />}>
+        <Hexagon data={data} color="#7a52d1" fill="#f9f6ff" icon="flask" kind="A/B test">
           <div className="cv-shape-label">{st.label || 'Which version works better?'}</div>
+          <RationalePill st={st} />
         </Hexagon>
       );
       break;
     case 'condition':
       body = (
-        <Diamond data={data} color="#c98a12" fill="#fffaf0" icon="split2" kind="Condition" aside={<RationalePill st={st} />}>
+        <Diamond data={data} color="#c98a12" fill="#fffaf0" icon="split2" kind="Condition">
           <div className="cv-shape-label">{st.label || 'Condition'}</div>
+          <RationalePill st={st} />
         </Diamond>
       );
       break;
