@@ -4,12 +4,12 @@
 // preview.
 import { createContext, useContext, useState } from 'react';
 import { Handle, NodeToolbar, Position } from '@xyflow/react';
-import { ChevronDown, ChevronRight, Pencil, Play } from 'lucide-react';
+import { ChevronDown, ChevronRight, Pencil, Play, Sparkles } from 'lucide-react';
 import type { SizingRun } from './api';
 import type { BankLink } from '../LinksSection';
 import { assembleSms, smsLength } from './smsText';
 import { Icon } from '../../components/icons';
-import { CHANNEL_LABEL, OUTCOME_LABEL, afterText, fmtTime, fmtWait, sendTitle, sendWhen, waitHours, type CNodeData, type CStep } from './canvasModel';
+import { CHANNEL_LABEL, OUTCOME_LABEL, afterText, fmtTime, fmtWait, sendTitle, sendWhen, stepRationale, waitHours, type CNodeData, type CStep } from './canvasModel';
 
 const CHANNEL_ICON: Record<string, string> = { WHATSAPP: 'whatsapp', SMS: 'sms', EMAIL: 'mail', RCS: 'rcs', PUSH: 'message' };
 
@@ -165,6 +165,96 @@ function resolveCardLink(st: CStep, ch: string, links: BankLink[] | undefined, f
   return { link: l };
 }
 
+/** Whether a step has any reasoning to show. */
+export function hasRationale(st: CStep | undefined): boolean {
+  return !!st && !!(stepRationale(st) || st.hypothesis?.trim() || st.successMetric?.trim());
+}
+
+/** The designer's reasoning for a step: its AI rationale; for an experiment, what it tests and how the winner is judged. */
+export function RationaleBody({ st }: { st: CStep }) {
+  const why = stepRationale(st);
+  return (
+    <div className="cv-why-body">
+      {st.kind === 'experiment' && (
+        <>
+          <div className="cv-why-row">
+            <span>Testing</span>
+            <p>{st.hypothesis?.trim() || <i>Not stated yet</i>}</p>
+          </div>
+          <div className="cv-why-row">
+            <span>Winner judged by</span>
+            <p>{st.successMetric?.trim() || <i>Not stated yet</i>}</p>
+          </div>
+          {!!st.arms?.length && (
+            <div className="cv-why-row">
+              <span>Arms</span>
+              <p>{st.arms.map((a) => `${a.label ?? 'Arm'} ${a.pct ?? 0}%`).join(' · ')}</p>
+            </div>
+          )}
+        </>
+      )}
+      {why && <p className="cv-why-text">{why}</p>}
+    </div>
+  );
+}
+
+/** Inside a card: a collapsed "AI rationale" toggle. */
+function RationaleToggle({ st }: { st: CStep }) {
+  const [open, setOpen] = useState(false);
+  if (!hasRationale(st)) return null;
+  return (
+    <>
+      <button
+        type="button"
+        className="cv-bucket-why cv-step-why nodrag nopan"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+      >
+        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />} AI rationale
+      </button>
+      {open && <RationaleBody st={st} />}
+    </>
+  );
+}
+
+/** Beside a drawn shape (wait, test, branch, condition): an "AI rationale" pill that opens a panel next to it. */
+function RationalePill({ st }: { st: CStep }) {
+  const [open, setOpen] = useState(false);
+  const api = useContext(EditContext);
+  if (!hasRationale(st)) return null;
+  return (
+    <>
+      <button
+        type="button"
+        className={`cv-why-pill nodrag nopan${open ? ' on' : ''}`}
+        title="Why the designer put this here"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+      >
+        <Sparkles size={11} /> AI rationale
+      </button>
+      <NodeToolbar isVisible={open && !api?.editingId} position={Position.Right} offset={110} className="nodrag nopan nowheel">
+        <div className="cv-why-panel" onClick={(e) => e.stopPropagation()}>
+          <header>
+            <b>
+              <Sparkles size={12} /> AI rationale
+            </b>
+            <button className="cv-icon-btn" onClick={() => setOpen(false)} aria-label="Close">
+              ×
+            </button>
+          </header>
+          <RationaleBody st={st} />
+        </div>
+      </NodeToolbar>
+    </>
+  );
+}
+
 function SendCard({ data }: { data: CdNodeData }) {
   const st = data.step as CStep;
   const ch = (st.channelPreference ?? [])[0] ?? 'SMS';
@@ -194,6 +284,7 @@ function SendCard({ data }: { data: CdNodeData }) {
           <span>{CHANNEL_LABEL[fb] ?? fb} if not delivered</span>
         </div>
       )}
+      <RationaleToggle st={st} />
     </Card>
   );
 }
@@ -270,7 +361,7 @@ function rounded(points: [number, number][], r: number): string {
 }
 
 /** A decision, drawn as a soft diamond so it reads as a question from far away. */
-function Diamond({ data, color, fill, icon, kind, children }: { data: CdNodeData; color: string; fill: string; icon: string; kind: string; children: React.ReactNode }) {
+function Diamond({ data, color, fill, icon, kind, children, aside }: { data: CdNodeData; color: string; fill: string; icon: string; kind: string; children: React.ReactNode; aside?: React.ReactNode }) {
   const w = data.width;
   const h = data.height ?? 110;
   return (
@@ -285,12 +376,13 @@ function Diamond({ data, color, fill, icon, kind, children }: { data: CdNodeData
         </span>
         {children}
       </div>
+      {aside}
     </div>
   );
 }
 
 /** A split (experiment or holdout), drawn as a hexagon: it divides people, it doesn't ask a question. */
-function Hexagon({ data, color, fill, icon, kind, children }: { data: CdNodeData; color: string; fill: string; icon: string; kind: string; children: React.ReactNode }) {
+function Hexagon({ data, color, fill, icon, kind, children, aside }: { data: CdNodeData; color: string; fill: string; icon: string; kind: string; children: React.ReactNode; aside?: React.ReactNode }) {
   const w = data.width;
   const h = data.height ?? 70;
   const c = h / 2.4;
@@ -306,6 +398,7 @@ function Hexagon({ data, color, fill, icon, kind, children }: { data: CdNodeData
         </span>
         {children}
       </div>
+      {aside}
     </div>
   );
 }
@@ -403,6 +496,7 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
         <div className={`cv-chip-node cv-wait${data.changed ? ' cv-shape-changed' : ''}`} style={{ width: data.width, height: data.height }}>
           <Icon name="clock" />
           <span>{fmtWait(waitHours(st))}</span>
+          <RationalePill st={st} />
         </div>
       );
       break;
@@ -414,26 +508,27 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
             Until {(st as { eventType?: string }).eventType ?? 'the event'}
             {st.timeoutDays ? ` · up to ${st.timeoutDays} days` : ''}
           </span>
+          <RationalePill st={st} />
         </div>
       );
       break;
     case 'branch':
       body = (
-        <Diamond data={data} color="#c98a12" fill="#fffaf0" icon="split3" kind="Branch">
+        <Diamond data={data} color="#c98a12" fill="#fffaf0" icon="split3" kind="Branch" aside={<RationalePill st={st} />}>
           <div className="cv-shape-label">{st.label || 'What did they do with the last message?'}</div>
         </Diamond>
       );
       break;
     case 'experiment':
       body = (
-        <Hexagon data={data} color="#7a52d1" fill="#f9f6ff" icon="flask" kind="A/B test">
+        <Hexagon data={data} color="#7a52d1" fill="#f9f6ff" icon="flask" kind="A/B test" aside={<RationalePill st={st} />}>
           <div className="cv-shape-label">{st.label || 'Which version works better?'}</div>
         </Hexagon>
       );
       break;
     case 'condition':
       body = (
-        <Diamond data={data} color="#c98a12" fill="#fffaf0" icon="split2" kind="Condition">
+        <Diamond data={data} color="#c98a12" fill="#fffaf0" icon="split2" kind="Condition" aside={<RationalePill st={st} />}>
           <div className="cv-shape-label">{st.label || 'Condition'}</div>
         </Diamond>
       );

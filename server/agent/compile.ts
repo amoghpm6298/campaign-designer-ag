@@ -201,6 +201,24 @@ function goalCheckGaps(list: BpStep[] | null | undefined, where: string, out: st
 }
 
 /**
+ * The reviewer's view of the reasoning: every experiment says what it tests and
+ * how the winner is judged; every send, condition and branch has an AI rationale.
+ * Waits are not checked (one short line, nice to have).
+ */
+function rationaleGaps(list: BpStep[] | null | undefined, where: string, out: string[]): void {
+  const missing: string[] = [];
+  walkSteps(list, (st) => {
+    const s = st as unknown as Record<string, unknown>;
+    const has = (k: string) => typeof s[k] === 'string' && (s[k] as string).trim() !== '';
+    if (s.kind === 'experiment') {
+      const lack = ['hypothesis', 'successMetric'].filter((k) => !has(k));
+      if (lack.length) out.push(`${where}: the experiment "${stepName(s)}" has no ${lack.join(' and no ')}. Say what it is trying to learn (hypothesis) and how the winner is judged (successMetric), with edit_journey.`);
+    } else if ((s.kind === 'send' || s.kind === 'condition' || s.kind === 'branch') && !has('rationale')) missing.push(`"${stepName(s)}"`);
+  });
+  if (missing.length) out.push(`${where}: no rationale on ${missing.join(', ')}. Give each one its AI rationale (why this step, here, like this) with edit_journey.`);
+}
+
+/**
  * Design decisions still open about how customers leave and what happens next.
  * With `since`, only the journeys changed since then are looked at, so a small
  * edit is not turned into a redesign of every bucket's endings.
@@ -211,10 +229,12 @@ export function endingGaps(campaign: CampaignObject, since?: CampaignObject): st
   for (const b of campaign.buckets)
     if (b.journey?.length && touched(b.id, b.journey)) {
       endingGapsIn(b.journey, `Bucket "${b.name}"`, out);
+      rationaleGaps(b.journey, `Bucket "${b.name}"`, out);
       if (campaign.goal) goalCheckGaps(b.journey, `Bucket "${b.name}"`, out);
     }
   if (campaign.everyoneElse?.approach === 'journey' && campaign.everyoneElse.journey?.length && (!since || since.everyoneElse?.journey !== campaign.everyoneElse.journey)) {
     endingGapsIn(campaign.everyoneElse.journey, 'Everyone else', out);
+    rationaleGaps(campaign.everyoneElse.journey, 'Everyone else', out);
     if (campaign.goal) goalCheckGaps(campaign.everyoneElse.journey, 'Everyone else', out);
   }
   const shapeChanged = !since || since.membership !== campaign.membership || !since.buckets.some((b) => b.journey?.length);

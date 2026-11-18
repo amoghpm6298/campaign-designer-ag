@@ -144,7 +144,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'create_bucket',
     title: 'Creating a bucket',
     description:
-      'Create ONE new bucket in the CAMPAIGN OBJECT, saved straight to file: id (short slug, new), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0 unless the manager explicitly asked for a holdout), journey (this bucket\'s own steps). Its reasoning (behaviour, rationale, evidence, metric) and sizing go in the context with add_context.',
+      'Create ONE new bucket in the CAMPAIGN OBJECT, saved straight to file: id (short slug, new), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0 unless the manager explicitly asked for a holdout), journey (this bucket\'s own steps, each with its AI rationale; each experiment with its hypothesis and successMetric). Its reasoning (behaviour, rationale, evidence, metric) and sizing go in the context with add_context.',
     input_schema: {
       type: 'object',
       properties: {
@@ -163,7 +163,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'edit_bucket',
     title: 'Editing a bucket',
     description:
-      'Change or remove ONE bucket in the CAMPAIGN OBJECT, saved straight to file. Execution fields only: id (short slug), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0 unless the manager explicitly asked for a holdout: a share of the bucket that gets no messages, to measure lift), journey (this bucket\'s own steps). Match by id; when changing, send only what changes. remove: true deletes it. The bucket\'s reasoning (behaviour, rationale, evidence, metric) and its sizing go in the context with add_context. For a small change to a journey use edit_journey.',
+      'Change or remove ONE bucket in the CAMPAIGN OBJECT, saved straight to file. Execution fields only: id (short slug), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0 unless the manager explicitly asked for a holdout: a share of the bucket that gets no messages, to measure lift), journey (this bucket\'s own steps, each with its AI rationale; each experiment with its hypothesis and successMetric). Match by id; when changing, send only what changes. remove: true deletes it. The bucket\'s reasoning (behaviour, rationale, evidence, metric) and its sizing go in the context with add_context. For a small change to a journey use edit_journey.',
     input_schema: {
       type: 'object',
       properties: {
@@ -252,7 +252,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'edit_journey',
     title: 'Editing a journey',
     description:
-      'Change ONE bucket\'s journey precisely, saved straight to file, without rewriting it: a list of operations, each {op: "replace" | "insert_after" | "insert_before" | "remove", path, step}. path is the step\'s address from get_campaign (e.g. "2", "1.arms.0.steps.3", "4.paths.1.steps.0", "4.otherwise.0"). step is a full step for replace/insert. Use bucketId "everyone_else" for the everyone-else journey. Leave every other step as it is. Rebuild afterwards.',
+      'Change ONE bucket\'s journey precisely, saved straight to file, without rewriting it (keep each changed step\'s rationale, or an experiment\'s hypothesis and successMetric, true to the new version): a list of operations, each {op: "replace" | "insert_after" | "insert_before" | "remove", path, step}. path is the step\'s address from get_campaign (e.g. "2", "1.arms.0.steps.3", "4.paths.1.steps.0", "4.otherwise.0"). step is a full step for replace/insert. Use bucketId "everyone_else" for the everyone-else journey. Leave every other step as it is. Rebuild afterwards.',
     input_schema: {
       type: 'object',
       properties: {

@@ -19,7 +19,7 @@ import { buildCanvasModel } from '../../src/designer/v2/canvasModel';
 import type { CampaignObject } from '../../server/agent/types';
 
 const env = (): ToolEnv => ({ tenant: resolveTenant('TEN-YES')!, availableChannels: ['SMS', 'WHATSAPP', 'EMAIL'], goalStatement: 'x', sessionId: 's1', lookupCache: new Map() });
-const send = (name: string, ch = 'WHATSAPP') => ({ kind: 'send', name, stage: 'first-touch', describe: name, objective: ['activation'], channelPreference: [ch] });
+const send = (name: string, ch = 'WHATSAPP') => ({ kind: 'send', name, stage: 'first-touch', describe: name, rationale: `why ${name}`, objective: ['activation'], channelPreference: [ch] });
 const exit = (outcome?: string, reason = 'End') => ({ kind: 'exit', reason, ...(outcome ? { outcome } : {}) });
 /** The response window after a last message. */
 const win = { kind: 'wait', durationHours: 96 };
@@ -34,6 +34,7 @@ const designed = (otherwise?: unknown[]) =>
     gc,
     {
       kind: 'branch',
+      rationale: 'why split',
       label: 'Did they read it?',
       paths: [
         { label: 'Read', statuses: ['READ'], steps: [send('Different argument'), win, gc, exit('no_response')] },
@@ -106,14 +107,14 @@ describe('endings', () => {
   });
 
   it('names every path that stops without saying how the customer left', () => {
-    const j = [send('First'), { kind: 'branch', label: 'Read?', paths: [{ label: 'Read', statuses: ['READ'], steps: [send('R')] }], otherwise: [exit('not_reachable')] }, exit()] as unknown as BpStep[];
+    const j = [send('First'), { kind: 'branch', rationale: 'why split', label: 'Read?', paths: [{ label: 'Read', statuses: ['READ'], steps: [send('R')] }], otherwise: [exit('not_reachable')] }, exit()] as unknown as BpStep[];
     const gaps = endingGaps(campaign(j)).join(' | ');
     expect(gaps).toMatch(/the exit "End" does not say how the customer left/);
     expect(endingGaps(campaign([send('Only')] as unknown as BpStep[])).join(' ')).toMatch(/ends after "Only"/);
   });
 
   it('a trailing exit with an outcome closes every arm still open above it', () => {
-    const j = [send('First'), { kind: 'branch', label: 'Read?', paths: [{ label: 'Read', statuses: ['READ'], steps: [send('R'), win] }, { label: 'Not read', statuses: ['DELIVERED'], steps: [send('N', 'SMS'), win] }], otherwise: [exit('not_reachable')] }, exit('no_response')] as unknown as BpStep[];
+    const j = [send('First'), { kind: 'branch', rationale: 'why split', label: 'Read?', paths: [{ label: 'Read', statuses: ['READ'], steps: [send('R'), win] }, { label: 'Not read', statuses: ['DELIVERED'], steps: [send('N', 'SMS'), win] }], otherwise: [exit('not_reachable')] }, exit('no_response')] as unknown as BpStep[];
     expect(endingGaps(campaign(j))).toEqual([]);
   });
 
@@ -127,7 +128,7 @@ describe('endings', () => {
     // a wait with no goal check after it is the agent's to fix
     expect(endingGaps(campaign([send('Only'), win, exit('no_response')] as unknown as BpStep[])).join(' ')).toMatch(/no goal check/);
     // a fork arm ending on a send, flowing into the trailing exit
-    const j = [send('First'), { kind: 'branch', label: 'Read?', paths: [{ label: 'Read', statuses: ['READ'], steps: [send('R')] }], otherwise: [exit('not_reachable')] }, exit('no_response')] as unknown as BpStep[];
+    const j = [send('First'), { kind: 'branch', rationale: 'why split', label: 'Read?', paths: [{ label: 'Read', statuses: ['READ'], steps: [send('R')] }], otherwise: [exit('not_reachable')] }, exit('no_response')] as unknown as BpStep[];
     expect(endingGaps(campaign(j)).join(' ')).toMatch(/arm|path "Read".*straight after "R"/);
     // the "Anything else" retry: email → exit is flagged, email → wait → exit is not
     expect(endingGaps(campaign(designed([send('Email try', 'EMAIL'), exit('not_reachable')]))).join(' ')).toMatch(/Anything else.*straight after "Email try"/);
@@ -321,3 +322,26 @@ describe('campaign dates', () => {
   });
 });
 
+
+describe('AI rationale on every step', () => {
+  const camp = (journey: unknown[]): CampaignObject => ({ goal: null, entry: null, membership: { type: 'locked' }, buckets: [{ id: 'b', name: 'B', priority: 1, rule: [], journey: journey as BpStep[] }], everyoneElse: null }) as unknown as CampaignObject;
+  it('an experiment must say what it tests and how the winner is judged', () => {
+    const arm = (l: string) => ({ label: l, pct: 50, steps: [send(l), win, gc, exit('no_response')] });
+    const bare = endingGaps(camp([{ kind: 'experiment', name: 'Framing test', tests: 'wording', arms: [arm('A'), arm('B')] }]));
+    expect(bare.join('\n')).toMatch(/"Framing test" has no hypothesis and no successMetric/);
+    const full = endingGaps(camp([{ kind: 'experiment', name: 'Framing test', tests: 'wording', hypothesis: 'h', successMetric: 'm', arms: [arm('A'), arm('B')] }]));
+    expect(full.join('\n')).not.toMatch(/hypothesis|rationale/);
+  });
+  it('sends, conditions and branches need a rationale; waits do not', () => {
+    const { rationale: _r, ...noWhy } = send('Plain');
+    void _r;
+    const gaps = endingGaps(camp([noWhy, { kind: 'wait', durationHours: 48 }, gc, exit('no_response')]));
+    expect(gaps.join('\n')).toMatch(/no rationale on "Plain"/);
+    expect(gaps.join('\n')).not.toMatch(/wait/);
+  });
+  it('a change to the reasoning alone is not a design change', () => {
+    const a = camp([{ ...send('S'), id: 's1' }, { ...win, id: 'w1' }, { ...gc, id: 'g1' }, { ...exit('no_response'), id: 'e1' }]);
+    const b = camp([{ ...send('S'), id: 's1', rationale: 'a better reason' }, { ...win, id: 'w1', rationale: 'four days' }, { ...gc, id: 'g1' }, { ...exit('no_response'), id: 'e1' }]);
+    expect(diffCampaigns(a, b).counts).toEqual({ added: 0, changed: 0, removed: 0 });
+  });
+});

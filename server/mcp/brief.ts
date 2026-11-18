@@ -27,14 +27,14 @@ const days = (hours: number) => {
 };
 
 /** Every message, wait and ending on a journey, including its forks. */
-function walk(steps: BpStep[] | null | undefined, acc: { sends: Step[]; waits: number[]; forks: string[]; endings: Set<string>; tests: number }) {
+function walk(steps: BpStep[] | null | undefined, acc: { sends: Step[]; waits: number[]; forks: string[]; endings: Set<string>; tests: Step[] }) {
   for (const raw of (steps ?? []) as unknown as Step[]) {
     const k = raw.kind;
     if (k === 'send') acc.sends.push(raw);
     else if (k === 'wait') acc.waits.push(Number(raw.durationHours) || 0);
     else if (k === 'exit' && typeof raw.outcome === 'string') acc.endings.add(OUTCOME[raw.outcome] ?? raw.outcome);
     if (k === 'branch' || k === 'condition') acc.forks.push(forkName(raw));
-    if (k === 'experiment') acc.tests++;
+    if (k === 'experiment') acc.tests.push(raw);
     for (const a of (raw.arms as { steps?: BpStep[] }[] | undefined) ?? []) walk(a.steps, acc);
     for (const p of (raw.paths as { steps?: BpStep[] }[] | undefined) ?? []) walk(p.steps, acc);
     walk(raw.otherwise as BpStep[] | undefined, acc);
@@ -67,17 +67,33 @@ function mainLine(steps: BpStep[] | null | undefined): string {
   return out.join(' → ').replace(/ → \[/g, ' → [').replace(/\] → /g, '] ');
 }
 
-export function journeyInWords(steps: BpStep[] | null | undefined): { messages: number; channels: string[]; inWords: string; firstPath: string } {
-  const acc = { sends: [] as Step[], waits: [] as number[], forks: [] as string[], endings: new Set<string>(), tests: 0 };
+/** An A/B test for a reader: its arms, what it is trying to learn and how the winner is judged. */
+export interface TestInWords {
+  name: string;
+  arms: string[];
+  hypothesis: string | null;
+  successMetric: string | null;
+}
+
+const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+export function journeyInWords(steps: BpStep[] | null | undefined): { messages: number; channels: string[]; inWords: string; firstPath: string; tests: TestInWords[] } {
+  const acc = { sends: [] as Step[], waits: [] as number[], forks: [] as string[], endings: new Set<string>(), tests: [] as Step[] };
   walk(steps, acc);
   const channels = [...new Set(acc.sends.map((s) => CHANNEL[(s.channelPreference as string[] | undefined)?.[0] ?? ''] ?? 'message'))];
   const parts = [
     `${acc.sends.length} message${acc.sends.length === 1 ? '' : 's'}${channels.length ? ` (${channels.join(', ')})` : ''} across its paths`,
     acc.forks.length ? `splits ${acc.forks.length === 1 ? 'once' : `${acc.forks.length} times`} on what customers did (e.g. ${acc.forks[0]})` : 'one straight path',
-    acc.tests ? `${acc.tests} A/B test${acc.tests === 1 ? '' : 's'}` : '',
+    acc.tests.length ? `${acc.tests.length} A/B test${acc.tests.length === 1 ? '' : 's'}` : '',
     acc.endings.size ? `customers who don't convert end as: ${[...acc.endings].join(', ')}` : '',
   ].filter(Boolean);
-  return { messages: acc.sends.length, channels, inWords: `${parts.join('; ')}.`, firstPath: mainLine(steps) };
+  const tests = acc.tests.map((t) => ({
+    name: str(t.name) ?? str(t.label) ?? 'A/B test',
+    arms: ((t.arms as { label?: string; pct?: number }[] | undefined) ?? []).map((a) => `${a.label ?? 'arm'}${typeof a.pct === 'number' ? ` ${a.pct}%` : ''}`),
+    hypothesis: str(t.hypothesis),
+    successMetric: str(t.successMetric),
+  }));
+  return { messages: acc.sends.length, channels, inWords: `${parts.join('; ')}.`, firstPath: mainLine(steps), tests };
 }
 
 const membershipText = (c: CampaignObject) =>
@@ -112,6 +128,8 @@ export function campaignBrief(c: CampaignObject, context: CampaignContext | null
       ...(b.holdoutPct ? { heldBackPct: b.holdoutPct } : {}),
       journey: journeys[i].inWords,
       firstPath: journeys[i].firstPath,
+      // What each A/B test is for: arms, what it tries to learn, how the winner is judged.
+      ...(journeys[i].tests.length ? { tests: journeys[i].tests } : {}),
     })),
     everyoneElse:
       ee?.approach === 'journey' ? `customers in no bucket get their own journey: ${journeyInWords(ee.journey).inWords}` : 'customers in no bucket get no messages',

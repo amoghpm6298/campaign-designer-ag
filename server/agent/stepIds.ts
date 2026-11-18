@@ -28,7 +28,11 @@ export function walkSteps(steps: BpStep[] | null | undefined, fn: (step: Rec, pa
  * %, statuses) — changing a split is a change to the A/B test itself.
  */
 export function ownSignature(s: Rec): string {
-  const { id: _id, arms, paths, yes: _y, no: _n, otherwise: _o, ...own } = s;
+  // The reasoning (rationale, hypothesis, successMetric) is not part of what a step does.
+  const { id: _id, arms, paths, yes: _y, no: _n, otherwise: _o, rationale: _r, hypothesis: _h, successMetric: _m, ...own } = s;
+  void _r;
+  void _h;
+  void _m;
   void _o;
   void _id;
   void _y;

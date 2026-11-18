@@ -46,7 +46,7 @@ function fieldChanges(o: Record<string, unknown>, n: Record<string, unknown>): s
     outcome: (v) => (v ? String(v).replace('_', ' ') : 'none'),
   };
   const words: Record<string, string> = { link: 'link', channelPreference: 'channel', fallbackChannel: 'fallback', durationHours: 'wait', delayDays: 'timing', atTime: 'time', copy: 'copy', cta: 'CTA wording', name: 'name', label: 'label', arms: 'split', paths: 'paths' };
-  const keys = [...new Set([...Object.keys(o), ...Object.keys(n)])].filter((k) => !['id', 'yes', 'no', 'otherwise', 'describe', 'objective', 'stage'].includes(k));
+  const keys = [...new Set([...Object.keys(o), ...Object.keys(n)])].filter((k) => !['id', 'yes', 'no', 'otherwise', 'describe', 'objective', 'stage', 'rationale', 'hypothesis', 'successMetric'].includes(k));
   const out: string[] = [];
   for (const k of keys) {
     const a = k === 'arms' || k === 'paths' ? JSON.stringify(((o[k] as Record<string, unknown>[]) ?? []).map(({ steps: _s, ...r }) => (void _s, r))) : JSON.stringify(o[k]);

@@ -2,9 +2,9 @@
 // clear-cut numbers (saved instantly, no agent), suggestion chips, and a text
 // box whose request goes to the agent pointed at this box.
 import { useState } from 'react';
-import { ArrowUp, Loader2, X } from 'lucide-react';
+import { ArrowUp, Loader2, Sparkles, X } from 'lucide-react';
 import { OUTCOME_LABEL, fmtWait, sendTitle, waitHours, type CStep } from './canvasModel';
-import type { CdNodeData } from './canvasNodes';
+import { RationaleBody, hasRationale, type CdNodeData } from './canvasNodes';
 import type { AfterOutcome, CampaignObject } from './types';
 
 export type DirectOp =
@@ -237,6 +237,14 @@ export function EditPopover({
           <X size={15} />
         </button>
       </header>
+      {data.step && hasRationale(st) && (
+        <div className="cv-pop-why">
+          <b>
+            <Sparkles size={12} /> Why it's like this (AI rationale)
+          </b>
+          <RationaleBody st={st} />
+        </div>
+      )}
       <div className="cv-pop-compose">
         <textarea
           autoFocus

@@ -28,10 +28,20 @@ export type CNodeKind =
   | 'exit';
 
 /** A journey step as the canvas reads it: optional-everything, it parses a payload. */
+/** A step's AI rationale; steps saved before it existed fall back to their describe (sends and waits). */
+export function stepRationale(st: CStep): string | undefined {
+  return st.rationale?.trim() || ((st.kind === 'send' || st.kind === 'wait') && st.describe?.trim()) || undefined;
+}
+
 export interface CStep {
   kind?: string;
   name?: string;
   describe?: string;
+  /** The designer's AI rationale for this step (for the reviewer; never executed). */
+  rationale?: string;
+  /** Experiment: what it is trying to learn, and how the winner is judged. */
+  hypothesis?: string;
+  successMetric?: string;
   copy?: string;
   cta?: string;
   stage?: string;
@@ -344,7 +354,11 @@ export type ChangeMap = Map<string, 'target' | 'knock'>;
 
 /** A step's own content (without its id or nested steps, with its arms'/paths' own settings). */
 function ownSig(st: CStep): string {
-  const { arms, paths, yes: _y, no: _n, otherwise: _o, id: _id, ...own } = st;
+  // A change to the reasoning alone doesn't light up the canvas.
+  const { arms, paths, yes: _y, no: _n, otherwise: _o, id: _id, rationale: _r, hypothesis: _h, successMetric: _m, ...own } = st;
+  void _r;
+  void _h;
+  void _m;
   void _o;
   void _y;
   void _n;

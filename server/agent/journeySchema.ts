@@ -31,6 +31,14 @@ export const STEP_DEF = {
       enum: ['send', 'wait', 'goalCheck', 'waitForEvent', 'exit', 'experiment', 'condition', 'branch'],
       description: 'goalCheck: everyone who has reached the campaign goal leaves here as converted; the rest continue. No other fields.',
     },
+    // reasoning (every kind): read by the canvas and the reviewer, never by the engine
+    rationale: {
+      type: 'string',
+      description:
+        'Your AI rationale for this step, for the person reviewing the campaign: why this step, here, like this. Send: why this angle and copy for this bucket at this point, what it builds on from the previous message, and the evidence (numbers exactly as queried, or say it is your judgement). Wait: why this length, one short line. Condition or branch: why split here and what each route is for. Specific to this bucket and step, never generic.',
+    },
+    hypothesis: { type: 'string', description: 'Experiment only, required: what the test is trying to learn, e.g. "If rewards framing beats benefits framing, lapsed spenders respond to value already earned, and later messages should lead with it."' },
+    successMetric: { type: 'string', description: 'Experiment only, required: how the winner is judged: the metric compared between arms and over what window, e.g. "share of each arm that transacts within 7 days of the first message". Until the campaign runs, the result is unknown.' },
     // send
     name: { type: 'string' },
     objective: { type: 'array', items: { type: 'string' } },
@@ -46,7 +54,6 @@ export const STEP_DEF = {
     fallbackChannel: { type: 'string', description: 'Leave unset: delivery fallback is a bank-wide setting. Set it only when the manager asks for an exception on this message.' },
     // wait
     durationHours: { type: 'number', description: 'Wait steps only, and required for them: how long to wait, in HOURS (48 = 2 days). Do not use delayDays on a wait.' },
-    why: { type: 'string' },
     // waitForEvent
     eventCategory: { type: 'string' },
     eventType: { type: 'string' },

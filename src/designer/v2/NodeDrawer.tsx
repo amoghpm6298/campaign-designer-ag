@@ -1,7 +1,7 @@
 // Clicking a message on the canvas: what the customer sees, when, on which
 // channel, and why the agent put it there.
 import { X } from 'lucide-react';
-import { CHANNEL_LABEL, sendTitle, sendWhen, type CStep } from './canvasModel';
+import { CHANNEL_LABEL, sendTitle, sendWhen, stepRationale, type CStep } from './canvasModel';
 import type { BankLink } from '../LinksSection';
 
 export function NodeDrawer({ step, path, bucketName, links, smsFallback, onClose }: { step: CStep; path?: string; bucketName: string; links?: BankLink[]; smsFallback?: boolean; onClose: () => void }) {
@@ -42,10 +42,10 @@ export function NodeDrawer({ step, path, bucketName, links, smsFallback, onClose
                 : ''}
           </dd>
         </div>
-        {step.describe && (
+        {stepRationale(step) && (
           <div>
-            <dt>Why this message</dt>
-            <dd>{step.describe}</dd>
+            <dt>AI rationale</dt>
+            <dd>{stepRationale(step)}</dd>
           </div>
         )}
         <div>
