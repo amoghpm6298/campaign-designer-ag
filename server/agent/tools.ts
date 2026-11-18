@@ -144,7 +144,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'create_bucket',
     title: 'Creating a bucket',
     description:
-      'Create ONE new bucket in the CAMPAIGN OBJECT, saved straight to file: id (short slug, new), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0 unless the manager explicitly asked for a holdout), journey (this bucket\'s own steps). Its reasoning (behaviour, thesis, evidence, metric) and sizing go in the context with add_context.',
+      'Create ONE new bucket in the CAMPAIGN OBJECT, saved straight to file: id (short slug, new), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0 unless the manager explicitly asked for a holdout), journey (this bucket\'s own steps). Its reasoning (behaviour, rationale, evidence, metric) and sizing go in the context with add_context.',
     input_schema: {
       type: 'object',
       properties: {
@@ -163,7 +163,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'edit_bucket',
     title: 'Editing a bucket',
     description:
-      'Change or remove ONE bucket in the CAMPAIGN OBJECT, saved straight to file. Execution fields only: id (short slug), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0 unless the manager explicitly asked for a holdout: a share of the bucket that gets no messages, to measure lift), journey (this bucket\'s own steps). Match by id; when changing, send only what changes. remove: true deletes it. The bucket\'s reasoning (behaviour, thesis, evidence, metric) and its sizing go in the context with add_context. For a small change to a journey use edit_journey.',
+      'Change or remove ONE bucket in the CAMPAIGN OBJECT, saved straight to file. Execution fields only: id (short slug), name, priority (lower is checked first; first match wins, so buckets are mutually exclusive), rule (ANDed entity blocks the engine evaluates, using real attributes from list_audience_attributes), holdoutPct (0 unless the manager explicitly asked for a holdout: a share of the bucket that gets no messages, to measure lift), journey (this bucket\'s own steps). Match by id; when changing, send only what changes. remove: true deletes it. The bucket\'s reasoning (behaviour, rationale, evidence, metric) and its sizing go in the context with add_context. For a small change to a journey use edit_journey.',
     input_schema: {
       type: 'object',
       properties: {
@@ -206,7 +206,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'add_context',
     title: 'Adding to the context',
     description:
-      'Add entries to the CAMPAIGN CONTEXT, saved straight to file. Nothing is overwritten: a newer entry on the same kind + bucket + topic becomes the current one and the old one is kept as history. Each entry: {kind, topic, bucketId?, text, source: "manager" | "data" | "assumption" | "agent", data?}. Kinds: "brief" (what you concluded or assumed, topic = aspect such as Goal, Success, Incentive, Timing, Guardrails, Membership); "bucket" (with bucketId; topic "behaviour" = plain-language definition, "thesis" = why stuck and the lever, "evidence" with data {level: "measured" | "manager" | "hypothesis"} and the numbers or quotes as text, "metric"); "sizing" (with bucketId, topic "size", data {sql}: warehouse only, a SELECT returning the bucket\'s customer_id values; the app counts it); "research" (what the data showed); "note" (campaign-level reasoning, topic "segmentation", "measurement", "guardrails" or "everyone_else"; and "campaign brief", the whole campaign in a few plain sentences, rewritten after every build). The manager\'s answers are filed by the app as kind "answer".',
+      'Add entries to the CAMPAIGN CONTEXT, saved straight to file. Nothing is overwritten: a newer entry on the same kind + bucket + topic becomes the current one and the old one is kept as history. Each entry: {kind, topic, bucketId?, text, source: "manager" | "data" | "assumption" | "agent", data?}. Kinds: "brief" (what you concluded or assumed, topic = aspect such as Goal, Success, Incentive, Timing, Guardrails, Membership); "bucket" (with bucketId; topic "behaviour" = plain-language definition, "rationale" = your AI rationale: why stuck and the lever, with what it rests on, "evidence" with data {level: "measured" | "manager" | "hypothesis"} and the numbers or quotes as text, "metric"); "sizing" (with bucketId, topic "size", data {sql}: warehouse only, a SELECT returning the bucket\'s customer_id values; the app counts it); "research" (what the data showed); "note" (campaign-level reasoning, topic "segmentation", "measurement", "guardrails" or "everyone_else"; and "campaign brief", the whole campaign in a few plain sentences, rewritten after every build). The manager\'s answers are filed by the app as kind "answer".',
     input_schema: {
       type: 'object',
       properties: {
@@ -491,7 +491,7 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
         doneTitle: `${isNew ? 'Added' : 'Updated'} bucket "${b.name}"`,
         summary: [b.journey?.length ? `${b.journey.length}-step journey` : 'no journey yet', b.holdoutPct ? `${b.holdoutPct}% holdout` : ''].filter(Boolean).join(' · '),
         result: { id: b.id, name: b.name, priority: b.priority, rule: b.rule, holdoutPct: b.holdoutPct, journeySteps: b.journey?.length ?? 0 },
-        forModel: `Saved. ${res.said} Buckets now: ${res.state.campaign.buckets.map((x) => `${x.priority}. ${x.id}${x.journey?.length ? ' [journey]' : ''}`).join('; ')}.${isNew ? ' File its reasoning (behaviour, thesis, evidence, metric) with add_context.' : ''}`,
+        forModel: `Saved. ${res.said} Buckets now: ${res.state.campaign.buckets.map((x) => `${x.priority}. ${x.id}${x.journey?.length ? ' [journey]' : ''}`).join('; ')}.${isNew ? ' File its reasoning (behaviour, rationale, evidence, metric) with add_context.' : ''}`,
       };
     }
 

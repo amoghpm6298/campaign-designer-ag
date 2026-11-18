@@ -4,7 +4,8 @@
 // preview.
 import { createContext, useContext, useState } from 'react';
 import { Handle, NodeToolbar, Position } from '@xyflow/react';
-import { ChevronDown, ChevronRight, Pencil } from 'lucide-react';
+import { ChevronDown, ChevronRight, Pencil, Play } from 'lucide-react';
+import type { SizingRun } from './api';
 import type { BankLink } from '../LinksSection';
 import { assembleSms, smsLength } from './smsText';
 import { Icon } from '../../components/icons';
@@ -226,7 +227,7 @@ function BucketCard({ data }: { data: CdNodeData }) {
         {size}
         {b.holdoutPct ? ` · ${b.holdoutPct}% held back to measure` : ''}
       </div>
-      {info.thesis && (
+      {info.rationale && (
         <>
           <button
             type="button"
@@ -237,11 +238,12 @@ function BucketCard({ data }: { data: CdNodeData }) {
               setWhy((v) => !v);
             }}
           >
-            {why ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Why they're stuck
+            {why ? <ChevronDown size={13} /> : <ChevronRight size={13} />} AI rationale
           </button>
-          {why && <p className="cv-bucket-p">{info.thesis}</p>}
+          {why && <p className="cv-bucket-p">{info.rationale}</p>}
         </>
       )}
+      {info.sql && <BucketSql bucketId={b.id} sql={info.sql} />}
       {!b.journey?.length && <div className="cv-bucket-pending">Journey not designed yet</div>}
     </div>
   );
@@ -469,6 +471,70 @@ export interface EditApi {
   renderPopover: (nodeId: string, data: CdNodeData) => React.ReactNode;
 }
 export const EditContext = createContext<EditApi | null>(null);
+/** Runs a bucket's saved sizing query again; null where it can't (view-only links). */
+export const SizingContext = createContext<((bucketId: string) => Promise<SizingRun>) | null>(null);
+
+/** The SQL that sized a bucket, and a button to run it again now. */
+function BucketSql({ bucketId, sql }: { bucketId: string; sql: string }) {
+  const run = useContext(SizingContext);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<SizingRun | null>(null);
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  return (
+    <>
+      <button type="button" className="cv-bucket-why nodrag nopan" aria-expanded={open} onClick={(e) => (stop(e), setOpen((v) => !v))}>
+        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />} SQL query
+      </button>
+      {open && (
+        <div className="cv-sql nodrag nopan nowheel" onClick={stop}>
+          <pre className="cv-sql-code">{sql.trim()}</pre>
+          {run && (
+            <button
+              type="button"
+              className="cv-sql-run"
+              disabled={busy}
+              onClick={async (e) => {
+                stop(e);
+                setBusy(true);
+                setRes(await run(bucketId));
+                setBusy(false);
+              }}
+            >
+              <Play size={11} strokeWidth={2.5} /> {busy ? 'Running…' : res ? 'Run again' : 'Run SQL'}
+            </button>
+          )}
+          {res && !res.ok && <div className="cv-sql-err">{res.error}</div>}
+          {res?.ok && (
+            <div className="cv-sql-res">
+              <div className="cv-sql-count">
+                <b>{(res.size ?? 0).toLocaleString('en-IN')} customers</b> now
+                {typeof res.savedSize === 'number' && (res.savedSize === res.size ? ' · matches the saved size' : ` · saved size was ${res.savedSize.toLocaleString('en-IN')}`)}
+                {` · ${res.ms} ms`}
+                {res.dataAsOf ? ` · data up to ${res.dataAsOf}` : ''}
+              </div>
+              {!!res.rows?.length && (
+                <div className="cv-sql-table">
+                  <table>
+                    <thead>
+                      <tr>{res.columns!.map((c) => <th key={c}>{c}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {res.rows.map((r, i) => (
+                        <tr key={i}>{res.columns!.map((c) => <td key={c}>{String(r[c] ?? '')}</td>)}</tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="cv-sql-note">First {res.rows.length} of {(res.size ?? 0).toLocaleString('en-IN')}</div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
 
 /** Every box: the drawn shape, an edit pencil on hover, and the edit popover beside it when focused. */
 export function CdNode({ id, data }: { id: string; data: CdNodeData }) {

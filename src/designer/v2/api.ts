@@ -113,6 +113,25 @@ export async function withdrawCampaign(sessionId: string, tenantId: string): Pro
   return (await res.json().catch(() => ({ ok: false, error: 'Could not reach the server.' }))) as { ok: boolean; withdrawal?: Withdrawal; error?: string };
 }
 
+/** A bucket's saved sizing query, run again now against the bank's warehouse. */
+export interface SizingRun {
+  ok: boolean;
+  error?: string;
+  sql?: string;
+  size?: number;
+  savedSize?: number | null;
+  columns?: string[];
+  rows?: Record<string, unknown>[];
+  ms?: number;
+  dataAsOf?: string | null;
+}
+
+export async function runBucketSizing(sessionId: string, tenantId: string, bucketId: string): Promise<SizingRun> {
+  const q = new URLSearchParams({ sessionId, tenantId, bucketId });
+  const res = await fetch(apiUrl(`/api/campaign/sizing?${q}`)).catch(() => null);
+  return ((await res?.json().catch(() => null)) ?? { ok: false, error: 'Could not reach the server.' }) as SizingRun;
+}
+
 /** The campaign object and its context, as this chat has them on file on the server. */
 export async function fetchStores(sessionId: string): Promise<Stores & { submission: Submission | null; lastWithdrawal: Withdrawal | null }> {
   const res = await fetch(apiUrl(`/api/campaign?sessionId=${encodeURIComponent(sessionId)}`));

@@ -344,6 +344,13 @@ export function agentApiPlugin(): Plugin {
               return send(res, 400, { error: 'Not a valid session id.' });
             }
           }
+          // Run a bucket's saved sizing query again, now, against the bank's warehouse.
+          if (url.startsWith('/api/campaign/sizing') && req.method === 'GET') {
+            const s = await load('sizingRun.ts');
+            const q = new URL(req.url ?? '', 'http://x').searchParams;
+            const r = (s.runBucketSizing as (a: string, b: string, c: string) => { ok: boolean })(q.get('sessionId') ?? '', q.get('tenantId') ?? '', q.get('bucketId') ?? '');
+            return send(res, r.ok ? 200 : 400, r);
+          }
           // Bank-wide delivery settings (e.g. SMS when WhatsApp is not delivered).
           if (url === '/api/bank-settings') {
             const B = await load('bankSettings.ts');

@@ -6,7 +6,8 @@ import { Background, BaseEdge, Controls, EdgeLabelRenderer, getSmoothStepPath, M
 import '@xyflow/react/dist/style.css';
 import '../../canvas/dripCanvas.css';
 import { buildCanvasModel, FIXED_SHAPES, NODE_H, type CNodeKind } from './canvasModel';
-import { cdNodeTypes, EditContext, type CdNodeData, type EditApi } from './canvasNodes';
+import { cdNodeTypes, EditContext, SizingContext, type CdNodeData, type EditApi } from './canvasNodes';
+import type { SizingRun } from './api';
 import type { ChangeMap } from './canvasModel';
 import type { BankLink } from '../LinksSection';
 import type { CampaignContext, CampaignObject } from './types';
@@ -57,6 +58,8 @@ interface Props {
   onOpenNode?: (id: string) => void;
   /** Point-and-edit: which box is being edited, and the hooks every box uses. */
   edit?: EditApi;
+  /** Runs a bucket's saved sizing query again (absent: no Run button, e.g. view-only links). */
+  runSizing?: (bucketId: string) => Promise<SizingRun>;
   onPaneClick?: () => void;
   /** The issuer's name, shown as the sender in message previews. */
   bankName?: string;
@@ -221,11 +224,13 @@ function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClic
 export function CampaignCanvas(props: Props) {
   return (
     <div className={`cv-canvas dc-graph-wrap${props.edit?.editingId ? ' cv-focus-mode' : ''}`}>
+      <SizingContext.Provider value={props.runSizing ?? null}>
       <EditContext.Provider value={props.edit ?? null}>
       <ReactFlowProvider>
         <Inner {...props} />
       </ReactFlowProvider>
       </EditContext.Provider>
+      </SizingContext.Provider>
     </div>
   );
 }

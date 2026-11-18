@@ -37,7 +37,7 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
     journey) and everyone else. `get_campaign`, `edit_campaign`, `edit_bucket`,
     `edit_journey`, `build_campaign`. Only these mark a build stale.
   - the **campaign context** is everything that supports it: answers (filed by
-    the app), brief, each bucket's behaviour / thesis / evidence / metric,
+    the app), brief, each bucket's behaviour / rationale (the AI rationale) / evidence / metric,
     sizing, research, notes, later metrics. Append-only: the latest entry per
     kind + bucket + topic is current, and history is kept, so it can keep being
     enriched. `get_context`, `add_context`.

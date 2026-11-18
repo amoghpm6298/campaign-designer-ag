@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Copy, Eye, MoreHorizontal, Trash2, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
 import { apiUrl } from '../api';
-import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, submitCampaignApi, type Stores, type Submission, type Withdrawal } from './api';
+import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, submitCampaignApi, runBucketSizing, type Stores, type Submission, type Withdrawal } from './api';
 import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
 import { VersionMenu } from './VersionMenu';
@@ -580,6 +580,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               focus={focus}
               onOpenNode={setDrawerId}
               edit={locked ? undefined : editApi}
+              runSizing={viewOnly ? undefined : (bucketId) => runBucketSizing(sessionId, tenant.tenantId, bucketId)}
               onPaneClick={() => setEditing(null)}
               bankName={(tenant.issuer || tenant.displayName).replace(/\s*\(.*?\)\s*/g, '').trim()}
               links={links}

@@ -106,7 +106,7 @@ export function campaignBrief(c: CampaignObject, context: CampaignContext | null
       checked: i + 1,
       name: b.name,
       who: views[b.id]?.behaviour ?? null,
-      whyStuck: views[b.id]?.thesis ?? null,
+      aiRationale: views[b.id]?.rationale ?? null,
       evidence: views[b.id]?.evidence ?? 'hypothesis',
       size: typeof views[b.id]?.size === 'number' ? views[b.id]!.size : 'unknown',
       ...(b.holdoutPct ? { heldBackPct: b.holdoutPct } : {}),

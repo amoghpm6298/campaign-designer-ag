@@ -462,3 +462,18 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-state.st-draft { background: #fffaeb; color: #b54708; border-color: #fedf89; }
 .cv-state.st-ready { background: #ecfdf3; color: #027a48; border-color: #abefc6; }
 .cv-del-pop.cv-pop-left { left: 0; right: auto; }
+
+/* A bucket's sizing SQL, and running it again. */
+.cv-sql { margin-top: 6px; cursor: default; }
+.cv-sql-code { margin: 0; max-height: 150px; overflow: auto; padding: 8px 9px; border-radius: 6px; background: #f3f4f6; color: #1f2937; font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; user-select: text; }
+.cv-sql-run { margin-top: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 0; border-radius: 6px; background: #1d4ed8; color: #fff; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.cv-sql-run:disabled { opacity: 0.6; cursor: wait; }
+.cv-sql-err { margin-top: 6px; font-size: 11.5px; color: var(--error-text, #b42318); }
+.cv-sql-res { margin-top: 6px; }
+.cv-sql-count { font-size: 11.5px; color: var(--gray-600); }
+.cv-sql-count b { color: var(--neutral-900, #101828); }
+.cv-sql-table { margin-top: 6px; max-height: 180px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 6px; user-select: text; }
+.cv-sql-table table { border-collapse: collapse; font-size: 10.5px; width: 100%; }
+.cv-sql-table th, .cv-sql-table td { padding: 3px 6px; text-align: left; white-space: nowrap; border-bottom: 1px solid #f0f1f3; }
+.cv-sql-table th { position: sticky; top: 0; background: #f9fafb; font-weight: 600; color: var(--gray-600); }
+.cv-sql-note { padding: 4px 6px; font-size: 10.5px; color: var(--gray-500); }

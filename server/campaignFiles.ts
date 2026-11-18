@@ -135,7 +135,7 @@ export function splitLegacy(file: LegacyFile): { campaign: CampaignObject; conte
   if (shell?.everyoneElse?.why) add({ kind: 'note', topic: 'everyone_else', text: shell.everyoneElse.why, source: 'agent' });
   const buckets: CampaignBucket[] = (pf.buckets ?? []).map((b) => {
     if (b.behaviour) add({ kind: 'bucket', bucketId: b.id, topic: 'behaviour', text: b.behaviour, source: 'agent' });
-    if (b.thesis) add({ kind: 'bucket', bucketId: b.id, topic: 'thesis', text: b.thesis, source: 'agent' });
+    if (b.thesis) add({ kind: 'bucket', bucketId: b.id, topic: 'rationale', text: b.thesis, source: 'agent' });
     if (b.evidence || b.evidenceNotes) add({ kind: 'bucket', bucketId: b.id, topic: 'evidence', text: b.evidenceNotes ?? '', source: 'agent', data: { level: b.evidence ?? 'hypothesis' } });
     if (b.metric) add({ kind: 'bucket', bucketId: b.id, topic: 'metric', text: b.metric, source: 'agent' });
     if (b.sql || b.size !== undefined || b.sizeError)

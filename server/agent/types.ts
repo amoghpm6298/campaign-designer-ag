@@ -104,7 +104,7 @@ export type AfterJourney = Partial<Record<AfterOutcome, number | 'leave'>>;
 /**
  * answer: the manager's answer to a question (filed by the app). brief: what the
  * agent concluded or assumed, by aspect. bucket: a bucket's reasoning (topic
- * behaviour / thesis / evidence / metric). sizing: a bucket's size from the
+ * behaviour / rationale / evidence / metric). sizing: a bucket's size from the
  * warehouse. research: what the data showed. note: campaign-level reasoning
  * (segmentation, measurement, guardrails, everyone else). metric: results later.
  */

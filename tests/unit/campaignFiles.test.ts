@@ -91,7 +91,7 @@ describe('the two files', () => {
     expect(campaign!.buckets[0].journey!.every((st) => typeof (st as { id?: string }).id === 'string')).toBe(true);
     expect(campaign!.everyoneElse).toEqual({ approach: 'none' });
     const v = bucketContext(context!.entries).b1;
-    expect(v).toMatchObject({ behaviour: 'New', thesis: 'Busy', evidence: 'hypothesis', metric: 'Activations', size: 42, sql: 'SELECT 1' });
+    expect(v).toMatchObject({ behaviour: 'New', rationale: 'Busy', evidence: 'hypothesis', metric: 'Activations', size: 42, sql: 'SELECT 1' });
     expect(currentEntries(context!.entries, { kind: 'note', topic: 'segmentation' })[0].text).toBe('By recency');
     expect(splitLegacy({}).campaign.buckets).toEqual([]);
   });
@@ -128,7 +128,7 @@ describe('the context', () => {
   });
 
   it('gives each bucket its reasoning for the cards', () => {
-    expect(bucketContext(built().context.entries).fresh).toMatchObject({ behaviour: 'Issued in the last 7 days', thesis: 'Has not got round to it', evidence: 'hypothesis' });
+    expect(bucketContext(built().context.entries).fresh).toMatchObject({ behaviour: 'Issued in the last 7 days', rationale: 'Has not got round to it', evidence: 'hypothesis' });
   });
 });
 

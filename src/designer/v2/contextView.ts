@@ -45,7 +45,8 @@ export type EvidenceLevel = 'measured' | 'manager' | 'hypothesis';
 
 export interface BucketView {
   behaviour?: string;
-  thesis?: string;
+  /** The AI rationale: why these customers are stuck and the lever (the agent's reasoning, not a fact). */
+  rationale?: string;
   evidence?: EvidenceLevel;
   evidenceNotes?: string;
   metric?: string;
@@ -63,7 +64,7 @@ export function bucketContext(entries: ContextEntryLike[]): Record<string, Bucke
     const topic = e.topic.trim().toLowerCase();
     if (e.kind === 'bucket') {
       if (topic === 'behaviour' || topic === 'behavior') v.behaviour = e.text;
-      else if (topic === 'thesis') v.thesis = e.text;
+      else if (topic === 'rationale' || topic === 'thesis') v.rationale = e.text; // "thesis": campaigns before the rename
       else if (topic === 'metric') v.metric = e.text;
       else if (topic === 'evidence') {
         const level = e.data?.level;

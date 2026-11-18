@@ -35,7 +35,7 @@ export function campaignDetails(sessionId: string, c: CampaignObject, context: C
           holdoutPct: b.holdoutPct ?? 0,
           reasoning: {
             who: v.behaviour ?? null,
-            whyStuck: v.thesis ?? null,
+            aiRationale: v.rationale ?? null,
             evidence: v.evidence ?? 'hypothesis',
             evidenceNotes: v.evidenceNotes ?? null,
             metric: v.metric ?? null,
