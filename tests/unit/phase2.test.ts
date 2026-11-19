@@ -199,7 +199,10 @@ describe('version history shows what each change did to the cost', () => {
     expect(directEdit('cv-p2v', 'TEN-YES', { op: 'costAssumption', bucketId: 'lapsed', stepId: 's-offer', which: 'redeem', expected: 30, few: 10 }).ok).toBe(true);
     const vs = listVersions('cv-p2v');
     const last = vs[vs.length - 1];
-    expect(last.costChange).toBe('As expected ₹18k → ₹36k');
+    // Take-up 15% → 30% doubles the expected cost (₹18k → ₹36k with the bank's data; ₹9k → ₹18k per 1,000 without it).
+    const m = /^As expected ₹(\d+)k → ₹(\d+)k$/.exec(last.costChange ?? '');
+    expect(m).not.toBeNull();
+    expect(Number(m![2])).toBe(2 * Number(m![1]));
     expect(vs.some((v) => /Offer budget cap: no cap → ₹4,00,000/.test(v.summary))).toBe(true);
   });
 });
