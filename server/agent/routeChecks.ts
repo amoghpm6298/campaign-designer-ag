@@ -6,7 +6,7 @@ import type { CampaignContext, CampaignObject } from './types';
 import type { BpStep } from '../blueprint';
 import type { TenantConfig } from '../tenants';
 import { signalsFor } from '../signals';
-import { bucketContext } from '../../src/designer/v2/contextView';
+import { bucketContext, currentEntries } from '../../src/designer/v2/contextView';
 import type { CostReport } from '../costModel';
 
 export const MAX_SWITCH_DEPTH = 2;
@@ -45,6 +45,11 @@ export function routeProblems(campaign: CampaignObject, context: CampaignContext
           for (const r of sizes)
             if (r.size != null && r.size < min)
               out.push(`${name}: route "${r.label}" has ${r.size.toLocaleString('en-IN')} customers, below the ${min.toLocaleString('en-IN')} needed to measure it. Merge it into another route or into everyone else.`);
+          // The campaign strategy must describe the split as it is built.
+          const strategy = currentEntries(context?.entries ?? [], { kind: 'note', topic: 'campaign strategy' })[0]?.text ?? '';
+          const words = [String(st.signal), String(st.signal).replace(/_/g, ' '), ...paths.map((p) => String(p.label ?? ''))].filter((w) => w.length > 2).map((w) => w.toLowerCase());
+          if (strategy && !words.some((w) => strategy.toLowerCase().includes(w)))
+            out.push(`${name}: your campaign strategy doesn't describe this split (by ${String(st.signal).replace(/_/g, ' ')}). Rewrite the bucket's section so it matches what is built.`);
           paths.forEach((p) => walk(p.steps as BpStep[], depth + 1));
           walk(st.otherwise as BpStep[] | undefined, depth + 1);
           continue;

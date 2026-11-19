@@ -516,7 +516,7 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-spendline:hover { background: #fbeef4; }
 .cv-spendline-h { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #be185d; margin-bottom: 2px; }
 .cv-spendline-cap { display: block; font-size: 11px; color: var(--gray-500); margin-top: 2px; }
-.cv-est { border: 1px solid #f2a7c9; background: #fdf7fa; color: #be185d; border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.cv-est { white-space: nowrap; flex: none; border: 1px solid #f2a7c9; background: #fdf7fa; color: #be185d; border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .cv-cost { width: 460px; }
 .cv-cost-body { padding: 4px 16px 16px; overflow: auto; }
 .cv-cost-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--gray-600); margin: 14px 0 4px; }

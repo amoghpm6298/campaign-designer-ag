@@ -96,6 +96,14 @@ describe('route checks', () => {
     const c2 = camp(inner(3));
     expect(routeProblems(c2, ctx(), YES, cost(c2)).join(' ')).toMatch(/at most 2 deep/);
   });
+  it('a split the campaign strategy does not describe is flagged', () => {
+    const c = camp([sw([{ label: 'Electronics', operator: 'Equals', value: 'electronics', steps: tail('el') }])]);
+    const plain = ctx();
+    (plain.entries as { topic: string; text: string }[]).find((e) => e.topic === 'campaign strategy')!.text = 'Occasional: messages only.';
+    expect(routeProblems(c, plain, YES, cost(c)).join(' ')).toMatch(/doesn't describe this split \(by top category\)/);
+    expect(routeProblems(c, ctx(), YES, cost(c)).join(' ')).not.toMatch(/doesn't describe this split/);
+  });
+
   it.runIf(hasYes)('a route too small to measure is flagged', () => {
     const c = camp([sw([{ label: 'Others', operator: 'Equals', value: 'others', steps: tail('o') }])]);
     expect(routeProblems(c, ctx(), YES, cost(c)).join(' ')).toMatch(/route "Others" has [\d,]+ customers, below the/);
