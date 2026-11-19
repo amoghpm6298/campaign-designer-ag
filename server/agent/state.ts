@@ -668,7 +668,7 @@ export interface JourneyOp {
   step?: unknown;
 }
 
-/** Applies replace / insert_after / insert_before / remove to a copy of the journey. */
+/** Applies replace / replace_from / insert_after / insert_before / remove to a copy of the journey. */
 export function applyJourneyOps(journey: BpStep[], ops: JourneyOp[]): { journey: BpStep[]; applied: string[]; errors: string[] } {
   const copy = JSON.parse(JSON.stringify(journey)) as BpStep[];
   ops = ops.map((o) => (o.step && typeof o.step === 'object' ? { ...o, step: normaliseSteps([o.step as BpStep])[0] } : o));
@@ -690,13 +690,17 @@ export function applyJourneyOps(journey: BpStep[], ops: JourneyOp[]): { journey:
     if (op === 'replace') {
       if (!at.list[at.index]) { errors.push(`replace ${path}: no step there`); continue; }
       at.list[at.index] = o.step as BpStep;
+    } else if (op === 'replace_from') {
+      // This step AND everything after it in the same list become the one given step (e.g. a switch whose routes carry the rest).
+      if (!at.list[at.index]) { errors.push(`replace_from ${path}: no step there`); continue; }
+      at.list.splice(at.index, at.list.length - at.index, o.step as BpStep);
     } else if (op === 'insert_after') at.list.splice(at.index + 1, 0, o.step as BpStep);
     else if (op === 'insert_before') at.list.splice(at.index, 0, o.step as BpStep);
     else if (op === 'remove') {
       if (!at.list[at.index]) { errors.push(`remove ${path}: no step there`); continue; }
       at.list.splice(at.index, 1);
     } else {
-      errors.push(`${op}: op must be replace, insert_after, insert_before or remove`);
+      errors.push(`${op}: op must be replace, replace_from, insert_after, insert_before or remove`);
       continue;
     }
     applied.push(`${op} ${path}`);

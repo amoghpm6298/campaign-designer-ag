@@ -266,7 +266,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'edit_journey',
     title: 'Editing a journey',
     description:
-      'Change ONE bucket\'s journey precisely, saved straight to file, without rewriting it (keep each changed step\'s rationale, or an experiment\'s hypothesis and successMetric, true to the new version): a list of operations, each {op: "replace" | "insert_after" | "insert_before" | "remove", path, step}. path is the step\'s address from get_campaign (e.g. "2", "1.arms.0.steps.3", "4.paths.1.steps.0", "4.otherwise.0"). step is a full step for replace/insert. Use bucketId "everyone_else" for the everyone-else journey. Leave every other step as it is. Rebuild afterwards.',
+      'Change ONE bucket\'s journey precisely, saved straight to file, without rewriting it (keep each changed step\'s rationale, or an experiment\'s hypothesis and successMetric, true to the new version): a list of operations, each {op: "replace" | "replace_from" | "insert_after" | "insert_before" | "remove", path, step}. "replace_from" replaces the step at path AND everything after it in that list with the one step given: use it to split a journey from a step onward (a branch whose routes each carry the rest of the journey to its end). path is the step\'s address from get_campaign (e.g. "2", "1.arms.0.steps.3", "4.paths.1.steps.0", "4.otherwise.0"). step is a full step for replace/insert. Use bucketId "everyone_else" for the everyone-else journey. Leave every other step as it is. Rebuild afterwards.',
     input_schema: {
       type: 'object',
       properties: {
@@ -276,7 +276,7 @@ const BASE_TOOLS: ToolDef[] = [
           items: {
             type: 'object',
             properties: {
-              op: { type: 'string', enum: ['replace', 'insert_after', 'insert_before', 'remove'] },
+              op: { type: 'string', enum: ['replace', 'replace_from', 'insert_after', 'insert_before', 'remove'] },
               path: { type: 'string' },
               step: { $ref: '#/$defs/step' },
             },

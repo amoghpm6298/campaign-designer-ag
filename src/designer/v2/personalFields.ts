@@ -33,6 +33,18 @@ export function malformedFields(text: string): string[] {
 
 export type FieldType = 'number' | 'money' | 'days' | 'category' | 'bool';
 
+/** How each spend category reads in a message. "others" says nothing about a person, so it uses the fallback. */
+const CATEGORY_WORDS: Record<string, string> = {
+  grocery: 'groceries',
+  dining: 'dining out',
+  fuel: 'fuel',
+  online_shopping: 'online shopping',
+  electronics: 'electronics',
+  travel: 'travel',
+  utilities: 'bills',
+  others: '',
+};
+
 /** How a value reads in a message. Code formats; the AI never writes values. */
 export function formatValue(key: string, type: FieldType, value: unknown): string {
   if (value === null || value === undefined || value === '') return '';
@@ -45,7 +57,11 @@ export function formatValue(key: string, type: FieldType, value: unknown): strin
     return `${y} year${y === 1 ? '' : 's'}`;
   }
   if (type === 'number') return Math.round(Number(value)).toLocaleString('en-IN');
-  // Categories: words, not codes ("online_shopping" → "online shopping").
+  // Categories read as natural words in a sentence ("groceries", "dining out"), not codes.
+  if (key === 'top_category') {
+    const v = String(value).toLowerCase();
+    if (v in CATEGORY_WORDS) return CATEGORY_WORDS[v];
+  }
   return String(value).replace(/_/g, ' ').trim();
 }
 

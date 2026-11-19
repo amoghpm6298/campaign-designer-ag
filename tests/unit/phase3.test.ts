@@ -9,7 +9,7 @@ import { campaignCost } from '../../server/costModel';
 import { routeProblems } from '../../server/agent/routeChecks';
 import { toEngineCampaign } from '../../server/engineExport';
 import { applySplitOutcomes, closingMessage, pendingSplitIdeas, runSplitHelper } from '../../server/agent/splitHelper';
-import { initialState } from '../../server/agent/state';
+import { applyJourneyOps, initialState } from '../../server/agent/state';
 import { signalsFor } from '../../server/signals';
 import { resolveTenant } from '../../server/tenants';
 import { warehousePath } from '../../server/warehouse';
@@ -81,6 +81,26 @@ describe('route sizes and cost per route', () => {
     expect(el.size! + other.size!).toBeLessThanOrEqual(45966);
     expect(r.lines[0].customers).toBe(el.size);
     expect(r.lines[0].route).toBe('Electronics');
+  });
+});
+
+describe('edit_journey replace_from', () => {
+  it('replaces the step and everything after it in that list with one step (e.g. a switch)', () => {
+    const j = [send('a'), { kind: 'wait', durationHours: 48 }, send('b'), { kind: 'exit', outcome: 'no_response' }] as never[];
+    const r = applyJourneyOps(j, [{ op: 'replace_from', path: '2', step: sw([{ label: 'Electronics', operator: 'Equals', value: 'electronics', steps: tail('el') }]) }]);
+    expect(r.errors).toEqual([]);
+    expect((r.journey as unknown as { kind: string }[]).map((x) => x.kind)).toEqual(['send', 'wait', 'branch']);
+  });
+});
+
+describe('the max counts each customer once', () => {
+  it.runIf(hasYes)('the same offer before and inside a route: distinct qualifying customers, not the sum', () => {
+    const c = camp([send('first', offer), sw([{ label: 'Electronics', operator: 'Equals', value: 'electronics', steps: tail('el', offer) }])]);
+    const r = campaignCost(c, ctx(), YES);
+    const perCustomer = r.lines[0].maxPerCustomer;
+    expect(r.lines).toHaveLength(2);
+    expect(r.total.max).toBe(Math.max(...r.lines.map((l) => l.max ?? 0)));
+    expect(r.total.max).toBeLessThanOrEqual(45966 * perCustomer);
   });
 });
 

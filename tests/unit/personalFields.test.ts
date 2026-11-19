@@ -30,6 +30,9 @@ describe('reading and formatting fields', () => {
   });
   it('code formats values; the fallback fills in when there is none', () => {
     expect(formatValue('top_category', 'category', 'online_shopping')).toBe('online shopping');
+    expect(formatValue('top_category', 'category', 'grocery')).toBe('groceries');
+    expect(formatValue('top_category', 'category', 'dining')).toBe('dining out');
+    expect(formatValue('top_category', 'category', 'others')).toBe('');
     expect(formatValue('spend_90d', 'money', 4200.4)).toBe('₹4,200');
     expect(formatValue('tenure_months', 'number', 38)).toBe('3 years');
     expect(formatValue('tenure_months', 'number', 7)).toBe('7 months');

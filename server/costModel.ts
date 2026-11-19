@@ -150,6 +150,9 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
   const notes: string[] = [];
   const lines: CostLine[] = [];
   const routes: RouteSize[] = [];
+  /** Who each line's offer can actually reach and qualify (data banks): for an exact max across a bucket. */
+  const reachable = new Map<CostLine, Set<string>>();
+  const bucketSets = new Map<string, Set<string>>();
   const ids = (sql: string | null | undefined): Set<string> | null => {
     if (!bank || !sql) return null;
     try {
@@ -206,6 +209,7 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
       const perThousand = !bank;
       const customers = perThousand ? 1000 : sized == null ? null : Math.round(sized * (1 - lane.holdoutPct / 100));
       let qualified: number | null = perThousand ? 1000 : null;
+      let qualifiedSet: Set<string> | null = null;
       if (bank && scope.set && customers != null) {
         // Who in this scope meets the offer's requirements and targeting: set arithmetic on each condition.
         let q: Set<string> | null = scope.set;
@@ -213,6 +217,7 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
           const cs = ids(conditionSql(signals, c));
           if (cs && q) q = inter(q, cs);
         }
+        qualifiedSet = q;
         qualified = q && scope.set.size ? Math.round((customers * q.size) / scope.set.size) : 0;
       }
       if (bank && customers == null) notes.push(`${scope.label}: not sized yet, so its offer "${inc.label}" is not in the totals.`);
@@ -257,15 +262,34 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
         confidence,
         engineOnly: inc.unmatchedCriteria,
       });
+      if (qualifiedSet) reachable.set(lines[lines.length - 1], qualifiedSet);
       if (inc.unmatchedCriteria.length)
         notes.push(`${lane.name} › "${step}": who qualifies and the cost may be lower than shown, because the engine also checks: ${inc.unmatchedCriteria.join(' ')}`);
     };
-    walk(lane.journey as BpStep[] | null | undefined, { set: ids(laneSql), key: lane.id, label: lane.name });
+    const laneSet = ids(laneSql);
+    if (laneSet) bucketSets.set(lane.id, laneSet);
+    walk(lane.journey as BpStep[] | null | undefined, { set: laneSet, key: lane.id, label: lane.name });
   }
   const sum = (k: 'under' | 'expected' | 'max', list: CostLine[]) => list.reduce((n, l) => n + (l[k] ?? 0), 0);
   // The max counts each offer once per bucket: an offer is once per customer, and the same offer on two
   // routes of one bucket (e.g. readers / SMS retry) reaches each customer on one route only.
-  const bucketMax = (ls: CostLine[]) => [...new Set(ls.map((l) => `${l.routeKey}|${l.incentiveId}`))].reduce((n, k) => n + Math.max(0, ...ls.filter((l) => `${l.routeKey}|${l.incentiveId}` === k).map((l) => l.max ?? 0)), 0);
+  // With the bank's data, exact: the distinct customers who can get each offer anywhere in the bucket (an
+  // offer is once per customer), times the most one can cost, after any holdout. Without data: once per route.
+  const bucketMax = (ls: CostLine[]) =>
+    [...new Set(ls.map((l) => l.incentiveId))].reduce((n, id) => {
+      const mine = ls.filter((l) => l.incentiveId === id);
+      if (mine.every((l) => reachable.has(l))) {
+        const all = new Set<string>();
+        for (const l of mine) for (const x of reachable.get(l)!) all.add(x);
+        const lane = lanes.find((x) => x.id === mine[0].bucketId);
+        // Consistent with the sizes shown: scaled to the bucket's saved size (the same number in practice).
+        const saved = typeof views[mine[0].bucketId]?.size === 'number' ? (views[mine[0].bucketId]!.size as number) : null;
+        const actual = bucketSets.get(mine[0].bucketId)?.size ?? 0;
+        const scale = saved != null && actual ? saved / actual : 1;
+        return n + Math.round(all.size * scale * (1 - (lane?.holdoutPct ?? 0) / 100)) * Math.max(...mine.map((l) => l.maxPerCustomer));
+      }
+      return n + [...new Set(mine.map((l) => l.routeKey))].reduce((m, k) => m + Math.max(0, ...mine.filter((l) => l.routeKey === k).map((l) => l.max ?? 0)), 0);
+    }, 0);
   const buckets = [...new Set(lines.map((l) => l.bucketId))].map((id) => {
     const ls = lines.filter((l) => l.bucketId === id);
     return { bucketId: id, name: ls[0].bucketName, under: sum('under', ls), expected: sum('expected', ls), max: bucketMax(ls) };
