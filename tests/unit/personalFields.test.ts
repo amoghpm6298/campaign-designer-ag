@@ -39,13 +39,16 @@ describe('reading and formatting fields', () => {
 });
 
 describe('checks', () => {
-  it('a field needs a real, allowed signal and a fallback; sensitive ones are never allowed', () => {
+  it.runIf(hasYes)('a field needs a real, allowed signal and a fallback; sensitive ones are never allowed', () => {
     expect(fieldProblems(camp('Spend on {{top_category | "everyday buys"}} this week.'), YES).join(' ')).not.toMatch(/top_category/);
     const p = fieldProblems(camp('{{vip_tier | "x"}} {{credit_limit | "your limit"}} {{top_category}} {top_category}'), YES).join(' ');
     expect(p).toMatch(/\{\{vip_tier\}\} is not a signal/);
     expect(p).toMatch(/\{\{credit_limit\}\} is sensitive/);
     expect(p).toMatch(/\{\{top_category\}\} needs a fallback/);
     expect(p).toMatch(/"\{top_category\}" isn't a valid personal field/);
+  });
+  it('without data access, no field can be used (there are no data signals)', () => {
+    expect(fieldProblems(camp('Spend on {{top_category | "x"}}.'), { incentives: true } as never).join(' ')).toMatch(/is not a signal for this bank/);
   });
   it.runIf(hasYes)('an SMS must fit 160 characters with the longest value of every field', () => {
     const long = `${'Your card is ready for all of your favourite everyday purchases this festive month, '.repeat(2)}especially {{top_category | "everyday buys"}}.`;
