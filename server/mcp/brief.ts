@@ -117,7 +117,8 @@ export function campaignBrief(c: CampaignObject, context: CampaignContext | null
     success: currentEntries(entries, { kind: 'brief', topic: 'Success' })[0]?.text ?? null,
     // How fast they need results and whether they'll spend on offers (and any budget), as the designer has it.
     spendAppetite: currentEntries(entries, { kind: 'brief', topic: 'Spend' })[0]?.text ?? null,
-    incentiveStrategy: noteText(entries, 'incentive strategy') ?? null,
+    // The designer's working plan (buckets, levers, money); older campaigns have it as separate notes.
+    strategy: noteText(entries, 'campaign strategy') ?? ([noteText(entries, 'segmentation'), noteText(entries, 'incentive strategy')].filter(Boolean).join('\n\n') || null),
     ...(cost && cost.mode !== 'none'
       ? { potentialSpend: { summary: costLine(cost), ifItUnderperforms: cost.total.under, asExpected: cost.total.expected, ifItOutperformsMax: cost.total.max, budgetCap: cost.budgetCap, unit: cost.mode === 'perThousand' ? 'per 1,000 customers (no data access)' : 'rupees, whole campaign', workedOutBy: 'code, from the data and the designer\'s estimates', ...(cost.notes.length ? { notes: cost.notes } : {}) } }
       : {}),
@@ -142,6 +143,5 @@ export function campaignBrief(c: CampaignObject, context: CampaignContext | null
     everyoneElse:
       ee?.approach === 'journey' ? `customers in no bucket get their own journey: ${journeyInWords(ee.journey).inWords}` : 'customers in no bucket get no messages',
     howBucketsWork: 'Each customer goes into the first bucket they match, in the order above.',
-    segmentation: noteText(entries, 'segmentation') ?? null,
   };
 }

@@ -52,7 +52,7 @@ const context = (withNotes = true, size = 2000): CampaignContext => ({
     { id: 'c2', at, kind: 'bucket', bucketId: 'lapsed', topic: 'evidence', text: 'measured', source: 'agent', data: { level: 'measured' } },
     ...(withNotes
       ? [
-          { id: 'c3', at, kind: 'note' as const, topic: 'incentive strategy', text: 'Lapsed: ₹100 cashback.', source: 'agent' as const },
+          { id: 'c3', at, kind: 'note' as const, topic: 'campaign strategy', text: 'Lapsed: messages first, then cashback_first_spend_100 for non-responders.', source: 'agent' as const },
           { id: 'c4', at, kind: 'brief' as const, topic: 'Spend', text: 'Cheapest first.', source: 'manager' as const },
         ]
       : []),
@@ -134,7 +134,7 @@ describe('offer checks', () => {
   });
   it('needs the incentive strategy note and the Spend brief', () => {
     const p = offerProblems(campaign(), context(false), NO_DATA).problems.join(' ');
-    expect(p).toMatch(/no incentive strategy/);
+    expect(p).toMatch(/no campaign strategy/);
     expect(p).toMatch(/Spend/);
   });
   it('the budget pass: "as expected" over the cap asks the agent to cut offers, not people', () => {
@@ -204,12 +204,21 @@ describe('version history shows what each change did to the cost', () => {
   });
 });
 
-describe('the agent keeps its incentive strategy in view', () => {
+describe('the agent keeps its campaign strategy (money included) in view', () => {
   it('the status block carries the strategy note every turn; the prompt says to keep it current', () => {
     const st = { ...initialState(), campaign: campaign(), context: context() };
-    expect(statusBlock(st)).toMatch(/## Your incentive strategy[\s\S]*Lapsed: ₹100 cashback/);
-    expect(systemPrompt(true, true)).toMatch(/update the incentive strategy note to match/);
+    expect(statusBlock(st)).toMatch(/## Your campaign strategy[\s\S]*cashback_first_spend_100 for non-responders/);
+    expect(systemPrompt(true, true)).toMatch(/update your campaign strategy to match/);
     expect(systemPrompt(true, true)).not.toMatch(/escalated offer at most once/);
+  });
+  it('a strategy that does not mention an offer in use is flagged; old "incentive strategy" notes still count', () => {
+    const ctx = context();
+    (ctx.entries as { topic: string; text: string }[]).find((e) => e.topic === 'campaign strategy')!.text = 'Lapsed: messages only.';
+    expect(offerProblems(campaign(), ctx, NO_DATA).problems.join(' ')).toMatch(/doesn't mention "cashback_first_spend_100"/);
+    const legacy = context();
+    (legacy.entries as { topic: string }[]).find((e) => e.topic === 'campaign strategy')!.topic = 'incentive strategy';
+    expect(offerProblems(campaign(), legacy, NO_DATA).problems).toEqual([]);
+    expect(statusBlock({ ...initialState(), campaign: campaign(), context: legacy })).toMatch(/Your earlier strategy notes/);
   });
   it('rules only the engine can check are flagged: counts and cost may be lower', () => {
     const r = campaignCost(campaign(offerSend({ incentive: 'annual_fee_waiver' })), context(), NO_DATA);

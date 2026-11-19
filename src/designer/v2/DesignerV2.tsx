@@ -10,6 +10,9 @@ import { ArrowLeft, Copy, Eye, MoreHorizontal, Trash2, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
 import { apiUrl } from '../api';
 import { CostPanel } from './CostPanel';
+import { StrategyPanel, type StrategyNote } from './StrategyPanel';
+import { currentEntries as currentNotes } from './contextView';
+import { FileText } from 'lucide-react';
 import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, submitCampaignApi, runBucketSizing, fetchOffers, fetchCost, type CostReportView, type Offer, type Stores, type Submission, type Withdrawal } from './api';
 import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
@@ -125,6 +128,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // Potential spend on offers: worked out by the server whenever the campaign changes.
   const [cost, setCost] = useState<CostReportView | null>(null);
   const [costOpen, setCostOpen] = useState<{ bucketId?: string } | null>(null);
+  const [strategyOpen, setStrategyOpen] = useState(false);
   useEffect(() => {
     if (!stores.campaign) return setCost(null);
     let live = true;
@@ -409,6 +413,15 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   const drawerBucket = drawerNode ? plan?.buckets.find((b) => b.id === drawerNode.data.lane)?.name ?? 'Everyone else' : '';
   const opening = turns.find((t) => t.role === 'user')?.content;
   const hasCanvas = model.nodes.length > 0;
+  // The designer's campaign strategy note (its working plan); older campaigns have it as separate notes.
+  const strategy: StrategyNote | null = (() => {
+    const entries = stores.context?.entries ?? [];
+    const note = (t: string) => currentNotes(entries, { kind: 'note', topic: t })[0];
+    const main = note('campaign strategy');
+    if (main) return { text: main.text, at: main.at };
+    const old = ['segmentation', 'incentive strategy'].map(note).filter((e): e is NonNullable<typeof e> => !!e);
+    return old.length ? { text: old.map((e) => `## ${e.topic[0].toUpperCase()}${e.topic.slice(1)}\n\n${e.text}`).join('\n\n'), at: old[old.length - 1].at, legacy: true } : null;
+  })();
 
   return (
     <div className="cv-wrap">
@@ -591,6 +604,11 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
 
       <div className="cv-main">
         <section className="cv-stage">
+          {strategy && (
+            <button className="cv-strategy-cta" onClick={() => { setDrawerId(null); setCostOpen(null); setStrategyOpen(true); }} title="The designer's working plan: buckets, levers, money and budget">
+              <FileText size={14} /> Campaign strategy
+            </button>
+          )}
           {hasCanvas ? (
             <CampaignCanvas
               campaign={plan}
@@ -605,7 +623,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               links={links}
               offers={offers}
               cost={cost}
-              onOpenCost={(bucketId) => { setDrawerId(null); setCostOpen({ bucketId }); }}
+              onOpenCost={(bucketId) => { setDrawerId(null); setStrategyOpen(false); setCostOpen({ bucketId }); }}
               smsFallback={smsFallback}
             />
           ) : (
@@ -650,6 +668,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             </div>
           )}
 
+          {strategyOpen && strategy && <StrategyPanel note={strategy} onClose={() => setStrategyOpen(false)} />}
           {costOpen && cost && cost.mode !== 'none' && <CostPanel report={cost} focusBucket={costOpen.bucketId} locked={locked || busy || !!viewing} onDirect={onDirect} onClose={() => setCostOpen(null)} />}
           {drawerNode?.data.step && <NodeDrawer step={drawerNode.data.step as CStep} path={drawerNode.data.path} bucketName={drawerBucket} links={links} smsFallback={smsFallback} onClose={() => setDrawerId(null)} />}
 

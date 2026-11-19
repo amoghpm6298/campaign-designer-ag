@@ -66,8 +66,14 @@ export function offerProblems(campaign: CampaignObject, context: CampaignContext
   const cost = campaignCost(campaign, context, tenant);
   if (!usesOffers) return { problems, cost };
   const notes = currentEntries(context?.entries ?? []);
-  if (!notes.some((e) => e.kind === 'note' && e.topic.toLowerCase() === 'incentive strategy'))
-    problems.push('The campaign uses offers but has no incentive strategy: write a note (add_context kind "note", topic "incentive strategy") with, per bucket, whether money is needed, the offer and rung, why, and the cheaper option.');
+  const strategy = notes.find((e) => e.kind === 'note' && ['campaign strategy', 'incentive strategy'].includes(e.topic.toLowerCase()));
+  if (!strategy)
+    problems.push('The campaign uses offers but has no campaign strategy: write it (add_context kind "note", topic "campaign strategy"), including per bucket whether money is needed, the offer and rung, why, the cheaper option, and an Offers and budget section.');
+  else {
+    // The strategy must cover every offer actually used.
+    const used = [...new Set(cost.lines.map((l) => l.incentiveId))].filter((id) => !strategy.text.includes(id) && !strategy.text.toLowerCase().includes((menu.find((m) => m.id === id)?.label ?? id).toLowerCase()));
+    if (used.length) problems.push(`Your campaign strategy doesn't mention ${used.map((u) => `"${u}"`).join(', ')}, which the campaign uses. Rewrite it so it matches what is built.`);
+  }
   if (!notes.some((e) => e.kind === 'brief' && e.topic.toLowerCase() === 'spend'))
     problems.push('The campaign uses offers but the manager\'s speed vs spend appetite isn\'t on file (brief topic "Spend"). Ask them, or note your assumption ("cheapest first").');
   // The final budget pass: "as expected" must fit the budget; the cap protects the max.
@@ -84,7 +90,7 @@ export function budgetPass(cost: CostReport): string {
   return [
     `BUDGET PASS: as expected the offers cost ${inr(cost.total.expected)}, over the ${inr(cost.budgetCap!)} budget. Fit it: cut offers, not people (no bucket is dropped). Cheapest change first: move an offer later (non-responders only), step a big offer down to a small one, narrow it to who needs it, or remove it (messages only). Start with low-confidence, expensive offers:`,
     ...rows,
-    'Then write what you cut, why, and what it costs in results, in the incentive strategy note.',
+    'Then write what you cut, why, and what it costs in results, in the Offers and budget section of your campaign strategy.',
   ].join('\n');
 }
 
