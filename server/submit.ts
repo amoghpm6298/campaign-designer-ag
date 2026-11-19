@@ -3,8 +3,11 @@
 import { checkJourneys } from './agent/compile';
 import { directEdit } from './agent/directEdit';
 import { daysBetween, longestPathHours, parseSchedule } from './agent/schedule';
-import { LOCKED, loadChat, loadStores, loadSubmission, submitCampaign, type Submission } from './campaignFiles';
+import { LOCKED, loadChat, loadStores, loadSubmission, saveEngineCampaign, submitCampaign, type Submission } from './campaignFiles';
+import { toEngineCampaign } from './engineExport';
 import { isRunning } from './mcp/runner';
+import { offerProblems } from './agent/offerChecks';
+import { resolveTenant } from './tenants';
 
 /**
  * Checks and submits. Dates passed in set (or change) the campaign's own dates
@@ -43,7 +46,12 @@ export function submitChecked(
     .filter((l) => l.days > windowDays);
   if (tooLong.length)
     return { ok: false, error: `Not submitted: the campaign runs ${windowDays} days (${sch.startDate} → ${sch.endDate}), but ${tooLong.map((l) => `"${l.name}" takes about ${l.days} days`).join(', ')}. Give later dates, or ${fixHint} for shorter journeys.` };
-  const broken = checkJourneys(c, undefined, true, true);
+  const broken = [...checkJourneys(c, undefined, true, true), ...offerProblems(c, loadStores(sessionId).context, resolveTenant(tenantId)).problems];
   if (broken.length) return { ok: false, error: `Not submitted: these need fixing first (${fixHint}):\n- ${broken.join('\n- ')}` };
-  return { ok: true, submission: submitCampaign(sessionId, tenantId, by, sch) };
+  // What the engine runs: only its fields, checked, then frozen with the submission.
+  const exported = toEngineCampaign(c, resolveTenant(tenantId));
+  if (exported.problems.length) return { ok: false, error: `Not submitted: the engine version has problems (${fixHint}):\n- ${exported.problems.join('\n- ')}` };
+  const submission = submitCampaign(sessionId, tenantId, by, sch);
+  saveEngineCampaign(sessionId, tenantId, { ...exported.engine, submittedAt: submission.at, submittedBy: by });
+  return { ok: true, submission };
 }

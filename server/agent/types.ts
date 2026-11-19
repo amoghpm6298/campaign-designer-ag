@@ -93,6 +93,8 @@ export interface CampaignObject {
   maxAttempts?: number | null;
   /** When the campaign runs: start and end dates, YYYY-MM-DD (India time). Every campaign has both. */
   schedule?: { startDate: string; endDate: string } | null;
+  /** The most the campaign may spend on offers, in rupees. The engine stops issuing offers once it is spent. */
+  budgetCap?: number | null;
 }
 
 export type AfterOutcome = 'converted' | 'no_response' | 'not_reachable' | 'declined';

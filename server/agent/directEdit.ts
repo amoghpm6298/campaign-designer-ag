@@ -21,7 +21,9 @@ export type DirectOp =
   | { op: 'wait'; bucketId: string; stepId: string; days: number }
   | { op: 'afterJourney'; outcome: AfterOutcome; value: number | 'leave' }
   | { op: 'maxAttempts'; value: number }
-  | { op: 'schedule'; startDate: string; endDate: string };
+  | { op: 'schedule'; startDate: string; endDate: string }
+  | { op: 'budgetCap'; value: number | null }
+  | { op: 'costAssumption'; bucketId: string; stepId: string; which: 'reach' | 'redeem'; expected: number; few: number };
 
 export interface DirectResult {
   ok: boolean;
@@ -58,6 +60,13 @@ function apply(state: AgentState, op: DirectOp): { state: AgentState; said: stri
     const w = (v: number | null | undefined) => (v ? `at most ${v} time${v === 1 ? '' : 's'}` : 'not set');
     return { state: res.state, said: `Times through the campaign: ${w(prev)} → ${w(res.state.campaign.maxAttempts)}` };
   }
+  if (op.op === 'budgetCap') {
+    const prev = c.budgetCap;
+    const res = updateCampaign(state, { budgetCap: op.value });
+    if (res.error) return { error: res.error };
+    const w = (v: number | null | undefined) => (typeof v === 'number' ? `₹${v.toLocaleString('en-IN')}` : 'no cap');
+    return { state: res.state, said: `Offer budget cap: ${w(prev)} → ${w(res.state.campaign.budgetCap)}` };
+  }
   if (op.op === 'afterJourney') {
     if (op.value !== 'leave' && !(Number(op.value) >= 0 && Number(op.value) <= 365)) return { error: 'Days must be between 0 and 365.' };
     const prev = c.afterJourney?.[op.outcome];
@@ -78,6 +87,21 @@ function apply(state: AgentState, op: DirectOp): { state: AgentState; said: stri
   const hit = findStep(journey, op.stepId);
   if (!hit) return { error: 'That step no longer exists.' };
   const lane = bucket ? `"${bucket.name}"` : 'Everyone else';
+  if (op.op === 'costAssumption') {
+    // The manager overrides one of the designer's estimates; the cost is worked out again by code.
+    if (hit.step.kind !== 'send' || !hit.step.incentive) return { error: 'That message makes no offer.' };
+    const ex = Number(op.expected) / 100;
+    const fw = Number(op.few) / 100;
+    if (!(ex >= 0 && ex <= 1 && fw >= 0 && fw <= 1)) return { error: 'Use percentages from 0 to 100.' };
+    if (fw > ex) return { error: '"If it underperforms" must be no higher than "as expected".' };
+    const ca = { ...((hit.step.costAssumptions as Record<string, unknown>) ?? {}) } as Record<string, { expected: number; few: number; why: string }>;
+    const prevEst = ca[op.which];
+    ca[op.which] = { expected: ex, few: fw, why: 'Set by the manager.' };
+    const res = editJourney(state, op.bucketId, [{ op: 'replace', path: hit.path, step: { ...hit.step, costAssumptions: ca } }]);
+    if (res.error) return { error: res.error };
+    const w = (e?: { expected: number; few: number }) => (e ? `${Math.round(e.expected * 100)}% (if it underperforms ${Math.round(e.few * 100)}%)` : 'not set');
+    return { state: res.state, said: `${lane} "${String(hit.step.name ?? 'message')}" ${op.which === 'reach' ? 'reach' : 'take-up'}: ${w(prevEst)} → ${w(ca[op.which])}` };
+  }
   if (op.op === 'split') {
     if (hit.step.kind !== 'experiment') return { error: 'That step is not an A/B test.' };
     const arms = (hit.step.arms as { label?: string; pct: number }[]) ?? [];

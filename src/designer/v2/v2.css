@@ -500,3 +500,40 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-pop-why > b { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: #6d48c7; }
 .cv-pop-why .cv-why-body { margin-top: 3px; }
 .cv-why-hint { margin: 2px 0 0; font-size: 11px; font-style: italic; color: var(--gray-500); }
+
+/* An offer on a message: the badge, and its exact line in the preview (added by the system, not the AI). */
+.cv-offer-badge { margin: 4px 0 6px; display: inline-block; padding: 2px 8px; border-radius: 999px; background: #fdf0f6; border: 1px solid #f2a7c9; color: #be185d; font-size: 11.5px; font-weight: 600; }
+.cv-pv-offer { background: #fdf0f6; color: #9d174d; border-radius: 4px; padding: 0 2px; box-shadow: inset 0 -1px 0 #f2a7c9; }
+
+/* Potential spend on offers: on the Entry and bucket cards, in the header, and the working panel. */
+.cv-spend { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; color: var(--gray-600); }
+.cv-spend i { font-style: normal; color: var(--gray-500); }
+.cv-spend b { color: var(--neutral-900, #101828); }
+.cv-spend .max { color: #be185d; }
+.cv-spend em { font-style: italic; color: var(--gray-500); }
+.cv-spend.compact { font-size: 11.5px; gap: 2px 8px; }
+.cv-spendline { display: block; width: 100%; text-align: left; margin: 8px 0 2px; padding: 7px 9px; border-radius: 8px; border: 1px solid #f2a7c9; background: #fdf7fa; font: inherit; cursor: pointer; }
+.cv-spendline:hover { background: #fbeef4; }
+.cv-spendline-h { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #be185d; margin-bottom: 2px; }
+.cv-spendline-cap { display: block; font-size: 11px; color: var(--gray-500); margin-top: 2px; }
+.cv-est { border: 1px solid #f2a7c9; background: #fdf7fa; color: #be185d; border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.cv-cost { width: 460px; }
+.cv-cost-body { padding: 4px 16px 16px; overflow: auto; }
+.cv-cost-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--gray-600); margin: 14px 0 4px; }
+.cv-cost-cap { margin-top: 8px; font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cv-cost-cap input { width: 110px; padding: 4px 6px; border: 1px solid var(--line, #e4e7ec); border-radius: 6px; font: inherit; }
+.cv-cost-warn { width: 100%; color: #b42318; font-size: 12.5px; }
+.cv-cost-line { margin-top: 10px; border: 1px solid #e4e7ec; border-radius: 10px; padding: 10px; background: #fff; }
+.cv-cost-offer { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.cv-cost-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.cv-cost-table td { padding: 5px 6px; border-top: 1px solid #f0f1f3; vertical-align: top; }
+.cv-cost-table td:first-child { color: var(--gray-600); width: 32%; }
+.cv-src { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px; }
+.cv-src.data { background: #ecfdf8; color: #0f766e; } .cv-src.ai { background: #eef3ff; color: #1d4ed8; }
+.cv-src.menu { background: #fdf0f6; color: #be185d; } .cv-src.you { background: #f1f3f5; color: #344054; }
+.cv-muted { color: var(--gray-500); font-size: 11.5px; }
+.cv-link-btn { border: 0; background: none; color: #1d4ed8; font: inherit; font-size: 12px; cursor: pointer; padding: 0 0 0 6px; }
+.cv-est-edit { display: flex; flex-direction: column; gap: 4px; }
+.cv-est-edit input { width: 56px; padding: 2px 4px; border: 1px solid #e4e7ec; border-radius: 5px; font: inherit; }
+.cv-eq { margin-top: 8px; font: 11.5px/1.6 ui-monospace, Menlo, monospace; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; }
+.cv-eq i { font-style: normal; color: #94a3b8; display: block; }

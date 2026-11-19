@@ -387,6 +387,15 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
     next.maxAttempts = n;
     changed.push('maxAttempts');
   }
+  if (input.budgetCap === null) {
+    next.budgetCap = null;
+    changed.push('budgetCap');
+  } else if (input.budgetCap !== undefined) {
+    const n = Number(input.budgetCap);
+    if (!Number.isFinite(n) || n <= 0) return { state, said: '', error: 'budgetCap is the most the campaign may spend on offers, in rupees: a number above 0 (or null for no cap). Nothing was changed.' };
+    next.budgetCap = Math.round(n);
+    changed.push('budgetCap');
+  }
   if (input.schedule === null) {
     next.schedule = null;
     changed.push('schedule');
@@ -406,10 +415,10 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
     changed.push('afterJourney');
   }
   if (!changed.length)
-    return { state, said: '', error: 'Nothing to update. The campaign takes: name, description, goal, entry, membership, everyoneElse, schedule, afterJourney, maxAttempts. Reasoning (why, guardrails, measurement) goes in the context with add_context.' };
+    return { state, said: '', error: 'Nothing to update. The campaign takes: name, description, goal, entry, membership, everyoneElse, schedule, afterJourney, maxAttempts, budgetCap. Reasoning (why, guardrails, measurement) goes in the context with add_context.' };
   let out: AgentState = { ...state, campaign: next };
   out = log(out, 'agent', 'plan_section_updated', `Updated the campaign (${changed.join(', ')})`);
-  if (state.flags.campaignBuilt && changed.some((c) => ['goal', 'entry', 'membership', 'everyoneElse', 'schedule', 'afterJourney', 'maxAttempts', 'name'].includes(c))) out = markStale(out, 'The campaign');
+  if (state.flags.campaignBuilt && changed.some((c) => ['goal', 'entry', 'membership', 'everyoneElse', 'schedule', 'afterJourney', 'maxAttempts', 'budgetCap', 'name'].includes(c))) out = markStale(out, 'The campaign');
   return { state: out, said: `Campaign updated: ${changed.join(', ')}.` };
 }
 

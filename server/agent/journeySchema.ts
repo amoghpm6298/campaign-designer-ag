@@ -39,6 +39,16 @@ export const STEP_DEF = {
     },
     hypothesis: { type: 'string', description: 'Experiment only, required: what the test is trying to learn, e.g. "If rewards framing beats benefits framing, lapsed spenders respond to value already earned, and later messages should lead with it."' },
     successMetric: { type: 'string', description: 'Experiment only, required: how the winner is judged: the metric compared between arms and over what window, e.g. "share of each arm that transacts within 7 days of the first message". Until the campaign runs, the result is unknown.' },
+    // an offer on a send (banks with an incentive menu)
+    incentive: { type: 'string', description: 'Send only: the id of an offer from list_incentives that this message makes. The system adds the offer\'s exact line after the copy; never write the offer, amounts or terms yourself. Leave it out for a message with no offer.' },
+    costAssumptions: {
+      type: 'object',
+      description: 'Required on a send that carries an incentive: your estimates for the cost calculator. reach = share of the bucket that gets this message (1 if everyone; lower if only non-responders reach it); redeem = share of those who take the offer up. Each as a fraction 0-1, for "expected" and for "few" (if the campaign underperforms; few <= expected), with why (where the estimate comes from: past results in the data, or your judgement).',
+      properties: {
+        reach: { type: 'object', properties: { expected: { type: 'number' }, few: { type: 'number' }, why: { type: 'string' } }, required: ['expected', 'few', 'why'] },
+        redeem: { type: 'object', properties: { expected: { type: 'number' }, few: { type: 'number' }, why: { type: 'string' } }, required: ['expected', 'few', 'why'] },
+      },
+    },
     // send
     name: { type: 'string' },
     objective: { type: 'array', items: { type: 'string' } },

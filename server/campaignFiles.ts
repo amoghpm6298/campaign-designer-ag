@@ -212,6 +212,19 @@ export function submitCampaign(sessionId: string, tenantId: string, by: string, 
   return sub;
 }
 
+/** What the engine runs (engine.json), frozen at submit. */
+export function saveEngineCampaign(sessionId: string, tenantId: string, engine: unknown, dir = campaignDir()): void {
+  writeStamped(join(sessionFolder(sessionId, dir), 'engine.json'), sessionId, tenantId, engine);
+}
+
+export function loadEngineCampaign(sessionId: string, dir = campaignDir()): unknown | null {
+  try {
+    return readStamped<unknown>(join(sessionFolder(sessionId, dir), 'engine.json'))?.body ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export const LOCKED = 'This campaign was submitted for execution and is locked. Stop it first to change it.';
 
 /** A campaign stopped (taken back from execution): who stopped it, when, and the submission it ended. */

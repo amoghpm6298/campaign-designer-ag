@@ -59,6 +59,8 @@ export interface CStep {
   id?: string;
   /** A reference to the bank's link registry (never a URL). */
   link?: string;
+  /** An offer from the bank's incentive menu, by id. The system adds its exact offer line to the message. */
+  incentive?: string;
   arms?: { label?: string; pct?: number; steps?: CStep[] }[];
   paths?: { label?: string; statuses?: string[]; steps?: CStep[] }[];
   yes?: CStep[];
@@ -356,7 +358,8 @@ export type ChangeMap = Map<string, 'target' | 'knock'>;
 /** A step's own content (without its id or nested steps, with its arms'/paths' own settings). */
 function ownSig(st: CStep): string {
   // A change to the reasoning alone doesn't light up the canvas.
-  const { arms, paths, yes: _y, no: _n, otherwise: _o, id: _id, rationale: _r, hypothesis: _h, successMetric: _m, ...own } = st;
+  const { arms, paths, yes: _y, no: _n, otherwise: _o, id: _id, rationale: _r, hypothesis: _h, successMetric: _m, costAssumptions: _ca, ...own } = st as CStep & { costAssumptions?: unknown };
+  void _ca;
   void _r;
   void _h;
   void _m;

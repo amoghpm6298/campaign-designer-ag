@@ -40,6 +40,12 @@ export interface Incentive {
   validTo: string;
   /** Exact terms, to be quoted in messages. */
   terms: string;
+  /**
+   * The offer as the customer reads it, exactly. The agent never writes it:
+   * it attaches the offer by id and the system puts this line into the
+   * message (after the copy, before the CTA/link), like a link.
+   */
+  offerLine: string;
   status: 'live' | 'draft';
 }
 
@@ -63,6 +69,7 @@ function mockLibrary(feeByCardType: Record<string, number>): Incentive[] {
       budget: { total: 500000, remaining: 500000 },
       ...VALID,
       terms: 'Zero processing fee (usually ₹199 + GST) on converting a purchase of ₹5,000 or more to EMI within 30 days. One conversion per customer.',
+      offerLine: 'Zero processing fee when you convert ₹5,000+ to EMI within 30 days. T&Cs apply.',
       status: 'live',
     },
     {
@@ -81,6 +88,7 @@ function mockLibrary(feeByCardType: Record<string, number>): Incentive[] {
       budget: { total: 1000000, remaining: 1000000 },
       ...VALID,
       terms: '2x reward points on spends in the chosen category for 30 days from the offer date. Extra points capped at 800 (worth ₹200).',
+      offerLine: '2x reward points on this category for 30 days (up to 800 extra points). T&Cs apply.',
       status: 'live',
     },
     {
@@ -99,6 +107,7 @@ function mockLibrary(feeByCardType: Record<string, number>): Incentive[] {
       budget: { total: 300000, remaining: 300000 },
       ...VALID,
       terms: '₹100 cashback on your first card spend of ₹1,000 or more within 14 days. Credited within 30 days. One per customer.',
+      offerLine: 'Get ₹100 cashback on your first spend of ₹1,000+ within 14 days. T&Cs apply.',
       status: 'live',
     },
     {
@@ -117,6 +126,7 @@ function mockLibrary(feeByCardType: Record<string, number>): Incentive[] {
       budget: { total: 1000000, remaining: 1000000 },
       ...VALID,
       terms: 'Spend ₹25,000 or more on your card within 30 days and get a ₹500 shopping voucher. Excludes fuel, rent and wallet loads. One per customer.',
+      offerLine: 'Spend ₹25,000 in 30 days and get a ₹500 voucher. T&Cs apply.',
       status: 'live',
     },
     {
@@ -135,6 +145,7 @@ function mockLibrary(feeByCardType: Record<string, number>): Incentive[] {
       budget: { total: 1500000, remaining: 1500000 },
       ...VALID,
       terms: "Spend ₹50,000 or more within 90 days and next year's annual fee is waived. Not valid with any other fee waiver in the same year.",
+      offerLine: "Spend ₹50,000 in 90 days and next year's annual fee is waived. T&Cs apply.",
       status: 'live',
     },
     {
@@ -156,6 +167,7 @@ function mockLibrary(feeByCardType: Record<string, number>): Incentive[] {
       budget: { total: 1000000, remaining: 1000000 },
       ...VALID,
       terms: 'Convert a purchase of ₹10,000 or more to EMI within 30 days at 13% p.a. (standard 16% p.a.). Tenures 3 to 12 months. Processing fee applies.',
+      offerLine: 'EMI at 13% p.a. (usually 16%) on ₹10,000+ converted within 30 days. T&Cs apply.',
       status: 'live',
     },
     {
@@ -177,6 +189,7 @@ function mockLibrary(feeByCardType: Record<string, number>): Incentive[] {
       budget: { total: 2000000, remaining: 2000000 },
       ...VALID,
       terms: 'No-cost EMI (0% interest) on electronics purchases of ₹10,000 or more converted within 30 days, for 3 or 6 months. Processing fee applies.',
+      offerLine: 'No-cost EMI on electronics of ₹10,000+ for 3 or 6 months. T&Cs apply.',
       status: 'live',
     },
   ];
@@ -242,5 +255,7 @@ export function incentiveForAgent(i: Incentive, signals: Signal[]) {
     validFrom: i.validFrom,
     validTo: i.validTo,
     terms: i.terms,
+    offerLine: i.offerLine,
+    offerLineLength: i.offerLine.length,
   };
 }

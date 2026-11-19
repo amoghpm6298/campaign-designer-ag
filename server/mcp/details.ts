@@ -5,12 +5,13 @@
 import type { CampaignContext, CampaignObject } from '../agent/types';
 import { stripJourneyIds } from '../agent/stepIds';
 import { listVersions } from '../campaignVersions';
+import type { CostReport } from '../costModel';
 import { bucketContext, currentEntries, noteText } from '../../src/designer/v2/contextView';
 
 /** Where a note came from, in words. */
 const SOURCE: Record<string, string> = { manager: 'you said', assumption: 'assumption', data: 'from data', agent: 'designer' };
 
-export function campaignDetails(sessionId: string, c: CampaignObject, context: CampaignContext | null) {
+export function campaignDetails(sessionId: string, c: CampaignObject, context: CampaignContext | null, extra: { cost?: CostReport | null; engine?: unknown } = {}) {
   const views = bucketContext(context?.entries ?? []);
   const ee = c.everyoneElse;
   return {
@@ -59,6 +60,10 @@ export function campaignDetails(sessionId: string, c: CampaignObject, context: C
         ...(typeof e.data?.level === 'string' ? { evidence: e.data.level } : {}),
         at: e.at,
       })),
+    // Offers and their cost, line by line with the working.
+    ...(extra.cost && extra.cost.mode !== 'none' ? { cost: extra.cost } : {}),
+    // What the engine runs: the frozen engine.json once submitted, else what it would be.
+    ...(extra.engine ? { whatWillRun: extra.engine } : {}),
     versions: listVersions(sessionId).map((v) => ({ version: v.n, at: v.at, source: v.source, summary: v.summary, request: v.request })),
   };
 }

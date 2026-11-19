@@ -33,7 +33,7 @@ const campaign: CampaignObject = {
   entry: { kind: 'audience', entity: 'Card' },
   membership: { type: 'locked' },
   everyoneElse: { approach: 'none' },
-  buckets: [{ id: 'b1', name: 'Dormant', priority: 1, rule: [{ entity: 'Card', conditions: [] }], journey: [{ kind: 'send', name: 'Nudge', stage: 'first-touch', describe: 'x', objective: ['spend'], channelPreference: ['SMS'] }, { kind: 'wait', durationHours: 72 }, { kind: 'goalCheck' }, { kind: 'exit', reason: 'End', outcome: 'no_response' }] as never }],
+  buckets: [{ id: 'b1', name: 'Dormant', priority: 1, rule: [{ entity: 'Card', conditions: [] }], journey: [{ kind: 'send', name: 'Nudge', stage: 'first-touch', describe: 'x', copy: 'Your card is ready for your next spend.', objective: ['spend'], channelPreference: ['SMS'] }, { kind: 'wait', durationHours: 72 }, { kind: 'goalCheck' }, { kind: 'exit', reason: 'End', outcome: 'no_response' }] as never }],
 };
 
 /** Turn 1 asks two questions; turn 2 (after answers) builds. */

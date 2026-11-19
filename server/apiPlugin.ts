@@ -344,6 +344,20 @@ export function agentApiPlugin(): Plugin {
               return send(res, 400, { error: 'Not a valid session id.' });
             }
           }
+          // What the campaign's offers may cost, worked out by code (never stored).
+          if (url === '/api/campaign/cost' && req.method === 'GET') {
+            const files = await load('campaignFiles.ts');
+            const C = await load('costModel.ts');
+            const T = await load('tenants.ts');
+            const q = new URL(req.url ?? '', 'http://x').searchParams;
+            try {
+              const st = (files.loadStores as (id: string) => { campaign: unknown; context: unknown })(q.get('sessionId') ?? '');
+              if (!st.campaign) return send(res, 200, { mode: 'none', lines: [], buckets: [], total: { under: 0, expected: 0, max: 0, maxWithCap: 0 }, budgetCap: null, notes: [] });
+              return send(res, 200, (C.campaignCost as (c: unknown, x: unknown, t: unknown) => unknown)(st.campaign, st.context, (T.resolveTenant as (id: string) => unknown)(q.get('tenantId') ?? '')));
+            } catch (e) {
+              return send(res, 400, { error: (e as Error).message });
+            }
+          }
           // Run a bucket's saved sizing query again, now, against the bank's warehouse.
           if (url.startsWith('/api/campaign/sizing') && req.method === 'GET') {
             const s = await load('sizingRun.ts');
@@ -397,6 +411,13 @@ export function agentApiPlugin(): Plugin {
             } catch (e) {
               return send(res, 400, { error: (e as Error).message });
             }
+          }
+          // The bank's incentive menu (mock): offers by id, with the exact line the system puts into a message.
+          if (url === '/api/incentives' && req.method === 'GET') {
+            const I = await load('incentives.ts');
+            const T = await load('tenants.ts');
+            const tenantId = new URL(req.url ?? '', 'http://x').searchParams.get('tenantId') ?? '';
+            return send(res, 200, { incentives: (I.incentivesFor as (t: unknown) => unknown[])((T.resolveTenant as (id: string) => unknown)(tenantId)) });
           }
           // The bank's link registry (the agent only sees references; URLs live here).
           if (url === '/api/links' && req.method === 'GET') {

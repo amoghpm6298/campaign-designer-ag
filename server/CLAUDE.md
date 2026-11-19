@@ -81,8 +81,23 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   cheapest first and, for a sized bucket, counts who qualifies.
 - **Prompt sections by bank:** core + data ON/OFF + incentives ON/OFF. With a
   menu, the agent asks about speed vs spend (and an optional budget) in its own
-  words and files it as brief topic "Spend"; offers are not attached to
-  journeys yet (Phase 2: cost ladder, cost calculator, engine export).
+  words and files it as brief topic "Spend".
+- **Offers in journeys:** a send carries `incentive: <id>` only; the system adds
+  the offer's exact `offerLine` after the copy (like a link: `withOfferLine` /
+  `assembleSms`). Copy with amounts is flagged. Each offer send has
+  `costAssumptions` (reach, redeem: expected/few/why).
+- **Cost** (`server/costModel.ts`): code works out per step / bucket / campaign
+  in three scenarios (underperforms / as expected / outperforms = max), with
+  the equation and the source of each input. Never stored. Data OFF → per
+  1,000. The max counts an offer once per bucket.
+- **Checks** (`server/agent/offerChecks.ts`): offer on the menu, valid, fits the
+  goal, no amounts in copy, estimates present, enough of the bucket qualifies,
+  incentive strategy note + Spend brief, and the BUDGET PASS (as expected over
+  `budgetCap` → cut offers, not people). Reported after every build and block
+  submit.
+- **Design vs what runs:** `campaign.json` is the full design (reasoning
+  included). At submit, `server/engineExport.ts` keeps only the engine's
+  fields and writes a frozen `engine.json`. Problems block submit.
 
 ## Rules worth keeping
 

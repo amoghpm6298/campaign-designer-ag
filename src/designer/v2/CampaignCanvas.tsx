@@ -6,8 +6,8 @@ import { Background, BaseEdge, Controls, EdgeLabelRenderer, getSmoothStepPath, M
 import '@xyflow/react/dist/style.css';
 import '../../canvas/dripCanvas.css';
 import { buildCanvasModel, FIXED_SHAPES, NODE_H, type CNodeKind } from './canvasModel';
-import { cdNodeTypes, EditContext, SizingContext, type CdNodeData, type EditApi } from './canvasNodes';
-import type { SizingRun } from './api';
+import { cdNodeTypes, CostContext, EditContext, SizingContext, type CdNodeData, type EditApi } from './canvasNodes';
+import type { CostReportView, Offer, SizingRun } from './api';
 import type { ChangeMap } from './canvasModel';
 import type { BankLink } from '../LinksSection';
 import type { CampaignContext, CampaignObject } from './types';
@@ -65,11 +65,16 @@ interface Props {
   bankName?: string;
   /** The bank's link registry, to resolve message links. */
   links?: BankLink[];
+  /** The bank's incentive menu, to show offer lines on messages. */
+  offers?: Offer[];
+  /** Potential spend on offers, and how to open its working. */
+  cost?: CostReportView | null;
+  onOpenCost?: (bucketId?: string) => void;
   /** The bank's delivery setting. */
   smsFallback?: boolean;
 }
 
-function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName, links, smsFallback }: Props) {
+function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName, links, offers, smsFallback }: Props) {
   const measured = useRef<Record<string, number>>({});
   const [tick, setTick] = useState(0);
   const model = useMemo(() => buildCanvasModel(campaign, context, changed, measured.current),
@@ -83,12 +88,12 @@ function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClic
         id: n.id,
         type: 'cd',
         position: { x: n.x, y: n.y },
-        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText, bankName, links, smsFallback } satisfies CdNodeData,
+        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText, bankName, links, offers, smsFallback } satisfies CdNodeData,
         draggable: false,
         connectable: false,
         selectable: n.data.kind === 'send',
       })),
-    [model, goalText, bankName, links, smsFallback],
+    [model, goalText, bankName, links, offers, smsFallback],
   );
   const edges: Edge[] = useMemo(() => {
     // A step with several routes sends each one out of its own side: the
@@ -224,6 +229,7 @@ function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClic
 export function CampaignCanvas(props: Props) {
   return (
     <div className={`cv-canvas dc-graph-wrap${props.edit?.editingId ? ' cv-focus-mode' : ''}`}>
+      <CostContext.Provider value={props.onOpenCost ? { report: props.cost ?? null, open: props.onOpenCost } : null}>
       <SizingContext.Provider value={props.runSizing ?? null}>
       <EditContext.Provider value={props.edit ?? null}>
       <ReactFlowProvider>
@@ -231,6 +237,7 @@ export function CampaignCanvas(props: Props) {
       </ReactFlowProvider>
       </EditContext.Provider>
       </SizingContext.Provider>
+      </CostContext.Provider>
     </div>
   );
 }

@@ -18,6 +18,7 @@ import { forAgent, type BankLink } from '../links';
 import { signalsFor, signalsForAgent } from '../signals';
 import { incentiveForAgent, incentivesFor, qualifyingShare, validFor } from '../incentives';
 import { todayIST } from './schedule';
+import { costLine, offerProblems } from './offerChecks';
 import { bucketContext } from '../../src/designer/v2/contextView';
 import {
   addQuestions,
@@ -88,7 +89,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'create_campaign',
     title: 'Creating the campaign',
     description:
-      'Create the campaign, once, in the CAMPAIGN OBJECT (saved straight to file). Same fields as edit_campaign: name, description, goal, entry, membership, everyoneElse, schedule (start and end dates), and for recurring campaigns maxAttempts and afterJourney.',
+      'Create the campaign, once, in the CAMPAIGN OBJECT (saved straight to file). Same fields as edit_campaign: name, description, goal, entry, membership, everyoneElse, schedule (start and end dates), and for recurring campaigns maxAttempts and afterJourney; budgetCap when the manager gave an offer budget.',
     input_schema: {
       type: 'object',
       properties: {
@@ -105,6 +106,7 @@ const BASE_TOOLS: ToolDef[] = [
           required: ['startDate', 'endDate'],
         },
         maxAttempts: { type: 'number', description: 'Recurring campaigns: the stopping rule. The most times one customer goes through this campaign (usually 2). After their last time they leave for good, whatever their ending.' },
+        budgetCap: { type: ['number', 'null'], description: 'The most the campaign may spend on offers, in rupees (the engine stops issuing offers once it is spent). From the manager\'s budget; null for no cap.' },
         afterJourney: {
           type: 'object',
           description: 'Recurring campaigns: per outcome, days before a customer may come back in (and be bucketed again), or "leave". Opted-out customers never come back and are not set here.',
@@ -118,7 +120,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'edit_campaign',
     title: 'Editing the campaign',
     description:
-      'Change campaign settings in the CAMPAIGN OBJECT, saved straight to file. Execution fields only; send only what you are changing. name, description; goal {eventCategory, eventType} = the event that proves success (your goal checks take out anyone who reaches it); entry = who is eligible at all (everyone who has not reached the goal yet), as {entity, conditions[], groups[]} using real attributes; membership {type: "locked" (fixed as of launch) | "open" (newly matching customers join), refresh: daily|weekly|monthly}; everyoneElse {approach: "journey" | "none", journey: steps[]} for customers who match no bucket. afterJourney {no_response, not_reachable, declined, converted: days | "leave"} and maxAttempts (the stopping rule) for recurring campaigns. Reasons and notes go in the context (add_context), not here.',
+      'Change campaign settings in the CAMPAIGN OBJECT, saved straight to file. Execution fields only; send only what you are changing. name, description; goal {eventCategory, eventType} = the event that proves success (your goal checks take out anyone who reaches it); entry = who is eligible at all (everyone who has not reached the goal yet), as {entity, conditions[], groups[]} using real attributes; membership {type: "locked" (fixed as of launch) | "open" (newly matching customers join), refresh: daily|weekly|monthly}; everyoneElse {approach: "journey" | "none", journey: steps[]} for customers who match no bucket. afterJourney {no_response, not_reachable, declined, converted: days | "leave"} and maxAttempts (the stopping rule) for recurring campaigns. budgetCap = the most the campaign may spend on offers, in rupees (null for none). Reasons and notes go in the context (add_context), not here.',
     input_schema: {
       type: 'object',
       properties: {
@@ -135,6 +137,7 @@ const BASE_TOOLS: ToolDef[] = [
           required: ['startDate', 'endDate'],
         },
         maxAttempts: { type: 'number', description: 'Recurring campaigns: the stopping rule. The most times one customer goes through this campaign (usually 2). After their last time they leave for good, whatever their ending.' },
+        budgetCap: { type: ['number', 'null'], description: 'The most the campaign may spend on offers, in rupees (the engine stops issuing offers once it is spent). From the manager\'s budget; null for no cap.' },
         afterJourney: {
           type: 'object',
           description: 'Recurring campaigns: per outcome, days before a customer may come back in (and be bucketed again), or "leave". Opted-out customers never come back and are not set here.',
@@ -755,6 +758,7 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
   const summary = `${compiled.bucketsIncluded.length} buckets, ${sends} messages, ${nodes.length} steps`;
   const knockOns = checkJourneys(next.campaign, env.links, env.smsFallback ?? true, true);
   const openEndings = endingGaps(next.campaign);
+  const offers = offerProblems(next.campaign, next.context, env.tenant);
   next = setFlag(next, 'campaignBuilt', true, 'app', summary);
   next = log(next, 'app', 'campaign_built', `Built: ${summary}${notes.length ? `, ${notes.length} note(s)` : ''}`);
   return {
@@ -762,8 +766,8 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
     ok: true,
     doneTitle: 'Built the campaign',
     summary: `${summary}${notes.length ? ` · ${notes.length} note(s)` : ''}`,
-    result: { buckets: compiled.bucketsIncluded, messages: sends, steps: nodes.length, notes, ...(knockOns.length ? { toFix: knockOns } : {}), ...(openEndings.length ? { endingsToDecide: openEndings } : {}) },
+    result: { buckets: compiled.bucketsIncluded, messages: sends, steps: nodes.length, notes, ...(knockOns.length ? { toFix: knockOns } : {}), ...(openEndings.length ? { endingsToDecide: openEndings } : {}), ...(offers.cost.mode !== 'none' ? { potentialSpend: costLine(offers.cost) } : {}), ...(offers.problems.length ? { offersToFix: offers.problems } : {}) },
     build: { graph: built.graph, campaign, notes },
-    forModel: `Built on the canvas as one campaign: ${summary} (buckets: ${compiled.bucketsIncluded.join(', ')}).${notes.length ? ` Notes: ${notes.join(' | ')}` : ' No problems reported.'}${knockOns.length ? ` FIX BEFORE YOU FINISH — a change left these problems further down the tree: ${knockOns.join(' | ')} Fix each one (edit_journey / edit_bucket), build again, and list what you fixed under "Also changed because of this".` : ''}${openEndings.length ? ` ENDINGS NOT DECIDED YET: ${openEndings.join(' | ')} Decide these for the journeys you designed or changed in this conversation turn; for journeys you did not touch, do not change them unasked — mention in one line that their endings are not decided.` : ''} Tell the manager plainly what was built, anything that needs their attention, and that they can ask you to change any bucket or any step.`,
+    forModel: `Built on the canvas as one campaign: ${summary} (buckets: ${compiled.bucketsIncluded.join(', ')}).${notes.length ? ` Notes: ${notes.join(' | ')}` : ' No problems reported.'}${knockOns.length ? ` FIX BEFORE YOU FINISH — a change left these problems further down the tree: ${knockOns.join(' | ')} Fix each one (edit_journey / edit_bucket), build again, and list what you fixed under "Also changed because of this".` : ''}${openEndings.length ? ` ENDINGS NOT DECIDED YET: ${openEndings.join(' | ')} Decide these for the journeys you designed or changed in this conversation turn; for journeys you did not touch, do not change them unasked — mention in one line that their endings are not decided.` : ''}${offers.cost.mode !== 'none' ? ` POTENTIAL SPEND ON OFFERS (worked out by code; quote these figures, never your own): ${costLine(offers.cost)}.${offers.cost.notes.length ? ` ${offers.cost.notes.join(' ')}` : ''}` : ''}${offers.problems.length ? ` OFFERS TO FIX BEFORE YOU FINISH: ${offers.problems.join(' | ')}` : ''} Tell the manager plainly what was built, anything that needs their attention, and that they can ask you to change any bucket or any step.`,
   };
 }

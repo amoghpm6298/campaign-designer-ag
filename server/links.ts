@@ -13,6 +13,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join, resolve } from 'node:path';
 import { campaignDir } from './campaignFiles';
 import { assembleSms } from '../src/designer/v2/smsText';
+import { incentivesFor } from './incentives';
+import { resolveTenant } from './tenants';
 
 export type LinkChannel = 'SMS' | 'WHATSAPP' | 'EMAIL' | 'RCS' | 'PUSH';
 
@@ -165,8 +167,9 @@ export const forAgent = (l: BankLink) => ({
   ...(l.status === 'retired' ? { retired: true } : {}),
 });
 
-/** The engine's contract for SMS: the exact text sent (copy, CTA, then the short link), same as the preview. */
-export function smsTextFor(tenantId: string, step: { copy?: string; cta?: string; link?: string }, dir = linksDir()): string {
+/** The engine's contract for SMS: the exact text sent (copy, the offer line, CTA, then the short link), same as the preview. */
+export function smsTextFor(tenantId: string, step: { copy?: string; cta?: string; link?: string; incentive?: string }, dir = linksDir()): string {
   const url = step.link ? resolveLink(tenantId, step.link, 'SMS', dir) : undefined;
-  return assembleSms(step.copy ?? '', step.cta, url);
+  const offer = step.incentive ? incentivesFor(resolveTenant(tenantId)).find((i) => i.id === step.incentive)?.offerLine : undefined;
+  return assembleSms(step.copy ?? '', step.cta, url, offer);
 }

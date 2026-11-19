@@ -5,6 +5,7 @@
 import type { BpStep } from '../blueprint';
 import type { CampaignContext, CampaignObject } from '../agent/types';
 import { bucketContext, currentEntries, noteText } from '../../src/designer/v2/contextView';
+import { costLine, type CostReport } from '../costModel';
 
 const CHANNEL: Record<string, string> = { WHATSAPP: 'WhatsApp', SMS: 'SMS', EMAIL: 'email', RCS: 'RCS', PUSH: 'push' };
 const OUTCOME: Record<string, string> = { no_response: "didn't respond", not_reachable: "couldn't be reached", declined: 'said no' };
@@ -99,7 +100,7 @@ export function journeyInWords(steps: BpStep[] | null | undefined): { messages: 
 const membershipText = (c: CampaignObject) =>
   !c.membership ? 'not decided' : c.membership.type === 'open' ? `recurring: new customers who match join ${c.membership.refresh ?? 'weekly'}` : 'one-time: the list is fixed at launch';
 
-export function campaignBrief(c: CampaignObject, context: CampaignContext | null) {
+export function campaignBrief(c: CampaignObject, context: CampaignContext | null, cost?: CostReport | null) {
   const entries = context?.entries ?? [];
   const views = bucketContext(entries);
   const buckets = [...c.buckets].sort((a, b) => a.priority - b.priority);
@@ -116,6 +117,10 @@ export function campaignBrief(c: CampaignObject, context: CampaignContext | null
     success: currentEntries(entries, { kind: 'brief', topic: 'Success' })[0]?.text ?? null,
     // How fast they need results and whether they'll spend on offers (and any budget), as the designer has it.
     spendAppetite: currentEntries(entries, { kind: 'brief', topic: 'Spend' })[0]?.text ?? null,
+    incentiveStrategy: noteText(entries, 'incentive strategy') ?? null,
+    ...(cost && cost.mode !== 'none'
+      ? { potentialSpend: { summary: costLine(cost), ifItUnderperforms: cost.total.under, asExpected: cost.total.expected, ifItOutperformsMax: cost.total.max, budgetCap: cost.budgetCap, unit: cost.mode === 'perThousand' ? 'per 1,000 customers (no data access)' : 'rupees, whole campaign', workedOutBy: 'code, from the data and the designer\'s estimates' } }
+      : {}),
     membership: membershipText(c),
     ...(c.maxAttempts ? { timesThroughAtMost: c.maxAttempts } : {}),
     bucketCount: buckets.length,
@@ -132,6 +137,7 @@ export function campaignBrief(c: CampaignObject, context: CampaignContext | null
       firstPath: journeys[i].firstPath,
       // What each A/B test is for: arms, what it tries to learn, how the winner is judged.
       ...(journeys[i].tests.length ? { tests: journeys[i].tests } : {}),
+      ...(cost?.buckets.find((x) => x.bucketId === b.id) ? { potentialSpend: (({ under, expected, max }) => ({ ifItUnderperforms: under, asExpected: expected, ifItOutperformsMax: max }))(cost.buckets.find((x) => x.bucketId === b.id)!) } : {}),
     })),
     everyoneElse:
       ee?.approach === 'journey' ? `customers in no bucket get their own journey: ${journeyInWords(ee.journey).inWords}` : 'customers in no bucket get no messages',

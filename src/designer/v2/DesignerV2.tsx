@@ -9,7 +9,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Copy, Eye, MoreHorizontal, Trash2, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
 import { apiUrl } from '../api';
-import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, submitCampaignApi, runBucketSizing, type Stores, type Submission, type Withdrawal } from './api';
+import { CostPanel } from './CostPanel';
+import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, submitCampaignApi, runBucketSizing, fetchOffers, fetchCost, type CostReportView, type Offer, type Stores, type Submission, type Withdrawal } from './api';
 import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
 import { VersionMenu } from './VersionMenu';
@@ -120,10 +121,23 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   const [repairKey, setRepairKey] = useState<string>(fresh?.repairKey ?? '');
   // The bank's link registry: where each message's link really goes.
   const [links, setLinks] = useState<BankLink[]>([]);
+  const [offers, setOffers] = useState<Offer[]>([]);
+  // Potential spend on offers: worked out by the server whenever the campaign changes.
+  const [cost, setCost] = useState<CostReportView | null>(null);
+  const [costOpen, setCostOpen] = useState<{ bucketId?: string } | null>(null);
+  useEffect(() => {
+    if (!stores.campaign) return setCost(null);
+    let live = true;
+    fetchCost(sessionId, tenant.tenantId).then((r) => live && setCost(r));
+    return () => {
+      live = false;
+    };
+  }, [stores.campaign, stores.context, sessionId, tenant.tenantId]);
   // The bank's delivery setting: undelivered WhatsApp goes again by SMS.
   const [smsFallback, setSmsFallback] = useState(true);
   useEffect(() => {
     fetchLinks(tenant.tenantId).then(setLinks).catch(() => setLinks([]));
+    fetchOffers(tenant.tenantId).then(setOffers).catch(() => setOffers([]));
     fetch(apiUrl(`/api/bank-settings?tenantId=${encodeURIComponent(tenant.tenantId)}`))
       .then((r) => r.json())
       .then((d: { settings?: { smsFallback?: boolean } }) => setSmsFallback(d.settings?.smsFallback !== false))
@@ -484,6 +498,11 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         </span>
         )}
         {/* The main action sits last, on the right: Submit for a ready campaign, Stop for a live one. */}
+        {cost && cost.mode === 'totals' && (
+          <button className="cv-est" onClick={() => setCostOpen({})} title="Potential spend on offers, as expected. Tap for the working.">
+            Est. offers ₹{Math.round(cost.total.expected).toLocaleString('en-IN')}
+          </button>
+        )}
         {submission && !viewOnly && submittedStage(submission) !== 'ended' && (
           <span className="cv-del-wrap">
             <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title="Stop it: back to Ready, editable; you can submit it again">
@@ -584,6 +603,9 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               onPaneClick={() => setEditing(null)}
               bankName={(tenant.issuer || tenant.displayName).replace(/\s*\(.*?\)\s*/g, '').trim()}
               links={links}
+              offers={offers}
+              cost={cost}
+              onOpenCost={(bucketId) => { setDrawerId(null); setCostOpen({ bucketId }); }}
               smsFallback={smsFallback}
             />
           ) : (
@@ -628,6 +650,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             </div>
           )}
 
+          {costOpen && cost && cost.mode !== 'none' && <CostPanel report={cost} focusBucket={costOpen.bucketId} locked={locked || busy || !!viewing} onDirect={onDirect} onClose={() => setCostOpen(null)} />}
           {drawerNode?.data.step && <NodeDrawer step={drawerNode.data.step as CStep} path={drawerNode.data.path} bucketName={drawerBucket} links={links} smsFallback={smsFallback} onClose={() => setDrawerId(null)} />}
 
           {activity && <ActivityDrawer state={state} onClose={() => setActivity(false)} />}

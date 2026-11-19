@@ -14,7 +14,9 @@ export type DirectOp =
   | { op: 'wait'; bucketId: string; stepId: string; days: number }
   | { op: 'afterJourney'; outcome: AfterOutcome; value: number | 'leave' }
   | { op: 'maxAttempts'; value: number }
-  | { op: 'schedule'; startDate: string; endDate: string };
+  | { op: 'schedule'; startDate: string; endDate: string }
+  | { op: 'budgetCap'; value: number | null }
+  | { op: 'costAssumption'; bucketId: string; stepId: string; which: 'reach' | 'redeem'; expected: number; few: number };
 
 const rejoinIn = (d: number) => (d === 0 ? 'Can rejoin at the next refresh' : `Can rejoin in ${d} day${d === 1 ? '' : 's'}`);
 const AFTER_CHOICES: [string, string][] = [['leave', 'Leaves the campaign'], ...[0, 7, 14, 30, 60, 90].map((d): [string, string] => [String(d), rejoinIn(d)])];

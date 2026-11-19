@@ -2,7 +2,10 @@
 // campaign made here is an ordinary campaign: same files, same chat, same
 // canvas link. The caller's agent never designs anything itself.
 import type { AgentQuestion, AgentState } from '../agent/types';
-import { copyCampaign, deleteCampaign, findDeleted, listCampaigns, loadChat, loadStores, loadSubmission, loadWithdrawals, withdrawCampaign, LOCKED } from '../campaignFiles';
+import { copyCampaign, deleteCampaign, findDeleted, listCampaigns, loadChat, loadEngineCampaign, loadStores, loadSubmission, loadWithdrawals, withdrawCampaign, LOCKED } from '../campaignFiles';
+import { campaignCost } from '../costModel';
+import { resolveTenant } from '../tenants';
+import { toEngineCampaign } from '../engineExport';
 import { currentEntries } from '../../src/designer/v2/contextView';
 import type { AnswerItem } from '../../src/designer/v2/types';
 import { isRunning, runningStep, startTurn, waitForTurn, type StoredChat } from './runner';
@@ -219,7 +222,7 @@ export function campaignStatus(caller: Caller, id: string): Result {
       submittedBy: sub.by,
       startDate: sub.startDate,
       endDate: sub.endDate,
-      brief: st.campaign ? campaignBrief(st.campaign, st.context) : null,
+      brief: st.campaign ? campaignBrief(st.campaign, st.context, campaignCost(st.campaign, st.context, resolveTenant(caller.tenantId))) : null,
     };
   }
   const ws = loadWithdrawals(id);
@@ -258,7 +261,7 @@ export function campaignStatus(caller: Caller, id: string): Result {
       allowedActions: ACTIONS.ready,
       name: c?.name ?? summary?.name,
       message,
-      brief: c ? campaignBrief(c, stores.context) : null,
+      brief: c ? campaignBrief(c, stores.context, campaignCost(c, stores.context, resolveTenant(caller.tenantId))) : null,
       assumptions: currentEntries(stores.context?.entries ?? [], { kind: 'brief' })
         .filter((e) => e.source === 'assumption')
         .map((e) => `${e.topic}: ${e.text}`),
@@ -298,7 +301,10 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       const st = campaignStatus(caller, id);
       if (args.details === true && st.state !== 'deleted' && !isRunning(id)) {
         const stores = loadStores(id);
-        if (stores.campaign) st.details = campaignDetails(id, stores.campaign, stores.context);
+        if (stores.campaign) {
+          const tenant = resolveTenant(caller.tenantId);
+          st.details = campaignDetails(id, stores.campaign, stores.context, { cost: campaignCost(stores.campaign, stores.context, tenant), engine: loadEngineCampaign(id) ?? toEngineCampaign(stores.campaign, tenant).engine });
+        }
       }
       return st;
     }

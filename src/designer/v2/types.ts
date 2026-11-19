@@ -60,6 +60,8 @@ export interface CampaignObject {
   /** The stopping rule: the most times one customer goes through this campaign. */
   maxAttempts?: number | null;
   schedule?: { startDate: string; endDate: string } | null;
+  /** The most the campaign may spend on offers, in rupees. */
+  budgetCap?: number | null;
 }
 
 export type AfterOutcome = 'no_response' | 'not_reachable' | 'declined' | 'converted';

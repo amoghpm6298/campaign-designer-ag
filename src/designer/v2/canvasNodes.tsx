@@ -5,7 +5,9 @@
 import { createContext, useContext, useState } from 'react';
 import { Handle, NodeToolbar, Position } from '@xyflow/react';
 import { ChevronDown, ChevronRight, Pencil, Play, Sparkles } from 'lucide-react';
-import type { SizingRun } from './api';
+import type { CostReportView, Offer, SizingRun } from './api';
+import { SpendSummary } from './CostPanel';
+import { withOfferLine } from './smsText';
 import type { BankLink } from '../LinksSection';
 import { assembleSms, smsLength } from './smsText';
 import { Icon } from '../../components/icons';
@@ -20,6 +22,8 @@ export interface CdNodeData extends CNodeData {
   bankName?: string;
   /** The bank's link registry, to show where a message's link really goes. */
   links?: BankLink[];
+  /** The bank's incentive menu, to show the exact offer line the system adds to a message. */
+  offers?: Offer[];
   /** The bank's delivery setting: undelivered WhatsApp goes again by SMS. */
   smsFallback?: boolean;
   width: number;
@@ -69,11 +73,28 @@ function Card({ cat, type, icon, children, data, extra, title }: { cat: string; 
 const smsSender = (bank: string) => `AD-${bank.replace(/bank|ltd|limited|\(.*?\)/gi, '').replace(/[^a-z]/gi, '').toUpperCase().slice(0, 6).padEnd(4, 'X')}`;
 
 /** The message drawn the way the customer sees it on that channel. */
-function ChannelPreview({ channel, text, cta, bank, subject, time, link }: { channel: string; text: string; cta?: string; bank: string; subject?: string; time?: string; link?: BankLink }) {
+/** Text with the system's offer line marked, so a reviewer sees which words came from the incentive menu, not the AI. */
+function Marked({ text, offerLine }: { text: string; offerLine?: string }) {
+  const at = offerLine ? text.indexOf(offerLine) : -1;
+  if (at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <span className="cv-pv-offer" title="Added by the system from the bank's incentive menu: exact terms, never written by the AI">
+        {offerLine}
+      </span>
+      {text.slice(at + offerLine!.length)}
+    </>
+  );
+}
+
+function ChannelPreview({ channel, text, cta, bank, subject, time, link, offerLine }: { channel: string; text: string; cta?: string; bank: string; subject?: string; time?: string; link?: BankLink; offerLine?: string }) {
   const clock = fmtClock(time);
   // No link: no button and no URL; the CTA wording, if any, stays part of the message.
   const button = link && cta ? cta : null;
-  const body = !link && cta ? `${text} ${cta}.` : text;
+  // The offer line goes in after the copy, exactly as the menu has it (like a link).
+  const withOffer = withOfferLine(text, offerLine);
+  const body = !link && cta ? `${withOffer} ${cta}.` : withOffer;
   if (channel === 'WHATSAPP' || channel === 'RCS') {
     return (
       <div className={`cv-pv cv-pv-wa${channel === 'RCS' ? ' rcs' : ''}`}>
@@ -85,7 +106,7 @@ function ChannelPreview({ channel, text, cta, bank, subject, time, link }: { cha
         </div>
         <div className="cv-pv-wa-body">
           <div className="cv-pv-wa-bubble">
-            <span className="cv-pv-text">{body}</span>
+            <span className="cv-pv-text"><Marked text={body} offerLine={offerLine} /></span>
             <span className="cv-pv-meta">{clock}</span>
           </div>
           {button && (
@@ -108,7 +129,7 @@ function ChannelPreview({ channel, text, cta, bank, subject, time, link }: { cha
           </span>
         </div>
         {subject && <div className="cv-pv-mail-subject">{subject}</div>}
-        <span className="cv-pv-text">{body}</span>
+        <span className="cv-pv-text"><Marked text={body} offerLine={offerLine} /></span>
         {button && (
           <span className="cv-pv-mail-btn" title={`Opens ${link!.url}`}>
             {button}
@@ -119,7 +140,7 @@ function ChannelPreview({ channel, text, cta, bank, subject, time, link }: { cha
   }
   // SMS (and anything else): a plain text thread. SMS has no buttons: the link
   // is written out at the end, as the customer's phone will show it.
-  const smsText = assembleSms(text, cta, link?.shortUrl);
+  const smsText = assembleSms(text, cta, link?.shortUrl, offerLine);
   const { chars, parts } = smsLength(smsText);
   const urlAt = link?.shortUrl ? smsText.lastIndexOf(link.shortUrl) : -1;
   return (
@@ -132,13 +153,13 @@ function ChannelPreview({ channel, text, cta, bank, subject, time, link }: { cha
         <span className="cv-pv-text">
           {urlAt >= 0 ? (
             <>
-              {smsText.slice(0, urlAt)}
+              <Marked text={smsText.slice(0, urlAt)} offerLine={offerLine} />
               <span className="cv-pv-link" title={`Opens ${link!.url}`}>
                 {link!.shortUrl}
               </span>
             </>
           ) : (
-            smsText
+            <Marked text={smsText} offerLine={offerLine} />
           )}
         </span>
       </div>
@@ -265,12 +286,18 @@ function SendCard({ data }: { data: CdNodeData }) {
   const policyFb = data.smsFallback !== false && (ch === 'WHATSAPP' || ch === 'RCS') ? 'SMS' : undefined;
   const exception = !!fb && fb !== policyFb;
   const linkState = resolveCardLink(st, ch, data.links, fb ?? policyFb);
+  const offer = st.incentive ? data.offers?.find((o) => o.id === st.incentive) : undefined;
   return (
     <Card cat="send" icon={CHANNEL_ICON[ch] ?? 'paperplane'} type={`Send · ${CHANNEL_LABEL[ch] ?? ch}`} data={data} extra="cv-clickable" title="Open the message preview">
       <div className="dc-node-label">{sendTitle({ ...st, name: st.name || st.label })}</div>
       {linkState.broken && <div className="cv-link-bad" title={linkState.broken}>⚠ {linkState.broken}</div>}
+      {st.incentive && (offer ? (
+        <div className="cv-offer-badge" title={offer.terms}>🎁 Offer: {offer.label}</div>
+      ) : (
+        <div className="cv-link-bad">⚠ Unknown offer "{st.incentive}"</div>
+      ))}
       {(st.copy || st.describe) && (
-        <ChannelPreview channel={ch} text={st.copy || st.describe || ''} cta={st.cta} bank={data.bankName ?? 'Your bank'} subject={st.name || st.label} time={st.atTime} link={linkState.link} />
+        <ChannelPreview channel={ch} text={st.copy || st.describe || ''} cta={st.cta} bank={data.bankName ?? 'Your bank'} subject={st.name || st.label} time={st.atTime} link={linkState.link} offerLine={offer?.offerLine} />
       )}
       {/* Timing only when it says something the flow doesn't: a send time or a delay of its own. */}
       {!!(st.atTime || st.delayDays) && (
@@ -320,6 +347,7 @@ function BucketCard({ data }: { data: CdNodeData }) {
         {size}
         {b.holdoutPct ? ` · ${b.holdoutPct}% held back to measure` : ''}
       </div>
+      <SpendLine bucketId={b.id} />
       {info.rationale && (
         <>
           <button
@@ -422,6 +450,7 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
             <span className={`cv-mode-tag ${m?.type === 'open' ? 'rec' : m ? 'once' : 'none'}`}>{m ? (m.type === 'open' ? `Recurring · ${titleCase(m.refresh ?? 'weekly')}` : 'One-time') : 'One-time or recurring: not decided'}</span>
             {c?.goal && <span className="dc-node-meta">Success: {c.goal.eventType}</span>}
           </div>
+          <SpendLine />
           <div className={`cv-entry-dates${c?.schedule ? '' : ' unset'}`}>{c?.schedule ? `Runs ${fmtDay(c.schedule.startDate)} → ${fmtDay(c.schedule.endDate)}` : 'Campaign dates: not set'}</div>
           <div className="dc-node-meta">
             {m?.type === 'open'
@@ -575,6 +604,32 @@ export interface EditApi {
   renderPopover: (nodeId: string, data: CdNodeData) => React.ReactNode;
 }
 export const EditContext = createContext<EditApi | null>(null);
+/** The campaign's potential spend on offers, and how to open its working. */
+export const CostContext = createContext<{ report: CostReportView | null; open: (bucketId?: string) => void } | null>(null);
+
+/** A potential-spend line that opens the working when tapped. Shown only when the campaign has offers. */
+function SpendLine({ bucketId }: { bucketId?: string }) {
+  const cost = useContext(CostContext);
+  const r = cost?.report;
+  if (!r || r.mode === 'none') return null;
+  const t = bucketId ? r.buckets.find((b) => b.bucketId === bucketId) : r.total;
+  if (!t) return null;
+  return (
+    <button
+      type="button"
+      className="cv-spendline nodrag nopan"
+      title="See the working behind these numbers"
+      onClick={(e) => {
+        e.stopPropagation();
+        cost!.open(bucketId);
+      }}
+    >
+      <span className="cv-spendline-h">Potential spend on offers{r.mode === 'perThousand' ? ' · per 1,000 customers' : ''}</span>
+      <SpendSummary under={t.under} expected={t.expected} max={t.max} compact />
+      {!bucketId && r.budgetCap != null && <span className="cv-spendline-cap">Budget cap ₹{r.budgetCap.toLocaleString('en-IN')}</span>}
+    </button>
+  );
+}
 /** Runs a bucket's saved sizing query again; null where it can't (view-only links). */
 export const SizingContext = createContext<((bucketId: string) => Promise<SizingRun>) | null>(null);
 

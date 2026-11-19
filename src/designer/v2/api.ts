@@ -113,6 +113,58 @@ export async function withdrawCampaign(sessionId: string, tenantId: string): Pro
   return (await res.json().catch(() => ({ ok: false, error: 'Could not reach the server.' }))) as { ok: boolean; withdrawal?: Withdrawal; error?: string };
 }
 
+/** An offer on the bank's incentive menu, as the canvas needs it. */
+export interface Offer {
+  id: string;
+  label: string;
+  offerLine: string;
+  terms: string;
+  size: 'small' | 'big';
+}
+
+export async function fetchOffers(tenantId: string): Promise<Offer[]> {
+  const res = await fetch(apiUrl(`/api/incentives?tenantId=${encodeURIComponent(tenantId)}`)).catch(() => null);
+  if (!res?.ok) return [];
+  return (((await res.json().catch(() => ({}))) as { incentives?: Offer[] }).incentives ?? []);
+}
+
+/** One offer, costed (mirrors server/costModel.ts). */
+export interface CostLineView {
+  bucketId: string;
+  bucketName: string;
+  step: string;
+  stepId: string;
+  incentiveId: string;
+  incentiveLabel: string;
+  customers: number | null;
+  qualified: number | null;
+  reach: { expected: number; few: number; why: string } | null;
+  redeem: { expected: number; few: number; why: string } | null;
+  avgReward: number;
+  avgRewardSource: string;
+  maxPerCustomer: number;
+  under: number | null;
+  expected: number | null;
+  max: number | null;
+  equations: { under: string; expected: string; max: string };
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface CostReportView {
+  mode: 'totals' | 'perThousand' | 'none';
+  lines: CostLineView[];
+  buckets: { bucketId: string; name: string; under: number; expected: number; max: number }[];
+  total: { under: number; expected: number; max: number; maxWithCap: number };
+  budgetCap: number | null;
+  notes: string[];
+}
+
+export async function fetchCost(sessionId: string, tenantId: string): Promise<CostReportView | null> {
+  const res = await fetch(apiUrl(`/api/campaign/cost?${new URLSearchParams({ sessionId, tenantId })}`)).catch(() => null);
+  if (!res?.ok) return null;
+  return ((await res.json().catch(() => null)) as CostReportView | null) ?? null;
+}
+
 /** A bucket's saved sizing query, run again now against the bank's warehouse. */
 export interface SizingRun {
   ok: boolean;
