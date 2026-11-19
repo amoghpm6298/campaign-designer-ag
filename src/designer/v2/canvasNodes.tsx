@@ -292,7 +292,7 @@ function SendCard({ data }: { data: CdNodeData }) {
       <div className="dc-node-label">{sendTitle({ ...st, name: st.name || st.label })}</div>
       {linkState.broken && <div className="cv-link-bad" title={linkState.broken}>⚠ {linkState.broken}</div>}
       {st.incentive && (offer ? (
-        <div className="cv-offer-badge" title={offer.terms}>🎁 Offer: {offer.label}</div>
+        <OfferBadge label={offer.label} terms={offer.terms} stepId={st.id} />
       ) : (
         <div className="cv-link-bad">⚠ Unknown offer "{st.incentive}"</div>
       ))}
@@ -606,6 +606,63 @@ export interface EditApi {
 export const EditContext = createContext<EditApi | null>(null);
 /** The campaign's potential spend on offers, and how to open its working. */
 export const CostContext = createContext<{ report: CostReportView | null; open: (bucketId?: string) => void } | null>(null);
+
+const inrS = (n: number | null | undefined) => (n == null ? '—' : `₹${Math.round(n).toLocaleString('en-IN')}`);
+
+/** The offer on a message: its name, and on demand who qualifies and what it may cost (from the cost calculator). */
+function OfferBadge({ label, terms, stepId }: { label: string; terms: string; stepId?: string }) {
+  const [open, setOpen] = useState(false);
+  const cost = useContext(CostContext);
+  const line = stepId ? cost?.report?.lines.find((l) => l.stepId === stepId) : undefined;
+  const per = cost?.report?.mode === 'perThousand';
+  return (
+    <div className="cv-offer">
+      <span className="cv-offer-badge" title={terms}>
+        🎁 Offer: {label}
+      </span>
+      <button
+        type="button"
+        className="cv-offer-more nodrag nopan"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+      >
+        {open ? 'Hide details' : 'Details'}
+      </button>
+      {open && (
+        <div className="cv-offer-details" onClick={(e) => e.stopPropagation()}>
+          <div>
+            <i>Terms</i> {terms}
+          </div>
+          {line ? (
+            <>
+              <div>
+                <i>Who qualifies</i>{' '}
+                {per
+                  ? 'not counted (no data access)'
+                  : line.qualified != null && line.customers
+                    ? `${line.qualified.toLocaleString('en-IN')} of ${line.customers.toLocaleString('en-IN')} (${Math.round((100 * line.qualified) / line.customers)}%)`
+                    : 'not counted yet'}
+              </div>
+              <div>
+                <i>May cost{per ? ' (per 1,000)' : ''}</i> as expected {inrS(line.expected)} · max {inrS(line.max)}
+              </div>
+              {line.engineOnly.length > 0 && (
+                <div>
+                  <i>Also checked by the engine</i> {line.engineOnly.join(' ')}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="cv-muted">The cost appears once the campaign is built.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** A potential-spend line that opens the working when tapped. Shown only when the campaign has offers. */
 function SpendLine({ bucketId }: { bucketId?: string }) {

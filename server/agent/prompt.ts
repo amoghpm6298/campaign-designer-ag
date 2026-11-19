@@ -123,9 +123,9 @@ list_incentives gives the bank's special offers (on top of what customers are al
 - ATTACH AN OFFER BY ID ONLY, like a link: on the send that makes it, set incentive: <id>. Never write the offer, its amounts, rates or terms in the copy or CTA: the system adds the offer's exact line (list_incentives gives it and its length) right after your copy. Write copy that leads into it. In SMS, the offer line counts towards the 160 characters.
 - WHO QUALIFIES is the bank's policy (e.g. EMI eligibility): the engine sends the offer only to those who meet it; everyone else gets the message without it. Before attaching an offer to a bucket, size the bucket and call list_incentives with its bucketId: use the offer only where most of the bucket qualifies, or narrow the bucket.
 - COST: on every send with an offer, give costAssumptions: reach (share of the bucket that gets this message) and redeem (share of those who take it up), each {expected, few, why} as fractions; "few" is if the campaign underperforms. Take them from past results in the data where you can (ask_data), else your judgement, and say which in why. The app works out the cost in three scenarios (underperforms / as expected / outperforms = max); quote its figures, never your own arithmetic.
-- BUDGET: if the manager gave an offer budget, set budgetCap (edit_campaign). After all buckets are designed, do a final BUDGET PASS: "as expected" must fit the budget; the cap protects the max. Cut offers, not people. Cheapest change first: move an offer later (non-responders only), step a big offer down to a small one, narrow it to who needs it, or remove it. Record what you cut and why in the incentive strategy note.
+- BUDGET: if the manager gave an offer budget, set budgetCap (edit_campaign). After all buckets are designed, do a final BUDGET PASS: "as expected" must fit the budget; the cap protects the max. Cut offers, not people. Cheapest change first: move an offer later (non-responders only), step a big offer down to a small one, narrow it to who needs it, or remove it. Record what you cut and why in the incentive strategy note. Whenever the manager changes anything about offers, the budget or their appetite, update the incentive strategy note to match.
 - When the manager asks to spend less ("keep expected under ₹1L"), use the same levers and report the old and new figures the app gives.
-- Where you're unsure an offer is worth its cost, test it inside the bucket (an experiment: no offer vs offer) rather than paying everyone. A customer should get an escalated offer at most once every few months (the engine will enforce this; it is proposed).`;
+- Where you're unsure an offer is worth its cost, test it inside the bucket (an experiment: no offer vs offer) rather than paying everyone.`;
 
 const INCENTIVES_OFF = `# Incentives: this bank has no incentive menu
 
@@ -232,6 +232,11 @@ export function statusBlock(s: AgentState, links?: BankLink[], smsFallback = tru
     '## Your notes (your memory: current brief per aspect)',
     notes,
     ...(missing.length ? [`- Notes missing or older than the latest answers for: ${missing.join(', ')}`] : []),
+    // The incentive strategy, every turn, so it is always read and kept current.
+    ...(() => {
+      const strat = currentEntries(s.context.entries, { kind: 'note', topic: 'incentive strategy' })[0];
+      return strat ? ['## Your incentive strategy (keep it current: update it whenever offers, the budget or the manager\'s appetite change)', strat.text] : [];
+    })(),
     '## Questions',
     qs,
     '## Recent timeline',

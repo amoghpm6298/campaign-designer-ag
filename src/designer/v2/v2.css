@@ -538,3 +538,8 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-eq { margin-top: 8px; font: 11.5px/1.6 ui-monospace, Menlo, monospace; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; }
 .cv-eq i { font-style: normal; color: #94a3b8; display: block; }
 .cv-ver-cost { display: block; margin-top: 2px; font-size: 11.5px; font-weight: 600; color: #be185d; }
+.cv-offer { margin: 4px 0 6px; }
+.cv-offer .cv-offer-badge { margin: 0; }
+.cv-offer-more { margin-left: 6px; border: 0; background: none; padding: 0; font: inherit; font-size: 11px; font-weight: 600; color: #6b7280; cursor: pointer; text-decoration: underline; }
+.cv-offer-details { margin-top: 6px; padding: 7px 9px; border-radius: 8px; background: #fdf7fa; border: 1px solid #f6d3e3; font-size: 11.5px; line-height: 1.5; color: #344054; cursor: default; }
+.cv-offer-details i { font-style: normal; font-weight: 700; color: #be185d; margin-right: 4px; }

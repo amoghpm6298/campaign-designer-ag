@@ -148,6 +148,7 @@ export interface CostLineView {
   max: number | null;
   equations: { under: string; expected: string; max: string };
   confidence: 'high' | 'medium' | 'low';
+  engineOnly: string[];
 }
 
 export interface CostReportView {

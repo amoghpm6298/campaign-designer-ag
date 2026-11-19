@@ -33,7 +33,10 @@ export interface Incentive {
   requires: SignalCondition[];
   /** Who the offer is meant for, beyond what it requires. */
   eligibility: SignalCondition[];
-  /** Eligibility rules that can't be written in signals: the engine checks them when it issues the offer. */
+  /**
+   * Eligibility rules that can't be written in signals: the engine checks them when it issues the offer.
+   * They only ever narrow who qualifies, so design-time counts and costs are an upper bound.
+   */
   unmatchedCriteria: string[];
   budget: { total: number; remaining: number };
   validFrom: string;
@@ -103,7 +106,7 @@ function mockLibrary(feeByCardType: Record<string, number>): Incentive[] {
       maxCostPerCustomer: 100,
       requires: [],
       eligibility: [{ attribute: 'days_since_last_txn', operator: 'Greater than', value: '60' }],
-      unmatchedCriteria: ['Also open to customers who have never used the card (the engine checks "no transaction ever").'],
+      unmatchedCriteria: [],
       budget: { total: 300000, remaining: 300000 },
       ...VALID,
       terms: '₹100 cashback on your first card spend of ₹1,000 or more within 14 days. Credited within 30 days. One per customer.',

@@ -51,6 +51,8 @@ export interface CostLine {
   equations: { under: string; expected: string; max: string };
   /** Bucket evidence + where the take-up estimate comes from. */
   confidence: 'high' | 'medium' | 'low';
+  /** Offer rules the data can't check (the engine checks them when it sends): the counts may be lower. */
+  engineOnly: string[];
 }
 
 export interface CostReport {
@@ -189,7 +191,10 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
           max: maxBase == null ? 'not sized' : `${who} × 100% × 100% × ${inr(reward.max)} (the most one customer can cost) = ${inr(maxBase * reward.max)}`,
         },
         confidence,
+        engineOnly: inc.unmatchedCriteria,
       });
+      if (inc.unmatchedCriteria.length)
+        notes.push(`${lane.name} › "${step}": who qualifies and the cost may be lower than shown, because the engine also checks: ${inc.unmatchedCriteria.join(' ')}`);
     });
   }
   const sum = (k: 'under' | 'expected' | 'max', list: CostLine[]) => list.reduce((n, l) => n + (l[k] ?? 0), 0);

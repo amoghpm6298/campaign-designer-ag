@@ -119,7 +119,7 @@ export function campaignBrief(c: CampaignObject, context: CampaignContext | null
     spendAppetite: currentEntries(entries, { kind: 'brief', topic: 'Spend' })[0]?.text ?? null,
     incentiveStrategy: noteText(entries, 'incentive strategy') ?? null,
     ...(cost && cost.mode !== 'none'
-      ? { potentialSpend: { summary: costLine(cost), ifItUnderperforms: cost.total.under, asExpected: cost.total.expected, ifItOutperformsMax: cost.total.max, budgetCap: cost.budgetCap, unit: cost.mode === 'perThousand' ? 'per 1,000 customers (no data access)' : 'rupees, whole campaign', workedOutBy: 'code, from the data and the designer\'s estimates' } }
+      ? { potentialSpend: { summary: costLine(cost), ifItUnderperforms: cost.total.under, asExpected: cost.total.expected, ifItOutperformsMax: cost.total.max, budgetCap: cost.budgetCap, unit: cost.mode === 'perThousand' ? 'per 1,000 customers (no data access)' : 'rupees, whole campaign', workedOutBy: 'code, from the data and the designer\'s estimates', ...(cost.notes.length ? { notes: cost.notes } : {}) } }
       : {}),
     membership: membershipText(c),
     ...(c.maxAttempts ? { timesThroughAtMost: c.maxAttempts } : {}),

@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { campaignCost, costChange, costLine, shortInr } from '../../server/costModel';
 import { listVersions } from '../../server/campaignVersions';
+import { statusBlock, systemPrompt } from '../../server/agent/prompt';
+import { initialState } from '../../server/agent/state';
 import { offerProblems } from '../../server/agent/offerChecks';
 import { toEngineCampaign, REASONING_FIELDS } from '../../server/engineExport';
 import { withOfferLine, assembleSms } from '../../src/designer/v2/smsText';
@@ -199,5 +201,19 @@ describe('version history shows what each change did to the cost', () => {
     const last = vs[vs.length - 1];
     expect(last.costChange).toBe('As expected ₹18k → ₹36k');
     expect(vs.some((v) => /Offer budget cap: no cap → ₹4,00,000/.test(v.summary))).toBe(true);
+  });
+});
+
+describe('the agent keeps its incentive strategy in view', () => {
+  it('the status block carries the strategy note every turn; the prompt says to keep it current', () => {
+    const st = { ...initialState(), campaign: campaign(), context: context() };
+    expect(statusBlock(st)).toMatch(/## Your incentive strategy[\s\S]*Lapsed: ₹100 cashback/);
+    expect(systemPrompt(true, true)).toMatch(/update the incentive strategy note to match/);
+    expect(systemPrompt(true, true)).not.toMatch(/escalated offer at most once/);
+  });
+  it('rules only the engine can check are flagged: counts and cost may be lower', () => {
+    const r = campaignCost(campaign(offerSend({ incentive: 'annual_fee_waiver' })), context(), NO_DATA);
+    expect(r.lines[0].engineOnly.join(' ')).toMatch(/fee waiver in the last 12 months/);
+    expect(r.notes.join(' ')).toMatch(/may be lower than shown, because the engine also checks/);
   });
 });
