@@ -253,9 +253,34 @@ export function signalsFor(tenant: Pick<TenantConfig, 'warehouse'> | null | unde
   return [...data, ...JOURNEY_SIGNALS];
 }
 
-/** The menu as the agent sees it: no SQL. */
+/** The menu as the agent sees it: no SQL; the operators each signal takes, spelled exactly. */
 export function signalsForAgent(signals: Signal[]) {
-  return signals.map(({ sql: _sql, ...s }) => (void _sql, s));
+  return signals.map(({ sql: _sql, ...s }) => (void _sql, { ...s, operators: operatorsFor(s.type) }));
+}
+
+const OPERATOR_ALIASES: Record<string, string> = {
+  '=': 'Equals', '==': 'Equals', eq: 'Equals', equals: 'Equals', is: 'Equals',
+  '!=': 'Not Equals', '<>': 'Not Equals', ne: 'Not Equals', 'not equals': 'Not Equals', 'is not': 'Not Equals',
+  '>': 'Greater than', gt: 'Greater than', 'greater than': 'Greater than', more: 'Greater than',
+  '<': 'Less than', lt: 'Less than', 'less than': 'Less than',
+  in: 'Any of', 'one of': 'Any of', one_of: 'Any of', 'any of': 'Any of', anyof: 'Any of',
+  between: 'Between',
+};
+
+/**
+ * The canonical spelling of a condition: common operator spellings ("=", "in", "eq") become the
+ * builder's, and a list of values becomes "a,b". Deterministic, so what is checked is what is stored.
+ */
+export function canonicalCondition(signals: Signal[], c: { attribute?: unknown; operator?: unknown; value?: unknown }): SignalCondition {
+  const s = signals.find((x) => x.key === String(c.attribute ?? '').trim());
+  const raw = String(c.operator ?? '').trim();
+  let op = operatorsFor(s?.type ?? 'category').find((o) => o.toLowerCase() === raw.toLowerCase()) ?? OPERATOR_ALIASES[raw.toLowerCase()] ?? raw;
+  let value = Array.isArray(c.value) ? (c.value as unknown[]).map(String).join(',') : String(c.value ?? '');
+  if (s?.type === 'bool' && op === 'Equals') op = 'Is';
+  if (s?.type === 'category' && op === 'Any of' && !value.includes(',')) op = 'Equals';
+  if (s?.type === 'category' && op === 'Equals' && value.includes(',')) op = 'Any of';
+  value = value.trim();
+  return { attribute: String(c.attribute ?? '').trim(), operator: op, value };
 }
 
 /** The operators a signal of this type accepts (builder spelling). */

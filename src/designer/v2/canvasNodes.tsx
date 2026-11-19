@@ -189,7 +189,7 @@ function resolveCardLink(st: CStep, ch: string, links: BankLink[] | undefined, f
 /** Whether a step has any reasoning to show. */
 export function hasRationale(st: CStep | undefined): boolean {
   // An A/B test always shows it: one that doesn't say what it tests is worth seeing too.
-  return !!st && (st.kind === 'experiment' || !!(stepRationale(st) || st.hypothesis?.trim() || st.successMetric?.trim()));
+  return !!st && (st.kind === 'experiment' || !!st.splitIdea || !!(stepRationale(st) || st.hypothesis?.trim() || st.successMetric?.trim()));
 }
 
 /** The designer's reasoning for a step: its AI rationale; for an experiment, what it tests and how the winner is judged. */
@@ -216,6 +216,15 @@ export function RationaleBody({ st }: { st: CStep }) {
         </>
       )}
       {why && <p className="cv-why-text">{why}</p>}
+      {st.splitIdea?.hypothesis && (
+        <div className="cv-why-row">
+          <span>Split idea</span>
+          <p>
+            {st.splitIdea.hypothesis}
+            {st.splitIdea.result ? <><br /><b>{st.splitIdea.status === 'split' ? 'Split: ' : st.splitIdea.status === 'not split' ? 'Not split: ' : ''}</b>{st.splitIdea.result}</> : <><br /><i>Being tested…</i></>}
+          </p>
+        </div>
+      )}
       {st.kind === 'experiment' && !st.hypothesis?.trim() && !st.successMetric?.trim() && <p className="cv-why-hint">The designer hasn't written these for this test. Ask it in the chat to add them.</p>}
     </div>
   );
@@ -311,6 +320,11 @@ function SendCard({ data }: { data: CdNodeData }) {
           <span className="dc-node-fallback-arrow">↳</span>
           <Icon name={CHANNEL_ICON[fb] ?? 'sms'} />
           <span>{CHANNEL_LABEL[fb] ?? fb} if not delivered</span>
+        </div>
+      )}
+      {st.splitIdea?.hypothesis && (
+        <div className={`cv-split-chip ${st.splitIdea.status === 'not split' ? 'no' : st.splitIdea.status === 'split' ? 'yes' : 'wait'}`} title={`${st.splitIdea.hypothesis}${st.splitIdea.result ? `\n\n${st.splitIdea.result}` : ''}`}>
+          💡 Split idea · {st.splitIdea.status === 'not split' ? 'tested: not split' : st.splitIdea.status === 'split' ? 'split' : 'testing…'}
         </div>
       )}
       <RationaleToggle st={st} />
@@ -549,8 +563,9 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
       break;
     case 'branch':
       body = (
-        <Diamond data={data} color="#c98a12" fill="#fffaf0" icon="split3" kind="Branch">
-          <div className="cv-shape-label">{st.label || 'What did they do with the last message?'}</div>
+        <Diamond data={data} color="#c98a12" fill="#fffaf0" icon="split3" kind={st.signal ? 'Switch' : 'Branch'}>
+          <div className="cv-shape-label">{st.label || (st.signal ? `By ${st.signal.replace(/_/g, ' ')}` : 'What did they do with the last message?')}</div>
+          {st.signal && <span className="cv-proposed" title="Routing on this signal is designed and checked, but the engine can't run it yet.">proposed</span>}
           <RationalePill st={st} />
         </Diamond>
       );

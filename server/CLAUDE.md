@@ -95,6 +95,20 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   incentive strategy note + Spend brief, and the BUDGET PASS (as expected over
   `budgetCap` → cut offers, not people). Reported after every build and block
   submit.
+- **Routes inside a bucket (signal switches):** a `branch` with `signal: <key>`
+  and paths `{label, operator, value, steps}` + a required `otherwise`. Route
+  sizes are set arithmetic in code (`customerIds` in `server/warehouse.ts`,
+  cached), and offers inside a route are costed on the route. Checks
+  (`server/agent/routeChecks.ts`): hidden minimum route size per bank
+  (`minRouteSize`, default max(1,000, 5%)), at most 2 deep, 4 routes, an
+  everyone-else route.
+- **Split ideas and helpers** (`server/agent/splitHelper.ts`): the agent may
+  leave `splitIdea {hypothesis, by}` on a step. After it builds, one helper per
+  idea (max 4 per turn, in parallel) tests it on the data and either splits
+  that step and what follows it into a signal switch (written directly, only
+  that tail) or records why not. Then an AUTOMATIC message sends the main
+  agent back for a closing pass (review, budget, strategy, brief). A manager's
+  "split this by…" goes to the main agent, which does it itself.
 - **Design vs what runs:** `campaign.json` is the full design (reasoning
   included). At submit, `server/engineExport.ts` keeps only the engine's
   fields and writes a frozen `engine.json`. Problems block submit.

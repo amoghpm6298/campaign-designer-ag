@@ -104,3 +104,23 @@ export function countCustomers(bank: string, sql: string): number {
   const row = db.prepare(`SELECT COUNT(DISTINCT customer_id) AS n FROM (${inner})`).get() as { n: number };
   return Number(row.n);
 }
+
+const idCache = new Map<string, Set<string>>();
+
+/**
+ * Every customer_id a query selects (no row cap), cached by query. For route
+ * arithmetic in code: a signal's customers are loaded once, then routes are
+ * set intersections, not ever-longer nested SQL.
+ */
+export function customerIds(bank: string, sql: string): Set<string> {
+  const bad = checkReadOnly(sql);
+  if (bad) throw new Error(bad);
+  const key = `${bank}\n${sql}`;
+  const hit = idCache.get(key);
+  if (hit) return hit;
+  const rows = open(bank).prepare(`SELECT DISTINCT customer_id AS id FROM (${sql.trim().replace(/;+\s*$/, '')})`).all() as { id: unknown }[];
+  const set = new Set(rows.map((r) => String(r.id)));
+  if (idCache.size > 300) idCache.delete(idCache.keys().next().value!);
+  idCache.set(key, set);
+  return set;
+}

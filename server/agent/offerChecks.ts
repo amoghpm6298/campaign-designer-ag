@@ -11,6 +11,7 @@ import { warehouseAvailable } from '../warehouse';
 import { bucketContext, currentEntries } from '../../src/designer/v2/contextView';
 import { campaignCost, costLine, type CostReport } from '../costModel';
 import { todayIST } from './schedule';
+import { routeProblems } from './routeChecks';
 
 /** Below this share of a bucket qualifying, most of it would get the message without the offer. */
 export const MIN_QUALIFYING_SHARE = 0.8;
@@ -20,7 +21,7 @@ const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 const AMOUNT = /(₹\s?\d)|(\brs\.?\s?\d)|(\binr\s?\d)|(\d+(\.\d+)?\s?%)|(\b\d+x\b)/i;
 
 /** Every problem with the offers, plus the cost report they were judged against. */
-export function offerProblems(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'incentives' | 'warehouse'> | null): { problems: string[]; cost: CostReport } {
+export function offerProblems(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'incentives' | 'warehouse' | 'minRouteSize'> | null): { problems: string[]; cost: CostReport } {
   const problems: string[] = [];
   const menu = incentivesFor(tenant);
   const bank = tenant?.warehouse?.bank && warehouseAvailable(tenant.warehouse.bank) ? tenant.warehouse.bank : null;
@@ -64,6 +65,8 @@ export function offerProblems(campaign: CampaignObject, context: CampaignContext
     });
   }
   const cost = campaignCost(campaign, context, tenant);
+  // Routes inside buckets (signal switches): size, depth, count, everyone else.
+  problems.push(...routeProblems(campaign, context, tenant, cost));
   if (!usesOffers) return { problems, cost };
   const notes = currentEntries(context?.entries ?? []);
   const strategy = notes.find((e) => e.kind === 'note' && ['campaign strategy', 'incentive strategy'].includes(e.topic.toLowerCase()));

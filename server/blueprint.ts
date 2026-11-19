@@ -27,7 +27,7 @@ import {
 import { selectTemplate, proposeMessaging, type TemplateNeed } from '../agent-proto/templateSelect';
 import { statusVocabularyFor, isInFlight, isUndelivered } from './deliveryStatuses';
 import { forkAttribute, sendSteps } from './pathReading';
-import { signalConditionProblem, type Signal } from './signals';
+import { canonicalCondition, signalConditionProblem, type Signal } from './signals';
 import type { DripGraph, DripGoal, DripGoalCondition } from '../src/data/graphTypes';
 
 // --- the closed vocabulary the model may use -------------------------
@@ -224,6 +224,8 @@ export type BpStep =
        */
       entity?: string;
       attribute?: string;
+      /** Signal switch: route by one of the bank's named signals (server/signals.ts); each path gives operator + value. */
+      signal?: string;
       paths: {
         label: string;
         operator?: string;
@@ -1494,6 +1496,42 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
         //
         // `forkAttribute` reads either place. The filed JSON is not rewritten:
         // a branch stays a branch, and Confirm compiles the same object.
+        // --- SIGNAL SWITCH: route by a named signal ------------------------
+        // Checked against the bank's signals menu; built as the builder's own
+        // DECISION_SPLIT with the signal as its attribute (the engine reads it by key).
+        if (typeof step.signal === 'string' && step.signal) {
+          const list = opts.signals ?? [];
+          for (const b of step.paths) {
+            const c = canonicalCondition(list, { attribute: step.signal, operator: b.operator, value: b.value });
+            b.operator = c.operator;
+            b.value = c.value;
+          }
+          const okPaths = step.paths.filter((b, i) => {
+            const problem = signalConditionProblem(list, { attribute: step.signal, operator: b.operator, value: b.value }, 'switch');
+            if (problem) issues.push({ path: `${path}.paths[${i}]`, problem });
+            return !problem;
+          });
+          if (!okPaths.length) return;
+          const cfg = {
+            ...dcDefaultConfig('DECISION_SPLIT', goal),
+            name: step.label,
+            source: 'Signal',
+            attribute: step.signal,
+            branches: okPaths.map((b, i) => ({ id: `bp${i}`, label: b.label, operator: b.operator ?? 'Equals', value: b.value ?? '', value2: '' })),
+          };
+          const before = new Set(Object.keys(graph.nodes));
+          graph = dcConfirmAddNode(graph, 'DECISION_SPLIT', cfg, where, goal);
+          const nodeId = Object.keys(graph.nodes).find((id) => !before.has(id));
+          const outs = graph.edges.filter((e) => e.from === nodeId);
+          okPaths.forEach((b, i) => {
+            const edge = outs.find((e) => e.branchLabel === b.label) ?? outs[i];
+            const end = edge && addSteps(b.steps, `${path}.paths[${step.paths.indexOf(b)}]`, { kind: 'edge', edgeId: edge.id });
+            if (end) armsOpened.push(end);
+          });
+          attachOtherwise(nodeId);
+          return;
+        }
+
         const splitsOn = forkAttribute(step);
 
         // --- OUTCOME BRANCH: what they did with the last message ----------

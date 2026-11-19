@@ -111,6 +111,8 @@ Every campaign response carries `state` and `allowedActions`.
 
 For banks with an offer menu, the designer can use special offers (cashback, fee waivers, EMI discounts, milestones) from the bank's menu only, never invented. Offers are chosen per bucket on a cost ladder (messages first, money only where needed), and the exact offer line is added to a message by the system, never written by the AI. If your user gives an offer budget, it becomes the campaign's budget cap: the expected spend must fit it, and the engine stops issuing offers once it's spent. To spend less, ask with `request_changes` (e.g. "keep expected spend under ₹1L"). `details: true` includes the full cost working and `whatWillRun`: exactly what the engine receives.
 
+Buckets can split into routes (e.g. electronics buyers vs grocery buyers), each with its own message and offer. The designer only proposes a split where it has a reason, and a split is made only if the bank's data backs it. To ask for one yourself, use `request_changes` (e.g. "split the Occasional bucket by top spend category"). Routes are designed and priced, but marked proposed: the engine can't route on these signals yet.
+
 ## Links
 
 Canvas links open that one campaign **read-only, with no password, for 24 hours** (`linkExpiresAt`). After that, call `get_link` for a fresh one. Links can't change anything; changes go through `request_changes`. Anyone with a link can view that campaign, so share it with care.

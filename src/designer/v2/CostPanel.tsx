@@ -133,7 +133,7 @@ export function CostPanel({ report, focusBucket, locked, onDirect, onClose }: { 
               .map((l) => (
                 <div key={`${l.stepId}-${l.incentiveId}`} className="cv-cost-line">
                   <div className="cv-cost-offer">
-                    🎁 {l.incentiveLabel} <span className="cv-muted">· on "{l.step}" · confidence {l.confidence}</span>
+                    🎁 {l.incentiveLabel} <span className="cv-muted">· on "{l.step}"{l.route ? ` · route: ${l.route}` : ''} · confidence {l.confidence}</span>
                   </div>
                   <table className="cv-cost-table">
                     <tbody>

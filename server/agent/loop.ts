@@ -11,6 +11,7 @@ import type { Channel } from '../../src/data/sharedConstants';
 import { systemPrompt, statusBlock } from './prompt';
 import { TOOL_TITLES, runToolCall, toolsFor, type ToolEnv } from './tools';
 import { runAskData } from './askData';
+import { applySplitOutcomes, closingMessage, pendingSplitIdeas, runSplitHelper } from './splitHelper';
 import { costSnapshot, type CostSnapshot } from '../costModel';
 import { emptyCampaign, emptyContext, normaliseState, recordAnswers, recordSkips } from './state';
 import { loadStores, saveCampaignObject, saveContext } from '../campaignFiles';
@@ -132,6 +133,8 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   const startCampaign = state.campaign;
   const turnStart = new Date().toISOString();
   let briefAsked = false;
+  /** Split helpers run at most once per turn. */
+  let splitsRan = false;
   const base = (extra: Partial<AgentResponse>): AgentResponse => ({
     sessionId: req.sessionId,
     runId,
@@ -257,6 +260,31 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
             });
             yield* drain();
             conversation.push({ role: 'user', content: `AUTOMATIC FIX (end of turn): these problems remain in the campaign:\n${problems.map((p) => `- ${p}`).join('\n')}\nFix each one with the least change that works (an undecided ending is yours to design, not to paper over), rebuild, and add what you fixed or decided to your reply.` });
+            continue;
+          }
+        }
+        // Split ideas the agent left: one helper each, in parallel, tests and splits (or not).
+        // Then the main agent reviews what they did (closing pass).
+        if (!wrapUp && !asked.length && !splitsRan && built) {
+          const ideas = pendingSplitIdeas(state);
+          if (ideas.length) {
+            splitsRan = true;
+            em.emit('model.tool_call.started', 'understanding', `Testing ${ideas.length} split idea${ideas.length === 1 ? '' : 's'}`, { status: 'running', correlationId: 'splits', data: { tool: 'split_helpers', input: ideas.map((i) => `${i.bucketName}: ${i.hypothesis}`), round } });
+            yield* drain();
+            const snapshot = state;
+            const outcomes = await Promise.all(ideas.map((ref) => runSplitHelper(snapshot, env, ref).catch((e) => ({ ref, status: 'failed' as const, result: `The helper failed: ${(e as Error).message}`, queries: [] }))));
+            const before = state;
+            state = applySplitOutcomes(state, outcomes);
+            persistIfChanged(before, state, req.sessionId, tenant.tenantId);
+            em.emit('model.tool_call.completed', 'understanding', `Split ideas: ${outcomes.filter((o) => o.status === 'split').length} split, ${outcomes.filter((o) => o.status !== 'split').length} not`, {
+              status: 'ok',
+              correlationId: 'splits',
+              detail: outcomes.map((o) => `${o.ref.bucketName}: ${o.status}`).join(' · '),
+              data: { tool: 'split_helpers', input: ideas, result: outcomes.map((o) => ({ bucket: o.ref.bucketName, hypothesis: o.ref.hypothesis, status: o.status, result: o.result, queries: o.queries })), round },
+            });
+            em.emit('state.updated', 'generating', '', { data: { campaign: state.campaign, context: state.context, flags: state.flags, graph: null } });
+            yield* drain();
+            conversation.push({ role: 'user', content: closingMessage(outcomes) });
             continue;
           }
         }

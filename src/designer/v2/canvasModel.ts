@@ -61,6 +61,10 @@ export interface CStep {
   link?: string;
   /** An offer from the bank's incentive menu, by id. The system adds its exact offer line to the message. */
   incentive?: string;
+  /** Branch: routes by one of the bank's signals (a signal switch). */
+  signal?: string;
+  /** The designer's split idea on this step, and what the helper found. */
+  splitIdea?: { hypothesis?: string; by?: string[]; status?: 'untested' | 'split' | 'not split'; result?: string };
   arms?: { label?: string; pct?: number; steps?: CStep[] }[];
   paths?: { label?: string; statuses?: string[]; steps?: CStep[] }[];
   yes?: CStep[];
@@ -236,7 +240,8 @@ function addSeq(lane: string, steps: CStep[] | undefined, from: Tail[], prefix: 
       // The builder's catch-all arm: anyone no path matched (on a delivery
       // branch, the people the message never reached). Drawn as the agent
       // designed it; nothing after the branch is carried onto it.
-      const elseTails = st.otherwise?.length ? addSeq(lane, st.otherwise, [{ id, label: 'Anything else' }], `${path}.otherwise.`, out, changed, copy) : [{ id, label: 'Anything else' }];
+      const elseLabel = st.signal ? 'Everyone else' : 'Anything else';
+      const elseTails = st.otherwise?.length ? addSeq(lane, st.otherwise, [{ id, label: elseLabel }], `${path}.otherwise.`, out, changed, copy) : [{ id, label: elseLabel }];
       if (elseTails.length) {
         const ex = `${id}:else`;
         out.nodes.push({ id: ex, data: { kind: 'exit', lane, ...exitData(campaignOf(out), undefined, ''), focus } });
@@ -358,7 +363,8 @@ export type ChangeMap = Map<string, 'target' | 'knock'>;
 /** A step's own content (without its id or nested steps, with its arms'/paths' own settings). */
 function ownSig(st: CStep): string {
   // A change to the reasoning alone doesn't light up the canvas.
-  const { arms, paths, yes: _y, no: _n, otherwise: _o, id: _id, rationale: _r, hypothesis: _h, successMetric: _m, costAssumptions: _ca, ...own } = st as CStep & { costAssumptions?: unknown };
+  const { arms, paths, yes: _y, no: _n, otherwise: _o, id: _id, rationale: _r, hypothesis: _h, successMetric: _m, costAssumptions: _ca, splitIdea: _si, ...own } = st as CStep & { costAssumptions?: unknown; splitIdea?: unknown };
+  void _si;
   void _ca;
   void _r;
   void _h;

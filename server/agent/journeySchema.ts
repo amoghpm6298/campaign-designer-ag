@@ -39,6 +39,14 @@ export const STEP_DEF = {
     },
     hypothesis: { type: 'string', description: 'Experiment only, required: what the test is trying to learn, e.g. "If rewards framing beats benefits framing, lapsed spenders respond to value already earned, and later messages should lead with it."' },
     successMetric: { type: 'string', description: 'Experiment only, required: how the winner is judged: the metric compared between arms and over what window, e.g. "share of each arm that transacts within 7 days of the first message". Until the campaign runs, the result is unknown.' },
+    // a signal switch, and split ideas
+    signal: { type: 'string', description: 'Branch only: route by one of the bank\'s signals (list_signals key, usable for switching). Each path then gives operator and value on that signal; otherwise (everyone else) is required.' },
+    splitIdea: {
+      type: 'object',
+      description: 'Optional, rare: your hypothesis that people at this step would respond differently by some signal, so the journey from here might split into routes. A helper tests it against the data after you build, and splits from this step onward only if the data backs it. Never split it yourself.',
+      properties: { hypothesis: { type: 'string' }, by: { type: 'array', items: { type: 'string' }, description: 'Signal keys to try.' } },
+      required: ['hypothesis', 'by'],
+    },
     // an offer on a send (banks with an incentive menu)
     incentive: { type: 'string', description: 'Send only: the id of an offer from list_incentives that this message makes. The system adds the offer\'s exact line after the copy; never write the offer, amounts or terms yourself. Leave it out for a message with no offer.' },
     costAssumptions: {

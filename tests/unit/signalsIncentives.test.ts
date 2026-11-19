@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { conditionSql, signalConditionProblem, signalConditionText, signalsFor, signalsForAgent } from '../../server/signals';
+import { canonicalCondition, conditionSql, signalConditionProblem, signalConditionText, signalsFor, signalsForAgent } from '../../server/signals';
 import { incentivesFor, qualifyingShare, validFor } from '../../server/incentives';
 import { resolveTenant } from '../../server/tenants';
 import { runWarehouseQuery, warehousePath } from '../../server/warehouse';
@@ -55,6 +55,16 @@ describe('signals menu', () => {
     expect(signalConditionProblem(s, { attribute: 'read_last_message', operator: 'Is', value: 'true' }, 'rule')).toMatch(/can't be used in a bucket rule/);
     expect(signalConditionProblem(s, { attribute: 'spend_90d', operator: 'Between', value: '1000,5000' }, 'rule')).toBeNull();
     expect(signalConditionText(s, { attribute: 'spend_90d', operator: 'Greater than', value: '20000' })).toBe('Spend more than ₹20,000');
+  });
+
+  it('common operator spellings and value lists become the builder\'s spelling; the menu lists operators', () => {
+    const s = signalsFor(DEMO).concat([{ key: 'top_category', label: 'Top', type: 'category', kind: 'behaviour', definition: '', values: ['grocery', 'fuel'], usableIn: ['switch'], status: 'proposed', sensitivity: 'normal' }, { key: 'spend_90d', label: 'Spend', type: 'money', kind: 'behaviour', definition: '', usableIn: ['switch'], status: 'proposed', sensitivity: 'normal' }]);
+    expect(canonicalCondition(s, { attribute: 'top_category', operator: '=', value: 'grocery' })).toMatchObject({ operator: 'Equals', value: 'grocery' });
+    expect(canonicalCondition(s, { attribute: 'top_category', operator: 'in', value: ['grocery', 'fuel'] })).toMatchObject({ operator: 'Any of', value: 'grocery,fuel' });
+    expect(canonicalCondition(s, { attribute: 'top_category', operator: 'in', value: ['grocery'] })).toMatchObject({ operator: 'Equals', value: 'grocery' });
+    expect(canonicalCondition(s, { attribute: 'spend_90d', operator: '>', value: 20000 })).toMatchObject({ operator: 'Greater than', value: '20000' });
+    expect(canonicalCondition(s, { attribute: 'read_last_message', operator: '=', value: 'true' })).toMatchObject({ operator: 'Is' });
+    expect(signalsForAgent(s).find((x) => x.key === 'top_category')!.operators).toEqual(['Equals', 'Not Equals', 'Any of']);
   });
 
   it.runIf(hasYes)('a condition becomes SQL that selects the right customers', () => {

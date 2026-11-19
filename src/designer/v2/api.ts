@@ -149,6 +149,8 @@ export interface CostLineView {
   equations: { under: string; expected: string; max: string };
   confidence: 'high' | 'medium' | 'low';
   engineOnly: string[];
+  route: string | null;
+  routeKey: string;
 }
 
 export interface CostReportView {
@@ -158,6 +160,7 @@ export interface CostReportView {
   total: { under: number; expected: number; max: number; maxWithCap: number };
   budgetCap: number | null;
   notes: string[];
+  routes: { bucketId: string; stepId: string; label: string; size: number | null; otherwise?: boolean }[];
 }
 
 export async function fetchCost(sessionId: string, tenantId: string): Promise<CostReportView | null> {

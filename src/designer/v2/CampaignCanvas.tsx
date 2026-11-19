@@ -74,7 +74,7 @@ interface Props {
   smsFallback?: boolean;
 }
 
-function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName, links, offers, smsFallback }: Props) {
+function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName, links, offers, smsFallback, cost }: Props) {
   const measured = useRef<Record<string, number>>({});
   const [tick, setTick] = useState(0);
   const model = useMemo(() => buildCanvasModel(campaign, context, changed, measured.current),
@@ -110,15 +110,20 @@ function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClic
       handle.set(sorted[0].id, 'sl');
       handle.set(sorted[sorted.length - 1].id, 'sr');
     }
+    // Signal routes carry their size (worked out by the server's cost calculator).
+    const sizeFor = (source: string, label?: string) => {
+      const r = cost?.routes?.find((x) => x.stepId && source.includes(`:${x.stepId}`) && (x.label === label || (x.otherwise && label === 'Everyone else')));
+      return r?.size != null ? `${label} · ${r.size.toLocaleString('en-IN')}` : label;
+    };
     return model.edges.map((e) => ({
       id: e.id,
       source: e.source,
       target: e.target,
       ...(handle.get(e.id) ? { sourceHandle: handle.get(e.id) } : {}),
       type: 'cv',
-      data: { label: e.label ?? '' },
+      data: { label: sizeFor(e.source, e.label) ?? '' },
     }));
-  }, [model]);
+  }, [model, cost]);
 
   // React Flow keeps the nodes so it can measure them; positions come from the model.
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(modelNodes);

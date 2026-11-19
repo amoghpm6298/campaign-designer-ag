@@ -22,7 +22,7 @@ const STEP_FIELDS: Record<string, string[]> = {
   exit: ['id', 'kind', 'outcome', 'reason'],
   experiment: ['id', 'kind', 'label', 'tests', 'arms'],
   condition: ['id', 'kind', 'label', 'on', 'outcomes', 'audience', 'yes', 'no'],
-  branch: ['id', 'kind', 'label', 'entity', 'attribute', 'paths', 'otherwise'],
+  branch: ['id', 'kind', 'label', 'entity', 'attribute', 'signal', 'paths', 'otherwise'],
 };
 /** Fields of an experiment arm or branch path. */
 const ARM_FIELDS = ['label', 'pct', 'operator', 'value', 'statuses', 'steps'];
@@ -108,4 +108,4 @@ export function toEngineCampaign(c: CampaignObject, tenant: Pick<TenantConfig, '
 }
 
 /** Field names that are reasoning, never sent to the engine (for tests and checks). */
-export const REASONING_FIELDS = ['rationale', 'hypothesis', 'successMetric', 'costAssumptions', 'describe', 'objective', 'barrier', 'why', 'stage'];
+export const REASONING_FIELDS = ['rationale', 'hypothesis', 'successMetric', 'costAssumptions', 'splitIdea', 'describe', 'objective', 'barrier', 'why', 'stage'];

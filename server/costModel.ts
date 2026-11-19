@@ -15,10 +15,9 @@ import type { CampaignContext, CampaignObject } from './agent/types';
 import type { BpStep } from './blueprint';
 import type { TenantConfig } from './tenants';
 import { bucketContext } from '../src/designer/v2/contextView';
-import { walkSteps } from './agent/stepIds';
-import { incentivesFor, qualifyingShare, type Incentive } from './incentives';
-import { signalsFor } from './signals';
-import { runWarehouseQuery, warehouseAvailable } from './warehouse';
+import { incentivesFor, type Incentive } from './incentives';
+import { conditionSql, signalsFor } from './signals';
+import { customerIds, runWarehouseQuery, warehouseAvailable } from './warehouse';
 
 export interface Estimate {
   expected: number;
@@ -49,10 +48,24 @@ export interface CostLine {
   max: number | null;
   /** The working, one line per scenario. */
   equations: { under: string; expected: string; max: string };
+  /** The signal route this send sits on ("Electronics"; nested: "Electronics › EMI-eligible"), or null. */
+  route: string | null;
+  /** Internal: which route (for counting an offer once per route). */
+  routeKey: string;
   /** Bucket evidence + where the take-up estimate comes from. */
   confidence: 'high' | 'medium' | 'low';
   /** Offer rules the data can't check (the engine checks them when it sends): the counts may be lower. */
   engineOnly: string[];
+}
+
+/** How many customers take each route of a signal switch (null = can't count: no data, or a journey signal). */
+export interface RouteSize {
+  bucketId: string;
+  /** The switch step's id. */
+  stepId: string;
+  label: string;
+  size: number | null;
+  otherwise?: boolean;
 }
 
 export interface CostReport {
@@ -63,6 +76,8 @@ export interface CostReport {
   total: { under: number; expected: number; max: number; maxWithCap: number };
   budgetCap: number | null;
   notes: string[];
+  /** Every signal route's size, for the canvas and the route checks. */
+  routes: RouteSize[];
 }
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
@@ -134,27 +149,74 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
   ];
   const notes: string[] = [];
   const lines: CostLine[] = [];
+  const routes: RouteSize[] = [];
+  const ids = (sql: string | null | undefined): Set<string> | null => {
+    if (!bank || !sql) return null;
+    try {
+      return customerIds(bank, sql);
+    } catch {
+      return null;
+    }
+  };
+  const inter = (a: Set<string>, b: Set<string>) => new Set([...a].filter((x) => b.has(x)));
+  type Scope = { set: Set<string> | null; key: string; label: string };
   for (const lane of lanes) {
-    walkSteps(lane.journey as BpStep[] | null | undefined, (st) => {
-      const s = st as unknown as Record<string, unknown>;
-      if (s.kind !== 'send' || typeof s.incentive !== 'string' || !s.incentive) return;
+    const laneSql = views[lane.id]?.sql;
+    /**
+     * Walks the journey with the customers each step applies to (its scope): the bucket, narrowed by
+     * every signal route above it. Sends inside a route are costed on the route's size. Routes are set
+     * arithmetic on each signal's customers, loaded once.
+     */
+    const walk = (list: BpStep[] | null | undefined, scope: Scope) => {
+      for (const st of (list ?? []) as unknown as Record<string, unknown>[]) {
+        if (st.kind === 'send') costSend(st, scope);
+        if (st.kind === 'branch' && typeof st.signal === 'string' && st.signal) {
+          const paths = (st.paths as { label?: string; operator?: string; value?: string; steps?: BpStep[] }[]) ?? [];
+          const condSets = paths.map((p) => ids(conditionSql(signals, { attribute: st.signal as string, operator: p.operator, value: p.value })));
+          const sid = typeof st.id === 'string' ? st.id : '';
+          const held = (n: number | null) => (n == null ? null : Math.round(n * (1 - lane.holdoutPct / 100)));
+          paths.forEach((p, i) => {
+            const label = p.label ?? `route ${i + 1}`;
+            const set = scope.set && condSets[i] ? inter(scope.set, condSets[i]!) : null;
+            routes.push({ bucketId: lane.id, stepId: sid, label, size: held(set ? set.size : null) });
+            walk(p.steps, { set, key: `${scope.key}/${sid}:${i}`, label: `${scope.label} › ${label}` });
+          });
+          // Everyone else: the scope minus every route (when all routes can be counted).
+          const elseSet = scope.set && condSets.every(Boolean) ? new Set([...scope.set].filter((x) => !condSets.some((c) => c!.has(x)))) : null;
+          routes.push({ bucketId: lane.id, stepId: sid, label: 'Everyone else', size: held(elseSet ? elseSet.size : null), otherwise: true });
+          walk(st.otherwise as BpStep[] | undefined, { set: elseSet, key: `${scope.key}/${sid}:else`, label: `${scope.label} › Everyone else` });
+          continue;
+        }
+        for (const k of ['yes', 'no', 'otherwise']) if (Array.isArray(st[k])) walk(st[k] as BpStep[], scope);
+        for (const k of ['arms', 'paths']) if (Array.isArray(st[k])) (st[k] as { steps?: BpStep[] }[]).forEach((a) => walk(a.steps, scope));
+      }
+    };
+    const costSend = (s: Record<string, unknown>, scope: Scope) => {
+      if (typeof s.incentive !== 'string' || !s.incentive) return;
       const inc = menu.find((m) => m.id === s.incentive);
       const step = String(s.name ?? s.label ?? 'a message');
       if (!inc) {
         notes.push(`${lane.name} › "${step}": offer "${s.incentive}" is not on the menu, so it is not costed.`);
         return;
       }
-      const sql = views[lane.id]?.sql;
-      const sized = typeof views[lane.id]?.size === 'number' ? (views[lane.id]!.size as number) : null;
+      // At the bucket level the saved size is used (it is what the canvas shows); inside a route, the route's count.
+      const atBucket = scope.key === lane.id;
+      const savedSize = typeof views[lane.id]?.size === 'number' ? (views[lane.id]!.size as number) : null;
+      const sized = atBucket ? (savedSize ?? scope.set?.size ?? null) : scope.set ? scope.set.size : null;
       const perThousand = !bank;
       const customers = perThousand ? 1000 : sized == null ? null : Math.round(sized * (1 - lane.holdoutPct / 100));
       let qualified: number | null = perThousand ? 1000 : null;
-      if (bank && sql && customers != null) {
-        const q = qualifyingShare(bank, signals, sql, inc);
-        qualified = 'error' in q ? null : q.size ? Math.round((customers * q.qualify) / q.size) : 0;
+      if (bank && scope.set && customers != null) {
+        // Who in this scope meets the offer's requirements and targeting: set arithmetic on each condition.
+        let q: Set<string> | null = scope.set;
+        for (const c of [...inc.requires, ...inc.eligibility]) {
+          const cs = ids(conditionSql(signals, c));
+          if (cs && q) q = inter(q, cs);
+        }
+        qualified = q && scope.set.size ? Math.round((customers * q.size) / scope.set.size) : 0;
       }
-      if (bank && customers == null) notes.push(`${lane.name}: not sized yet, so its offer "${inc.label}" is not in the totals.`);
-      const reward = averageReward(inc, bank, sql);
+      if (bank && customers == null) notes.push(`${scope.label}: not sized yet, so its offer "${inc.label}" is not in the totals.`);
+      const reward = averageReward(inc, bank, laneSql);
       const ca = (s.costAssumptions ?? {}) as { reach?: unknown; redeem?: unknown };
       const reach = isEstimate(ca.reach) ? (ca.reach as Estimate) : null;
       const redeem = isEstimate(ca.redeem) ? (ca.redeem as Estimate) : null;
@@ -171,6 +233,8 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
       lines.push({
         bucketId: lane.id,
         bucketName: lane.name,
+        route: scope.key === lane.id ? null : scope.label.replace(`${lane.name} › `, ''),
+        routeKey: scope.key,
         step,
         stepId: typeof s.id === 'string' ? s.id : '',
         incentiveId: inc.id,
@@ -195,12 +259,13 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
       });
       if (inc.unmatchedCriteria.length)
         notes.push(`${lane.name} › "${step}": who qualifies and the cost may be lower than shown, because the engine also checks: ${inc.unmatchedCriteria.join(' ')}`);
-    });
+    };
+    walk(lane.journey as BpStep[] | null | undefined, { set: ids(laneSql), key: lane.id, label: lane.name });
   }
   const sum = (k: 'under' | 'expected' | 'max', list: CostLine[]) => list.reduce((n, l) => n + (l[k] ?? 0), 0);
   // The max counts each offer once per bucket: an offer is once per customer, and the same offer on two
   // routes of one bucket (e.g. readers / SMS retry) reaches each customer on one route only.
-  const bucketMax = (ls: CostLine[]) => [...new Set(ls.map((l) => l.incentiveId))].reduce((n, id) => n + Math.max(0, ...ls.filter((l) => l.incentiveId === id).map((l) => l.max ?? 0)), 0);
+  const bucketMax = (ls: CostLine[]) => [...new Set(ls.map((l) => `${l.routeKey}|${l.incentiveId}`))].reduce((n, k) => n + Math.max(0, ...ls.filter((l) => `${l.routeKey}|${l.incentiveId}` === k).map((l) => l.max ?? 0)), 0);
   const buckets = [...new Set(lines.map((l) => l.bucketId))].map((id) => {
     const ls = lines.filter((l) => l.bucketId === id);
     return { bucketId: id, name: ls[0].bucketName, under: sum('under', ls), expected: sum('expected', ls), max: bucketMax(ls) };
@@ -215,6 +280,7 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
     total: { under: sum('under', lines), expected: sum('expected', lines), max, maxWithCap: cap != null ? Math.min(max, cap) : max },
     budgetCap: cap,
     notes,
+    routes,
   };
 }
 

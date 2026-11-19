@@ -47,6 +47,8 @@ export interface TenantConfig {
    * for now (server/incentives.ts).
    */
   incentives?: boolean;
+  /** The smallest a route of a split may be (hidden from the agent): the larger of `customers` and `pctOfBucket`% of its bucket. */
+  minRouteSize?: { customers: number; pctOfBucket: number };
 }
 
 const TENANTS: TenantConfig[] = [
