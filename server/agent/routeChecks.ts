@@ -16,6 +16,22 @@ export const DEFAULT_MIN_ROUTE = { customers: 1000, pctOfBucket: 5 };
 
 type Rec = Record<string, unknown>;
 
+/** Wording: what a route may change without being a different treatment. */
+const WORDING = new Set(['id', 'copy', 'cta', 'name', 'label', 'rationale', 'describe', 'objective', 'stage', 'reason', 'splitIdea', 'costAssumptions', 'hypothesis', 'successMetric', 'barrier', 'why']);
+
+/**
+ * A route's treatment: everything that changes what customers get or when (the offer, the link,
+ * channels, timing, waits, the shape of the journey), and none of its wording.
+ */
+export function treatmentOf(steps: unknown): string {
+  const norm = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(norm);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v as Rec).filter(([k]) => !WORDING.has(k)).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, norm(x)]));
+    return v;
+  };
+  return JSON.stringify(norm(steps ?? []));
+}
+
 export function routeProblems(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'incentives' | 'warehouse' | 'minRouteSize'> | null, cost: CostReport): string[] {
   const out: string[] = [];
   const signals = signalsFor(tenant);
@@ -45,6 +61,14 @@ export function routeProblems(campaign: CampaignObject, context: CampaignContext
           for (const r of sizes)
             if (r.size != null && r.size < min)
               out.push(`${name}: route "${r.label}" has ${r.size.toLocaleString('en-IN')} customers, below the ${min.toLocaleString('en-IN')} needed to measure it. Merge it into another route or into everyone else.`);
+          // A split is for different TREATMENT (offer, link, channel, timing, journey shape), not different wording.
+          const routes = [...paths.map((p) => ({ label: String(p.label ?? ''), sig: treatmentOf(p.steps) })), { label: 'Everyone else', sig: treatmentOf(st.otherwise) }];
+          if (routes.length > 1 && routes.every((r) => r.sig === routes[0].sig))
+            out.push(`${name}: every route gets the same treatment (same offer, link, channel and timing); only the wording differs. A split is for groups that need something different. Undo it (one message for everyone), or give the routes genuinely different treatment.`);
+          else
+            for (let i = 0; i < routes.length; i++)
+              for (let j = i + 1; j < routes.length; j++)
+                if (routes[i].sig === routes[j].sig) out.push(`${name}: routes "${routes[i].label}" and "${routes[j].label}" get the same treatment; only the wording differs. Merge them.`);
           // The campaign strategy must describe the split as it is built.
           const strategy = currentEntries(context?.entries ?? [], { kind: 'note', topic: 'campaign strategy' })[0]?.text ?? '';
           const words = [String(st.signal), String(st.signal).replace(/_/g, ' '), ...paths.map((p) => String(p.label ?? ''))].filter((w) => w.length > 2).map((w) => w.toLowerCase());

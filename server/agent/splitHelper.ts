@@ -102,13 +102,15 @@ Reply with ONE JSON object and nothing else:
 - {"action":"query","purpose":"…","sql":"ONE read-only SQLite SELECT"}: explore. Aggregate; never pull raw customer rows. Treat the latest transaction date as today.
 - {"action":"route_sizes","signal":"<key>","paths":[{"label":"…","operator":"…","value":"…"}]}: count each route and everyone else within this bucket (code does it).
 - {"action":"offers"}: the offers this bucket may use, with how many qualify and their cost.
-- {"action":"split","branch":{…}}: apply the split. branch is ONE step that replaces the step with the idea AND every step after it in that list: {"kind":"branch","signal":"<key>","label":"<the question it asks>","rationale":"why split here, what each route is for, citing the numbers","paths":[{"label":"…","operator":"…","value":"…","steps":[…]}],"otherwise":[…]}. Each route's steps are a complete journey from here to its end, adapted to that group: its own copy and lever, the same discipline as the original (a wait before every goal check, a goal check after every wait, every path ends with an exit that has an outcome, a rationale on every send, wait and branch). Keep the original's length and timing unless the hypothesis is about them. "otherwise" (everyone else) is required: usually the original steps, unchanged.
+- {"action":"split","expectedBenefit":"why more customers would reach the goal with these routes, and roughly how much (from the data)","branch":{…}}: apply the split. branch is ONE step that replaces the step with the idea AND every step after it in that list: {"kind":"branch","signal":"<key>","label":"<the question it asks>","rationale":"why split here, what each route is for, citing the numbers","paths":[{"label":"…","operator":"…","value":"…","steps":[…]}],"otherwise":[…]}. Each route's steps are a complete journey from here to its end, adapted to that group: its own copy and lever, the same discipline as the original (a wait before every goal check, a goal check after every wait, every path ends with an exit that has an outcome, a rationale on every send, wait and branch). Keep the original's length and timing unless the hypothesis is about them. "otherwise" (everyone else) is required: usually the original steps, unchanged.
 - {"action":"decline","reason":"…"}: the data doesn't back the idea, or a route would be too small to measure. Say why in one or two plain sentences with the numbers.
 
 How to test: you usually cannot prove people will RESPOND differently (there may be no campaign history; the split itself is how that gets measured). Test the hypothesis's PREMISE instead: do the groups it names exist in this bucket, is each big enough, and do they really differ in the way the idea assumes (e.g. electronics buyers really concentrate their spend there; EMI-eligible share really differs)? If the premise holds and the difference would change what you say or offer, split. If the groups are tiny, or barely differ, decline.
 
 Rules:
-- Split only where the premise is backed by the data and the routes would get genuinely different messages or offers. An unnecessary split costs review effort and measurement power.
+- The default is NOT to split. Split only if you expect it to MATERIALLY improve the campaign's goal: clearly more customers reaching the goal than one treatment for everyone would get. Cost is not a reason to split. If the gain would be marginal, decline. When you split, give "expectedBenefit": why each group would reach the goal more often with its own treatment, and roughly how much, from the data you found (a split without it is refused).
+- A split is for DIFFERENT TREATMENT, not different wording: routes must differ in what customers get or when (a different offer, link, channel, timing, wait or journey shape). If the only difference would be the wording (e.g. naming each group's category), decline: say "wording only; one message can say it". The app refuses a split whose routes differ only in wording.
+- Split only where the premise is backed by the data and the treatment really differs. An unnecessary split costs review effort and measurement power.
 - At most 4 routes plus everyone else; every route must be big enough to measure (the app checks the minimum and tells you).
 - Use only signals in the menu below, with an operator from that signal's "operators" and a value from its "values" (for several values: operator "Any of", value "a,b"). Never invent one.
 - Copy: write as the customer reads it; never write a URL, amount, rate or offer terms in copy or CTA. To make an offer, set "incentive":"<id>" on the send (the system adds its exact line) and give "costAssumptions": {"reach":{"expected","few","why"},"redeem":{"expected","few","why"}} as fractions (few ≤ expected). Only offers this route qualifies for; stay within the bucket's share of the budget.
@@ -205,6 +207,11 @@ export async function runSplitHelper(state: AgentState, env: ToolEnv, ref: Split
     }
     if (a.action === 'decline') return { ref, status: 'not split', result: String(a.reason ?? 'The data did not back the idea.'), queries };
     if (a.action === 'split' && a.branch && typeof a.branch === 'object') {
+      const benefit = typeof a.expectedBenefit === 'string' ? a.expectedBenefit.trim() : '';
+      if (benefit.length < 20) {
+        reply('Not applied: say the expectedBenefit: why more customers would reach the campaign goal with these routes, and roughly how much. If you can\'t, decline.');
+        continue;
+      }
       const raw = a.branch as Rec;
       const paths = (Array.isArray(raw.paths) ? (raw.paths as Rec[]) : []).map((p) => {
         const c = canonicalCondition(signals, { attribute: raw.signal, operator: p.operator, value: p.value });
@@ -225,13 +232,16 @@ export async function runSplitHelper(state: AgentState, env: ToolEnv, ref: Split
       }
       const name = ref.bucketId === 'everyone_else' ? 'Everyone else' : `Bucket "${ref.bucketName}"`;
       const problems = [...endingGaps(trial.state.campaign), ...offerProblems(trial.state.campaign, trial.state.context, env.tenant).problems].filter((p) => p.startsWith(name));
-      if (problems.length && applyTries < 2) {
+      if (problems.length) {
+        // Never applied with problems: two chances to fix, then the step is left as it was.
+        if (applyTries >= 2) return { ref, status: 'not split', result: `Couldn't make a split that passes the checks: ${problems.join(' ')}`, queries };
         applyTries++;
-        reply(`Not applied yet: fix these and send the split again:\n- ${problems.join('\n- ')}`);
+        reply(`Not applied yet: fix these and send the split again (or decline):\n- ${problems.join('\n- ')}`);
         continue;
       }
       const why = String((a.branch as Rec).rationale ?? '').slice(0, 400);
-      (branch.splitIdea as Rec).result = why || `Split by ${String((a.branch as Rec).signal)}.`;
+      (branch.splitIdea as Rec).result = `${why || `Split by ${String((a.branch as Rec).signal)}.`} Expected benefit: ${benefit}`;
+      (branch.splitIdea as Rec).expectedBenefit = benefit;
       return { ref, status: 'split', result: (branch.splitIdea as Rec).result as string, branch, queries };
     }
     reply('Use one of: query, route_sizes, offers, split, decline.');

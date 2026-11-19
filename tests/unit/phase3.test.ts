@@ -96,6 +96,19 @@ describe('route checks', () => {
     const c2 = camp(inner(3));
     expect(routeProblems(c2, ctx(), YES, cost(c2)).join(' ')).toMatch(/at most 2 deep/);
   });
+  it('a split is for different treatment: wording-only routes are flagged', () => {
+    const same = camp([sw([{ label: 'Electronics', operator: 'Equals', value: 'electronics', steps: tail('el') }, { label: 'Grocery', operator: 'Equals', value: 'grocery', steps: tail('gr') }])]);
+    expect(routeProblems(same, ctx(), YES, cost(same)).join(' ')).toMatch(/every route gets the same treatment/);
+    const longWait = tail('el');
+    (longWait[1] as { durationHours: number }).durationHours = 168;
+    const pair = camp([sw([{ label: 'Electronics', operator: 'Equals', value: 'electronics', steps: longWait }, { label: 'Grocery', operator: 'Equals', value: 'grocery', steps: tail('gr') }])]);
+    const p = routeProblems(pair, ctx(), YES, cost(pair)).join(' ');
+    expect(p).not.toMatch(/every route gets the same treatment/);
+    expect(p).toMatch(/routes "Grocery" and "Everyone else" get the same treatment; only the wording differs\. Merge them/);
+    const withOffer = camp([sw([{ label: 'Electronics', operator: 'Equals', value: 'electronics', steps: tail('el', offer) }])]);
+    expect(routeProblems(withOffer, ctx(), YES, cost(withOffer)).join(' ')).not.toMatch(/same treatment/);
+  });
+
   it('a split the campaign strategy does not describe is flagged', () => {
     const c = camp([sw([{ label: 'Electronics', operator: 'Equals', value: 'electronics', steps: tail('el') }])]);
     const plain = ctx();
@@ -124,6 +137,14 @@ describe('split helpers', () => {
     expect(ideas[0]).toMatchObject({ bucketId: 'occ', stepId: 's-second', by: ['top_category'] });
   });
 
+  it.runIf(hasYes)('a wording-only split is never applied: after two failed fixes the step is left as it was', async () => {
+    const st = state();
+    const cosmetic = sw([{ label: 'Electronics', operator: 'Equals', value: 'electronics', steps: tail('el3', { copy: 'Big buys are your thing.' }) }], { id: undefined });
+    const o = await runSplitHelper(st, env, pendingSplitIdeas(st)[0], scripted([JSON.stringify({ action: 'split', expectedBenefit: 'More electronics buyers would respond to framing about big buys', branch: cosmetic })]));
+    expect(o.status).toBe('not split');
+    expect(o.result).toMatch(/same treatment/);
+  });
+
   it.runIf(hasYes)('a decline is recorded on the step, and nothing else changes', async () => {
     const st = state();
     const o = await runSplitHelper(st, env, pendingSplitIdeas(st)[0], scripted([JSON.stringify({ action: 'decline', reason: 'Electronics buyers are 3% of the bucket: too small.' })]));
@@ -136,9 +157,12 @@ describe('split helpers', () => {
 
   it.runIf(hasYes)('a split replaces only the step with the idea and what follows it', async () => {
     const st = state();
-    const branch = sw([{ label: 'Electronics', operator: 'Equals', value: 'electronics', steps: tail('el2') }], { id: undefined });
-    const o = await runSplitHelper(st, env, pendingSplitIdeas(st)[0], scripted([JSON.stringify({ action: 'route_sizes', signal: 'top_category', paths: [{ label: 'Electronics', operator: 'Equals', value: 'electronics' }] }), JSON.stringify({ action: 'split', branch })]));
+    const longer = tail('el2');
+    (longer[1] as { durationHours: number }).durationHours = 168; // a different treatment: a longer window for big-ticket buys
+    const branch = sw([{ label: 'Electronics', operator: 'Equals', value: 'electronics', steps: longer }], { id: undefined });
+    const o = await runSplitHelper(st, env, pendingSplitIdeas(st)[0], scripted([JSON.stringify({ action: 'route_sizes', signal: 'top_category', paths: [{ label: 'Electronics', operator: 'Equals', value: 'electronics' }] }), JSON.stringify({ action: 'split', branch }), JSON.stringify({ action: 'split', expectedBenefit: 'Electronics buyers make bigger, slower purchases; a longer window should convert more of them', branch })]));
     expect(o.status).toBe('split');
+    expect(o.result).toMatch(/Expected benefit: Electronics buyers make bigger/);
     const next = applySplitOutcomes(st, [o]);
     const j = next.campaign.buckets[0].journey as unknown as { kind: string; name?: string; signal?: string; splitIdea?: { status: string } }[];
     expect(j.map((x) => x.kind)).toEqual(['send', 'wait', 'goalCheck', 'branch']);
