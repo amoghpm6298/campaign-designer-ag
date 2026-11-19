@@ -10,6 +10,7 @@ import { issuerContext } from '../blueprint';
 import type { Channel } from '../../src/data/sharedConstants';
 import { systemPrompt, statusBlock } from './prompt';
 import { TOOL_TITLES, runToolCall, toolsFor, type ToolEnv } from './tools';
+import { runAskData } from './askData';
 import { emptyCampaign, emptyContext, normaliseState, recordAnswers, recordSkips } from './state';
 import { loadStores, saveCampaignObject, saveContext } from '../campaignFiles';
 import { focusSection } from './focus';
@@ -276,7 +277,8 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       let endsTurn = false;
       for (const tu of toolUses) {
         const t0 = Date.now();
-        const out = runToolCall(tu.name, tu.input ?? {}, state, env);
+        // ask_data runs its own analyst model, so it is the one async tool.
+        const out = tu.name === 'ask_data' ? await runAskData(tu.input ?? {}, state, env) : runToolCall(tu.name, tu.input ?? {}, state, env);
         const planChanged = out.state.campaign !== state.campaign || out.state.context !== state.context || out.state.flags !== state.flags;
         persistIfChanged(state, out.state, req.sessionId, tenant.tenantId);
         state = out.state;

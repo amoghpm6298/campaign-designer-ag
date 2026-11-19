@@ -307,6 +307,13 @@ const INCENTIVE_TOOLS: ToolDef[] = [
 
 const WAREHOUSE_TOOLS: ToolDef[] = [
   {
+    name: 'ask_data',
+    title: 'Asking the data',
+    description:
+      'Ask the bank\'s data a question, or put a hypothesis to it, in plain English (e.g. "Did lapsed customers\' spend fall in everyday categories rather than big-ticket ones?" or "Most occasional spenders are EMI-eligible"). A data analyst runs the queries and answers in plain words: the bottom line first (for a hypothesis, whether the data backs it), the numbers behind it exactly as queried, and what the data cannot tell. Its queries are filed in the notebook. Use it when a question needs several queries or a verdict; use run_sql_query for a quick single count. Exact checks (who qualifies for an offer) use list_incentives, not this.',
+    input_schema: { type: 'object', properties: { question: { type: 'string', description: 'The question or hypothesis, in plain English. Mention a bucket by name if it is about one.' } }, required: ['question'] },
+  },
+  {
     name: 'get_table_schema',
     title: 'Reading the data warehouse',
     description: "Lists the bank's warehouse tables, their columns, row counts, example values, and the date the data runs to (treat that date as 'today' for recency).",
@@ -347,6 +354,7 @@ export const TOOL_TITLES: Record<string, { running: string; done: string }> = {
   get_context: { running: 'Reading the context', done: 'Read the context' },
   list_links: { running: "Checking the bank's links", done: "Checked the bank's links" },
   list_signals: { running: 'Checking customer signals', done: 'Checked customer signals' },
+  ask_data: { running: 'Asking the data', done: 'Asked the data' },
   list_incentives: { running: "Checking the bank's offers", done: "Checked the bank's offers" },
   add_context: { running: 'Adding to the context', done: 'Added to the context' },
   set_flags: { running: 'Updating progress', done: 'Updated progress' },
