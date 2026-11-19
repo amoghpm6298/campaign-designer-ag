@@ -84,6 +84,7 @@ export function diffCampaigns(prev: CampaignObject | null | undefined, next: Cam
   if (JSON.stringify(p.entry) !== JSON.stringify(next.entry)) settings.push('who can join (entry) changed');
   if (JSON.stringify(p.membership) !== JSON.stringify(next.membership)) settings.push(`refresh: ${membershipText(p.membership)} → ${membershipText(next.membership)}`);
   if (JSON.stringify(p.schedule ?? null) !== JSON.stringify(next.schedule ?? null)) settings.push(`dates: ${scheduleText(p.schedule)} → ${scheduleText(next.schedule)}`);
+  if ((p.budgetCap ?? null) !== (next.budgetCap ?? null)) settings.push(`offer budget cap: ${p.budgetCap != null ? `₹${p.budgetCap.toLocaleString('en-IN')}` : 'none'} → ${next.budgetCap != null ? `₹${next.budgetCap.toLocaleString('en-IN')}` : 'none'}`);
   if ((p.maxAttempts ?? null) !== (next.maxAttempts ?? null)) settings.push(`times through the campaign: ${p.maxAttempts ? `at most ${p.maxAttempts}` : 'not set'} → ${next.maxAttempts ? `at most ${next.maxAttempts}` : 'not set'}`);
   for (const k of ['no_response', 'not_reachable', 'declined', 'converted'] as const) {
     const a = p.afterJourney?.[k];

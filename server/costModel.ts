@@ -213,6 +213,49 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
   };
 }
 
+/** The totals a version keeps, so history can show what each change did to the cost. Null when there are no offers. */
+export interface CostSnapshot {
+  under: number;
+  expected: number;
+  max: number;
+  cap: number | null;
+  unit: 'totals' | 'perThousand';
+}
+
+export function costSnapshot(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'incentives' | 'warehouse'> | null): CostSnapshot | null {
+  try {
+    const r = campaignCost(campaign, context, tenant);
+    if (r.mode === 'none') return null;
+    return { under: r.total.under, expected: r.total.expected, max: r.total.max, cap: r.budgetCap, unit: r.mode };
+  } catch {
+    return null;
+  }
+}
+
+/** "₹1.6L", "₹95k", "₹800" — short enough for a history line. */
+export function shortInr(n: number): string {
+  if (n >= 1e7) return `₹${Math.round(n / 1e6) / 10}Cr`;
+  if (n >= 1e5) return `₹${Math.round(n / 1e4) / 10}L`;
+  if (n >= 1e3) return `₹${Math.round(n / 100) / 10}k`;
+  return `₹${Math.round(n)}`;
+}
+
+/** What a change did to the cost, in one line, or null when nothing moved. */
+export function costChange(before: CostSnapshot | null | undefined, after: CostSnapshot | null | undefined): string | null {
+  // undefined = not recorded (versions from before cost history): nothing to compare against.
+  if (before === undefined || after === undefined) return null;
+  if (!before && !after) return null;
+  if (!before && after) return `Offers added: as expected ${shortInr(after.expected)} · max ${shortInr(after.max)}${after.unit === 'perThousand' ? ' (per 1,000)' : ''}`;
+  if (before && !after) return 'Offers removed: no spend on offers';
+  const a = before!;
+  const b = after!;
+  const parts: string[] = [];
+  if (Math.round(a.expected) !== Math.round(b.expected)) parts.push(`As expected ${shortInr(a.expected)} → ${shortInr(b.expected)}`);
+  if (Math.round(a.max) !== Math.round(b.max)) parts.push(`Max ${shortInr(a.max)} → ${shortInr(b.max)}`);
+  if ((a.cap ?? null) !== (b.cap ?? null)) parts.push(`Cap ${a.cap != null ? shortInr(a.cap) : 'none'} → ${b.cap != null ? shortInr(b.cap) : 'none'}`);
+  return parts.length ? parts.join(' · ') : null;
+}
+
 /** One line for the agent and the brief, e.g. "If it underperforms ₹30,000 · As expected ₹90,000 · If it outperforms (max) ₹10,00,000 → capped at ₹5,00,000". */
 export function costLine(r: CostReport): string {
   if (r.mode === 'none') return 'No offers in this campaign.';

@@ -13,6 +13,7 @@ import { callClaude, hasApiKey } from './anthropic';
 import { campaignDir, sessionFolder } from './campaignFiles';
 import { diffCampaigns, isEmptyDiff, templateSummary, type CampaignDiff } from './agent/versionDiff';
 import type { CampaignObject } from './agent/types';
+import { costChange, type CostSnapshot } from './costModel';
 
 export type VersionSource = 'chat' | 'direct' | 'rollback' | 'migration' | 'repair';
 
@@ -24,6 +25,10 @@ export interface VersionEntry {
   request: string;
   summary: string;
   counts: CampaignDiff['counts'];
+  /** Potential spend on offers at this version (totals), when the campaign has offers. */
+  cost?: CostSnapshot | null;
+  /** What this version did to the cost, e.g. "As expected ₹1.6L → ₹95k · Max ₹13L → ₹5L". */
+  costChange?: string | null;
 }
 
 export interface Version extends VersionEntry {
@@ -67,21 +72,27 @@ export function getVersion(sessionId: string, n: number, dir = campaignDir()): V
  * Returns the new entry, or null when nothing changed.
  */
 export function recordVersion(
-  args: { sessionId: string; campaign: CampaignObject; source: VersionSource; request: string; summary?: string },
+  args: { sessionId: string; campaign: CampaignObject; source: VersionSource; request: string; summary?: string; cost?: CostSnapshot | null; costOf?: (c: CampaignObject) => CostSnapshot | null },
   dir = campaignDir(),
 ): Version | null {
   const list = listVersions(args.sessionId, dir);
   const last = list.length ? getVersion(args.sessionId, list[list.length - 1].n, dir) : null;
   const diff = diffCampaigns(last?.campaign ?? null, args.campaign);
-  if (last && isEmptyDiff(diff)) return null;
+  // A change that only moves the money (e.g. an estimate the manager changed) is still worth a version.
+  // Versions saved before cost history have no snapshot: work theirs out from their campaign.
+  const before = last ? (last.cost !== undefined ? last.cost : args.costOf ? args.costOf(last.campaign) : undefined) : undefined;
+  const moved = last ? costChange(before, args.cost) : null;
+  if (last && isEmptyDiff(diff) && !moved) return null;
   const n = (list[list.length - 1]?.n ?? 0) + 1;
   const v: Version = {
     n,
     at: new Date().toISOString(),
     source: args.source,
     request: args.request.slice(0, 500),
-    summary: args.summary ?? templateSummary(diff),
+    summary: args.summary ?? (isEmptyDiff(diff) && moved ? moved : templateSummary(diff)),
     counts: diff.counts,
+    ...(args.cost !== undefined ? { cost: args.cost } : {}),
+    ...(moved ? { costChange: moved } : {}),
     campaign: args.campaign,
     diff,
   };

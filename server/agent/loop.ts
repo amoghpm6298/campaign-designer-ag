@@ -11,6 +11,7 @@ import type { Channel } from '../../src/data/sharedConstants';
 import { systemPrompt, statusBlock } from './prompt';
 import { TOOL_TITLES, runToolCall, toolsFor, type ToolEnv } from './tools';
 import { runAskData } from './askData';
+import { costSnapshot, type CostSnapshot } from '../costModel';
 import { emptyCampaign, emptyContext, normaliseState, recordAnswers, recordSkips } from './state';
 import { loadStores, saveCampaignObject, saveContext } from '../campaignFiles';
 import { focusSection } from './focus';
@@ -35,11 +36,11 @@ export function channelsFor(tenant: NonNullable<ReturnType<typeof resolveTenant>
 }
 
 /** If this turn changed the campaign, records it as a version with a short summary. */
-async function versionThisTurn(sessionId: string, start: AgentState['campaign'], end: AgentState['campaign'], request: string, source: 'chat' | 'repair' = 'chat'): Promise<VersionEntry | null> {
+async function versionThisTurn(sessionId: string, start: AgentState['campaign'], end: AgentState['campaign'], request: string, source: 'chat' | 'repair' = 'chat', cost?: CostSnapshot | null, costOf?: (c: AgentState['campaign']) => CostSnapshot | null): Promise<VersionEntry | null> {
   if (start === end) return null;
   try {
     ensureBaseline(sessionId, start);
-    const v = recordVersion({ sessionId, campaign: end, source, request });
+    const v = recordVersion({ sessionId, campaign: end, source, request, cost, costOf });
     if (!v) return null;
     const summary = await summariseVersion(v.diff, request);
     if (summary !== v.summary) setSummary(sessionId, v.n, summary);
@@ -327,7 +328,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   const remaining = state.campaign !== startCampaign ? checkJourneys(state.campaign, bankLinks, delivery.smsFallback, false, startCampaign) : [];
   if (remaining.length) textSegments.push(`Still to fix (I could not resolve ${remaining.length === 1 ? 'this' : 'these'} on my own):\n${remaining.map((p) => `- ${p}`).join('\n')}`);
   yield* drain();
-  const version = await versionThisTurn(req.sessionId, startCampaign, state.campaign, latestUser, req.repair ? 'repair' : 'chat');
+  const version = await versionThisTurn(req.sessionId, startCampaign, state.campaign, latestUser, req.repair ? 'repair' : 'chat', costSnapshot(state.campaign, state.context, tenant), (c) => costSnapshot(c, state.context, tenant));
   return base({
     ...(version ? { version } : {}),
     reply: textSegments.join('\n\n'),

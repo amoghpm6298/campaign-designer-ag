@@ -3,7 +3,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { campaignCost, costLine } from '../../server/costModel';
+import { campaignCost, costChange, costLine, shortInr } from '../../server/costModel';
+import { listVersions } from '../../server/campaignVersions';
 import { offerProblems } from '../../server/agent/offerChecks';
 import { toEngineCampaign, REASONING_FIELDS } from '../../server/engineExport';
 import { withOfferLine, assembleSms } from '../../src/designer/v2/smsText';
@@ -175,5 +176,28 @@ describe('estimates and the cap are the manager\'s to change, with no agent', ()
     expect(directEdit('cv-p2', 'TEN-YES', { op: 'costAssumption', bucketId: 'lapsed', stepId: 's-offer', which: 'redeem', expected: 5, few: 9 }).error).toMatch(/no higher/);
     expect(directEdit('cv-p2', 'TEN-YES', { op: 'budgetCap', value: 200000 }).ok).toBe(true);
     expect(loadStores('cv-p2').campaign!.budgetCap).toBe(200000);
+  });
+});
+
+describe('version history shows what each change did to the cost', () => {
+  it('words the change briefly', () => {
+    const snap = (expected: number, max: number, cap: number | null = null) => ({ under: 0, expected, max, cap, unit: 'totals' as const });
+    expect(costChange(snap(160000, 1300000), snap(95000, 500000, 500000))).toBe('As expected ₹1.6L → ₹95k · Max ₹13L → ₹5L · Cap none → ₹5L');
+    expect(costChange(null, snap(90000, 1000000))).toBe('Offers added: as expected ₹90k · max ₹10L');
+    expect(costChange(snap(90000, 1000000), null)).toBe('Offers removed: no spend on offers');
+    expect(costChange(snap(1, 2), snap(1, 2))).toBeNull();
+    expect(costChange(undefined, snap(1, 2))).toBeNull();
+    expect(shortInr(800)).toBe('₹800');
+  });
+
+  it('an estimate change (not a design change) still gets a version, with its cost line', () => {
+    saveCampaignObject('cv-p2v', 'TEN-YES', campaign());
+    saveContext('cv-p2v', 'TEN-YES', context());
+    expect(directEdit('cv-p2v', 'TEN-YES', { op: 'budgetCap', value: 400000 }).ok).toBe(true);
+    expect(directEdit('cv-p2v', 'TEN-YES', { op: 'costAssumption', bucketId: 'lapsed', stepId: 's-offer', which: 'redeem', expected: 30, few: 10 }).ok).toBe(true);
+    const vs = listVersions('cv-p2v');
+    const last = vs[vs.length - 1];
+    expect(last.costChange).toBe('As expected ₹18k → ₹36k');
+    expect(vs.some((v) => /Offer budget cap: no cap → ₹4,00,000/.test(v.summary))).toBe(true);
   });
 });

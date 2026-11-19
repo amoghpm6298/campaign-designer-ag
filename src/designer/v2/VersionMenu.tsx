@@ -61,6 +61,7 @@ export function VersionMenu({ versions, viewing, onView }: { versions: VersionEn
                 <span className="cv-ver-at">{ago(v.at)}</span>
               </span>
               <span className="cv-ver-sum">{v.summary}</span>
+              {v.costChange && v.costChange !== v.summary && <span className="cv-ver-cost">{v.costChange}</span>}
               {(v.counts.added || v.counts.changed || v.counts.removed) && v.source !== 'migration' ? (
                 <span className="cv-ver-counts">
                   {v.counts.added ? <span className="add">+{v.counts.added}</span> : null}

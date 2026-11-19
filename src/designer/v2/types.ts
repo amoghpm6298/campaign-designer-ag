@@ -158,6 +158,8 @@ export interface VersionEntry {
   request: string;
   summary: string;
   counts: { added: number; changed: number; removed: number };
+  /** What this version did to the potential spend on offers. */
+  costChange?: string | null;
 }
 
 export interface AnswerItem {

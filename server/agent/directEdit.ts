@@ -9,6 +9,8 @@ import { addContext, editJourney, emptyContext, initialState, updateCampaign, up
 import { findStep } from './stepIds';
 import { buildCampaign } from './tools';
 import { toolEnvFor } from './loop';
+import { costSnapshot } from '../costModel';
+import { resolveTenant } from '../tenants';
 import { type AfterJourney, type AfterOutcome, type AgentState, type CampaignContext, type CampaignObject, type TimelineEntry } from './types';
 
 const OUTCOME_WORDS: Record<AfterOutcome, string> = { no_response: "Didn't respond", not_reachable: "Couldn't reach", declined: 'Said no', converted: 'Converted' };
@@ -137,7 +139,7 @@ function finish(sessionId: string, tenantId: string, before: AgentState, after: 
   let next = addContext(after, [{ kind: 'note', topic: `${source === 'rollback' ? 'rollback' : 'manager edit'} ${new Date().toISOString()}`, text: said, source: 'manager' }], 'user').state;
   saveCampaignObject(sessionId, tenantId, next.campaign);
   saveContext(sessionId, tenantId, next.context);
-  const v = recordVersion({ sessionId, campaign: next.campaign, source, request: said, summary });
+  const v = recordVersion({ sessionId, campaign: next.campaign, source, request: said, summary, cost: costSnapshot(next.campaign, next.context, resolveTenant(tenantId)), costOf: (c) => costSnapshot(c, next.context, resolveTenant(tenantId)) });
   next = { ...next };
   const { campaign: _c, diff: _d, ...version } = v ?? ({} as Version);
   void _c;
