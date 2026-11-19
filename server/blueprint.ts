@@ -27,6 +27,7 @@ import {
 import { selectTemplate, proposeMessaging, type TemplateNeed } from '../agent-proto/templateSelect';
 import { statusVocabularyFor, isInFlight, isUndelivered } from './deliveryStatuses';
 import { forkAttribute, sendSteps } from './pathReading';
+import { signalConditionProblem, type Signal } from './signals';
 import type { DripGraph, DripGoal, DripGoalCondition } from '../src/data/graphTypes';
 
 // --- the closed vocabulary the model may use -------------------------
@@ -722,6 +723,8 @@ export interface BuildOptions {
   templateLibraryAccess: 'unavailable' | 'synthetic-demo';
   /** Values a user has already supplied, keyed by step name. */
   resolvedSends?: Record<string, { account?: string; templateId?: string }>;
+  /** The bank's signals menu (server/signals.ts): what a "Signal" rule group may reference. */
+  signals?: Signal[];
 }
 
 export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions | Channel[]): BuildResult {
@@ -816,9 +819,24 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
   // unknown entity or a condition the builder cannot express is reported,
   // never built.
   const toConfigGroups = (groups: BpAudienceGroup[] | undefined, path: string, label: string): Record<string, unknown>[] => {
+    // SIGNAL GROUPS: conditions on the bank's named signals. Checked against
+    // the signals menu here; kept as-is (the engine evaluates them by key).
+    const signalGroups: Record<string, unknown>[] = [];
+    (groups ?? []).forEach((g, i) => {
+      if (g?.entity !== 'Signal') return;
+      const list = opts.signals ?? [];
+      const raw = (g.conditions ?? []).map((c) => ({ attribute: String(c.attribute ?? ''), operator: String(c.operator ?? ''), value: String(c.value ?? '') }));
+      const ok = raw.filter((c, j) => {
+        const problem = signalConditionProblem(list, c, 'rule');
+        if (problem) issues.push({ path: `${path}[${i}].conditions[${j}]`, problem });
+        return !problem;
+      });
+      if (ok.length) signalGroups.push({ entity: 'Signal', conditions: ok });
+    });
+    groups = (groups ?? []).filter((g) => g?.entity !== 'Signal');
     for (const g of groups ?? []) {
       if (g && typeof g.entity === 'string' && !ELIGIBILITY_META[g.entity as keyof typeof ELIGIBILITY_META]) {
-        issues.push({ path, problem: `"${g.entity}" is not a real entity. Known: ${Object.keys(ELIGIBILITY_META).join(', ')}` });
+        issues.push({ path, problem: `"${g.entity}" is not a real entity. Known: ${Object.keys(ELIGIBILITY_META).join(', ')}, Signal` });
       }
     }
     return (groups ?? [])
@@ -842,7 +860,8 @@ export function buildFromBlueprint(bp: CampaignBlueprint, options: BuildOptions 
           }
         }
         return base;
-      });
+      })
+      .concat(signalGroups);
   };
 
   if (bp.entry.kind === 'event') {

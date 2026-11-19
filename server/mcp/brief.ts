@@ -114,6 +114,8 @@ export function campaignBrief(c: CampaignObject, context: CampaignContext | null
     startDate: c.schedule?.startDate ?? null,
     endDate: c.schedule?.endDate ?? null,
     success: currentEntries(entries, { kind: 'brief', topic: 'Success' })[0]?.text ?? null,
+    // How fast they need results and whether they'll spend on offers (and any budget), as the designer has it.
+    spendAppetite: currentEntries(entries, { kind: 'brief', topic: 'Spend' })[0]?.text ?? null,
     membership: membershipText(c),
     ...(c.maxAttempts ? { timesThroughAtMost: c.maxAttempts } : {}),
     bucketCount: buckets.length,

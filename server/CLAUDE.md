@@ -64,10 +64,30 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
 - **Warehouse** is per tenant (`server/tenants.ts`). ON: buckets are explored and
   sized from data. OFF: hypotheses from the answers and the agent's knowledge.
 
+## Signals and incentives (menus by name)
+
+- **Signals** (`server/signals.ts`): named, defined facts about a customer
+  (`spend_90d`, `top_category`, `emi_eligible`, …), worked out from the bank's
+  warehouse, plus journey signals (`read_last_message`, …). The agent sees them
+  with `list_signals` (no SQL) and may use them in bucket rules as
+  `{entity: "Signal", conditions: [...]}`. The builder checks every key against
+  the bank's menu. Data signals are "proposed": the engine can't supply them yet.
+- **Incentives** (`server/incentives.ts`): special offers on top of what the
+  customer is already eligible for, each with its cost to the bank, what it
+  `requires` (product eligibility set by the bank; a campaign never grants it),
+  who it is meant for, budget, dates and exact terms. MOCK library of standard
+  credit card offers until the real one exists; only `incentivesFor()` changes
+  then. `list_incentives` (banks with `incentives: true`) lists valid offers
+  cheapest first and, for a sized bucket, counts who qualifies.
+- **Prompt sections by bank:** core + data ON/OFF + incentives ON/OFF. With a
+  menu, the agent asks about speed vs spend (and an optional budget) in its own
+  words and files it as brief topic "Spend"; offers are not attached to
+  journeys yet (Phase 2: cost ladder, cost calculator, engine export).
+
 ## Rules worth keeping
 
-- Campaigns are communication only. Ask whether an incentive already exists;
-  never invent one.
+- Never invent an incentive. Banks with a menu: offers only from
+  `list_incentives`. Banks without: ask whether one already exists.
 - The model never emits node ids, edge ids, field names or template ids. It
   writes the recipe; `buildFromBlueprint` builds and validates the graph.
 - Never invent conversion rates, lifts, cutoffs or rupee figures.

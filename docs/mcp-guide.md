@@ -96,7 +96,7 @@ Every campaign response carries `state` and `allowedActions`.
 
 ## How to use it
 
-1. **Gather the brief.** Before starting, make sure you have what only your user knows, or ask briefly: what customers should do differently; how success is judged; any incentive that **already exists** (with exact terms); timing; message limits. Put all of it in `brief`; a long brief is fine, and the more it has, the fewer questions come back.
+1. **Gather the brief.** Before starting, make sure you have what only your user knows, or ask briefly: what customers should do differently; how success is judged; **how fast they need results and whether they'll spend on offers** (and any budget for them); timing; message limits. Put all of it in `brief`; a long brief is fine, and the more it has, the fewer questions come back.
    **Ask your user for any data they have, and include it.** It improves the design more than anything else: segment or customer counts, spend or usage patterns, past campaign results (sent, responses, conversions by channel), activation or dormancy rates, opt-in rates, top spend categories. Paste it as it is (tables, CSV, numbers in text). The designer builds and sizes the buckets from it and marks them as based on their data; it never invents numbers.
 2. **Ask or assume.** If your user wants a quick first draft, or says "don't ask me anything", use `questions: "assume"`. Otherwise use `"ask"`.
 3. **Wait.** Tell your user it takes a few minutes, then poll `get_campaign` with `waitSeconds: 50`. Don't poll faster.

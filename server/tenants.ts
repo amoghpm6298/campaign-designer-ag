@@ -41,6 +41,12 @@ export interface TenantConfig {
    * `bank` names the warehouse file (server/warehouse.ts).
    */
   warehouse?: { bank: string };
+  /**
+   * The bank has an incentive menu (special offers with their cost). Set → the
+   * agent gets list_incentives and the incentive prompt section. MOCK library
+   * for now (server/incentives.ts).
+   */
+  incentives?: boolean;
 }
 
 const TENANTS: TenantConfig[] = [
@@ -60,6 +66,7 @@ const TENANTS: TenantConfig[] = [
     bankContextFile: '../agent-proto/context/bank-context.json',
     // IndusInd mock warehouse: 50k customers, ~700k transactions, EMI eligibility, compliance lists.
     warehouse: { bank: 'indusind' },
+    incentives: true,
   },
   {
     tenantId: 'TEN-YES',
@@ -77,6 +84,7 @@ const TENANTS: TenantConfig[] = [
 
     // Yes Bank mock warehouse (same shape as IndusInd's), used only where the file is present.
     warehouse: { bank: 'yesbank' },
+    incentives: true,
   },
   {
     // Kept so the template-matching capability can still be demonstrated.
@@ -98,7 +106,7 @@ const TENANTS: TenantConfig[] = [
 
 export const DEFAULT_TENANT_ID = 'TEN-IBL';
 
-export function listTenants(): { tenantId: string; displayName: string; issuer: string; synthetic: true; templateLibraryAccess: TemplateLibraryAccess; warehouseAccess: boolean }[] {
+export function listTenants(): { tenantId: string; displayName: string; issuer: string; synthetic: true; templateLibraryAccess: TemplateLibraryAccess; warehouseAccess: boolean; incentiveMenu: boolean }[] {
   return TENANTS.map((t) => ({
     tenantId: t.tenantId,
     displayName: t.displayName,
@@ -107,6 +115,7 @@ export function listTenants(): { tenantId: string; displayName: string; issuer: 
     templateLibraryAccess: t.templateLibraryAccess,
     // On only when the bank's data is actually there, same test the agent uses.
     warehouseAccess: !!t.warehouse && warehouseAvailable(t.warehouse.bank),
+    incentiveMenu: !!t.incentives,
   }));
 }
 

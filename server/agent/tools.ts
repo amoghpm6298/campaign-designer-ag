@@ -15,6 +15,10 @@ import type { Channel } from '../../src/data/sharedConstants';
 import { countCustomers, runWarehouseQuery, warehouseSchema } from '../warehouse';
 import { checkJourneys, endingGaps, linkProblemsIn, planToBlueprint } from './compile';
 import { forAgent, type BankLink } from '../links';
+import { signalsFor, signalsForAgent } from '../signals';
+import { incentiveForAgent, incentivesFor, qualifyingShare, validFor } from '../incentives';
+import { todayIST } from './schedule';
+import { bucketContext } from '../../src/designer/v2/contextView';
 import {
   addQuestions,
   editJourney,
@@ -37,7 +41,7 @@ const STEPS = { type: 'array', items: { $ref: '#/$defs/step' } } as const;
 const GROUP = {
   type: 'object',
   properties: {
-    entity: { type: 'string', description: 'Customer, Account, Card, Transaction or Milestone (see list_audience_attributes).' },
+    entity: { type: 'string', description: 'Customer, Account, Card, Transaction or Milestone (see list_audience_attributes), or Signal: conditions on named signals from list_signals (attribute = the signal key).' },
     conditions: { type: 'array', items: CONDITION },
     lookbackDays: { type: 'number', description: 'Transaction only.' },
     existence: { type: 'string', enum: ['exists', 'none'], description: 'Transaction only. "none" = NO matching transaction in the lookback window.' },
@@ -188,6 +192,13 @@ const BASE_TOOLS: ToolDef[] = [
     input_schema: { type: 'object', properties: {} },
   },
   {
+    name: 'list_signals',
+    title: 'Checking customer signals',
+    description:
+      'The named facts this bank has about each customer (signals): key, label, type, plain definition, the values it takes, where it may be used, and status (live = the engine evaluates it today; proposed = designed, not yet supplied). Use a signal in a bucket rule as {entity: "Signal", conditions: [{attribute: <key>, operator, value}]}; never invent a signal or what it means. Banks without data access have only journey signals.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
     name: 'get_context',
     title: 'Reading the context',
     description:
@@ -284,6 +295,16 @@ const BASE_TOOLS: ToolDef[] = [
   },
 ];
 
+const INCENTIVE_TOOLS: ToolDef[] = [
+  {
+    name: 'list_incentives',
+    title: "Checking the bank's offers",
+    description:
+      "The bank's incentive menu: special offers a campaign may use on top of what customers are already eligible for, cheapest first, valid for the campaign's dates. Each has its mechanic, trigger (what the customer must do), the goals it fits, its cost to the bank, what it requires (product eligibility set by the bank: a campaign never grants it), who it is meant for, rules only the engine can check, budget left, and its exact terms. Never invent an offer, amount or term; use only these, by id. Give bucketId (with data access, once the bucket is sized) to see how many of that bucket meet each offer's requirements and targeting.",
+    input_schema: { type: 'object', properties: { bucketId: { type: 'string', description: 'Optional: a sized bucket, to count who qualifies.' } } },
+  },
+];
+
 const WAREHOUSE_TOOLS: ToolDef[] = [
   {
     name: 'get_table_schema',
@@ -300,10 +321,11 @@ const WAREHOUSE_TOOLS: ToolDef[] = [
   },
 ];
 
-export function toolsFor(warehouse: boolean): ToolDef[] {
-  if (!warehouse) return BASE_TOOLS;
+export function toolsFor(warehouse: boolean, incentives = false): ToolDef[] {
+  const extra = [...(warehouse ? WAREHOUSE_TOOLS : []), ...(incentives ? INCENTIVE_TOOLS : [])];
+  if (!extra.length) return BASE_TOOLS;
   const i = BASE_TOOLS.findIndex((t) => t.name === 'build_campaign');
-  return [...BASE_TOOLS.slice(0, i), ...WAREHOUSE_TOOLS, ...BASE_TOOLS.slice(i)];
+  return [...BASE_TOOLS.slice(0, i), ...extra, ...BASE_TOOLS.slice(i)];
 }
 
 const LOOKUP_DONE: Record<string, string> = {
@@ -324,6 +346,8 @@ export const TOOL_TITLES: Record<string, { running: string; done: string }> = {
   edit_bucket: { running: 'Editing a bucket', done: 'Edited a bucket' },
   get_context: { running: 'Reading the context', done: 'Read the context' },
   list_links: { running: "Checking the bank's links", done: "Checked the bank's links" },
+  list_signals: { running: 'Checking customer signals', done: 'Checked customer signals' },
+  list_incentives: { running: "Checking the bank's offers", done: "Checked the bank's offers" },
   add_context: { running: 'Adding to the context', done: 'Added to the context' },
   set_flags: { running: 'Updating progress', done: 'Updated progress' },
   edit_journey: { running: 'Editing a journey', done: 'Edited a journey' },
@@ -508,6 +532,48 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
       };
     }
 
+    case 'list_signals': {
+      const list = signalsForAgent(signalsFor(env.tenant));
+      const data = list.filter((x) => x.kind !== 'journey').length;
+      return {
+        state,
+        ok: true,
+        doneTitle: 'Checked customer signals',
+        summary: `${list.length} signals${data ? '' : ' (journey only: no data access)'}`,
+        result: list,
+        forModel: `${JSON.stringify(list)}${data ? '' : ' This bank has no data access, so only journey signals exist: buckets are hypotheses from the manager and your judgement.'}`,
+      };
+    }
+
+    case 'list_incentives': {
+      const all = incentivesFor(env.tenant);
+      if (!all.length) return { state, ok: true, summary: 'No incentive menu', forModel: 'This bank has no incentive menu: campaigns persuade with communication only. Never offer or invent an incentive.' };
+      const signals = signalsFor(env.tenant);
+      const valid = all.filter((i) => validFor(i, state.campaign.schedule, todayIST())).sort((a, b) => a.maxCostPerCustomer - b.maxCostPerCustomer);
+      const bucketId = typeof input.bucketId === 'string' ? input.bucketId : '';
+      const sizing = bucketId ? bucketContext(state.context.entries)[bucketId]?.sql : undefined;
+      let note = '';
+      if (bucketId && !env.warehouseBank) note = ' This bank has no data access, so who qualifies can only be judged from the rules; the engine checks each customer when it issues an offer.';
+      else if (bucketId && !sizing) note = ` Bucket "${bucketId}" has no sizing query yet, so who qualifies can't be counted. Size it first (add_context kind "sizing").`;
+      const list = valid.map((i) => {
+        const base = incentiveForAgent(i, signals);
+        if (!bucketId || !sizing || !env.warehouseBank) return base;
+        const q = qualifyingShare(env.warehouseBank, signals, sizing, i);
+        if ('error' in q) return { ...base, qualifying: q.error };
+        const pct = (n: number) => (q.size ? Math.round((100 * n) / q.size) : 0);
+        return { ...base, qualifying: { bucketSize: q.size, meetRequirements: q.meetRequires, meetRequirementsPct: pct(q.meetRequires), qualify: q.qualify, qualifyPct: pct(q.qualify) } };
+      });
+      const dropped = all.length - valid.length;
+      return {
+        state,
+        ok: true,
+        doneTitle: "Checked the bank's offers",
+        summary: `${list.length} offer${list.length === 1 ? '' : 's'}${bucketId ? ` for ${bucketId}` : ''}`,
+        result: list,
+        forModel: `${JSON.stringify(list)}${dropped ? ` ${dropped} more not valid for the campaign's dates or out of budget.` : ''}${note} MOCK library: standard credit card offers with dummy figures.`,
+      };
+    }
+
     case 'get_context': {
       const filter = {
         ...(typeof input.kind === 'string' ? { kind: input.kind } : {}),
@@ -629,6 +695,7 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
     built = buildFromBlueprint(compiled.blueprint, {
       availableChannels: env.availableChannels,
       templateLibraryAccess: env.tenant.templateLibraryAccess === 'synthetic-demo' ? 'synthetic-demo' : 'unavailable',
+      signals: signalsFor(env.tenant),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

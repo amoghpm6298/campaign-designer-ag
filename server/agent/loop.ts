@@ -165,7 +165,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   const availableChannels = channelsFor(tenant);
   const warehouseBank = tenant.warehouse && warehouseAvailable(tenant.warehouse.bank) ? tenant.warehouse.bank : undefined;
   const system = [
-    systemPrompt(!!warehouseBank),
+    systemPrompt(!!warehouseBank, !!tenant.incentives),
     `# Context\nIssuer: ${tenant.issuer} (synthetic tenant).\n${issuerContext(availableChannels, tenant.templateLibraryAccess === 'synthetic-demo' ? 'synthetic-demo' : 'unavailable')}`,
     `# Knowledge base\n${knowledgeForPrompt(knowledge, tenant.tenantId)}`,
   ].join('\n\n');
@@ -195,7 +195,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
     links: bankLinks,
     smsFallback: delivery.smsFallback,
   };
-  const tools = toolsFor(!!warehouseBank).map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
+  const tools = toolsFor(!!warehouseBank, !!tenant.incentives).map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
 
   const textSegments: string[] = [];
   const asked: AgentQuestion[] = [];
