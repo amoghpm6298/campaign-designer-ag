@@ -10,6 +10,8 @@ import type { CampaignObject } from './agent/types';
 import type { BpStep } from './blueprint';
 import type { TenantConfig } from './tenants';
 import { incentivesFor } from './incentives';
+import { signalsFor } from './signals';
+import { parseFields } from '../src/designer/v2/personalFields';
 
 export const ENGINE_FORMAT_VERSION = 'cd-engine-1';
 
@@ -69,9 +71,11 @@ export function toEngineCampaign(c: CampaignObject, tenant: Pick<TenantConfig, '
   const ee = c.everyoneElse;
   // Offers used, resolved from the menu, so the engine gets the exact terms the canvas showed.
   const used = new Set<string>();
+  const fieldKeys = new Set<string>();
   const collect = (steps: Rec[]) =>
     steps.forEach((s) => {
       if (typeof s.incentive === 'string') used.add(s.incentive);
+      for (const f of parseFields(`${String(s.copy ?? '')} ${String(s.cta ?? '')}`)) fieldKeys.add(f.key);
       for (const k of NESTED) if (Array.isArray(s[k])) collect(s[k] as Rec[]);
       for (const k of ['arms', 'paths']) if (Array.isArray(s[k])) (s[k] as Rec[]).forEach((a) => collect((a.steps as Rec[]) ?? []));
     });
@@ -102,6 +106,12 @@ export function toEngineCampaign(c: CampaignObject, tenant: Pick<TenantConfig, '
       buckets,
       everyoneElse: ee ? { approach: ee.approach, ...(ee.approach === 'journey' ? { journey: eeJourney } : {}) } : null,
       offers,
+      // Personal words in copy: the engine fills each {{key | "fallback"}} per customer, formatted.
+      personalFields: [...fieldKeys].map((k) => {
+        const sig = signalsFor(tenant).find((x) => x.key === k);
+        if (!sig) problems.push(`Personal field {{${k}}} is not a signal for this bank.`);
+        return { key: k, label: sig?.label ?? k, type: sig?.type ?? null, definition: sig?.definition ?? null, status: sig?.status ?? null };
+      }),
     },
     problems,
   };

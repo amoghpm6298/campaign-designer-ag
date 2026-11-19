@@ -113,6 +113,20 @@ export async function withdrawCampaign(sessionId: string, tenantId: string): Pro
   return (await res.json().catch(() => ({ ok: false, error: 'Could not reach the server.' }))) as { ok: boolean; withdrawal?: Withdrawal; error?: string };
 }
 
+/** A personal field usable in messages, with a typical value (for previews) and the longest. */
+export interface FieldSampleView {
+  key: string;
+  label: string;
+  sample: string;
+  longest: string;
+}
+
+export async function fetchFields(tenantId: string): Promise<FieldSampleView[]> {
+  const res = await fetch(apiUrl(`/api/fields?tenantId=${encodeURIComponent(tenantId)}`)).catch(() => null);
+  if (!res?.ok) return [];
+  return (((await res.json().catch(() => ({}))) as { fields?: FieldSampleView[] }).fields ?? []);
+}
+
 /** An offer on the bank's incentive menu, as the canvas needs it. */
 export interface Offer {
   id: string;

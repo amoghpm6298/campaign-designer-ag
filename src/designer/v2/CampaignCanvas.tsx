@@ -7,7 +7,7 @@ import '@xyflow/react/dist/style.css';
 import '../../canvas/dripCanvas.css';
 import { buildCanvasModel, FIXED_SHAPES, NODE_H, type CNodeKind } from './canvasModel';
 import { cdNodeTypes, CostContext, EditContext, SizingContext, type CdNodeData, type EditApi } from './canvasNodes';
-import type { CostReportView, Offer, SizingRun } from './api';
+import type { CostReportView, FieldSampleView, Offer, SizingRun } from './api';
 import type { ChangeMap } from './canvasModel';
 import type { BankLink } from '../LinksSection';
 import type { CampaignContext, CampaignObject } from './types';
@@ -67,6 +67,8 @@ interface Props {
   links?: BankLink[];
   /** The bank's incentive menu, to show offer lines on messages. */
   offers?: Offer[];
+  /** Personal fields with sample values, for message previews. */
+  fields?: FieldSampleView[];
   /** Potential spend on offers, and how to open its working. */
   cost?: CostReportView | null;
   onOpenCost?: (bucketId?: string) => void;
@@ -74,7 +76,7 @@ interface Props {
   smsFallback?: boolean;
 }
 
-function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName, links, offers, smsFallback, cost }: Props) {
+function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName, links, offers, fields, smsFallback, cost }: Props) {
   const measured = useRef<Record<string, number>>({});
   const [tick, setTick] = useState(0);
   const model = useMemo(() => buildCanvasModel(campaign, context, changed, measured.current),
@@ -88,12 +90,12 @@ function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClic
         id: n.id,
         type: 'cd',
         position: { x: n.x, y: n.y },
-        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText, bankName, links, offers, smsFallback } satisfies CdNodeData,
+        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText, bankName, links, offers, fields, smsFallback } satisfies CdNodeData,
         draggable: false,
         connectable: false,
         selectable: n.data.kind === 'send',
       })),
-    [model, goalText, bankName, links, offers, smsFallback],
+    [model, goalText, bankName, links, offers, fields, smsFallback],
   );
   const edges: Edge[] = useMemo(() => {
     // A step with several routes sends each one out of its own side: the

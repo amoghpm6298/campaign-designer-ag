@@ -12,6 +12,7 @@ import { bucketContext, currentEntries } from '../../src/designer/v2/contextView
 import { campaignCost, costLine, type CostReport } from '../costModel';
 import { todayIST } from './schedule';
 import { routeProblems } from './routeChecks';
+import { fieldProblems } from './fieldChecks';
 
 /** Below this share of a bucket qualifying, most of it would get the message without the offer. */
 export const MIN_QUALIFYING_SHARE = 0.8;
@@ -67,6 +68,8 @@ export function offerProblems(campaign: CampaignObject, context: CampaignContext
   const cost = campaignCost(campaign, context, tenant);
   // Routes inside buckets (signal switches): size, depth, count, everyone else.
   problems.push(...routeProblems(campaign, context, tenant, cost));
+  // Personal words in messages: real, allowed, with fallbacks, SMS-length safe.
+  problems.push(...fieldProblems(campaign, tenant));
   if (!usesOffers) return { problems, cost };
   const notes = currentEntries(context?.entries ?? []);
   const strategy = notes.find((e) => e.kind === 'note' && ['campaign strategy', 'incentive strategy'].includes(e.topic.toLowerCase()));

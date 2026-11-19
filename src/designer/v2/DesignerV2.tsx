@@ -13,7 +13,7 @@ import { CostPanel } from './CostPanel';
 import { StrategyPanel, type StrategyNote } from './StrategyPanel';
 import { currentEntries as currentNotes } from './contextView';
 import { FileText } from 'lucide-react';
-import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, submitCampaignApi, runBucketSizing, fetchOffers, fetchCost, type CostReportView, type Offer, type Stores, type Submission, type Withdrawal } from './api';
+import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, submitCampaignApi, runBucketSizing, fetchOffers, fetchCost, fetchFields, type CostReportView, type FieldSampleView, type Offer, type Stores, type Submission, type Withdrawal } from './api';
 import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
 import { VersionMenu } from './VersionMenu';
@@ -125,6 +125,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // The bank's link registry: where each message's link really goes.
   const [links, setLinks] = useState<BankLink[]>([]);
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [fields, setFields] = useState<FieldSampleView[]>([]);
   // Potential spend on offers: worked out by the server whenever the campaign changes.
   const [cost, setCost] = useState<CostReportView | null>(null);
   const [costOpen, setCostOpen] = useState<{ bucketId?: string } | null>(null);
@@ -142,6 +143,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   useEffect(() => {
     fetchLinks(tenant.tenantId).then(setLinks).catch(() => setLinks([]));
     fetchOffers(tenant.tenantId).then(setOffers).catch(() => setOffers([]));
+    fetchFields(tenant.tenantId).then(setFields).catch(() => setFields([]));
     fetch(apiUrl(`/api/bank-settings?tenantId=${encodeURIComponent(tenant.tenantId)}`))
       .then((r) => r.json())
       .then((d: { settings?: { smsFallback?: boolean } }) => setSmsFallback(d.settings?.smsFallback !== false))
@@ -622,6 +624,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               bankName={(tenant.issuer || tenant.displayName).replace(/\s*\(.*?\)\s*/g, '').trim()}
               links={links}
               offers={offers}
+              fields={fields}
               cost={cost}
               onOpenCost={(bucketId) => { setDrawerId(null); setStrategyOpen(false); setCostOpen({ bucketId }); }}
               smsFallback={smsFallback}

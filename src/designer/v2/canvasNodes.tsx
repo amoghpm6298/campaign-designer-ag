@@ -5,7 +5,8 @@
 import { createContext, useContext, useState } from 'react';
 import { Handle, NodeToolbar, Position } from '@xyflow/react';
 import { ChevronDown, ChevronRight, Pencil, Play, Sparkles } from 'lucide-react';
-import type { CostReportView, Offer, SizingRun } from './api';
+import type { CostReportView, FieldSampleView, Offer, SizingRun } from './api';
+import { fillFields, parseFields } from './personalFields';
 import { SpendSummary } from './CostPanel';
 import { withOfferLine } from './smsText';
 import type { BankLink } from '../LinksSection';
@@ -24,6 +25,8 @@ export interface CdNodeData extends CNodeData {
   links?: BankLink[];
   /** The bank's incentive menu, to show the exact offer line the system adds to a message. */
   offers?: Offer[];
+  /** Personal fields usable in messages, with sample values, for previews. */
+  fields?: FieldSampleView[];
   /** The bank's delivery setting: undelivered WhatsApp goes again by SMS. */
   smsFallback?: boolean;
   width: number;
@@ -73,22 +76,43 @@ function Card({ cat, type, icon, children, data, extra, title }: { cat: string; 
 const smsSender = (bank: string) => `AD-${bank.replace(/bank|ltd|limited|\(.*?\)/gi, '').replace(/[^a-z]/gi, '').toUpperCase().slice(0, 6).padEnd(4, 'X')}`;
 
 /** The message drawn the way the customer sees it on that channel. */
+/** Personal fields in a preview: each {{field}} shown as a chip with a sample customer's value. */
+function WithFields({ text, fields }: { text: string; fields?: FieldSampleView[] }) {
+  const refs = parseFields(text);
+  if (!refs.length) return <>{text}</>;
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  refs.forEach((r, i) => {
+    if (r.index > last) out.push(text.slice(last, r.index));
+    const f = fields?.find((x) => x.key === r.key);
+    const shown = f?.sample || r.fallback || r.key;
+    out.push(
+      <span key={i} className="cv-pv-field" title={`${f?.label ?? r.key}: filled in per customer${r.fallback ? ` · if unknown: "${r.fallback}"` : ''}${f?.sample ? ` · example: ${f.sample}` : ''}`}>
+        {shown}
+      </span>,
+    );
+    last = r.index + r.raw.length;
+  });
+  if (last < text.length) out.push(text.slice(last));
+  return <>{out}</>;
+}
+
 /** Text with the system's offer line marked, so a reviewer sees which words came from the incentive menu, not the AI. */
-function Marked({ text, offerLine }: { text: string; offerLine?: string }) {
+function Marked({ text, offerLine, fields }: { text: string; offerLine?: string; fields?: FieldSampleView[] }) {
   const at = offerLine ? text.indexOf(offerLine) : -1;
-  if (at < 0) return <>{text}</>;
+  if (at < 0) return <WithFields text={text} fields={fields} />;
   return (
     <>
-      {text.slice(0, at)}
+      <WithFields text={text.slice(0, at)} fields={fields} />
       <span className="cv-pv-offer" title="Added by the system from the bank's incentive menu: exact terms, never written by the AI">
         {offerLine}
       </span>
-      {text.slice(at + offerLine!.length)}
+      <WithFields text={text.slice(at + offerLine!.length)} fields={fields} />
     </>
   );
 }
 
-function ChannelPreview({ channel, text, cta, bank, subject, time, link, offerLine }: { channel: string; text: string; cta?: string; bank: string; subject?: string; time?: string; link?: BankLink; offerLine?: string }) {
+function ChannelPreview({ channel, text, cta, bank, subject, time, link, offerLine, fields }: { channel: string; text: string; cta?: string; bank: string; subject?: string; time?: string; link?: BankLink; offerLine?: string; fields?: FieldSampleView[] }) {
   const clock = fmtClock(time);
   // No link: no button and no URL; the CTA wording, if any, stays part of the message.
   const button = link && cta ? cta : null;
@@ -106,7 +130,7 @@ function ChannelPreview({ channel, text, cta, bank, subject, time, link, offerLi
         </div>
         <div className="cv-pv-wa-body">
           <div className="cv-pv-wa-bubble">
-            <span className="cv-pv-text"><Marked text={body} offerLine={offerLine} /></span>
+            <span className="cv-pv-text"><Marked text={body} offerLine={offerLine} fields={fields} /></span>
             <span className="cv-pv-meta">{clock}</span>
           </div>
           {button && (
@@ -129,7 +153,7 @@ function ChannelPreview({ channel, text, cta, bank, subject, time, link, offerLi
           </span>
         </div>
         {subject && <div className="cv-pv-mail-subject">{subject}</div>}
-        <span className="cv-pv-text"><Marked text={body} offerLine={offerLine} /></span>
+        <span className="cv-pv-text"><Marked text={body} offerLine={offerLine} fields={fields} /></span>
         {button && (
           <span className="cv-pv-mail-btn" title={`Opens ${link!.url}`}>
             {button}
@@ -141,7 +165,8 @@ function ChannelPreview({ channel, text, cta, bank, subject, time, link, offerLi
   // SMS (and anything else): a plain text thread. SMS has no buttons: the link
   // is written out at the end, as the customer's phone will show it.
   const smsText = assembleSms(text, cta, link?.shortUrl, offerLine);
-  const { chars, parts } = smsLength(smsText);
+  // Counted as a typical customer's SMS (fields filled with sample values); the checks use the longest.
+  const { chars, parts } = smsLength(fillFields(smsText, (r) => fields?.find((x) => x.key === r.key)?.sample));
   const urlAt = link?.shortUrl ? smsText.lastIndexOf(link.shortUrl) : -1;
   return (
     <div className="cv-pv cv-pv-sms">
@@ -153,13 +178,13 @@ function ChannelPreview({ channel, text, cta, bank, subject, time, link, offerLi
         <span className="cv-pv-text">
           {urlAt >= 0 ? (
             <>
-              <Marked text={smsText.slice(0, urlAt)} offerLine={offerLine} />
+              <Marked text={smsText.slice(0, urlAt)} offerLine={offerLine} fields={fields} />
               <span className="cv-pv-link" title={`Opens ${link!.url}`}>
                 {link!.shortUrl}
               </span>
             </>
           ) : (
-            <Marked text={smsText} offerLine={offerLine} />
+            <Marked text={smsText} offerLine={offerLine} fields={fields} />
           )}
         </span>
       </div>
@@ -306,7 +331,7 @@ function SendCard({ data }: { data: CdNodeData }) {
         <div className="cv-link-bad">⚠ Unknown offer "{st.incentive}"</div>
       ))}
       {(st.copy || st.describe) && (
-        <ChannelPreview channel={ch} text={st.copy || st.describe || ''} cta={st.cta} bank={data.bankName ?? 'Your bank'} subject={st.name || st.label} time={st.atTime} link={linkState.link} offerLine={offer?.offerLine} />
+        <ChannelPreview channel={ch} text={st.copy || st.describe || ''} cta={st.cta} bank={data.bankName ?? 'Your bank'} subject={st.name || st.label} time={st.atTime} link={linkState.link} offerLine={offer?.offerLine} fields={data.fields} />
       )}
       {/* Timing only when it says something the flow doesn't: a send time or a delay of its own. */}
       {!!(st.atTime || st.delayDays) && (

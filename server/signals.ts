@@ -367,3 +367,38 @@ export function signalConditionText(signals: Signal[], c: SignalCondition): stri
   if (s?.type === 'bool') return v.toLowerCase() === 'true' ? label : `Not: ${label.toLowerCase()}`;
   return `${label} ${op[String(c.operator)] ?? c.operator} ${val}`.trim();
 }
+
+export interface FieldSample {
+  key: string;
+  label: string;
+  /** A typical customer's value, as it reads in a message. */
+  sample: string;
+  /** The longest value it can take, as it reads (for SMS length). */
+  longest: string;
+}
+
+const sampleCache = new Map<string, FieldSample[]>();
+
+/** For signals usable in copy: a typical value and the longest one, from the bank's data, formatted. */
+export function fieldSamples(tenant: Pick<TenantConfig, 'warehouse'> | null | undefined, format: (key: string, type: SignalType, v: unknown) => string): FieldSample[] {
+  const bank = tenant?.warehouse?.bank;
+  const list = signalsFor(tenant).filter((s) => s.usableIn.includes('copy') && s.sensitivity === 'normal');
+  if (!bank || !warehouseAvailable(bank)) return list.map((s) => ({ key: s.key, label: s.label, sample: '', longest: '' }));
+  const hit = sampleCache.get(bank);
+  if (hit) return hit;
+  const out = list.map((s) => {
+    try {
+      if (s.type === 'category') {
+        const top = runWarehouseQuery(bank, `SELECT value, COUNT(*) AS n FROM (${s.sql}) WHERE value IS NOT NULL GROUP BY value ORDER BY n DESC LIMIT 1`).rows[0]?.value;
+        const longest = (s.values ?? []).map((v) => format(s.key, s.type, v)).sort((a, b) => b.length - a.length)[0] ?? '';
+        return { key: s.key, label: s.label, sample: format(s.key, s.type, top), longest };
+      }
+      const r = runWarehouseQuery(bank, `SELECT AVG(value) AS avg, MAX(value) AS mx FROM (${s.sql}) WHERE value IS NOT NULL`).rows[0] ?? {};
+      return { key: s.key, label: s.label, sample: format(s.key, s.type, r.avg), longest: format(s.key, s.type, r.mx) };
+    } catch {
+      return { key: s.key, label: s.label, sample: '', longest: '' };
+    }
+  });
+  sampleCache.set(bank, out);
+  return out;
+}

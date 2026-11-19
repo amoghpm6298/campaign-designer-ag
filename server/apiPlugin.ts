@@ -419,6 +419,14 @@ export function agentApiPlugin(): Plugin {
             const tenantId = new URL(req.url ?? '', 'http://x').searchParams.get('tenantId') ?? '';
             return send(res, 200, { incentives: (I.incentivesFor as (t: unknown) => unknown[])((T.resolveTenant as (id: string) => unknown)(tenantId)) });
           }
+          // Personal fields usable in messages, with a typical and the longest value (for previews).
+          if (url === '/api/fields' && req.method === 'GET') {
+            const S = await load('signals.ts');
+            const T = await load('tenants.ts');
+            const F = await load('../src/designer/v2/personalFields.ts');
+            const tenantId = new URL(req.url ?? '', 'http://x').searchParams.get('tenantId') ?? '';
+            return send(res, 200, { fields: (S.fieldSamples as (t: unknown, f: unknown) => unknown[])((T.resolveTenant as (id: string) => unknown)(tenantId), F.formatValue) });
+          }
           // The bank's link registry (the agent only sees references; URLs live here).
           if (url === '/api/links' && req.method === 'GET') {
             const L = await load('links.ts');

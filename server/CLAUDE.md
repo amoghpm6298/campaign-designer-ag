@@ -109,6 +109,13 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   that tail) or records why not. Then an AUTOMATIC message sends the main
   agent back for a closing pass (review, budget, strategy, brief). A manager's
   "split this by…" goes to the main agent, which does it itself.
+- **Personal words (dynamic messages):** copy may carry `{{signal_key | "fallback"}}`
+  (signals usable in copy, never restricted ones). The engine fills each
+  customer's value, formatted by code (`src/designer/v2/personalFields.ts`), or
+  the fallback. Checks (`server/agent/fieldChecks.ts`): real signal, allowed in
+  copy, fallback present, SMS ≤160 with the longest value. The canvas shows a
+  sample value chip; the engine export lists `personalFields`. Wording-only
+  differences use this instead of a split.
 - **Design vs what runs:** `campaign.json` is the full design (reasoning
   included). At submit, `server/engineExport.ts` keeps only the engine's
   fields and writes a frozen `engine.json`. Problems block submit.
