@@ -42,6 +42,9 @@ describe('the code check', () => {
     const p = insightProblems(camp, ctx, true).join(' ');
     expect(p).toMatch(/"Lapsed": "why stuck" cites "query: A query nobody ran at all", which is not in the notebook/);
     expect(p).toMatch(/"so we" names "Second message", which is not a step/);
+    // A paraphrase of a real step ("Cashback nudge experiment" for "Cashback nudge") is fine.
+    const para = full([{ kind: 'bucket', bucketId: 'lapsed', topic: 'so we', text: 'So we reach them inside the app moment first.', data: { steps: ['Cashback nudge experiment'] } }]);
+    expect(insightProblems(camp, para, true).join(' ')).not.toMatch(/not a step/);
     expect(insightProblems(camp, { entries: [] } as unknown as CampaignContext, true).join(' ')).toMatch(/no "why stuck" note[\s\S]*no "so we" note/);
     const uncited = full([{ kind: 'bucket', bucketId: 'slow', topic: 'why stuck', text: 'They are a quiet group who do not spend much at all these days.' }]);
     expect(insightProblems(camp, uncited, true).join(' ')).toMatch(/"Slowing": its "why stuck" cites no query/);

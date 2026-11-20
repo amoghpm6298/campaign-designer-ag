@@ -21,7 +21,7 @@ import { listLinks } from '../links';
 import { getBankSettings } from '../bankSettings';
 import { checkJourneys } from './compile';
 import { bucketContext, currentEntries } from '../../src/designer/v2/contextView';
-import { gradeInsights, graderSendBack, insightProblems, logInsightEvent, MAX_INSIGHT_SENDBACKS } from './insightChecks';
+import { gradeInsights, graderSendBack, insightProblems, insightReviewOn, logInsightEvent, MAX_INSIGHT_SENDBACKS } from './insightChecks';
 import { ensureBaseline, recordVersion, setSummary, summariseVersion, type VersionEntry } from '../campaignVersions';
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
@@ -391,7 +391,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
               conversation.push({ role: 'user', content: `AUTOMATIC CHECK (end of turn): every bucket needs a "why stuck" (what holds that group back, backed by the queries you cite) and a "so we" (what it changed in the design). Fix these:\n${problems.map((x) => `- ${x}`).join('\n')}\nIf you need evidence you don't have, run the query first. Change nothing else unless the finding changes the design.` });
               continue;
             }
-          } else if (gradeTries < MAX_INSIGHT_SENDBACKS + 1 && toGrade().length) {
+          } else if (insightReviewOn() && gradeTries < MAX_INSIGHT_SENDBACKS + 1 && toGrade().length) {
             gradeTries++;
             em.emit('model.tool_call.started', 'understanding', 'Reviewing the insights', { status: 'running', correlationId: `insight-grade-${gradeTries}`, data: { tool: 'insight_review', round } });
             yield* drain();

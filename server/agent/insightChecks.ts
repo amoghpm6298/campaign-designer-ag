@@ -27,6 +27,14 @@ import { callClaude } from '../anthropic';
 
 /** The grader's model: fast and cheap, for this one check only (the agent itself stays on Sonnet). */
 export const GRADER_MODEL = 'claude-haiku-5-5';
+/**
+ * The per-bucket reviewer is OFF unless INSIGHT_REVIEW=on (2026-11-20). Bucket-by-bucket grading
+ * proved risky: inconsistent verdicts, pressure to manufacture differences, and send-backs that
+ * cost many rounds. The plan is one review of the whole campaign after it is built. The code
+ * check (notes exist and cite real query results) stays on.
+ */
+export const insightReviewOn = () => (process.env.INSIGHT_REVIEW ?? '').toLowerCase() === 'on';
+
 /** Send-backs per turn for each kind of check. */
 export const MAX_INSIGHT_SENDBACKS = 2;
 
@@ -111,7 +119,12 @@ export function insightProblems(campaign: CampaignObject, context: CampaignConte
     if (!v.soWe || v.soWe.trim().length < 20) out.push(`${name}: no "so we" note (topic "so we"): what that finding changed in this bucket's design, or that the data did not separate this group so the lever is a hypothesis to test.`);
     else if (v.soWeSteps?.length) {
       const names = stepNames(b.journey as BpStep[] | null);
-      const gone = v.soWeSteps.filter((s) => !names.has(s.toLowerCase().trim()));
+      // Tolerant of a paraphrase like "X experiment" for a step named "X"; still catches a renamed step.
+      const known = [...names];
+      const gone = v.soWeSteps.filter((s) => {
+        const w = s.toLowerCase().trim();
+        return !names.has(w) && !known.some((n) => n.length >= 8 && (w.startsWith(n) || n.startsWith(w)));
+      });
       if (gone.length) out.push(`${name}: "so we" names ${gone.map((g) => `"${g}"`).join(', ')}, which ${gone.length === 1 ? 'is' : 'are'} not a step in its journey. Name steps as they are (their name), or leave steps out.`);
     }
   }
