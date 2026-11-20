@@ -334,7 +334,7 @@ const WAREHOUSE_TOOLS: ToolDef[] = [
     name: 'run_sql_query',
     title: 'Querying the data',
     description:
-      'Run ONE read-only SQLite SELECT (or WITH … SELECT) against the warehouse. Returns up to 200 rows. Aggregate in SQL rather than pulling raw rows. Say in `purpose` what you are trying to learn.',
+      'Run ONE read-only SQLite SELECT (or WITH … SELECT) against the warehouse. Returns up to 200 rows. Aggregate in SQL rather than pulling raw rows. Say in `purpose` what you are trying to learn. Every query is filed in the notebook with its rows (kind "research", topic "query: <purpose>"); in a long turn, older results in this conversation may be shortened, so re-read them there with get_context rather than re-running.',
     input_schema: { type: 'object', properties: { sql: { type: 'string' }, purpose: { type: 'string' } }, required: ['sql', 'purpose'] },
   },
 ];
@@ -706,8 +706,20 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
       const sql = String(input.sql ?? '');
       try {
         const r = runWarehouseQuery(env.warehouseBank, sql);
+        // Every query is filed in the notebook with its rows: the evidence stays inspectable, and
+        // compaction can shorten old results in the conversation without losing them.
+        const purpose = typeof input.purpose === 'string' && input.purpose.trim() ? input.purpose.trim() : 'query';
+        const filed = addContext(state, [
+          {
+            kind: 'research',
+            topic: `query: ${purpose.replace(/\s+/g, ' ').slice(0, 80)}`,
+            text: `${purpose} (${r.rows.length}${r.truncated ? '+' : ''} rows)`,
+            source: 'data',
+            data: { purpose, sql, columns: r.columns, rows: r.rows.slice(0, 50), truncated: r.truncated || r.rows.length > 50 },
+          },
+        ]).state;
         return {
-          state,
+          state: filed,
           ok: true,
           summary: `${typeof input.purpose === 'string' ? input.purpose : 'Query'} · ${r.rows.length}${r.truncated ? '+' : ''} rows`,
           result: { sql, purpose: input.purpose, rows: r.rows.slice(0, 50), truncated: r.truncated || r.rows.length > 50, ms: r.ms },

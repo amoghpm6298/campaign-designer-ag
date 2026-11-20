@@ -2,7 +2,8 @@
 // The application only keeps the record (plan file, flags, timeline) and
 // reports what happened; it never switches the prompt or hides a tool.
 
-import { streamClaude, type ApiMessage, type ToolUseBlock } from '../anthropic';
+import { callClaude, resolveModel, streamClaude, type ApiMessage, type ToolUseBlock } from '../anthropic';
+import { compactIfNeeded, compactionCutoff, contextWindow, estimateTokens, isTooLong, type ApiMessage as CompactMessage, type Summarise } from './compaction';
 import { EventEmitterSeq, type RunEvent } from '../runEvents';
 import { resolveTenant } from '../tenants';
 import { bankContext, knowledgeForPrompt, seedKnowledgeBase, type KnowledgeBase } from '../knowledge';
@@ -24,7 +25,8 @@ import { ensureBaseline, recordVersion, setSummary, summariseVersion, type Versi
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
 
-const MAX_ROUNDS = 32;
+// A safety net against runaway turns only; the context window is managed by compaction.
+const MAX_ROUNDS = 60;
 /** How many times the app sends the agent back to fix problems it left at the end of a turn. */
 const MAX_REPAIR_ROUNDS = 2;
 const REACH_ORDER: Channel[] = ['WHATSAPP', 'SMS', 'EMAIL', 'RCS'] as Channel[];
@@ -202,6 +204,51 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   };
   const tools = toolsFor(!!warehouseBank, !!tenant.incentives).map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
 
+  // Compaction (server/agent/compaction.ts): the turn's opening messages are never touched.
+  const baseLen = conversation.length;
+  const model = resolveModel();
+  const window = contextWindow(model);
+  const cutoff = compactionCutoff(model);
+  const summarise: Summarise = async (sys, text) => (await callClaude({ system: sys, messages: [{ role: 'user', content: text }], maxTokens: 1_200, timeoutMs: 120_000 })).text;
+  // Calibrated against the API's real token counts every round. The character estimate undercounts
+  // JSON-heavy content, so: scale = real tokens per estimated token, measured from each round's
+  // input, and overhead = the fixed part sent every round (system prompt, tools), in real tokens.
+  // The cutoff covers the whole request; the conversation's share, in estimate units, is
+  // (cutoff - overhead) / scale.
+  const fixedEstimate = estimateTokens(system) + estimateTokens(tools);
+  let scale = 1;
+  let overhead = fixedEstimate;
+  const compactNow = async (round: number, force: boolean) => {
+    const messagesCutoff = Math.max(1, Math.floor((cutoff - overhead) / scale));
+    const r = await compactIfNeeded(conversation as CompactMessage[], { baseLen, cutoff: messagesCutoff, summarise, force });
+    if (r.messages === (conversation as CompactMessage[])) return;
+    conversation.splice(0, conversation.length, ...(r.messages as ApiMessage[]));
+    r.before = Math.round(r.before * scale + overhead);
+    r.after = Math.round(r.after * scale + overhead);
+    em.emit('model.tool_call.completed', 'understanding', r.tier === 2 ? 'Summarised earlier steps to save space' : 'Shortened earlier results to save space', {
+      status: 'ok',
+      correlationId: `compaction-${round}`,
+      detail: `~${Math.round(r.before / 1000)}k → ~${Math.round(r.after / 1000)}k tokens (window ${Math.round(window / 1000)}k, cutoff ${Math.round(cutoff / 1000)}k)${force ? ' · forced' : ''}`,
+      data: { tool: 'compaction', input: { tier: r.tier, force }, result: { before: r.before, after: r.after, masked: r.masked, cutoff, window }, round },
+    });
+  };
+
+  // Loop check: the same call with the same input a 3rd time is refused; after 3 refusals the turn
+  // ends (and says plainly what isn't built). Reads are exempt: re-reading after compaction is right.
+  // A build counts as "the same" only when nothing changed since the last one.
+  const callCounts = new Map<string, number>();
+  let loopRefusals = 0;
+  let loopStopped = false;
+  let lastBuildOf: { campaign: object; context: object } | null = null;
+  const callKey = (name: string, input: unknown) =>
+    name === 'build_campaign'
+      ? lastBuildOf && lastBuildOf.campaign === state.campaign && lastBuildOf.context === state.context
+        ? 'build_campaign:unchanged'
+        : null
+      : /^(get|list)_/.test(name)
+        ? null
+        : `${name}:${JSON.stringify(input ?? {})}`;
+
   const textSegments: string[] = [];
   const asked: AgentQuestion[] = [];
   let built: { graph: unknown; campaign: unknown; notes: string[] } | null = null;
@@ -216,31 +263,56 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       let content: unknown[] = [];
       let stopReason: string | undefined;
 
-      for await (const chunk of streamClaude({
-        system,
-        messages: conversation,
-        tools,
-      })) {
-        if (chunk.text) {
-          roundText += chunk.text;
-          em.emit('model.text.delta', 'understanding', '', { data: { text: chunk.text, round }, correlationId: textId });
-          yield* drain();
+      await compactNow(round, false);
+      yield* drain();
+      let usage: { input_tokens?: number; output_tokens?: number } | undefined;
+      let sentTokens = 0;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          sentTokens = estimateTokens(conversation);
+          for await (const chunk of streamClaude({
+            system,
+            messages: conversation,
+            tools,
+          })) {
+            if (chunk.text) {
+              roundText += chunk.text;
+              em.emit('model.text.delta', 'understanding', '', { data: { text: chunk.text, round }, correlationId: textId });
+              yield* drain();
+            }
+            if (chunk.toolUse) {
+              toolUses.push(chunk.toolUse);
+              const t = TOOL_TITLES[chunk.toolUse.name];
+              em.emit('model.tool_call.started', 'understanding', t?.running ?? chunk.toolUse.name, {
+                status: 'running',
+                correlationId: chunk.toolUse.id,
+                data: { tool: chunk.toolUse.name, input: chunk.toolUse.input, round },
+              });
+              yield* drain();
+            }
+            if (chunk.done) {
+              content = chunk.done.content;
+              stopReason = chunk.done.stopReason;
+              usage = chunk.done.usage;
+              if (!roundText && chunk.done.text) roundText = chunk.done.text;
+            }
+          }
+          break;
+        } catch (e) {
+          // The API refused the prompt as too long (nothing streamed yet): compact hard once, retry.
+          if (attempt === 0 && isTooLong(e)) {
+            await compactNow(round, true);
+            yield* drain();
+            continue;
+          }
+          throw e;
         }
-        if (chunk.toolUse) {
-          toolUses.push(chunk.toolUse);
-          const t = TOOL_TITLES[chunk.toolUse.name];
-          em.emit('model.tool_call.started', 'understanding', t?.running ?? chunk.toolUse.name, {
-            status: 'running',
-            correlationId: chunk.toolUse.id,
-            data: { tool: chunk.toolUse.name, input: chunk.toolUse.input, round },
-          });
-          yield* drain();
-        }
-        if (chunk.done) {
-          content = chunk.done.content;
-          stopReason = chunk.done.stopReason;
-          if (!roundText && chunk.done.text) roundText = chunk.done.text;
-        }
+      }
+      // What the context actually cost this round: kept with the turn's events, not shown in the chat.
+      if (usage?.input_tokens) {
+        scale = Math.min(3, Math.max(0.5, usage.input_tokens / Math.max(1, fixedEstimate + sentTokens)));
+        overhead = Math.round(fixedEstimate * scale);
+        em.emit('model.completed', 'understanding', '', { data: { round, inputTokens: usage.input_tokens, outputTokens: usage.output_tokens ?? 0, pctOfWindow: Math.round((usage.input_tokens / window) * 1000) / 10, cutoff } });
       }
       if (roundText.trim()) textSegments.push(roundText.trim());
       conversation.push({ role: 'assistant', content });
@@ -306,13 +378,28 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       let endsTurn = false;
       for (const tu of toolUses) {
         const t0 = Date.now();
+        const key = callKey(tu.name, tu.input);
+        const times = key ? (callCounts.get(key) ?? 0) + 1 : 0;
+        if (key) callCounts.set(key, times);
+        if (key && (times >= 3 || key === 'build_campaign:unchanged')) {
+          loopRefusals++;
+          const said = key === 'build_campaign:unchanged' ? 'Not rebuilt: nothing changed since the last build. Use its result above.' : `Not run: this exact call (${tu.name}, same input) already ran twice this turn. Use the result above, or do something different.`;
+          em.emit('model.tool_call.failed', 'understanding', 'Skipped a repeated step', { status: 'failed', correlationId: tu.id, detail: said, data: { tool: tu.name, input: tu.input, round } });
+          yield* drain();
+          results.push({ type: 'tool_result', tool_use_id: tu.id, content: said, is_error: true });
+          if (loopRefusals >= 3) loopStopped = true;
+          continue;
+        }
         // ask_data runs its own analyst model, so it is the one async tool.
         const out = tu.name === 'ask_data' ? await runAskData(tu.input ?? {}, state, env) : runToolCall(tu.name, tu.input ?? {}, state, env);
         const planChanged = out.state.campaign !== state.campaign || out.state.context !== state.context || out.state.flags !== state.flags;
         persistIfChanged(state, out.state, req.sessionId, tenant.tenantId);
         state = out.state;
         if (out.asked) asked.push(...out.asked);
-        if (out.build) built = out.build;
+        if (out.build) {
+          built = out.build;
+          lastBuildOf = { campaign: out.state.campaign, context: out.state.context };
+        }
         if (out.endsTurn) endsTurn = true;
         const titles = TOOL_TITLES[tu.name];
         em.emit(out.ok ? 'model.tool_call.completed' : 'model.tool_call.failed', 'understanding', out.doneTitle ?? titles?.done ?? tu.name, {
@@ -333,7 +420,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       // The agent gets one more round, tools still on, to file anything it
       // has not filed yet and write the sentence that goes with it; then the
       // turn ends whatever it does.
-      if (wrapUp) break;
+      if (wrapUp || loopStopped) break;
       if (endsTurn) wrapUp = true;
     }
   } catch (e) {

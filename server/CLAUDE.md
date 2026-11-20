@@ -75,6 +75,25 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   (`agent/autoSize.ts`: each signal's SQL, first match wins, do-not-contact and
   NPA left out); other rules are sized by the agent's own sizing SQL or by the
   analyst (`ask_data` with `sizeBucket`).
+- **Long turns: compaction, not a low round cap** (2026-11-20, `agent/compaction.ts`,
+  modelled on the propensity agent's `services/context_compaction.py`). The context
+  only grows WITHIN a turn (between turns the agent restarts from chat text, the
+  two stores and the status block), so compaction works mid-turn. Trigger: 75% of
+  the model's window (Sonnet 5: 1M, so 750k), or `COMPACT_CUTOFF_TOKENS`. The
+  estimate is calibrated every round against the API's real input token count,
+  including the fixed system prompt + tools (~35-40k). Tier 1 (code, no AI):
+  results older than the last 5 rounds keep 1 row, oldest first, until under the
+  cutoff; the turn's opening messages are never touched and a tool call is never
+  split from its result. Tier 2: if still over, Sonnet writes one recap of the
+  older steps (numbers copied exactly, with their source). Emergency: the API
+  refusing the prompt as too long forces both tiers (last 2 rounds kept) and
+  retries once. Every `run_sql_query` is filed in the notebook (research, topic
+  "query: <purpose>") so shortened rows stay retrievable. Each round's real input
+  tokens are kept with the turn's events (`model.completed`); a compaction shows
+  in Activity. MAX_ROUNDS is 60, a runaway net only, plus a loop check: the same
+  call with the same input a 3rd time (reads exempt), or a rebuild with nothing
+  changed, is refused; 3 refusals end the turn. Verified with forced 40k/90k
+  cutoffs: turns ran to 44 rounds and finished, with full depth.
 
 ## Signals and incentives (menus by name)
 
