@@ -24,6 +24,7 @@ import type { CampaignContext, CampaignObject } from './types';
 import type { BpStep } from '../blueprint';
 import { bucketContext, currentEntries } from '../../src/designer/v2/contextView';
 import { callClaude } from '../anthropic';
+import { queryById, rowsOf } from './citations';
 
 /** The grader's model: fast and cheap, for this one check only (the agent itself stays on Sonnet). */
 export const GRADER_MODEL = 'claude-haiku-5-5';
@@ -40,15 +41,12 @@ export const MAX_INSIGHT_SENDBACKS = 2;
 
 const norm = (s: string) => s.toLowerCase().replace(/^(query|ask):\s*/, '').replace(/\s+/g, ' ').trim();
 
-/** The rows a notebook entry holds: a query's own rows, or an analyst answer's workbook rows. */
-function rowsOf(data: unknown): unknown[] {
-  const d = (data ?? {}) as { rows?: unknown[]; queries?: { rows?: unknown[] }[] };
-  if (Array.isArray(d.rows)) return d.rows;
-  return (d.queries ?? []).flatMap((x) => (Array.isArray(x.rows) ? x.rows : []));
-}
 
 /** The notebook entry a citation points at: exact topic, or the same query purpose (topics are cut at 80 characters). Query results first. */
 function findQuery(context: CampaignContext | null, cite: string) {
+  // A query id ("Q7" or "[Q7]") is exact.
+  const id = /^\[?(Q\d+)\]?$/.exec(cite.trim());
+  if (id) return queryById(context, id[1]);
   const want = norm(cite);
   if (!want) return undefined;
   const matches = currentEntries(context?.entries ?? [], { kind: 'research' }).filter((e) => {

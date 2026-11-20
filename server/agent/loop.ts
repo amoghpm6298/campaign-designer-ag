@@ -12,7 +12,6 @@ import type { Channel } from '../../src/data/sharedConstants';
 import { systemPrompt, statusBlock } from './prompt';
 import { TOOL_TITLES, runToolCall, toolsFor, type ToolEnv } from './tools';
 import { runAskData } from './askData';
-import { applySplitOutcomes, closingMessage, pendingSplitIdeas, runSplitHelper } from './splitHelper';
 import { costSnapshot, type CostSnapshot } from '../costModel';
 import { addContext, emptyCampaign, emptyContext, normaliseState, recordAnswers, recordSkips } from './state';
 import { loadStores, saveCampaignObject, saveContext } from '../campaignFiles';
@@ -22,6 +21,7 @@ import { getBankSettings } from '../bankSettings';
 import { checkJourneys } from './compile';
 import { bucketContext, currentEntries } from '../../src/designer/v2/contextView';
 import { gradeInsights, graderSendBack, insightProblems, insightReviewOn, logInsightEvent, MAX_INSIGHT_SENDBACKS } from './insightChecks';
+import { citationProblems } from './citations';
 import { ensureBaseline, recordVersion, setSummary, summariseVersion, type VersionEntry } from '../campaignVersions';
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
@@ -138,6 +138,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   let briefAsked = false;
   // Insight checks (server/agent/insightChecks.ts): code, then the grader; each sends back at most twice.
   let insightCodeTries = 0;
+  let citeTries = 0;
   let gradeTries = 0;
   /**
    * Buckets to review: never reviewed, or their notes changed since. A bucket whose notes did not
@@ -154,7 +155,6 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       .map((b) => b.id);
   };
   /** Split helpers run at most once per turn. */
-  let splitsRan = false;
   const base = (extra: Partial<AgentResponse>): AgentResponse => ({
     sessionId: req.sessionId,
     runId,
@@ -214,6 +214,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
     tenant,
     availableChannels,
     goalStatement: req.messages.find((m) => m.role === 'user')?.content ?? '',
+    managerSaid: (req.messages ?? []).filter((m) => m.role === 'user' && typeof m.content === 'string').map((m) => m.content),
     sessionId: req.sessionId,
     warehouseBank,
     lookupCache: new Map(),
@@ -353,31 +354,6 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
             continue;
           }
         }
-        // Split ideas the agent left: one helper each, in parallel, tests and splits (or not).
-        // Then the main agent reviews what they did (closing pass).
-        if (!wrapUp && !asked.length && !splitsRan && built) {
-          const ideas = pendingSplitIdeas(state);
-          if (ideas.length) {
-            splitsRan = true;
-            em.emit('model.tool_call.started', 'understanding', `Testing ${ideas.length} split idea${ideas.length === 1 ? '' : 's'}`, { status: 'running', correlationId: 'splits', data: { tool: 'split_helpers', input: ideas.map((i) => `${i.bucketName}: ${i.hypothesis}`), round } });
-            yield* drain();
-            const snapshot = state;
-            const outcomes = await Promise.all(ideas.map((ref) => runSplitHelper(snapshot, env, ref).catch((e) => ({ ref, status: 'failed' as const, result: `The helper failed: ${(e as Error).message}`, queries: [] }))));
-            const before = state;
-            state = applySplitOutcomes(state, outcomes);
-            persistIfChanged(before, state, req.sessionId, tenant.tenantId);
-            em.emit('model.tool_call.completed', 'understanding', `Split ideas: ${outcomes.filter((o) => o.status === 'split').length} split, ${outcomes.filter((o) => o.status !== 'split').length} not`, {
-              status: 'ok',
-              correlationId: 'splits',
-              detail: outcomes.map((o) => `${o.ref.bucketName}: ${o.status}`).join(' · '),
-              data: { tool: 'split_helpers', input: ideas, result: outcomes.map((o) => ({ bucket: o.ref.bucketName, hypothesis: o.ref.hypothesis, status: o.status, result: o.result, queries: o.queries })), round },
-            });
-            em.emit('state.updated', 'generating', '', { data: { campaign: state.campaign, context: state.context, flags: state.flags, graph: null } });
-            yield* drain();
-            conversation.push({ role: 'user', content: closingMessage(outcomes) });
-            continue;
-          }
-        }
         // Each bucket's insight: "why stuck" (backed by a query) and "so we". First code checks the
         // pieces exist and connect; then a fast grader reads them against the cited rows.
         if (!wrapUp && !asked.length && built && state.campaign.buckets.length) {
@@ -421,6 +397,18 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
               conversation.push({ role: 'user', content: graderSendBack(failed) });
               continue;
             }
+          }
+        }
+        // Citations: every [Q…] must exist, and every number it covers must be in that query's rows.
+        if (!wrapUp && !asked.length && built) {
+          const cites = citationProblems(state.campaign, state.context, tenant, !!warehouseBank, env.managerSaid);
+          logInsightEvent({ type: 'citation_check', sessionId: req.sessionId, tenantId: tenant.tenantId, attempt: citeTries + 1, stats: cites.stats, errors: cites.errors, warnings: cites.warnings });
+          if (cites.errors.length && citeTries < MAX_INSIGHT_SENDBACKS) {
+            citeTries++;
+            em.emit('model.tool_call.completed', 'understanding', 'Sent back to fix sources', { status: 'ok', correlationId: `cite-${citeTries}`, detail: cites.errors.join(' | ').slice(0, 300), data: { tool: 'repair', input: cites.errors, round } });
+            yield* drain();
+            conversation.push({ role: 'user', content: `AUTOMATIC CHECK (end of turn): these figures don't match the source they cite:\n${cites.errors.map((x) => `- ${x}`).join('\n')}\nFor each: correct the number to what the query returned, cite the query it really came from, or, if no query shows it, rewrite it as a hypothesis without a source. Change nothing else.` });
+            continue;
           }
         }
         // The campaign changed and was rebuilt, but the brief still describes the old one.
@@ -505,6 +493,11 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   // Anything still broken after the repair rounds is said plainly, never hidden.
   const remaining = state.campaign !== startCampaign ? checkJourneys(state.campaign, bankLinks, delivery.smsFallback, false, startCampaign) : [];
   if (remaining.length) textSegments.push(`Still to fix (I could not resolve ${remaining.length === 1 ? 'this' : 'these'} on my own):\n${remaining.map((p) => `- ${p}`).join('\n')}`);
+  // Figures that still don't match their sources after the send-backs are said plainly, never hidden.
+  if (citeTries >= MAX_INSIGHT_SENDBACKS && built && !asked.length) {
+    const left = citationProblems(state.campaign, state.context, tenant, !!warehouseBank, env.managerSaid).errors;
+    if (left.length) textSegments.push(`${left.length === 1 ? 'One figure doesn\'t' : `${left.length} figures don't`} match the data it cites yet. I've left ${left.length === 1 ? 'it' : 'them'} marked for you to check.`);
+  }
   // A turn that stops (e.g. at its step limit) with changes not yet built says so plainly: the canvas and
   // anything that reads the build would otherwise show an older or half-finished campaign as if it were done.
   if (state.campaign.buckets.length && !state.flags.campaignBuilt && !asked.length) {

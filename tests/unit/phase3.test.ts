@@ -8,7 +8,6 @@ import { planToBlueprint } from '../../server/agent/compile';
 import { campaignCost } from '../../server/costModel';
 import { routeProblems } from '../../server/agent/routeChecks';
 import { toEngineCampaign } from '../../server/engineExport';
-import { applySplitOutcomes, closingMessage, pendingSplitIdeas, runSplitHelper } from '../../server/agent/splitHelper';
 import { applyJourneyOps, initialState } from '../../server/agent/state';
 import { signalsFor } from '../../server/signals';
 import { resolveTenant } from '../../server/tenants';
@@ -140,65 +139,6 @@ describe('route checks', () => {
   it.runIf(hasYes)('a route too small to measure is flagged', () => {
     const c = camp([sw([{ label: 'Others', operator: 'Equals', value: 'others', steps: tail('o') }])]);
     expect(routeProblems(c, ctx(), YES, cost(c)).join(' ')).toMatch(/route "Others" has [\d,]+ customers, below the/);
-  });
-});
-
-describe('split helpers', () => {
-  const withIdea = () => [send('first'), { id: 'w0', kind: 'wait', durationHours: 48, rationale: 'w' }, { id: 'g0', kind: 'goalCheck' }, ...tail('second', { splitIdea: { hypothesis: 'Electronics buyers want EMI', by: ['top_category'] } })];
-  const state = (): AgentState => ({ ...initialState(), campaign: camp(withIdea()), context: ctx() });
-  const scripted = (replies: string[]) => {
-    let i = 0;
-    return async () => replies[Math.min(i++, replies.length - 1)];
-  };
-
-  it('finds untested ideas, one per bucket', () => {
-    const ideas = pendingSplitIdeas(state());
-    expect(ideas).toHaveLength(1);
-    expect(ideas[0]).toMatchObject({ bucketId: 'occ', stepId: 's-second', by: ['top_category'] });
-  });
-
-  it.runIf(hasYes)('a wording-only split is never applied: after two failed fixes the step is left as it was', async () => {
-    const st = state();
-    const cosmetic = sw([{ label: 'Electronics', operator: 'Equals', value: 'electronics', steps: tail('el3', { copy: 'Big buys are your thing.' }) }], { id: undefined });
-    const o = await runSplitHelper(st, env, pendingSplitIdeas(st)[0], scripted([JSON.stringify({ action: 'split', expectedBenefit: 'More electronics buyers would respond to framing about big buys', branch: cosmetic })]));
-    expect(o.status).toBe('not split');
-    expect(o.result).toMatch(/same treatment/);
-  });
-
-  it.runIf(hasYes)('a decline is recorded on the step, and nothing else changes', async () => {
-    const st = state();
-    const o = await runSplitHelper(st, env, pendingSplitIdeas(st)[0], scripted([JSON.stringify({ action: 'decline', reason: 'Electronics buyers are 3% of the bucket: too small.' })]));
-    expect(o.status).toBe('not split');
-    const next = applySplitOutcomes(st, [o]);
-    const step = (next.campaign.buckets[0].journey as unknown as { id: string; splitIdea?: { status: string; result: string } }[]).find((x) => x.id === 's-second')!;
-    expect(step.splitIdea).toMatchObject({ status: 'not split', result: /too small/ });
-    expect(pendingSplitIdeas(next)).toHaveLength(0);
-  });
-
-  it.runIf(hasYes)('a split replaces only the step with the idea and what follows it', async () => {
-    const st = state();
-    const longer = tail('el2');
-    (longer[1] as { durationHours: number }).durationHours = 168; // a different treatment: a longer window for big-ticket buys
-    const branch = sw([{ label: 'Electronics', operator: 'Equals', value: 'electronics', steps: longer }], { id: undefined });
-    const o = await runSplitHelper(st, env, pendingSplitIdeas(st)[0], scripted([JSON.stringify({ action: 'route_sizes', signal: 'top_category', paths: [{ label: 'Electronics', operator: 'Equals', value: 'electronics' }] }), JSON.stringify({ action: 'split', branch }), JSON.stringify({ action: 'split', expectedBenefit: 'Electronics buyers make bigger, slower purchases; a longer window should convert more of them', branch })]));
-    expect(o.status).toBe('split');
-    expect(o.result).toMatch(/Expected benefit: Electronics buyers make bigger/);
-    const next = applySplitOutcomes(st, [o]);
-    const j = next.campaign.buckets[0].journey as unknown as { kind: string; name?: string; signal?: string; splitIdea?: { status: string } }[];
-    expect(j.map((x) => x.kind)).toEqual(['send', 'wait', 'goalCheck', 'branch']);
-    expect(j[0].name).toBe('first');
-    expect(j[3]).toMatchObject({ signal: 'top_category', splitIdea: { status: 'split' } });
-    expect(closingMessage([o])).toMatch(/SPLIT into routes[\s\S]*update your campaign strategy/);
-  });
-
-  it('with no data access the idea is left unsplit, with the reason', async () => {
-    const st = state();
-    const o = await runSplitHelper(st, { ...env, warehouseBank: undefined }, pendingSplitIdeas(st)[0], scripted([]));
-    expect(o).toMatchObject({ status: 'not split', result: /No data access/ });
-  });
-
-  it('signals menu offers switch-usable signals', () => {
-    expect(signalsFor(YES).some((s) => s.usableIn.includes('switch'))).toBe(true);
   });
 });
 

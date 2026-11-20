@@ -3,12 +3,13 @@
 // tables, rules, and inline **bold**, *italic*, `code`. Text only; no HTML is
 // ever injected, so nothing the agent writes can run as markup.
 import type { ReactNode } from 'react';
+import { Cite, SourcesFooter } from './Citations';
 
-/** Inline: **bold**, *italic* / _italic_, `code`. */
+/** Inline: **bold**, *italic* / _italic_, `code`, and source markers [Q7] / [M] / [O] as chips. */
 export function inlineMd(s: string, key = 'i'): ReactNode[] {
   const out: ReactNode[] = [];
   // _italic_ only when the underscores aren't inside a word, so ids like points_2x_category stay as written.
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*|(?<![\w])_[^_\s][^_]*_(?![\w]))/g;
+  const re = /(\[(?:Q\d+|M|O)\]|\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*|(?<![\w])_[^_\s][^_]*_(?![\w]))/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let n = 0;
@@ -16,7 +17,8 @@ export function inlineMd(s: string, key = 'i'): ReactNode[] {
     if (m.index > last) out.push(s.slice(last, m.index));
     const t = m[0];
     const k = `${key}-${n++}`;
-    if (t.startsWith('**')) out.push(<strong key={k}>{inlineMd(t.slice(2, -2), k)}</strong>);
+    if (t.startsWith('[')) out.push(<Cite key={k} id={t.slice(1, -1)} />);
+    else if (t.startsWith('**')) out.push(<strong key={k}>{inlineMd(t.slice(2, -2), k)}</strong>);
     else if (t.startsWith('`')) out.push(<code key={k}>{t.slice(1, -1)}</code>);
     else out.push(<em key={k}>{inlineMd(t.slice(1, -1), k)}</em>);
     last = m.index + t.length;
@@ -136,5 +138,10 @@ export function Markdown({ text }: { text: string }) {
     i++;
   }
   flushPara();
-  return <div className="cv-md">{out}</div>;
+  return (
+    <div className="cv-md">
+      {out}
+      <SourcesFooter text={text ?? ''} />
+    </div>
+  );
 }

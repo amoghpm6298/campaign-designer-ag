@@ -582,3 +582,26 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-split-chip.yes { border-color: #a7f3d0; background: #ecfdf5; color: #047857; }
 /* A personal field in a message preview: filled in per customer by the system. */
 .cv-pv-field { background: #ecfdf3; color: #067647; border-radius: 4px; padding: 0 3px; box-shadow: inset 0 -1px 0 #75e0a7; font-weight: 600; cursor: help; }
+
+/* Inline sources (Citations.tsx): a small chip per [Q7] / [M] / [O]; a popover with the rows. */
+.cv-cite-wrap { position: relative; display: inline; }
+.cv-cite { display: inline-flex; align-items: center; margin: 0 1px 0 2px; padding: 0 5px; height: 15px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--accent); font: inherit; font-size: 10px; font-weight: 700; line-height: 1; vertical-align: 1px; cursor: pointer; }
+.cv-cite:hover, .cv-cite[aria-expanded="true"] { border-color: var(--accent); }
+.cv-cite:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cv-cite.missing { color: var(--text-muted); text-decoration: line-through; cursor: default; }
+.cv-cite-pop { position: absolute; z-index: 40; left: 0; top: calc(100% + 4px); width: 340px; max-width: 80vw; display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-radius: var(--r-md, 8px); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-card); font-size: var(--t-xs); line-height: 1.4; color: var(--neutral-900); text-align: left; white-space: normal; font-weight: 400; }
+.cv-cite-head { display: flex; align-items: flex-start; gap: 6px; }
+.cv-cite-head b { flex: 1; font-weight: 600; }
+.cv-cite-x { border: 0; background: none; padding: 1px; color: var(--text-muted); cursor: pointer; }
+.cv-cite-lines { display: flex; flex-direction: column; gap: 3px; color: var(--text-muted); }
+.cv-cite-table { display: block; max-height: 220px; overflow: auto; }
+.cv-cite-table table { border-collapse: collapse; width: 100%; font-size: 11px; }
+.cv-cite-table th, .cv-cite-table td { padding: 3px 6px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+.cv-cite-table th { color: var(--text-muted); font-weight: 600; text-transform: none; }
+.cv-cite-more { display: block; margin-top: 3px; color: var(--text-muted); }
+.cv-cite-sql summary { cursor: pointer; color: var(--text-muted); font-size: 11px; }
+.cv-cite-sql code { display: block; margin-top: 4px; padding: 6px; border-radius: 6px; background: var(--gray-50); font-size: 10.5px; white-space: pre-wrap; word-break: break-word; }
+.cv-sources { margin-top: 10px; padding-top: 7px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--text-muted); }
+.cv-sources-label { font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
+.cv-sources-item { display: flex; align-items: baseline; gap: 4px; }
+@media (prefers-reduced-motion: reduce) { .cv-cite { transition: none; } }

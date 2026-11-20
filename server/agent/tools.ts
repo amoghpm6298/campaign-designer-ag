@@ -13,6 +13,7 @@ import { bankContext } from '../knowledge';
 import type { TenantConfig } from '../tenants';
 import type { Channel } from '../../src/data/sharedConstants';
 import { countCustomers, runWarehouseQuery, warehouseSchema } from '../warehouse';
+import { citationProblems, nextQid } from './citations';
 import { checkJourneys, endingGaps, linkProblemsIn, planToBlueprint } from './compile';
 import { forAgent, type BankLink } from '../links';
 import { signalsFor, signalsForAgent } from '../signals';
@@ -334,7 +335,7 @@ const WAREHOUSE_TOOLS: ToolDef[] = [
     name: 'run_sql_query',
     title: 'Querying the data',
     description:
-      'Run ONE read-only SQLite SELECT (or WITH … SELECT) against the warehouse. Returns up to 200 rows. Aggregate in SQL rather than pulling raw rows. Say in `purpose` what you are trying to learn. Every query is filed in the notebook with its rows (kind "research", topic "query: <purpose>"); in a long turn, older results in this conversation may be shortened, so re-read them there with get_context rather than re-running.',
+      'Run ONE read-only SQLite SELECT (or WITH … SELECT) against the warehouse. Returns up to 200 rows. Aggregate in SQL rather than pulling raw rows. Say in `purpose` what you are trying to learn. Every query is filed in the notebook with its rows under a short id (the reply says which, e.g. Q7): cite it as [Q7] after any sentence that uses its numbers. In a long turn, older results here may be shortened; re-read them with get_context rather than re-running.',
     input_schema: { type: 'object', properties: { sql: { type: 'string' }, purpose: { type: 'string' } }, required: ['sql', 'purpose'] },
   },
 ];
@@ -393,6 +394,8 @@ export interface ToolEnv {
   tenant: TenantConfig;
   availableChannels: Channel[];
   goalStatement: string;
+  /** Everything the manager has written in this chat (the brief and messages): an [M] source. */
+  managerSaid?: string[];
   sessionId: string;
   /** Set when the tenant has a warehouse. */
   warehouseBank?: string;
@@ -708,14 +711,17 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
         const r = runWarehouseQuery(env.warehouseBank, sql);
         // Every query is filed in the notebook with its rows: the evidence stays inspectable, and
         // compaction can shorten old results in the conversation without losing them.
+        // Each query gets a short id the agent cites inline ("[Q7]"); its own topic, so re-running
+        // a purpose never replaces an older query a note cites. Rows kept as the agent saw them.
         const purpose = typeof input.purpose === 'string' && input.purpose.trim() ? input.purpose.trim() : 'query';
+        const qid = nextQid(state.context);
         const filed = addContext(state, [
           {
             kind: 'research',
-            topic: `query: ${purpose.replace(/\s+/g, ' ').slice(0, 80)}`,
+            topic: `query: ${qid} ${purpose.replace(/\s+/g, ' ').slice(0, 80)}`,
             text: `${purpose} (${r.rows.length}${r.truncated ? '+' : ''} rows)`,
             source: 'data',
-            data: { purpose, sql, columns: r.columns, rows: r.rows.slice(0, 50), truncated: r.truncated || r.rows.length > 50 },
+            data: { qid, purpose, sql, columns: r.columns, rows: r.rows, truncated: r.truncated },
           },
         ]).state;
         return {
@@ -723,7 +729,7 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
           ok: true,
           summary: `${typeof input.purpose === 'string' ? input.purpose : 'Query'} · ${r.rows.length}${r.truncated ? '+' : ''} rows`,
           result: { sql, purpose: input.purpose, rows: r.rows.slice(0, 50), truncated: r.truncated || r.rows.length > 50, ms: r.ms },
-          forModel: JSON.stringify({ columns: r.columns, rows: r.rows, truncated: r.truncated }),
+          forModel: JSON.stringify({ filedAs: qid, cite: `[${qid}]`, columns: r.columns, rows: r.rows, truncated: r.truncated }),
         };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -815,6 +821,7 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
   const knockOns = checkJourneys(next.campaign, env.links, env.smsFallback ?? true, true);
   const openEndings = endingGaps(next.campaign);
   const offers = offerProblems(next.campaign, next.context, env.tenant);
+  const cites = citationProblems(next.campaign, next.context, env.tenant, !!env.warehouseBank, env.managerSaid ?? [env.goalStatement]);
   next = setFlag(next, 'campaignBuilt', true, 'app', summary);
   next = log(next, 'app', 'campaign_built', `Built: ${summary}${notes.length ? `, ${notes.length} note(s)` : ''}`);
   return {
@@ -824,6 +831,6 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
     summary: `${summary}${notes.length ? ` · ${notes.length} note(s)` : ''}`,
     result: { buckets: compiled.bucketsIncluded, messages: sends, steps: nodes.length, notes, ...(knockOns.length ? { toFix: knockOns } : {}), ...(openEndings.length ? { endingsToDecide: openEndings } : {}), ...(offers.cost.mode !== 'none' ? { potentialSpend: costLine(offers.cost) } : {}), ...(offers.problems.length ? { offersToFix: offers.problems } : {}) },
     build: { graph: built.graph, campaign, notes },
-    forModel: `Built on the canvas as one campaign: ${summary} (buckets: ${compiled.bucketsIncluded.join(', ')}).${notes.length ? ` Notes: ${notes.join(' | ')}` : ' No problems reported.'}${knockOns.length ? ` FIX BEFORE YOU FINISH — a change left these problems further down the tree: ${knockOns.join(' | ')} Fix each one (edit_journey / edit_bucket), build again, and list what you fixed under "Also changed because of this".` : ''}${openEndings.length ? ` ENDINGS NOT DECIDED YET: ${openEndings.join(' | ')} Decide these for the journeys you designed or changed in this conversation turn; for journeys you did not touch, do not change them unasked — mention in one line that their endings are not decided.` : ''}${offers.cost.mode !== 'none' ? ` POTENTIAL SPEND ON OFFERS (worked out by code; quote these figures, never your own): ${costLine(offers.cost)}.${offers.cost.notes.length ? ` ${offers.cost.notes.join(' ')}` : ''}` : ''}${offers.problems.length ? ` OFFERS AND ROUTES TO FIX BEFORE YOU FINISH: ${offers.problems.join(' | ')}` : ''} Tell the manager plainly what was built, anything that needs their attention, and that they can ask you to change any bucket or any step.`,
+    forModel: `Built on the canvas as one campaign: ${summary} (buckets: ${compiled.bucketsIncluded.join(', ')}).${notes.length ? ` Notes: ${notes.join(' | ')}` : ' No problems reported.'}${knockOns.length ? ` FIX BEFORE YOU FINISH — a change left these problems further down the tree: ${knockOns.join(' | ')} Fix each one (edit_journey / edit_bucket), build again, and list what you fixed under "Also changed because of this".` : ''}${openEndings.length ? ` ENDINGS NOT DECIDED YET: ${openEndings.join(' | ')} Decide these for the journeys you designed or changed in this conversation turn; for journeys you did not touch, do not change them unasked — mention in one line that their endings are not decided.` : ''}${offers.cost.mode !== 'none' ? ` POTENTIAL SPEND ON OFFERS (worked out by code; quote these figures, never your own): ${costLine(offers.cost)}.${offers.cost.notes.length ? ` ${offers.cost.notes.join(' ')}` : ''}` : ''}${offers.problems.length ? ` OFFERS AND ROUTES TO FIX BEFORE YOU FINISH: ${offers.problems.join(' | ')}` : ''}${cites.errors.length ? ` CITATIONS TO FIX BEFORE YOU FINISH: ${cites.errors.join(' | ')}` : ''}${cites.stats.uncited ? ` (${cites.stats.uncited} figure${cites.stats.uncited === 1 ? '' : 's'} from data ha${cites.stats.uncited === 1 ? 's' : 've'} no source yet, e.g. ${cites.warnings.slice(0, 2).join(' / ')}. Add [Q…] where they came from a query.)` : ''} Tell the manager plainly what was built, anything that needs their attention, and that they can ask you to change any bucket or any step.`,
   };
 }

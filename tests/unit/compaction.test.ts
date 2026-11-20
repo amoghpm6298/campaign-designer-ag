@@ -78,7 +78,7 @@ describe('tier 1: shorten old results', () => {
     expect(rowsOf(messages[2])).toBe(1);
     const old = JSON.parse(String((messages[2].content as Record<string, unknown>[])[0].content));
     expect(old._rows_omitted).toBe(29);
-    expect(old._rows_note).toMatch(/filed in the notebook.*query:/);
+    expect(old._rows_note).toMatch(/filed in the notebook/);
     expect(rowsOf(messages[messages.length - 1])).toBe(30);
     // The input array is not mutated.
     expect(rowsOf(msgs[2])).toBe(30);
@@ -136,7 +136,9 @@ describe('the agent files its own queries', () => {
     const env: ToolEnv = { tenant: resolveTenant('TEN-YES')!, availableChannels: ['SMS'], goalStatement: '', sessionId: 's', lookupCache: new Map(), warehouseBank: 'yesbank' };
     const out = runToolCall('run_sql_query', { sql: 'SELECT category, COUNT(*) AS n FROM transactions GROUP BY category ORDER BY n DESC', purpose: 'Spend categories' }, initialState(), env);
     expect(out.ok).toBe(true);
-    const note = out.state.context.entries.find((e) => e.topic === 'query: Spend categories')!;
+    const note = out.state.context.entries.find((e) => e.topic === 'query: Q1 Spend categories')!;
+    expect((note.data as { qid: string }).qid).toBe('Q1');
+    expect(JSON.parse(out.forModel).cite).toBe('[Q1]');
     expect(note.kind).toBe('research');
     expect((note.data as { sql: string; rows: unknown[] }).sql).toMatch(/GROUP BY category/);
     expect((note.data as { rows: unknown[] }).rows.length).toBeGreaterThan(3);

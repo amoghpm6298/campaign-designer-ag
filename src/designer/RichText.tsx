@@ -1,10 +1,13 @@
 // The agent's own text, rendered as light markdown (bold, lists, paragraphs).
 import type { ReactNode } from 'react';
+import { SourcesFooter, withCites } from './v2/Citations';
 
 /** One line of text with **bold** spans. */
 export function renderInline(s: string): ReactNode[] {
+  // Source markers ([Q7], [M], [O]) become chips: the designer cites its figures (v2/Citations.tsx).
+  const cites = (t: string, k: string) => (/\[(?:Q\d+|M|O)\]/.test(t) ? withCites(t, k) : t);
   return s.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-    part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : <span key={i}>{part}</span>,
+    part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{cites(part.slice(2, -2), `b${i}`)}</strong> : <span key={i}>{cites(part, `s${i}`)}</span>,
   );
 }
 
@@ -34,5 +37,10 @@ export function RichText({ text }: { text: string }) {
     if (line.trim()) out.push(<div key={i}>{inline(line)}</div>);
   });
   flush('lend');
-  return <>{out}</>;
+  return (
+    <>
+      {out}
+      <SourcesFooter text={text} />
+    </>
+  );
 }

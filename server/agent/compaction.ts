@@ -98,7 +98,7 @@ export function maskResult(tool: string, text: string): string | null {
       o._rows_omitted = n - MASK_ROW_KEEP;
       o._rows_note =
         tool === "run_sql_query"
-          ? 'Older result shortened to save space. All rows are filed in the notebook (kind "research", topic "query: <its purpose>"); get_context to re-read them, or re-run the query.'
+          ? `Older result shortened to save space. All rows are filed in the notebook as ${String(o.filedAs ?? 'its query id')} (get_context kind "research"); cite it as ${String(o.cite ?? '[Q…]')}.`
           : "Older result shortened to save space; call the tool again if you need it.";
       changed = true;
     }

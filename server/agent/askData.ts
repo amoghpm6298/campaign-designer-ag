@@ -9,6 +9,7 @@
 // the campaign. Exact checks (e.g. who qualifies for an offer) stay in code.
 import { callClaude, extractJson } from '../anthropic';
 import { countCustomers, runWarehouseQuery, warehouseSchema } from '../warehouse';
+import { nextQid } from './citations';
 import { signalsFor } from '../signals';
 import { bucketContext } from '../../src/designer/v2/contextView';
 import { addContext, log } from './state';
@@ -151,7 +152,8 @@ export async function runAskData(input: Record<string, unknown>, state: AgentSta
     return { state, ok: false, summary: 'Analysis failed', forModel: `The data analysis failed: ${(e as Error).message}. Try again once, or ask a simpler question.` };
   }
   const ok = a.queries.filter((q) => !q.error);
-  const topic = `ask: ${question.replace(/\s+/g, ' ').slice(0, 60)}`;
+  const qid = nextQid(state.context);
+  const topic = `ask: ${qid} ${question.replace(/\s+/g, ' ').slice(0, 60)}`;
   // Filed in the notebook as research, with every query (re-runnable), so the reasoning is visible.
   const entries: Record<string, unknown>[] = [
     {
@@ -159,7 +161,7 @@ export async function runAskData(input: Record<string, unknown>, state: AgentSta
       topic,
       text: a.answer,
       source: 'data',
-      data: { question, queries: a.queries.map((q) => ({ purpose: q.purpose, sql: q.sql, columns: q.columns, rows: q.rows?.slice(0, 10), error: q.error })) },
+      data: { qid, question, queries: a.queries.map((q) => ({ purpose: q.purpose, sql: q.sql, columns: q.columns, rows: q.rows, error: q.error })) },
     },
   ];
   let sized: { bucket: string; customers?: number; error?: string } | undefined;
@@ -186,7 +188,8 @@ export async function runAskData(input: Record<string, unknown>, state: AgentSta
       answer: a.answer,
       workbook: workbookFor(a.queries),
       ...(sized ? { sized } : {}),
-      filedAs: `research note "${topic}" in the notebook`,
+      filedAs: qid,
+      cite: `[${qid}]`,
     }),
   };
 }

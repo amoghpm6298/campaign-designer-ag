@@ -63,13 +63,14 @@ describe('ask_data', () => {
     const out = await runAskData({ question: 'How many customers are there?' }, initialState(), env('yesbank'), s.call);
     expect(out.ok).toBe(true);
     const note = out.state.context.entries.find((e) => e.kind === 'research')!;
-    expect(note.topic).toMatch(/^ask: How many customers/);
+    expect(note.topic).toMatch(/^ask: Q1 How many customers/);
     expect((note.data as { queries: { sql: string }[] }).queries[0].sql).toMatch(/COUNT/);
     // The main agent gets the answer AND the workbook: each query's purpose, SQL and the rows it returned.
     const reply = JSON.parse(out.forModel);
     expect(reply.answer).toBe('There are 50,000 customers.');
     expect(reply.workbook).toEqual([{ purpose: 'Count', sql: 'SELECT COUNT(*) AS n FROM customers', columns: ['n'], rows: [{ n: 50000 }] }]);
-    expect(reply.filedAs).toContain(note.topic);
+    expect(reply.filedAs).toBe('Q1');
+    expect(reply.cite).toBe('[Q1]');
     const fetched = runToolCall('get_context', { kind: 'research', topic: note.topic }, out.state, env('yesbank'));
     expect(fetched.forModel).toMatch(/SELECT COUNT\(\*\) AS n FROM customers/);
     expect(fetched.forModel).toMatch(/"n":50000/);

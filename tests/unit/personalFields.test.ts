@@ -74,6 +74,6 @@ describe('engine and prompt', () => {
   });
   it('the prompt teaches personal words, and wording-only differences use them instead of splits', () => {
     expect(systemPrompt(true, true)).toMatch(/PERSONAL WORDS/);
-    expect(systemPrompt(true, true)).toMatch(/keep one message, with personal words/);
+    expect(systemPrompt(true, true)).toMatch(/Wording only \(e\.g\. naming their category\) is never a split: use personal words/);
   });
 });

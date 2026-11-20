@@ -116,6 +116,19 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   (`server/warehouseWorker.mjs`) with a hard limit (`WAREHOUSE_QUERY_TIMEOUT_MS`,
   default 30 s); on timeout the worker is abandoned and the agent gets a plain
   "narrow it" error.
+- **Inline sources, checked by code** (2026-11-20, `agent/citations.ts`,
+  `src/designer/v2/Citations.tsx`). Every query is filed with a short id (Q1,
+  Q2…, never reused). Everything the agent writes cites figures at the end of
+  the sentence: [Q7] a query, [M] the manager (brief, messages, answers), [O]
+  the offer menu. Code checks every cited number against that source (rounding,
+  %, Indian formatting, k/L/crore and simple derivations allowed): a marker to
+  nothing or a number not in its source is an error (sent back up to twice, then
+  said plainly); a data number with no marker is a warning (logged as
+  `citation_check`). Campaign facts (rules, budget, sizes, cost figures, offer
+  terms, small counts) are never flagged. On screen each marker is a chip with a
+  popover of the rows; texts get a "Sources" footer built from the markers.
+  Claims in words (no number) can't be checked by code: that is for the
+  whole-campaign review.
 
 ## Signals and incentives (menus by name)
 
@@ -156,13 +169,11 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   (`server/agent/routeChecks.ts`): hidden minimum route size per bank
   (`minRouteSize`, default max(1,000, 5%)), at most 2 deep, 4 routes, an
   everyone-else route.
-- **Split ideas and helpers** (`server/agent/splitHelper.ts`): the agent may
-  leave `splitIdea {hypothesis, by}` on a step. After it builds, one helper per
-  idea (max 4 per turn, in parallel) tests it on the data and either splits
-  that step and what follows it into a signal switch (written directly, only
-  that tail) or records why not. Then an AUTOMATIC message sends the main
-  agent back for a closing pass (review, budget, strategy, brief). A manager's
-  "split this by…" goes to the main agent, which does it itself.
+- **Splits are the main agent's alone** (2026-11-20; the split helpers were
+  removed). When it suspects a group needs different treatment, it tests that
+  with its own cited queries and splits only if the data backs it (edit_journey
+  replace_from, one signal switch); otherwise it says in the bucket's "so we"
+  what it tested. Old campaigns may still show split ideas from the helper era.
 - **Personal words (dynamic messages):** copy may carry `{{signal_key | "fallback"}}`
   (signals usable in copy, never restricted ones). The engine fills each
   customer's value, formatted by code (`src/designer/v2/personalFields.ts`), or

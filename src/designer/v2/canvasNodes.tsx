@@ -6,6 +6,7 @@ import { createContext, useContext, useState } from 'react';
 import { Handle, NodeToolbar, Position } from '@xyflow/react';
 import { ChevronDown, ChevronRight, Pencil, Play, Sparkles } from 'lucide-react';
 import type { CostReportView, FieldSampleView, Offer, SizingRun } from './api';
+import { withCites } from './Citations';
 import { atSentenceStart, capitaliseAt, fillFields, parseFields } from './personalFields';
 import { SpendSummary } from './CostPanel';
 import { withOfferLine } from './smsText';
@@ -226,11 +227,11 @@ export function RationaleBody({ st }: { st: CStep }) {
         <>
           <div className="cv-why-row">
             <span>Testing</span>
-            <p>{st.hypothesis?.trim() || <i>Not stated yet</i>}</p>
+            <p>{st.hypothesis?.trim() ? withCites(st.hypothesis, 'hy') : <i>Not stated yet</i>}</p>
           </div>
           <div className="cv-why-row">
             <span>Winner judged by</span>
-            <p>{st.successMetric?.trim() || <i>Not stated yet</i>}</p>
+            <p>{st.successMetric?.trim() ? withCites(st.successMetric, 'sm') : <i>Not stated yet</i>}</p>
           </div>
           {!!st.arms?.length && (
             <div className="cv-why-row">
@@ -240,12 +241,12 @@ export function RationaleBody({ st }: { st: CStep }) {
           )}
         </>
       )}
-      {why && <p className="cv-why-text">{why}</p>}
+      {why && <p className="cv-why-text">{withCites(why, 'wy')}</p>}
       {st.splitIdea?.hypothesis && (
         <div className="cv-why-row">
           <span>Split idea</span>
           <p>
-            {st.splitIdea.hypothesis}
+            {withCites(st.splitIdea.hypothesis, 'si')}
             {st.splitIdea.result ? <><br /><b>{st.splitIdea.status === 'split' ? 'Split: ' : st.splitIdea.status === 'not split' ? 'Not split: ' : ''}</b>{st.splitIdea.result}</> : <><br /><i>Being tested…</i></>}
           </p>
         </div>
@@ -387,12 +388,12 @@ function BucketCard({ data }: { data: CdNodeData }) {
         <div className="cv-insight">
           {info.whyStuck && (
             <p className="cv-insight-line" title={info.whyStuck}>
-              <b>Why stuck</b> {info.whyStuck}
+              <b>Why stuck</b> {withCites(info.whyStuck, 'ws')}
             </p>
           )}
           {info.soWe && (
             <p className="cv-insight-line" title={info.soWe}>
-              <b>So we</b> {info.soWe}
+              <b>So we</b> {withCites(info.soWe, 'sw')}
             </p>
           )}
           {info.insightCheck && !info.insightCheck.pass && (
@@ -420,7 +421,7 @@ function BucketCard({ data }: { data: CdNodeData }) {
           >
             {why ? <ChevronDown size={13} /> : <ChevronRight size={13} />} AI rationale
           </button>
-          {why && <p className="cv-bucket-p">{info.rationale}</p>}
+          {why && <p className="cv-bucket-p">{withCites(info.rationale, 'br')}</p>}
         </>
       )}
       {info.sql && <BucketSql bucketId={b.id} sql={info.sql} />}

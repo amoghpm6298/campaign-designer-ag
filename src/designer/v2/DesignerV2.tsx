@@ -22,6 +22,7 @@ import { CampaignCanvas } from './CampaignCanvas';
 import { buildCanvasModel, classifyChanges, diffChangedSteps, type CStep } from './canvasModel';
 import { ChatPanel, type Cue } from './ChatPanel';
 import { mergeEvent, plainText } from './logic';
+import { SourcesContext, sourcesFromEntries } from './Citations';
 import { STAGE_LABEL, submittedStage } from './lifecycle';
 import { NodeDrawer } from './NodeDrawer';
 import { QuestionOverlay } from './QuestionOverlay';
@@ -201,6 +202,9 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   }, [sessionId, tenant.tenantId, turns, state, changed, changeFocus, lastBuilt, repairKey]);
 
   const shown = viewing ? { campaign: viewing.campaign, context: stores.context } : (liveStores ?? stores);
+  // What the designer's [Q7] / [M] / [O] markers point at: the queries filed in the notebook, the answers.
+  const managerSaid = useMemo(() => turns.filter((t) => t.role === 'user' && !t.answerSet).map((t) => t.content), [turns]);
+  const sources = useMemo(() => sourcesFromEntries((shown.context?.entries ?? []) as never, managerSaid), [shown.context, managerSaid]);
   const plan = shown.campaign;
   const changedSet = useMemo(() => (viewing ? classifyChanges(viewing.changed, null) : classifyChanges(changed, changeFocus)), [viewing, changed, changeFocus]);
   const model = useMemo(() => buildCanvasModel(plan, shown.context, changedSet), [plan, shown.context, changedSet]);
@@ -604,6 +608,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         )}
       </header>
 
+      <SourcesContext.Provider value={sources}>
       <div className="cv-main">
         <section className="cv-stage">
           {strategy && (
@@ -689,6 +694,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           onShowFocus={showFocus}
         />
       </div>
+      </SourcesContext.Provider>
     </div>
   );
 }
