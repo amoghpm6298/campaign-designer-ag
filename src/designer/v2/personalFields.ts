@@ -65,12 +65,22 @@ export function formatValue(key: string, type: FieldType, value: unknown): strin
   return String(value).replace(/_/g, ' ').trim();
 }
 
+/** Whether a field at this position starts a sentence (the start of the text, or after . ! ?). */
+export function atSentenceStart(text: string, index: number): boolean {
+  const before = (text ?? '').slice(0, index).trimEnd();
+  return !before || /[.!?]$/.test(before);
+}
+
+/** A value that starts a sentence gets a capital letter ("groceries are…" → "Groceries are…"). */
+export const capitaliseAt = (value: string, start: boolean) => (start && value ? value[0].toUpperCase() + value.slice(1) : value);
+
 /** The text as one customer would read it, given a value per field (fallbacks otherwise). */
 export function fillFields(text: string, valueOf: (ref: FieldRef) => string | null | undefined): string {
   return (text ?? '').replace(FIELD, (...args) => {
     const raw = args[0] as string;
+    const offset = args[args.length - 2] as number;
     const ref = parseFields(raw)[0];
-    const v = ref ? valueOf(ref) : null;
-    return v || ref?.fallback || '';
+    const v = (ref ? valueOf(ref) : null) || ref?.fallback || '';
+    return capitaliseAt(v, atSentenceStart(text, offset));
   });
 }

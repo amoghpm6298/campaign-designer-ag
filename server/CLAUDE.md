@@ -63,6 +63,17 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   highlights exactly the changed steps.
 - **Warehouse** is per tenant (`server/tenants.ts`). ON: buckets are explored and
   sized from data. OFF: hypotheses from the answers and the agent's knowledge.
+- **The main agent never writes SQL** (decided 2026-11-20). With data, its only
+  way in is `ask_data`: a data analyst (`agent/askData.ts`) that has the schema,
+  writes and runs the queries, and returns its ANSWER plus its WORKBOOK (each
+  query's purpose, SQL and rows, capped at 20 rows per query / 16k characters),
+  like an analyst handing the boss the insight and the workings. The agent is
+  told to check the answer against the rows. Everything is filed as research.
+  The agent sees only a plain-words overview of the data (`dataOverview`, no
+  columns). Buckets with SIGNAL rules are sized by code at every build
+  (`agent/autoSize.ts`: each signal's SQL, first match wins); any other rule is
+  sized by the analyst (`ask_data` with `sizeBucket`). Split helpers still
+  query directly: they are analysts, scoped to one step.
 
 ## Signals and incentives (menus by name)
 
@@ -89,7 +100,8 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
 - **Cost** (`server/costModel.ts`): code works out per step / bucket / campaign
   in three scenarios (underperforms / as expected / outperforms = max), with
   the equation and the source of each input. Never stored. Data OFF → per
-  1,000. The max counts an offer once per bucket.
+  1,000. The max counts an offer once per bucket. The same offer sent again
+  later on one path only counts the customers who haven't taken it up yet.
 - **Checks** (`server/agent/offerChecks.ts`): offer on the menu, valid, fits the
   goal, no amounts in copy, estimates present, enough of the bucket qualifies,
   incentive strategy note + Spend brief, and the BUDGET PASS (as expected over

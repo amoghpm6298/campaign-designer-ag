@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { investigate, runAskData } from '../../server/agent/askData';
+import { investigate, runAskData, workbookFor } from '../../server/agent/askData';
 import { initialState } from '../../server/agent/state';
 import { resolveTenant } from '../../server/tenants';
 import { warehousePath } from '../../server/warehouse';
@@ -65,10 +65,11 @@ describe('ask_data', () => {
     const note = out.state.context.entries.find((e) => e.kind === 'research')!;
     expect(note.topic).toMatch(/^ask: How many customers/);
     expect((note.data as { queries: { sql: string }[] }).queries[0].sql).toMatch(/COUNT/);
-    // The main agent is told what was checked, and where the SQL and rows are.
+    // The main agent gets the answer AND the workbook: each query's purpose, SQL and the rows it returned.
     const reply = JSON.parse(out.forModel);
-    expect(reply.checked).toEqual(['Count']);
-    expect(reply.queries).toContain(`topic "${note.topic}"`);
+    expect(reply.answer).toBe('There are 50,000 customers.');
+    expect(reply.workbook).toEqual([{ purpose: 'Count', sql: 'SELECT COUNT(*) AS n FROM customers', columns: ['n'], rows: [{ n: 50000 }] }]);
+    expect(reply.filedAs).toContain(note.topic);
     const fetched = runToolCall('get_context', { kind: 'research', topic: note.topic }, out.state, env('yesbank'));
     expect(fetched.forModel).toMatch(/SELECT COUNT\(\*\) AS n FROM customers/);
     expect(fetched.forModel).toMatch(/"n":50000/);
@@ -80,5 +81,27 @@ describe('ask_data', () => {
     const a = await investigate('loop', initialState(), env('yesbank'), s.call);
     expect(a.queries).toHaveLength(8);
     expect(s.seen.some((m) => /Limit reached/.test(m))).toBe(true);
+  });
+
+  it('the workbook caps rows per query, and halves them until it fits', () => {
+    const rows = Array.from({ length: 60 }, (_, i) => ({ k: `row ${i}`, pad: 'x'.repeat(200) }));
+    const wb = workbookFor([{ purpose: 'big', sql: 'SELECT …', columns: ['k', 'pad'], rows }]);
+    expect(wb[0].rows!.length).toBeLessThanOrEqual(20);
+    expect(wb[0].moreRows).toBe(true);
+    expect(JSON.stringify(wb).length).toBeLessThanOrEqual(16_000);
+    expect(workbookFor([{ purpose: 'oops', sql: 'SELECT x', error: 'no such column' }])[0]).toEqual({ purpose: 'oops', sql: 'SELECT x', error: 'no such column' });
+  });
+
+  it.runIf(hasYes)('sizes a bucket when asked: counted by code, filed as its sizing', async () => {
+    const st = initialState();
+    st.campaign.buckets = [{ id: 'old', name: 'Old cards', priority: 1, rule: [], journey: [] }] as never;
+    const sql = "SELECT customer_id FROM customers WHERE is_active = 1 AND account_open_date < '2020-01-01'";
+    const s = scripted([JSON.stringify({ action: 'query', purpose: 'Try it', sql: `SELECT COUNT(*) AS n FROM (${sql})` }), JSON.stringify({ action: 'answer', answer: 'Sized.', sizingSql: sql })]);
+    const out = await runAskData({ question: 'How many have had the card since before 2020?', sizeBucket: 'old' }, st, env('yesbank'), s.call);
+    const reply = JSON.parse(out.forModel);
+    expect(reply.sized.customers).toBeGreaterThan(0);
+    const sizing = out.state.context.entries.find((e) => e.kind === 'sizing' && e.bucketId === 'old')!;
+    expect(sizing.data).toMatchObject({ sql, size: reply.sized.customers });
+    expect((await runAskData({ question: 'x', sizeBucket: 'nope' }, st, env('yesbank'), s.call)).forModel).toMatch(/no bucket "nope"/);
   });
 });

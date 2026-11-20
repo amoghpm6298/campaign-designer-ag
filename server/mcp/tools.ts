@@ -227,7 +227,10 @@ export function campaignStatus(caller: Caller, id: string): Result {
   }
   const ws = loadWithdrawals(id);
   if (ws.length) Object.assign(base, { lastStopped: { at: ws[ws.length - 1].at, by: ws[ws.length - 1].by } });
-  const wasBuilt = !!(chat.lastBuilt || (chat.state as AgentState | null)?.flags?.campaignBuilt);
+  const flags = (chat.state as AgentState | null)?.flags;
+  // Ready means built AND up to date: a turn that stopped with unbuilt changes is not ready to submit.
+  const wasBuilt = flags ? !!flags.campaignBuilt : !!chat.lastBuilt;
+  const unfinished = !!flags && !flags.campaignBuilt && !!chat.lastBuilt;
   if (isRunning(id)) return { ...base, state: 'draft', allowedActions: ACTIONS.working, doing: runningStep(id), next: 'The designer is working. Call get_campaign with waitSeconds: 50.' };
   const last = [...chat.turns].reverse().find((t) => t.role === 'assistant');
   if (!last) return { ...base, state: 'draft', allowedActions: ACTIONS.working, doing: 'Starting', next: 'Call get_campaign with waitSeconds: 50.' };
@@ -250,6 +253,14 @@ export function campaignStatus(caller: Caller, id: string): Result {
         otherAllowed: true,
       })),
       next: 'Relay these questions to your human and send the answers with answer_questions (skip what they do not know).',
+    };
+  if (unfinished)
+    return {
+      ...base,
+      state: 'draft',
+      allowedActions: ACTIONS.draft,
+      message,
+      next: 'The designer stopped before finishing: its latest changes are not built yet. Send request_changes with "continue" to let it finish, then get_campaign.',
     };
   if (wasBuilt) {
     const stores = loadStores(id);

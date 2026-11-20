@@ -213,8 +213,10 @@ describe('plan → one campaign', () => {
 
 describe('the toolkit', () => {
   it('offers the warehouse tools only to a tenant with a warehouse', () => {
-    expect(toolsFor(false).map((t) => t.name)).not.toContain('run_sql_query');
-    expect(toolsFor(true).map((t) => t.name)).toContain('run_sql_query');
+    // With data, the agent's only way in is the analyst: no schema, no raw SQL.
+    expect(toolsFor(false).map((t) => t.name)).not.toContain('ask_data');
+    expect(toolsFor(true).map((t) => t.name)).toContain('ask_data');
+    for (const w of [true, false]) for (const n of ['run_sql_query', 'get_table_schema']) expect(toolsFor(w).map((t) => t.name)).not.toContain(n);
     for (const n of ['ask_questions', 'get_campaign', 'edit_campaign', 'edit_bucket', 'edit_journey', 'build_campaign']) {
       expect(toolsFor(false).map((t) => t.name)).toContain(n);
     }
@@ -246,8 +248,6 @@ describe('the warehouse', () => {
   });
 
   it.runIf(existsSync(warehousePath('indusind')))('queries and sizes buckets against the IndusInd mock data', () => {
-    const q = runToolCall('run_sql_query', { sql: 'SELECT category, COUNT(*) AS n FROM transactions GROUP BY category ORDER BY n DESC', purpose: 'categories' }, initialState(), env(true));
-    expect(q.ok).toBe(true);
     const sized = runToolCall(
       'add_context',
       { entries: [{ kind: 'sizing', bucketId: 'elec', topic: 'size', text: '', data: { sql: "SELECT DISTINCT customer_id FROM transactions WHERE category = 'electronics'" } }] },

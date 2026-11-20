@@ -49,7 +49,8 @@ export function warehouseSchema(bank: string): { tables: TableInfo[]; dataAsOf: 
   const hit = schemaCache.get(bank);
   if (hit) return hit;
   const db = open(bank);
-  const names = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
+  // SQLite's own bookkeeping tables (sqlite_stat1, …) mean nothing to anyone: left out.
+  const names = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
   const tables: TableInfo[] = names.map((t) => {
     const cols = db.prepare(`PRAGMA table_info("${t}")`).all() as { name: string; type: string }[];
     const rows = Number((db.prepare(`SELECT COUNT(*) AS n FROM "${t}"`).get() as { n: number }).n);
@@ -123,4 +124,23 @@ export function customerIds(bank: string, sql: string): Set<string> {
   if (idCache.size > 300) idCache.delete(idCache.keys().next().value!);
   idCache.set(key, set);
   return set;
+}
+
+/** What each table holds, in plain words, for the main agent (which never sees columns or SQL). */
+const TABLE_WORDS: Record<string, string> = {
+  customers: 'customer profiles: age, city, card variant, credit limit and balance, account opening date, last app login, preferred language, whether active',
+  transactions: 'every card transaction: date, amount, merchant, spend category, and whether it was converted to EMI',
+  emi_eligibility: "EMI eligibility per customer (the bank's credit policy): eligible or not, the largest EMI amount, preferred tenure, existing EMIs",
+  npa_list: 'customers in NPA / overdue (never messaged)',
+  dnc_list: 'customers on a do-not-contact list (never messaged)',
+  fraud_list: 'customers flagged for fraud cases',
+  complaint_list: 'customer complaints and their status',
+  cooling_off_list: 'customers in a cooling-off period (closure or downgrade requests)',
+};
+
+/** The bank's data in plain words: what exists, how much, and the date it runs to. No columns, no SQL. */
+export function dataOverview(bank: string): string {
+  const { tables, dataAsOf } = warehouseSchema(bank);
+  const lines = tables.map((t) => `- ${TABLE_WORDS[t.table] ?? t.table.replace(/_/g, ' ')} (${t.rows.toLocaleString('en-IN')} rows)`);
+  return `The bank's data runs to ${dataAsOf ?? 'an unknown date'} (treat that as "today" for recency). It holds:\n${lines.join('\n')}\nAsk about any of it with ask_data.`;
 }

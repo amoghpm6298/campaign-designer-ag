@@ -162,7 +162,13 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
     }
   };
   const inter = (a: Set<string>, b: Set<string>) => new Set([...a].filter((x) => b.has(x)));
-  type Scope = { set: Set<string> | null; key: string; label: string };
+  /**
+   * taken: per offer, the share of this path's customers expected to have taken it up already
+   * (an offer is once per customer, so a later send of the same offer only counts the rest).
+   */
+  type Taken = Record<string, { few: number; expected: number }>;
+  /** unsplit: inside a route nobody can count in advance (a journey signal such as "read the last message"): costed on the whole group above it. */
+  type Scope = { set: Set<string> | null; key: string; label: string; taken: Taken; unsplit?: boolean };
   for (const lane of lanes) {
     const laneSql = views[lane.id]?.sql;
     /**
@@ -170,7 +176,9 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
      * every signal route above it. Sends inside a route are costed on the route's size. Routes are set
      * arithmetic on each signal's customers, loaded once.
      */
-    const walk = (list: BpStep[] | null | undefined, scope: Scope) => {
+    const walk = (list: BpStep[] | null | undefined, outer: Scope) => {
+      // Each path gets its own copy: what was taken up on one branch says nothing about another.
+      const scope: Scope = { ...outer, taken: { ...outer.taken } };
       for (const st of (list ?? []) as unknown as Record<string, unknown>[]) {
         if (st.kind === 'send') costSend(st, scope);
         if (st.kind === 'branch' && typeof st.signal === 'string' && st.signal) {
@@ -180,14 +188,18 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
           const held = (n: number | null) => (n == null ? null : Math.round(n * (1 - lane.holdoutPct / 100)));
           paths.forEach((p, i) => {
             const label = p.label ?? `route ${i + 1}`;
-            const set = scope.set && condSets[i] ? inter(scope.set, condSets[i]!) : null;
-            routes.push({ bucketId: lane.id, stepId: sid, label, size: held(set ? set.size : null) });
-            walk(p.steps, { set, key: `${scope.key}/${sid}:${i}`, label: `${scope.label} › ${label}` });
+            // A route that can't be counted in advance (journey signal) is costed on the whole group above it;
+            // its reach estimate then carries the share that ends up on this route.
+            const countable = !!condSets[i];
+            const set = scope.set ? (countable ? inter(scope.set, condSets[i]!) : scope.set) : null;
+            routes.push({ bucketId: lane.id, stepId: sid, label, size: held(countable && set ? set.size : null) });
+            walk(p.steps, { set, key: `${scope.key}/${sid}:${i}`, label: `${scope.label} › ${label}`, taken: scope.taken, unsplit: scope.unsplit || !countable });
           });
           // Everyone else: the scope minus every route (when all routes can be counted).
-          const elseSet = scope.set && condSets.every(Boolean) ? new Set([...scope.set].filter((x) => !condSets.some((c) => c!.has(x)))) : null;
-          routes.push({ bucketId: lane.id, stepId: sid, label: 'Everyone else', size: held(elseSet ? elseSet.size : null), otherwise: true });
-          walk(st.otherwise as BpStep[] | undefined, { set: elseSet, key: `${scope.key}/${sid}:else`, label: `${scope.label} › Everyone else` });
+          const allCountable = condSets.every(Boolean);
+          const elseSet = scope.set ? (allCountable ? new Set([...scope.set].filter((x) => !condSets.some((c) => c!.has(x)))) : scope.set) : null;
+          routes.push({ bucketId: lane.id, stepId: sid, label: 'Everyone else', size: held(allCountable && elseSet ? elseSet.size : null), otherwise: true });
+          walk(st.otherwise as BpStep[] | undefined, { set: elseSet, key: `${scope.key}/${sid}:else`, label: `${scope.label} › Everyone else`, taken: scope.taken, unsplit: scope.unsplit || !allCountable });
           continue;
         }
         for (const k of ['yes', 'no', 'otherwise']) if (Array.isArray(st[k])) walk(st[k] as BpStep[], scope);
@@ -226,10 +238,23 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
       const reach = isEstimate(ca.reach) ? (ca.reach as Estimate) : null;
       const redeem = isEstimate(ca.redeem) ? (ca.redeem as Estimate) : null;
       const base = qualified ?? customers;
-      const cost = (r: number | undefined, d: number | undefined) => (base == null || r == null || d == null ? null : Math.round(base * r * d * reward.avg));
-      const who = qualified != null && !perThousand ? `${qualified.toLocaleString('en-IN')} who qualify` : perThousand ? '1,000 customers' : `${(customers ?? 0).toLocaleString('en-IN')} customers`;
-      const eq = (label: string, r?: number, d?: number) =>
-        base == null ? 'not sized' : r == null || d == null ? 'no estimate yet' : `${who} × ${pct(r)} reach × ${pct(d)} take it up × ${inr(reward.avg)} = ${inr(base * r * d * reward.avg)}${label}`;
+      const prior = scope.taken[inc.id] ?? { few: 0, expected: 0 };
+      const left = (k: 'few' | 'expected') => 1 - prior[k];
+      const cost = (r: number | undefined, d: number | undefined, k: 'few' | 'expected') => (base == null || r == null || d == null ? null : Math.round(base * left(k) * r * d * reward.avg));
+      // Record what this send is expected to use up, for any later send of the same offer on this path.
+      if (reach && redeem)
+        scope.taken[inc.id] = {
+          few: prior.few + left('few') * reach.few * redeem.few,
+          expected: prior.expected + left('expected') * reach.expected * redeem.expected,
+        };
+      const whoBase = qualified != null && !perThousand ? `${qualified.toLocaleString('en-IN')} who qualify` : perThousand ? '1,000 customers' : `${(customers ?? 0).toLocaleString('en-IN')} customers`;
+      const who = scope.unsplit ? `${whoBase} (the whole group: who takes this route isn't known in advance, so reach covers it)` : whoBase;
+      const eq = (k: 'few' | 'expected', r?: number, d?: number) =>
+        base == null
+          ? 'not sized'
+          : r == null || d == null
+            ? 'no estimate yet'
+            : `${who}${prior[k] > 0 ? ` × ${pct(left(k))} who haven't already taken this offer` : ''} × ${pct(r)} reach × ${pct(d)} take it up × ${inr(reward.avg)} = ${inr(base * left(k) * r * d * reward.avg)}`;
       const maxBase = qualified ?? customers;
       const why = `${redeem?.why ?? ''} ${reach?.why ?? ''}`;
       // High only when the take-up comes from real past results; judgement (or "no history") is medium at best.
@@ -251,12 +276,12 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
         avgReward: Math.round(reward.avg),
         avgRewardSource: reward.source,
         maxPerCustomer: Math.round(reward.max),
-        under: cost(reach?.few, redeem?.few),
-        expected: cost(reach?.expected, redeem?.expected),
+        under: cost(reach?.few, redeem?.few, 'few'),
+        expected: cost(reach?.expected, redeem?.expected, 'expected'),
         max: maxBase == null ? null : Math.round(maxBase * reward.max),
         equations: {
-          under: eq('', reach?.few, redeem?.few),
-          expected: eq('', reach?.expected, redeem?.expected),
+          under: eq('few', reach?.few, redeem?.few),
+          expected: eq('expected', reach?.expected, redeem?.expected),
           max: maxBase == null ? 'not sized' : `${who} × 100% × 100% × ${inr(reward.max)} (the most one customer can cost) = ${inr(maxBase * reward.max)}`,
         },
         confidence,
@@ -268,7 +293,7 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
     };
     const laneSet = ids(laneSql);
     if (laneSet) bucketSets.set(lane.id, laneSet);
-    walk(lane.journey as BpStep[] | null | undefined, { set: laneSet, key: lane.id, label: lane.name });
+    walk(lane.journey as BpStep[] | null | undefined, { set: laneSet, key: lane.id, label: lane.name, taken: {} });
   }
   const sum = (k: 'under' | 'expected' | 'max', list: CostLine[]) => list.reduce((n, l) => n + (l[k] ?? 0), 0);
   // The max counts each offer once per bucket: an offer is once per customer, and the same offer on two

@@ -6,7 +6,7 @@ import { createContext, useContext, useState } from 'react';
 import { Handle, NodeToolbar, Position } from '@xyflow/react';
 import { ChevronDown, ChevronRight, Pencil, Play, Sparkles } from 'lucide-react';
 import type { CostReportView, FieldSampleView, Offer, SizingRun } from './api';
-import { fillFields, parseFields } from './personalFields';
+import { atSentenceStart, capitaliseAt, fillFields, parseFields } from './personalFields';
 import { SpendSummary } from './CostPanel';
 import { withOfferLine } from './smsText';
 import type { BankLink } from '../LinksSection';
@@ -85,7 +85,7 @@ function WithFields({ text, fields }: { text: string; fields?: FieldSampleView[]
   refs.forEach((r, i) => {
     if (r.index > last) out.push(text.slice(last, r.index));
     const f = fields?.find((x) => x.key === r.key);
-    const shown = f?.sample || r.fallback || r.key;
+    const shown = capitaliseAt(f?.sample || r.fallback || r.key, atSentenceStart(text, r.index));
     out.push(
       <span key={i} className="cv-pv-field" title={`${f?.label ?? r.key}: filled in per customer${r.fallback ? ` · if unknown: "${r.fallback}"` : ''}${f?.sample ? ` · example: ${f.sample}` : ''}`}>
         {shown}

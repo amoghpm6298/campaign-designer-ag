@@ -535,6 +535,8 @@ function idsOutside(c: CampaignObject, lane: string): Set<string> {
 export function normaliseSteps(steps: BpStep[] | null | undefined): BpStep[] {
   return (steps ?? []).map((st) => {
     const s = { ...(st as unknown as Record<string, unknown>) };
+    // A message's name belongs in `name` (some drafts put it in `label`).
+    if (s.kind === 'send' && !s.name && typeof s.label === 'string' && s.label.trim()) s.name = s.label.trim();
     if (s.kind === 'wait' && !Number.isFinite(Number(s.durationHours))) {
       const days = Number(s.durationDays ?? s.delayDays ?? s.days);
       const hours = Number(s.hours);
@@ -587,9 +589,19 @@ export function upsertBucket(state: AgentState, input: BucketInput): { state: Ag
   if (ruleTargetsOptedOut(rule)) return { state, said: '', error: OPTED_OUT_ERROR, definitionChanged: false };
   const loop = returningRuleError(rule);
   if (loop) return { state, said: '', error: loop, definitionChanged: false };
-  const journey = Array.isArray(input.journey)
-    ? carryIds(prev?.journey, normaliseSteps(input.journey as BpStep[]), idsOutside(state.campaign, id))
-    : input.journey === null
+  // A journey sometimes arrives as JSON text instead of a list. Read it; never silently treat it as "no journey".
+  let rawJourney = input.journey;
+  if (typeof rawJourney === 'string' && rawJourney.trim()) {
+    try {
+      rawJourney = JSON.parse(rawJourney);
+    } catch {
+      return { state, said: '', error: 'Not saved: journey must be a list of steps (a JSON array), not text.', definitionChanged: false };
+    }
+    if (!Array.isArray(rawJourney)) return { state, said: '', error: 'Not saved: journey must be a list of steps (a JSON array).', definitionChanged: false };
+  }
+  const journey = Array.isArray(rawJourney)
+    ? carryIds(prev?.journey, normaliseSteps(rawJourney as BpStep[]), idsOutside(state.campaign, id))
+    : rawJourney === null
       ? null
       : undefined;
   const holdout = typeof input.holdoutPct === 'number' && input.holdoutPct >= 0 && input.holdoutPct < 50 ? Math.round(input.holdoutPct) : undefined;

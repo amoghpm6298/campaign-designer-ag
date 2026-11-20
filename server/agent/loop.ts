@@ -21,7 +21,7 @@ import { getBankSettings } from '../bankSettings';
 import { checkJourneys } from './compile';
 import { currentEntries } from '../../src/designer/v2/contextView';
 import { ensureBaseline, recordVersion, setSummary, summariseVersion, type VersionEntry } from '../campaignVersions';
-import { warehouseAvailable } from '../warehouse';
+import { dataOverview, warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
 
 const MAX_ROUNDS = 24;
@@ -172,6 +172,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   const system = [
     systemPrompt(!!warehouseBank, !!tenant.incentives),
     `# Context\nIssuer: ${tenant.issuer} (synthetic tenant).\n${issuerContext(availableChannels, tenant.templateLibraryAccess === 'synthetic-demo' ? 'synthetic-demo' : 'unavailable')}`,
+    ...(warehouseBank ? [`# Data\n${dataOverview(warehouseBank)}`] : []),
     `# Knowledge base\n${knowledgeForPrompt(knowledge, tenant.tenantId)}`,
   ].join('\n\n');
   void bankContext;
@@ -355,6 +356,14 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   // Anything still broken after the repair rounds is said plainly, never hidden.
   const remaining = state.campaign !== startCampaign ? checkJourneys(state.campaign, bankLinks, delivery.smsFallback, false, startCampaign) : [];
   if (remaining.length) textSegments.push(`Still to fix (I could not resolve ${remaining.length === 1 ? 'this' : 'these'} on my own):\n${remaining.map((p) => `- ${p}`).join('\n')}`);
+  // A turn that stops (e.g. at its step limit) with changes not yet built says so plainly: the canvas and
+  // anything that reads the build would otherwise show an older or half-finished campaign as if it were done.
+  if (state.campaign.buckets.length && !state.flags.campaignBuilt && !asked.length) {
+    const empty = state.campaign.buckets.filter((b) => !b.journey?.length).map((b) => `"${b.name}"`);
+    textSegments.push(
+      `I stopped before finishing: my latest changes are not built yet${empty.length ? `, and ${empty.join(', ')} ${empty.length === 1 ? 'has' : 'have'} no journey yet` : ''}. Say "continue" and I'll finish and build.`,
+    );
+  }
   yield* drain();
   const version = await versionThisTurn(req.sessionId, startCampaign, state.campaign, latestUser, req.repair ? 'repair' : 'chat', costSnapshot(state.campaign, state.context, tenant), (c) => costSnapshot(c, state.context, tenant));
   return base({

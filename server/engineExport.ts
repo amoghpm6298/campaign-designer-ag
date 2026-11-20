@@ -106,7 +106,8 @@ export function toEngineCampaign(c: CampaignObject, tenant: Pick<TenantConfig, '
       buckets,
       everyoneElse: ee ? { approach: ee.approach, ...(ee.approach === 'journey' ? { journey: eeJourney } : {}) } : null,
       offers,
-      // Personal words in copy: the engine fills each {{key | "fallback"}} per customer, formatted.
+      // Personal words in copy: the engine fills each {{key | "fallback"}} per customer, formatted (formatValue
+      // in src/designer/v2/personalFields.ts), with a capital letter when the value starts a sentence.
       personalFields: [...fieldKeys].map((k) => {
         const sig = signalsFor(tenant).find((x) => x.key === k);
         if (!sig) problems.push(`Personal field {{${k}}} is not a signal for this bank.`);

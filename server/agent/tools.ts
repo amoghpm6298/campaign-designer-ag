@@ -12,13 +12,14 @@ import { validateCampaignGraph } from '../../agent-proto/validate';
 import { bankContext } from '../knowledge';
 import type { TenantConfig } from '../tenants';
 import type { Channel } from '../../src/data/sharedConstants';
-import { countCustomers, runWarehouseQuery, warehouseSchema } from '../warehouse';
+import { countCustomers } from '../warehouse';
 import { checkJourneys, endingGaps, linkProblemsIn, planToBlueprint } from './compile';
 import { forAgent, type BankLink } from '../links';
 import { signalsFor, signalsForAgent } from '../signals';
 import { incentiveForAgent, incentivesFor, qualifyingShare, validFor } from '../incentives';
 import { todayIST } from './schedule';
 import { costLine, offerProblems } from './offerChecks';
+import { autoSizeBuckets } from './autoSize';
 import { bucketContext } from '../../src/designer/v2/contextView';
 import {
   addQuestions,
@@ -313,23 +314,31 @@ const WAREHOUSE_TOOLS: ToolDef[] = [
     name: 'ask_data',
     title: 'Asking the data',
     description:
-      'Ask the bank\'s data a question, or put a hypothesis to it, in plain English (e.g. "Did lapsed customers\' spend fall in everyday categories rather than big-ticket ones?" or "Most occasional spenders are EMI-eligible"). A data analyst runs the queries and answers in plain words: the bottom line first (for a hypothesis, whether the data backs it), the numbers behind it exactly as queried, and what the data cannot tell. Its queries are filed in the notebook. Use it when a question needs several queries or a verdict; use run_sql_query for a quick single count. Exact checks (who qualifies for an offer) use list_incentives, not this.',
-    input_schema: { type: 'object', properties: { question: { type: 'string', description: 'The question or hypothesis, in plain English. Mention a bucket by name if it is about one.' } }, required: ['question'] },
-  },
-  {
-    name: 'get_table_schema',
-    title: 'Reading the data warehouse',
-    description: "Lists the bank's warehouse tables, their columns, row counts, example values, and the date the data runs to (treat that date as 'today' for recency).",
-    input_schema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'run_sql_query',
-    title: 'Querying the data',
-    description:
-      'Run ONE read-only SQLite SELECT (or WITH … SELECT) against the warehouse. Returns up to 200 rows. Aggregate in SQL rather than pulling raw rows. Say in `purpose` what you are trying to learn.',
-    input_schema: { type: 'object', properties: { sql: { type: 'string' }, purpose: { type: 'string' } }, required: ['sql', 'purpose'] },
+      'Your only way into the bank\'s data. Ask a question, or put a hypothesis to it, in plain English (e.g. "Do customers lapsed 61-90 days usually come back on their own?", "Most occasional spenders are EMI-eligible"). A data analyst writes and runs the queries. You get back its answer (the bottom line, the numbers behind it, what the data cannot tell) AND its workbook: every query it ran with its purpose, SQL and the rows that came back. Check the answer against the rows. Everything is filed in the notebook. Give sizeBucket to have it size a bucket whose rule can\'t be written in signals (buckets with signal rules are sized by the app). Exact checks (who qualifies for an offer) use list_incentives, not this.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'The question or hypothesis, in plain English. Mention a bucket by name if it is about one.' },
+        sizeBucket: { type: 'string', description: 'Optional: a bucket id to size (its rule as you defined it, after earlier buckets in priority order).' },
+      },
+      required: ['question'],
+    },
   },
 ];
+
+/** Questions with no options, not declared yes/no, that aren't yes/no questions (e.g. "How many…?", "…, or …?"): they need options. */
+export function needsOptions(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
+  return list
+    .filter((q) => q && typeof q.text === 'string' && q.text.trim())
+    .filter((q) => q.answerType !== 'yesno' && !(Array.isArray(q.options) && q.options.length) && !(Array.isArray(q.suggestions) && q.suggestions.length))
+    .filter((q) => {
+      const t = String(q.text).replace(/\*/g, '').trim();
+      const yesNo = /^(is|are|do|does|did|should|shall|can|could|will|would|has|have|may|must)\b/i.test(t) && !/,?\s+or\s+/i.test(t);
+      return !yesNo;
+    })
+    .map((q) => String(q.text).replace(/\*/g, '').trim().slice(0, 80));
+}
 
 export function toolsFor(warehouse: boolean, incentives = false): ToolDef[] {
   const extra = [...(warehouse ? WAREHOUSE_TOOLS : []), ...(incentives ? INCENTIVE_TOOLS : [])];
@@ -362,8 +371,6 @@ export const TOOL_TITLES: Record<string, { running: string; done: string }> = {
   add_context: { running: 'Adding to the context', done: 'Added to the context' },
   set_flags: { running: 'Updating progress', done: 'Updated progress' },
   edit_journey: { running: 'Editing a journey', done: 'Edited a journey' },
-  get_table_schema: { running: 'Reading the data warehouse', done: 'Read the data warehouse' },
-  run_sql_query: { running: 'Querying the data', done: 'Queried the data' },
   build_campaign: { running: 'Building the campaign', done: 'Built the campaign' },
 };
 
@@ -468,6 +475,15 @@ export function runToolCall(name: string, input: Record<string, unknown>, state:
 function runToolCallInner(name: string, input: Record<string, unknown>, state: AgentState, env: ToolEnv): ToolOutcome {
   switch (name) {
     case 'ask_questions': {
+      // Without options a question becomes Yes / No. Only allow that for a real yes/no question.
+      const missing = needsOptions(input.questions);
+      if (missing.length)
+        return {
+          state,
+          ok: false,
+          summary: 'Questions need options',
+          forModel: `Nothing was asked. ${missing.map((t) => `"${t}"`).join(', ')} ${missing.length === 1 ? 'is not a yes/no question but has' : 'are not yes/no questions but have'} no options, so the manager would only see Yes / No. Give each one 2-4 options (answerType "single" or "multi"), or rephrase it as a yes/no question, and ask all the questions again in one call.`,
+        };
       const { state: next, added, dropped } = addQuestions(state, input.questions);
       if (!added.length) return { state, ok: false, forModel: 'No usable questions: each needs aspect, text and answerType.', summary: 'No usable questions' };
       const aspects = [...new Set(added.map((q) => q.aspect))];
@@ -639,43 +655,20 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
     }
 
     case 'edit_journey': {
-      const ops = Array.isArray(input.operations) ? input.operations : [];
+      // Operations sometimes arrive as JSON text: read them rather than treating them as none.
+      let rawOps: unknown = input.operations;
+      if (typeof rawOps === 'string') {
+        try {
+          rawOps = JSON.parse(rawOps);
+        } catch {
+          rawOps = null;
+        }
+      }
+      if (!Array.isArray(rawOps) || !rawOps.length) return { state, ok: false, summary: 'No operations', forModel: 'Not changed: operations must be a non-empty list (a JSON array) of {op, path, step}.' };
+      const ops = rawOps;
       const res = editJourney(state, String(input.bucketId ?? ''), ops as never);
       if (res.error) return { state, ok: false, forModel: `Not changed: ${res.error}`, summary: res.error };
       return { state: res.state, ok: true, doneTitle: 'Edited a journey', summary: res.said, result: { bucketId: input.bucketId, operations: ops }, forModel: `${res.said} The canvas is out of date until you call build_campaign.` };
-    }
-
-    case 'get_table_schema': {
-      if (!env.warehouseBank) return { state, ok: false, forModel: 'This tenant has no data warehouse.', summary: 'No warehouse' };
-      const cached = env.lookupCache.get('schema');
-      const schema = cached ?? warehouseSchema(env.warehouseBank);
-      env.lookupCache.set('schema', schema);
-      const s = schema as ReturnType<typeof warehouseSchema>;
-      return {
-        state,
-        ok: true,
-        summary: `${s.tables.length} tables${s.dataAsOf ? `, data to ${s.dataAsOf}` : ''}`,
-        result: s,
-        forModel: cached ? 'You already have the schema above in this turn. Use it.' : JSON.stringify(s),
-      };
-    }
-
-    case 'run_sql_query': {
-      if (!env.warehouseBank) return { state, ok: false, forModel: 'This tenant has no data warehouse.', summary: 'No warehouse' };
-      const sql = String(input.sql ?? '');
-      try {
-        const r = runWarehouseQuery(env.warehouseBank, sql);
-        return {
-          state,
-          ok: true,
-          summary: `${typeof input.purpose === 'string' ? input.purpose : 'Query'} · ${r.rows.length}${r.truncated ? '+' : ''} rows`,
-          result: { sql, purpose: input.purpose, rows: r.rows.slice(0, 50), truncated: r.truncated || r.rows.length > 50, ms: r.ms },
-          forModel: JSON.stringify({ columns: r.columns, rows: r.rows, truncated: r.truncated }),
-        };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return { state, ok: false, summary: msg, result: { sql, error: msg }, forModel: `Query failed: ${msg}` };
-      }
     }
 
     case 'build_campaign':
@@ -695,7 +688,9 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
 }
 
 export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
-  let next = state;
+  // Buckets with signal rules are sized by code, before anything that reads sizes.
+  const sizedByApp = autoSizeBuckets(state, env.tenant);
+  let next = sizedByApp.state;
   const compiled = planToBlueprint(next.campaign);
   if (!compiled.blueprint) {
     next = log(next, 'app', 'build_failed', compiled.problems.join(' '));
@@ -745,6 +740,7 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
   }
 
   const notes = [
+    ...sizedByApp.notes,
     ...compiled.problems,
     ...built.issues.map((i) => `${i.path}: ${i.problem}`),
     ...built.limitations.map((l) => `Cannot express ${l.attribute}: ${l.note}`),

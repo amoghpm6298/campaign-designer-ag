@@ -28,7 +28,7 @@ Two settings change *how* the agent does this, never *what* it does.
 | "Why stuck" thesis | Researched with 2–3 queries per bucket, cites numbers | Manager's view or agent hypothesis, labelled as such |
 | Q&A | Shorter and pointed: business context only the manager has, plus confirming what the data shows | Carries the whole load: what they have seen, which behaviours matter |
 | First run | Executes the plan | Also validates the buckets: each bucket is a test cell |
-| Extra tools | `get_table_schema`, `run_sql_query` (read-only, row cap, timeout) | none |
+| Extra tools | `ask_data` (a data analyst: answer + workbook; the main agent writes no SQL) | none |
 
 Prompt: ONE prompt. A shared core plus one swapped **evidence module**
 (warehouse-on or warehouse-off). The SQL tools are only offered when the
