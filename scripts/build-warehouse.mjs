@@ -45,6 +45,12 @@ for (const file of readdirSync(csvDir).filter((f) => f.endsWith('.csv'))) {
   if (cols.includes('customer_id')) db.exec(`CREATE INDEX ${t}_cust ON ${t}(customer_id)`);
   console.log(`${t}: ${lines.length - 1} rows`);
 }
+// The exports generate opening dates and a year of transactions independently, so some
+// customers "spend" before their account exists. No real bank's data looks like that, and
+// it breaks anything mixing account age with spend (activation, new-customer buckets).
+// Those rows are dropped.
+const dropped = db.prepare('DELETE FROM transactions WHERE rowid IN (SELECT t.rowid FROM transactions t JOIN customers c ON c.customer_id = t.customer_id WHERE t.transaction_date < c.account_open_date)').run();
+console.log(`transactions before the account opened: ${dropped.changes} dropped`);
 db.exec('CREATE INDEX IF NOT EXISTS transactions_date ON transactions(transaction_date)');
 db.exec('CREATE INDEX IF NOT EXISTS transactions_cat ON transactions(category)');
 db.exec('ANALYZE');

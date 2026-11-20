@@ -24,7 +24,7 @@ import { ensureBaseline, recordVersion, setSummary, summariseVersion, type Versi
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
 
-const MAX_ROUNDS = 24;
+const MAX_ROUNDS = 32;
 /** How many times the app sends the agent back to fix problems it left at the end of a turn. */
 const MAX_REPAIR_ROUNDS = 2;
 const REACH_ORDER: Channel[] = ['WHATSAPP', 'SMS', 'EMAIL', 'RCS'] as Channel[];
