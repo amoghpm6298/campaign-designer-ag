@@ -216,12 +216,12 @@ import { bucketContext as viewsOf } from '../../src/designer/v2/contextView';
 const yesData = exists(whPath('yesbank'));
 const sig = (attribute: string, operator: string, value: string) => [{ entity: 'Signal', conditions: [{ attribute, operator, value }] }];
 
-describe('the main agent asks the analyst; code sizes signal buckets', () => {
-  it('the prompt has no SQL for the main agent, and keeps internal names away from the manager', () => {
+describe('data access; code sizes signal buckets', () => {
+  it('the agent explores the data itself, can hand bigger questions to the analyst, and keeps internal names away from the manager', () => {
     const p = promptFor(true, true);
-    expect(p).toMatch(/You never write SQL/);
+    expect(p).toMatch(/start with get_table_schema/);
+    expect(p).toMatch(/2-3 queries asking WHY/);
     expect(p).toMatch(/WORKBOOK/);
-    expect(p).not.toMatch(/get_table_schema|run_sql_query/);
     expect(p).toMatch(/Never show the manager SQL, signal keys/);
   });
   it.runIf(yesData)('the data overview is plain words: no columns, no internal tables', () => {

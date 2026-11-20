@@ -12,7 +12,7 @@ import { validateCampaignGraph } from '../../agent-proto/validate';
 import { bankContext } from '../knowledge';
 import type { TenantConfig } from '../tenants';
 import type { Channel } from '../../src/data/sharedConstants';
-import { countCustomers } from '../warehouse';
+import { countCustomers, runWarehouseQuery, warehouseSchema } from '../warehouse';
 import { checkJourneys, endingGaps, linkProblemsIn, planToBlueprint } from './compile';
 import { forAgent, type BankLink } from '../links';
 import { signalsFor, signalsForAgent } from '../signals';
@@ -314,7 +314,7 @@ const WAREHOUSE_TOOLS: ToolDef[] = [
     name: 'ask_data',
     title: 'Asking the data',
     description:
-      'Your only way into the bank\'s data. Ask a question, or put a hypothesis to it, in plain English (e.g. "Do customers lapsed 61-90 days usually come back on their own?", "Most occasional spenders are EMI-eligible"). A data analyst writes and runs the queries. You get back its answer (the bottom line, the numbers behind it, what the data cannot tell) AND its workbook: every query it ran with its purpose, SQL and the rows that came back. Check the answer against the rows. Everything is filed in the notebook. Give sizeBucket to have it size a bucket whose rule can\'t be written in signals (buckets with signal rules are sized by the app). Exact checks (who qualifies for an offer) use list_incentives, not this.',
+      'For questions that need several queries or a verdict. Ask a question, or put a hypothesis to it, in plain English (e.g. "Do customers lapsed 61-90 days usually come back on their own?", "Most occasional spenders are EMI-eligible"). A data analyst writes and runs the queries. You get back its answer (the bottom line, the numbers behind it, what the data cannot tell) AND its workbook: every query it ran with its purpose, SQL and the rows that came back. Check the answer against the rows. Everything is filed in the notebook. For a quick count, use run_sql_query yourself. Give sizeBucket to have it size a bucket whose rule can\'t be written in signals (buckets with signal rules are sized by the app). Exact checks (who qualifies for an offer) use list_incentives, not this.',
     input_schema: {
       type: 'object',
       properties: {
@@ -323,6 +323,19 @@ const WAREHOUSE_TOOLS: ToolDef[] = [
       },
       required: ['question'],
     },
+  },
+  {
+    name: 'get_table_schema',
+    title: 'Reading the data warehouse',
+    description: "Lists the bank's warehouse tables, their columns, row counts, example values, and the date the data runs to (treat that date as 'today' for recency).",
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'run_sql_query',
+    title: 'Querying the data',
+    description:
+      'Run ONE read-only SQLite SELECT (or WITH … SELECT) against the warehouse. Returns up to 200 rows. Aggregate in SQL rather than pulling raw rows. Say in `purpose` what you are trying to learn.',
+    input_schema: { type: 'object', properties: { sql: { type: 'string' }, purpose: { type: 'string' } }, required: ['sql', 'purpose'] },
   },
 ];
 
@@ -371,6 +384,8 @@ export const TOOL_TITLES: Record<string, { running: string; done: string }> = {
   add_context: { running: 'Adding to the context', done: 'Added to the context' },
   set_flags: { running: 'Updating progress', done: 'Updated progress' },
   edit_journey: { running: 'Editing a journey', done: 'Edited a journey' },
+  get_table_schema: { running: 'Reading the data warehouse', done: 'Read the data warehouse' },
+  run_sql_query: { running: 'Querying the data', done: 'Queried the data' },
   build_campaign: { running: 'Building the campaign', done: 'Built the campaign' },
 };
 
@@ -669,6 +684,39 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
       const res = editJourney(state, String(input.bucketId ?? ''), ops as never);
       if (res.error) return { state, ok: false, forModel: `Not changed: ${res.error}`, summary: res.error };
       return { state: res.state, ok: true, doneTitle: 'Edited a journey', summary: res.said, result: { bucketId: input.bucketId, operations: ops }, forModel: `${res.said} The canvas is out of date until you call build_campaign.` };
+    }
+
+    case 'get_table_schema': {
+      if (!env.warehouseBank) return { state, ok: false, forModel: 'This tenant has no data warehouse.', summary: 'No warehouse' };
+      const cached = env.lookupCache.get('schema');
+      const schema = cached ?? warehouseSchema(env.warehouseBank);
+      env.lookupCache.set('schema', schema);
+      const s = schema as ReturnType<typeof warehouseSchema>;
+      return {
+        state,
+        ok: true,
+        summary: `${s.tables.length} tables${s.dataAsOf ? `, data to ${s.dataAsOf}` : ''}`,
+        result: s,
+        forModel: cached ? 'You already have the schema above in this turn. Use it.' : JSON.stringify(s),
+      };
+    }
+
+    case 'run_sql_query': {
+      if (!env.warehouseBank) return { state, ok: false, forModel: 'This tenant has no data warehouse.', summary: 'No warehouse' };
+      const sql = String(input.sql ?? '');
+      try {
+        const r = runWarehouseQuery(env.warehouseBank, sql);
+        return {
+          state,
+          ok: true,
+          summary: `${typeof input.purpose === 'string' ? input.purpose : 'Query'} · ${r.rows.length}${r.truncated ? '+' : ''} rows`,
+          result: { sql, purpose: input.purpose, rows: r.rows.slice(0, 50), truncated: r.truncated || r.rows.length > 50, ms: r.ms },
+          forModel: JSON.stringify({ columns: r.columns, rows: r.rows, truncated: r.truncated }),
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { state, ok: false, summary: msg, result: { sql, error: msg }, forModel: `Query failed: ${msg}` };
+      }
     }
 
     case 'build_campaign':

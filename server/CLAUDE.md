@@ -63,17 +63,18 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   highlights exactly the changed steps.
 - **Warehouse** is per tenant (`server/tenants.ts`). ON: buckets are explored and
   sized from data. OFF: hypotheses from the answers and the agent's knowledge.
-- **The main agent never writes SQL** (decided 2026-11-20). With data, its only
-  way in is `ask_data`: a data analyst (`agent/askData.ts`) that has the schema,
-  writes and runs the queries, and returns its ANSWER plus its WORKBOOK (each
-  query's purpose, SQL and rows, capped at 20 rows per query / 16k characters),
-  like an analyst handing the boss the insight and the workings. The agent is
-  told to check the answer against the rows. Everything is filed as research.
-  The agent sees only a plain-words overview of the data (`dataOverview`, no
-  columns). Buckets with SIGNAL rules are sized by code at every build
-  (`agent/autoSize.ts`: each signal's SQL, first match wins); any other rule is
-  sized by the analyst (`ask_data` with `sizeBucket`). Split helpers still
-  query directly: they are analysts, scoped to one step.
+- **Data access for the main agent** (2026-11-20): its own `get_table_schema` +
+  `run_sql_query` for exploring (5-10 queries, plus 2-3 "why are they stuck"
+  queries per bucket), and `ask_data` for bigger questions: a data analyst
+  (`agent/askData.ts`) that returns its ANSWER plus its WORKBOOK (each query's
+  purpose, SQL and rows, capped at 20 rows per query / 16k characters), filed as
+  research. Tried and reverted the same day: analyst-only access (no SQL for the
+  main agent). The agent then asked only ~2 broad questions and stopped testing
+  why each bucket is stuck; it explores far more when it can query itself.
+  Buckets with SIGNAL rules are sized by code at every build
+  (`agent/autoSize.ts`: each signal's SQL, first match wins, do-not-contact and
+  NPA left out); other rules are sized by the agent's own sizing SQL or by the
+  analyst (`ask_data` with `sizeBucket`).
 
 ## Signals and incentives (menus by name)
 

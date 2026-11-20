@@ -21,7 +21,7 @@ import { getBankSettings } from '../bankSettings';
 import { checkJourneys } from './compile';
 import { currentEntries } from '../../src/designer/v2/contextView';
 import { ensureBaseline, recordVersion, setSummary, summariseVersion, type VersionEntry } from '../campaignVersions';
-import { dataOverview, warehouseAvailable } from '../warehouse';
+import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
 
 const MAX_ROUNDS = 24;
@@ -172,7 +172,6 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   const system = [
     systemPrompt(!!warehouseBank, !!tenant.incentives),
     `# Context\nIssuer: ${tenant.issuer} (synthetic tenant).\n${issuerContext(availableChannels, tenant.templateLibraryAccess === 'synthetic-demo' ? 'synthetic-demo' : 'unavailable')}`,
-    ...(warehouseBank ? [`# Data\n${dataOverview(warehouseBank)}`] : []),
     `# Knowledge base\n${knowledgeForPrompt(knowledge, tenant.tenantId)}`,
   ].join('\n\n');
   void bankContext;
