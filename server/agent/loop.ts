@@ -14,13 +14,14 @@ import { TOOL_TITLES, runToolCall, toolsFor, type ToolEnv } from './tools';
 import { runAskData } from './askData';
 import { applySplitOutcomes, closingMessage, pendingSplitIdeas, runSplitHelper } from './splitHelper';
 import { costSnapshot, type CostSnapshot } from '../costModel';
-import { emptyCampaign, emptyContext, normaliseState, recordAnswers, recordSkips } from './state';
+import { addContext, emptyCampaign, emptyContext, normaliseState, recordAnswers, recordSkips } from './state';
 import { loadStores, saveCampaignObject, saveContext } from '../campaignFiles';
 import { focusSection } from './focus';
 import { listLinks } from '../links';
 import { getBankSettings } from '../bankSettings';
 import { checkJourneys } from './compile';
-import { currentEntries } from '../../src/designer/v2/contextView';
+import { bucketContext, currentEntries } from '../../src/designer/v2/contextView';
+import { gradeInsights, graderSendBack, insightProblems, logInsightEvent, MAX_INSIGHT_SENDBACKS } from './insightChecks';
 import { ensureBaseline, recordVersion, setSummary, summariseVersion, type VersionEntry } from '../campaignVersions';
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
@@ -135,6 +136,23 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   const startCampaign = state.campaign;
   const turnStart = new Date().toISOString();
   let briefAsked = false;
+  // Insight checks (server/agent/insightChecks.ts): code, then the grader; each sends back at most twice.
+  let insightCodeTries = 0;
+  let gradeTries = 0;
+  /**
+   * Buckets to review: never reviewed, or their notes changed since. A bucket whose notes did not
+   * change keeps its last grade (re-grading identical text once flipped a pass to a fail).
+   */
+  const toGrade = () => {
+    const views = bucketContext(state.context.entries);
+    const latest = (bucketId: string, topic: string) => currentEntries(state.context.entries, { kind: 'bucket', topic, bucketId })[0]?.at ?? '';
+    return state.campaign.buckets
+      .filter((b) => {
+        const g = views[b.id]?.insightCheck;
+        return !g || latest(b.id, 'why stuck') > g.at || latest(b.id, 'so we') > g.at;
+      })
+      .map((b) => b.id);
+  };
   /** Split helpers run at most once per turn. */
   let splitsRan = false;
   const base = (extra: Partial<AgentResponse>): AgentResponse => ({
@@ -358,6 +376,51 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
             yield* drain();
             conversation.push({ role: 'user', content: closingMessage(outcomes) });
             continue;
+          }
+        }
+        // Each bucket's insight: "why stuck" (backed by a query) and "so we". First code checks the
+        // pieces exist and connect; then a fast grader reads them against the cited rows.
+        if (!wrapUp && !asked.length && built && state.campaign.buckets.length) {
+          const problems = insightProblems(state.campaign, state.context, !!warehouseBank);
+          if (problems.length) {
+            logInsightEvent({ type: 'code_check', sessionId: req.sessionId, tenantId: tenant.tenantId, attempt: insightCodeTries + 1, buckets: state.campaign.buckets.length, problems });
+            if (insightCodeTries < MAX_INSIGHT_SENDBACKS) {
+              insightCodeTries++;
+              em.emit('model.tool_call.completed', 'understanding', 'Sent back to fill in the insights', { status: 'ok', correlationId: `insight-code-${insightCodeTries}`, detail: problems.join(' | ').slice(0, 300), data: { tool: 'repair', input: problems, round } });
+              yield* drain();
+              conversation.push({ role: 'user', content: `AUTOMATIC CHECK (end of turn): every bucket needs a "why stuck" (what holds that group back, backed by the queries you cite) and a "so we" (what it changed in the design). Fix these:\n${problems.map((x) => `- ${x}`).join('\n')}\nIf you need evidence you don't have, run the query first. Change nothing else unless the finding changes the design.` });
+              continue;
+            }
+          } else if (gradeTries < MAX_INSIGHT_SENDBACKS + 1 && toGrade().length) {
+            gradeTries++;
+            em.emit('model.tool_call.started', 'understanding', 'Reviewing the insights', { status: 'running', correlationId: `insight-grade-${gradeTries}`, data: { tool: 'insight_review', round } });
+            yield* drain();
+            const ids = toGrade();
+            const run = await gradeInsights(state.campaign, state.context, undefined, ids);
+            logInsightEvent({ type: 'grade', sessionId: req.sessionId, tenantId: tenant.tenantId, attempt: gradeTries, graded: ids, buckets: state.campaign.buckets.length, model: run.model, ms: run.ms, usage: run.usage, error: run.error, grades: run.grades });
+            if (run.grades.length) {
+              const before = state;
+              state = addContext(
+                state,
+                run.grades.map((g) => ({ kind: 'bucket', bucketId: g.bucketId, topic: 'insight check', text: g.reason, source: 'app', data: { pass: g.pass, backed: g.backed, nonObvious: g.nonObvious, followsThrough: g.followsThrough, model: run.model, attempt: gradeTries } })),
+                'app',
+              ).state;
+              persistIfChanged(before, state, req.sessionId, tenant.tenantId);
+            }
+            const failed = run.grades.filter((g) => !g.pass);
+            em.emit('model.tool_call.completed', 'understanding', run.error && !run.grades.length ? 'Could not review the insights' : failed.length ? `Insights: ${failed.length} of ${run.grades.length} buckets sent back` : `Insights: all ${run.grades.length} buckets passed review`, {
+              status: 'ok',
+              correlationId: `insight-grade-${gradeTries}`,
+              durationMs: run.ms,
+              detail: run.error ?? run.grades.map((g) => `${g.bucketName}: ${g.pass ? 'pass' : 'fail'} (${g.reason})`).join(' | ').slice(0, 400),
+              data: { tool: 'insight_review', input: { attempt: gradeTries, model: run.model }, result: run, round },
+            });
+            em.emit('state.updated', 'generating', '', { data: { campaign: state.campaign, context: state.context, flags: state.flags, graph: null } });
+            yield* drain();
+            if (failed.length && gradeTries <= MAX_INSIGHT_SENDBACKS) {
+              conversation.push({ role: 'user', content: graderSendBack(failed) });
+              continue;
+            }
           }
         }
         // The campaign changed and was rebuilt, but the brief still describes the old one.

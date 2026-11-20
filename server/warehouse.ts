@@ -5,12 +5,57 @@
 // exports by scripts/build-warehouse.mjs and found in WAREHOUSE_DIR
 // (default <repo>/data/warehouse).
 import { DatabaseSync } from 'node:sqlite';
+import { MessageChannel, receiveMessageOnPort, Worker, type MessagePort } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MAX_ROWS = 200;
+
+/**
+ * Every query that can be slow runs in a worker thread, with a hard time limit.
+ * node:sqlite is synchronous and cannot interrupt a query, so one slow query used
+ * to freeze the whole server (every chat, the MCP) until it finished, and a
+ * frozen process even ignored a normal stop. Now the main thread waits at most
+ * QUERY_TIMEOUT_MS; on timeout it abandons the worker (a fresh one takes the next
+ * query) and the caller gets a plain error it can act on.
+ */
+export const queryTimeoutMs = () => (Number(process.env.WAREHOUSE_QUERY_TIMEOUT_MS) > 0 ? Number(process.env.WAREHOUSE_QUERY_TIMEOUT_MS) : 30_000);
+
+export class QueryTimeoutError extends Error {}
+
+let worker: { w: Worker; flag: Int32Array; port: MessagePort } | null = null;
+
+function startWorker() {
+  const signal = new SharedArrayBuffer(4);
+  const { port1, port2 } = new MessageChannel();
+  const w = new Worker(new URL('./warehouseWorker.mjs', import.meta.url), { workerData: { signal, reply: port2 }, transferList: [port2] });
+  w.unref();
+  port1.unref();
+  worker = { w, flag: new Int32Array(signal), port: port1 };
+  return worker;
+}
+
+/** Runs one statement in the worker and waits for it, at most `timeoutMs`. */
+function runOffThread<T>(path: string, sql: string, mode: 'all' | 'get', timeoutMs = queryTimeoutMs()): T {
+  const wk = worker ?? startWorker();
+  Atomics.store(wk.flag, 0, 0);
+  wk.w.postMessage({ path, sql, mode });
+  const woke = Atomics.wait(wk.flag, 0, 0, timeoutMs);
+  if (woke === 'timed-out') {
+    // Abandon it: it may keep running in its own thread, but the server is free.
+    void wk.w.terminate();
+    worker = null;
+    throw new QueryTimeoutError(
+      `The query took longer than ${Math.round(timeoutMs / 1000)} seconds and was stopped. Narrow it: filter early, aggregate in SQL, and avoid joining transactions to themselves across every customer.`,
+    );
+  }
+  const msg = receiveMessageOnPort(wk.port)?.message as { ok: boolean; value?: unknown; error?: string } | undefined;
+  if (!msg) throw new Error('The query returned no result.');
+  if (!msg.ok) throw new Error(msg.error);
+  return msg.value as T;
+}
 const dbs = new Map<string, DatabaseSync>();
 
 export function warehouseDir(): string {
@@ -87,10 +132,9 @@ export function checkReadOnly(sql: string): string | null {
 export function runWarehouseQuery(bank: string, sql: string): { columns: string[]; rows: Record<string, unknown>[]; truncated: boolean; ms: number } {
   const bad = checkReadOnly(sql);
   if (bad) throw new Error(bad);
-  const db = open(bank);
+  open(bank);
   const t0 = Date.now();
-  const stmt = db.prepare(`SELECT * FROM (${sql.trim().replace(/;+\s*$/, '')}) LIMIT ${MAX_ROWS + 1}`);
-  const rows = stmt.all() as Record<string, unknown>[];
+  const rows = runOffThread<Record<string, unknown>[]>(warehousePath(bank), `SELECT * FROM (${sql.trim().replace(/;+\s*$/, '')}) LIMIT ${MAX_ROWS + 1}`, 'all');
   const truncated = rows.length > MAX_ROWS;
   const kept = rows.slice(0, MAX_ROWS);
   return { columns: kept.length ? Object.keys(kept[0]) : [], rows: kept, truncated, ms: Date.now() - t0 };
@@ -100,9 +144,9 @@ export function runWarehouseQuery(bank: string, sql: string): { columns: string[
 export function countCustomers(bank: string, sql: string): number {
   const bad = checkReadOnly(sql);
   if (bad) throw new Error(bad);
-  const db = open(bank);
+  open(bank);
   const inner = sql.trim().replace(/;+\s*$/, '');
-  const row = db.prepare(`SELECT COUNT(DISTINCT customer_id) AS n FROM (${inner})`).get() as { n: number };
+  const row = runOffThread<{ n: number }>(warehousePath(bank), `SELECT COUNT(DISTINCT customer_id) AS n FROM (${inner})`, 'get');
   return Number(row.n);
 }
 
@@ -119,7 +163,8 @@ export function customerIds(bank: string, sql: string): Set<string> {
   const key = `${bank}\n${sql}`;
   const hit = idCache.get(key);
   if (hit) return hit;
-  const rows = open(bank).prepare(`SELECT DISTINCT customer_id AS id FROM (${sql.trim().replace(/;+\s*$/, '')})`).all() as { id: unknown }[];
+  open(bank);
+  const rows = runOffThread<{ id: unknown }[]>(warehousePath(bank), `SELECT DISTINCT customer_id AS id FROM (${sql.trim().replace(/;+\s*$/, '')})`, 'all');
   const set = new Set(rows.map((r) => String(r.id)));
   if (idCache.size > 300) idCache.delete(idCache.keys().next().value!);
   idCache.set(key, set);

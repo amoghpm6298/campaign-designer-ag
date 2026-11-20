@@ -94,6 +94,28 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   call with the same input a 3rd time (reads exempt), or a rebuild with nothing
   changed, is refused; 3 refusals end the turn. Verified with forced 40k/90k
   cutoffs: turns ran to 44 rounds and finished, with full depth.
+- **Insight per bucket, checked twice** (2026-11-20, `agent/insightChecks.ts`).
+  The prompt optimises for the campaign's outcome for a sharp, hard-to-move
+  Indian audience, and demands honesty (a pattern shared by every group explains
+  none of them). Each bucket carries "why stuck" (cites query records WITH ROWS,
+  not written notes; without data, basis manager/hypothesis) and "so we" (what
+  it changed, naming real steps), shown first on the bucket card. At turn end:
+  (1) code checks the notes exist and connect (with a "did you mean" for a
+  paraphrased citation); (2) Claude Haiku 5.5 (the one non-Sonnet call, low
+  effort, structured output, one retry) grades each bucket against the cited
+  rows: backed / non-obvious / follows through; pass is recomputed from those.
+  Only buckets whose notes changed are re-graded (re-grading identical text once
+  flipped a pass to a fail). Up to 2 send-backs each; after that the failed
+  reason shows on the card ("Needs a closer look"). Every check and grade is
+  logged to `data/logs/insight-checks.jsonl` (time, tokens, grades) and kept in
+  the notebook (topic "insight check"). Measured: a review takes 4-12 s and about
+  ₹0.1.
+- **Warehouse queries never freeze the server** (2026-11-20). node:sqlite is
+  synchronous and can't interrupt a query; one runaway query froze the whole
+  server (and ignored a normal stop). Every query now runs in a worker thread
+  (`server/warehouseWorker.mjs`) with a hard limit (`WAREHOUSE_QUERY_TIMEOUT_MS`,
+  default 30 s); on timeout the worker is abandoned and the agent gets a plain
+  "narrow it" error.
 
 ## Signals and incentives (menus by name)
 

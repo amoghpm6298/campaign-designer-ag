@@ -382,6 +382,26 @@ function BucketCard({ data }: { data: CdNodeData }) {
       <div className="dc-node-label cv-bucket-name">{b.name}</div>
       {/* Who is in it first, then how many, then why (on demand). */}
       {info.behaviour && <p className="cv-bucket-who">{info.behaviour}</p>}
+      {/* The insight first: what holds this group back, and what the campaign does about it. */}
+      {(info.whyStuck || info.soWe) && (
+        <div className="cv-insight">
+          {info.whyStuck && (
+            <p className="cv-insight-line" title={info.whyStuck}>
+              <b>Why stuck</b> {info.whyStuck}
+            </p>
+          )}
+          {info.soWe && (
+            <p className="cv-insight-line" title={info.soWe}>
+              <b>So we</b> {info.soWe}
+            </p>
+          )}
+          {info.insightCheck && !info.insightCheck.pass && (
+            <p className="cv-insight-warn" title={info.insightCheck.reason}>
+              <b>Needs a closer look:</b> {info.insightCheck.reason}
+            </p>
+          )}
+        </div>
+      )}
       <div className="cv-bucket-meta">
         {size}
         {b.holdoutPct ? ` · ${b.holdoutPct}% held back to measure` : ''}

@@ -114,6 +114,8 @@ export async function callClaude(opts: {
   timeoutMs?: number;
   /** Override the configured model, e.g. a small model for short summaries. */
   model?: string;
+  /** output_config: effort and/or a JSON schema the reply must match (structured outputs). */
+  outputConfig?: { effort?: 'low' | 'medium' | 'high'; format?: { type: 'json_schema'; schema: Record<string, unknown> } };
 }): Promise<LlmCallResult> {
   const model = opts.model ?? resolveModel();
   const key = apiKey();
@@ -134,6 +136,7 @@ export async function callClaude(opts: {
         max_tokens: opts.maxTokens ?? 4096,
         system: opts.system,
         messages: opts.messages,
+        ...(opts.outputConfig ? { output_config: opts.outputConfig } : {}),
       }),
       signal: controller.signal,
     });

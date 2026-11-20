@@ -53,6 +53,17 @@ export interface BucketView {
   sql?: string;
   size?: number;
   sizeError?: string;
+  /** Level 2: what holds this group back, as the data (or the manager) shows it. */
+  whyStuck?: string;
+  /** The notebook topics of the queries that show it. */
+  whyStuckQueries?: string[];
+  /** "data" when it cites queries; "manager" or "hypothesis" without data. */
+  whyStuckBasis?: string;
+  /** Level 3: what that finding changed in the design. */
+  soWe?: string;
+  soWeSteps?: string[];
+  /** The latest independent grade of the two notes. */
+  insightCheck?: { pass: boolean; reason: string; at: string };
 }
 
 /** Each bucket's reasoning and sizing, as the cards and the status block show it. */
@@ -66,6 +77,16 @@ export function bucketContext(entries: ContextEntryLike[]): Record<string, Bucke
       if (topic === 'behaviour' || topic === 'behavior') v.behaviour = e.text;
       else if (topic === 'rationale' || topic === 'thesis') v.rationale = e.text; // "thesis": campaigns before the rename
       else if (topic === 'metric') v.metric = e.text;
+      else if (topic === 'why stuck') {
+        v.whyStuck = e.text;
+        const q = e.data?.queries;
+        v.whyStuckQueries = Array.isArray(q) ? q.filter((x): x is string => typeof x === 'string') : [];
+        v.whyStuckBasis = typeof e.data?.basis === 'string' ? e.data.basis : v.whyStuckQueries.length ? 'data' : undefined;
+      } else if (topic === 'so we') {
+        v.soWe = e.text;
+        const st = e.data?.steps;
+        v.soWeSteps = Array.isArray(st) ? st.filter((x): x is string => typeof x === 'string') : [];
+      } else if (topic === 'insight check') v.insightCheck = { pass: e.data?.pass === true, reason: e.text, at: e.at };
       else if (topic === 'evidence') {
         const level = e.data?.level;
         if (level === 'measured' || level === 'manager' || level === 'hypothesis') v.evidence = level;
