@@ -166,17 +166,26 @@ export function ChatPanel({
 /** What the agent did on a turn: its tool calls as chips, and while live, its running text. */
 function ToolChips({ events, live, finalText }: { events: V2Event[]; live: boolean; finalText: string }) {
   const [open, setOpen] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const items = buildTrace(events);
   const tools = items.filter((it) => it.kind === 'tool');
   // While live the agent's words stream in here; once done they move to the bubble.
   const liveText = live ? items.filter((it) => it.kind === 'text').slice(-1)[0] : null;
   if (!tools.length && !live) return null;
   const opened = tools.find((t) => t.id === open);
+  // Once the turn is done, only the last step shows; the rest fold behind "+ N more".
+  const folded = !live && !expanded && tools.length > 1;
+  const shown = folded ? tools.slice(-1) : tools;
   return (
     <div className="cv-chips-wrap">
       {tools.length > 0 && (
         <div className="cv-chips">
-          {tools.map((it) => {
+          {folded && (
+            <button className="cv-chip more" onClick={() => setExpanded(true)} aria-expanded={false}>
+              + {tools.length - 1} more
+            </button>
+          )}
+          {shown.map((it) => {
             if (it.kind !== 'tool') return null;
             const e = it.event;
             const running = e.status === 'running' && live;
@@ -187,6 +196,11 @@ function ToolChips({ events, live, finalText }: { events: V2Event[]; live: boole
               </button>
             );
           })}
+          {!live && expanded && tools.length > 1 && (
+            <button className="cv-chip more" onClick={() => setExpanded(false)} aria-expanded={true}>
+              Show less
+            </button>
+          )}
         </div>
       )}
       {opened && opened.kind === 'tool' && <ToolDetail e={opened.event} />}

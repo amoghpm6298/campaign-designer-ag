@@ -187,6 +187,7 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-chip.running { color: var(--v2-primary); border-color: color-mix(in srgb, var(--v2-primary) 35%, var(--v2-border)); }
 .cv-chip.failed { color: var(--v2-err); border-color: color-mix(in srgb, var(--v2-err) 35%, var(--v2-border)); }
 .cv-chip.on { border-color: var(--v2-primary); }
+.cv-chip.more { color: var(--v2-primary); font-weight: 600; }
 .cv-tool-detail { border: 1px solid var(--v2-border); border-radius: 10px; padding: 8px 10px; font-size: 12px; background: var(--v2-subtle); min-width: 0; overflow: hidden; }
 .cv-cue { --cue: var(--v2-primary); --cue-bg: color-mix(in srgb, var(--cue) 9%, var(--v2-surface)); display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--cue) 18%, var(--v2-border)); background: var(--v2-surface); box-shadow: 0 1px 2px rgba(16, 24, 40, .04); }
 .cv-cue.question { --cue: #2f6fe4; }
