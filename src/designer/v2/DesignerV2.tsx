@@ -389,6 +389,32 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stores.campaign, links]);
 
+  // Opened from Comm approvals (?step=…&b=…): zoom to that message once the canvas is drawn, then drop the parameters.
+  const [deepStep] = useState(() => {
+    const q = new URLSearchParams(location.search);
+    return q.get('step') ? { stepId: q.get('step')!, bucketId: q.get('b') } : null;
+  });
+  const deepDone = useRef(false);
+  useEffect(() => {
+    if (!deepStep || deepDone.current || !model.nodes.length) return;
+    const f = (x: { data: { focus?: unknown } }) => x.data.focus as { stepId?: string; bucketId?: string } | undefined;
+    const n = model.nodes.find((x) => f(x)?.stepId === deepStep.stepId && (!deepStep.bucketId || f(x)?.bucketId === deepStep.bucketId)) ?? model.nodes.find((x) => f(x)?.stepId === deepStep.stepId);
+    if (!n) return;
+    deepDone.current = true;
+    // After the canvas's own first fit, or it would undo the zoom.
+    setTimeout(() => {
+      setFocus({ id: n.id, n: Date.now() });
+      // A short glow on the card, so the eye lands on it.
+      const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(n.id)}"]`);
+      el?.classList.add('cv-deep-pulse');
+      setTimeout(() => el?.classList.remove('cv-deep-pulse'), 2600);
+    }, 700);
+    const url = new URL(location.href);
+    url.searchParams.delete('step');
+    url.searchParams.delete('b');
+    history.replaceState(null, '', url);
+  }, [deepStep, model.nodes]);
+
   /** From a chat tag back to the box it was about. */
   const showFocus = (f: Focus) => {
     const n = model.nodes.find((x) => JSON.stringify(x.data.focus) === JSON.stringify(f));
@@ -480,7 +506,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           })()}
           <b>{plan?.name || 'New campaign'}</b>
         </div>
-        {/* The campaign's status (Ready, Submitted, Stopped…) shows on the Campaigns page, not here. */}
+        {/* The campaign's status (Draft, Scheduled, Active…) shows on the Campaigns page, not here. */}
         <span className="cv-top-gap" />
         <MoreMenu
           items={[
@@ -526,13 +552,13 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         {/* The main action sits last, on the right: Submit for a ready campaign, Stop for a live one. */}
         {submission && !viewOnly && submittedStage(submission) !== 'ended' && (
           <span className="cv-del-wrap">
-            <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title="Stop it: back to Ready, editable; you can submit it again">
+            <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title="Stop it: back to Draft, editable; you can submit it again">
               {pauseLabel}
             </button>
             {withdrawing && (
               <div className="cv-del-pop" role="dialog" aria-label={pauseLabel}>
                 <b>{pauseLabel}?</b>
-                <p>It goes back to Ready: editable, and you can submit it again with new dates. Customers' progress is not kept, so it starts fresh next time.</p>
+                <p>It goes back to Draft: editable, and you can submit it again with new dates. Customers' progress is not kept, so it starts fresh next time.</p>
                 {withdrawing !== 'ask' && withdrawing !== 'busy' && <p className="cv-del-err">{withdrawing}</p>}
                 <div className="cv-del-btns">
                   <button className="cv-btn" onClick={() => setWithdrawing(null)}>

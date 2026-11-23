@@ -59,7 +59,7 @@ Once the tools are available, call `list_campaigns`. A list (possibly empty) mea
 | `request_changes(campaignId, request)` | Any change, in plain words. Also how to reply to the designer. |
 | `submit_campaign(campaignId, startDate, endDate)` | Submit for execution. Locks the campaign. Dates (YYYY-MM-DD) are optional if the campaign already has them; pass them to set or change them. Start today or later, end after the start (a recurring campaign can use a far-off end). Refused if a journey doesn't fit between the dates. |
 | `copy_campaign(campaignId, name)` | A new editable draft from an existing campaign (even a submitted one), keeping the designer's reasoning and chat; the original is unchanged. Use it for a variant: a new season or month, a different audience, a different channel mix or cadence, an A/B alternative. For a different goal, use `create_campaign` instead. Then adapt it with `request_changes`. |
-| `stop_campaign(campaignId)` | Stop a submitted (scheduled or active) campaign. It goes back to **ready**: editable again, and `submit_campaign` can send it out again later with new dates. Customers' progress is not kept, so it starts fresh. |
+| `stop_campaign(campaignId)` | Stop a submitted (scheduled or active) campaign. It goes back to **draft**: editable again, and `submit_campaign` can send it out again later with new dates. Customers' progress is not kept, so it starts fresh. |
 | `delete_campaign(campaignId)` | Delete a draft (not submitted), e.g. a test. Refused for submitted campaigns: stop first. A copy is kept, so the Smart Engage team can recover a mistaken delete. |
 | `get_link(campaignId)` | A fresh canvas link. |
 | `list_campaigns()` | All IBL campaigns with state, allowed actions, dates and link. |
@@ -72,24 +72,22 @@ Every campaign response carries `state` and `allowedActions`.
  create_campaign / copy_campaign
             │
             ▼
-         DRAFT ──── designer builds ────► READY ◄──────────────┐
-  (designing: working, asking,            │  │                 │
-   or replied to you)                     │  └ request_changes │
-            │                             │    (back to DRAFT) │
-            │                    submit_campaign               │
-            │                    (dates checked)               │
-            │                             ▼                    │
-            │        SCHEDULED ──start date──► ACTIVE ──end date──► ENDED
-            │         (before start)      (between dates)     (after end)
-            │              └──── stop_campaign ─────────────────┘
-            │                    back to READY (submit again to rerun)
+         DRAFT  (not submitted: designing, asking, or built)
+            │   canSubmit: true once it is built AND every message
+            │   is approved by the bank (Comm approvals, in the app)
+            │
+            │ submit_campaign (dates checked)
             ▼
-  delete_campaign (DRAFT or READY only) ──► DELETED
+   SCHEDULED ──start date──► ACTIVE ──end date──► ENDED
+   (before start)        (between dates)       (after end)
+        └──── stop_campaign ──────┘
+              back to DRAFT (submit again to rerun)
+
+  delete_campaign (DRAFT only) ──► DELETED
 ```
 
-- `draft`: being designed. While the designer is working, `allowedActions` is empty: wait and call `get_campaign` again. If it has **questions**, they are listed and `answer_questions` is allowed. If it **replied** without building (it asked something in its message), answer with `request_changes`. If something **failed**, `error` says so: try `request_changes` once more, then tell your user.
-- `ready`: designed and built, with a brief. Change it, submit it, copy it or delete it.
-- `scheduled` / `active` / `ended`: submitted for execution and locked; which one depends on today's date and the campaign's dates. Scheduled and active campaigns can be stopped (back to ready). Ended ones can only be copied.
+- `draft`: not submitted yet. While the designer is working, `allowedActions` is empty: wait and call `get_campaign` again. If it has **questions**, they are listed and `answer_questions` is allowed. If it **replied** without building (it asked something in its message), answer with `request_changes`. If something **failed**, `error` says so: try `request_changes` once more, then tell your user. Once it is **built** there is a brief, and `canSubmit` says whether it can be submitted now; when it is `false`, `notReady` says why (usually messages waiting for the bank's approval, which happens in the app: you can't approve them) and `approvals` gives the counts and any rejection reasons.
+- `scheduled` / `active` / `ended`: submitted for execution and locked; which one depends on today's date and the campaign's dates. Scheduled and active campaigns can be stopped (back to draft). Ended ones can only be copied.
 - `deleted`: gone from the list; the Smart Engage team can recover it.
 
 **Rule: only call a tool that is in `allowedActions`** for that campaign (`get_campaign`, `get_link` and `list_campaigns` are always fine). Anything else will be refused.
@@ -101,11 +99,11 @@ Every campaign response carries `state` and `allowedActions`.
 2. **Ask or assume.** If your user wants a quick first draft, or says "don't ask me anything", use `questions: "assume"`. Otherwise use `"ask"`.
 3. **Wait.** Tell your user it takes a few minutes, then poll `get_campaign` with `waitSeconds: 50`. Don't poll faster.
 4. **Questions** (state `draft` with `questions`). Show each question with its options and its "why", numbered, so your user can answer quickly. Never invent business facts (offers, limits, dates, numbers). If they don't know or don't care, skip it: the designer will assume and say so. Send with `answer_questions`.
-5. **Ready** (state `ready`). Tell your user what was built, from `brief`: the `summary`; the dates it runs (`startDate` → `endDate`); the buckets (name, who, `aiRationale`: the designer's reasoning for why they're stuck, which is a judgement, not a measured fact); how each journey works; for each A/B test in a bucket's `tests`, what it is trying to learn (`hypothesis`) and how the winner is judged (`successMetric`); and `assumptions`, flagged clearly so they can correct them. `strategy` is the designer's working plan (buckets, levers, money and budget). If the campaign uses offers, show `potentialSpend` (worked out by code, in three scenarios: if it underperforms / as expected / if it outperforms, the max) against the budget cap; totals need data access, otherwise they're per 1,000 customers. Give them the `link`.
+5. **Built** (state `draft` with a brief). Tell your user what was built, from `brief`: the `summary`; the dates it runs (`startDate` → `endDate`); the buckets (name, who, `aiRationale`: the designer's reasoning for why they're stuck, which is a judgement, not a measured fact); how each journey works; for each A/B test in a bucket's `tests`, what it is trying to learn (`hypothesis`) and how the winner is judged (`successMetric`); and `assumptions`, flagged clearly so they can correct them. `strategy` is the designer's working plan (buckets, levers, money and budget). If the campaign uses offers, show `potentialSpend` (worked out by code, in three scenarios: if it underperforms / as expected / if it outperforms, the max) against the budget cap; totals need data access, otherwise they're per 1,000 customers. Give them the `link`.
 6. **Changes.** Pass requests on in their words with `request_changes`, then wait and report what changed.
-7. **Submit** only when your user explicitly says the campaign is good to go. First confirm the **start and end dates** with them (the brief shows the designer's proposal); pass `startDate` and `endDate` if they want different ones. The campaign is then locked.
+7. **Submit** only when `canSubmit` is true and your user explicitly says the campaign is good to go. First confirm the **start and end dates** with them (the brief shows the designer's proposal); pass `startDate` and `endDate` if they want different ones. The campaign is then locked.
 8. **Variants**: when your user wants "the same campaign but for …", use `copy_campaign`, then `request_changes` on the copy.
-9. **Stop**: if your user wants a submitted campaign stopped, or wants to change it, use `stop_campaign`; it goes back to ready, and `submit_campaign` sends it out again (customers start fresh). **Delete** only drafts, and only when your user asks.
+9. **Stop**: if your user wants a submitted campaign stopped, or wants to change it, use `stop_campaign`; it goes back to draft, and `submit_campaign` sends it out again (customers start fresh). **Delete** only drafts, and only when your user asks.
 
 ## Offers and spend
 

@@ -80,7 +80,7 @@ describe('the MCP endpoint', () => {
 });
 
 describe('a campaign through the MCP', () => {
-  it('start → questions → answers → ready → submit, saved exactly as the app saves it, on the token\'s bank', async () => {
+  it('start → questions → answers → built → approved → submit, saved exactly as the app saves it, on the token\'s bank', async () => {
     const start = await tool('create_campaign', { brief: 'Diwali spend push' });
     const id = String(start.data.campaignId);
     expect(start.data.link).toBe(`https://app.test/cd/designer.html?c=${id}&bank=TEN-YES`);
@@ -102,7 +102,8 @@ describe('a campaign through the MCP', () => {
     expect(seen[1].skipped).toEqual([qs[1].id]);
 
     st = await tool('get_campaign', { campaignId: id, waitSeconds: 5 });
-    expect(st.data).toMatchObject({ state: 'ready', allowedActions: ['request_changes', 'submit_campaign', 'copy_campaign', 'delete_campaign'] });
+    // Built, but its message waits for the bank's approval: still a draft, everything but submit.
+    expect(st.data).toMatchObject({ state: 'draft', canSubmit: false, notReady: ['1 message is waiting for approval.'], allowedActions: ['request_changes', 'copy_campaign', 'delete_campaign'] });
     // details: the full design along with the summary; only when asked for.
     expect(st.data.details).toBeUndefined();
     const full = (await tool('get_campaign', { campaignId: id, details: true })).data;
@@ -130,17 +131,19 @@ describe('a campaign through the MCP', () => {
     expect(chat.lastBuilt).toBe(true);
     expect(chat.state.campaign.buckets).toEqual([]); // the campaign lives in campaign.json, as in the app
 
+    // Every message is approved by the bank first (Comm approvals, in the app); the MCP can't approve.
+    const waiting = (await tool('get_campaign', { campaignId: id })).data as { approvals?: { pending: number } };
+    expect(waiting.approvals).toMatchObject({ approved: 0, pending: 1, rejected: 0 });
+    expect((await tool('submit_campaign', { campaignId: id, startDate: day(1), endDate: day(30) })).text).toMatch(/can't be submitted yet: 1 message is waiting for approval/);
+    const { syncApprovals, decide } = await import('../../server/approvals');
+    for (const r of syncApprovals(id, loadStores(id).campaign!, resolveTenant('TEN-YES'))) decide(id, r.fp, 'approve', 'compliance');
+    expect((await tool('get_campaign', { campaignId: id })).data).toMatchObject({ state: 'draft', canSubmit: true, allowedActions: ['request_changes', 'submit_campaign', 'copy_campaign', 'delete_campaign'] });
+
     // Dates: refused without them, in the past, backwards, or too short for the journey (3 days).
     expect((await tool('submit_campaign', { campaignId: id })).text).toMatch(/no start and end dates/);
     expect((await tool('submit_campaign', { campaignId: id, startDate: day(-1), endDate: day(30) })).text).toMatch(/in the past/);
     expect((await tool('submit_campaign', { campaignId: id, startDate: day(5), endDate: day(2) })).text).toMatch(/must be after startDate/);
     expect((await tool('submit_campaign', { campaignId: id, startDate: day(1), endDate: day(3) })).text).toMatch(/runs 2 days.*"Dormant" takes about 3 days/);
-    // Every message is approved by the bank first (Comm approvals, in the app); the MCP can't approve.
-    const ready = (await tool('get_campaign', { campaignId: id })).data as { approvals?: { pending: number } };
-    expect(ready.approvals).toMatchObject({ approved: 0, pending: 1, rejected: 0 });
-    expect((await tool('submit_campaign', { campaignId: id, startDate: day(1), endDate: day(30) })).text).toMatch(/1 message is waiting for approval/);
-    const { syncApprovals, decide } = await import('../../server/approvals');
-    for (const r of syncApprovals(id, loadStores(id).campaign!, resolveTenant('TEN-YES'))) decide(id, r.fp, 'approve', 'compliance');
     const sub = await tool('submit_campaign', { campaignId: id, startDate: day(1), endDate: day(30) });
     expect(sub.data).toMatchObject({ state: 'scheduled', allowedActions: ['stop_campaign', 'copy_campaign'], submittedBy: 'growth', startDate: day(1), endDate: day(30) }); // starts tomorrow
     expect((await tool('get_campaign', { campaignId: id })).data).toMatchObject({ startDate: day(1), endDate: day(30) });
@@ -152,9 +155,9 @@ describe('a campaign through the MCP', () => {
     expect(directEdit(id, 'TEN-YES', { op: 'holdout', bucketId: 'b1', value: 5 } as never).error).toMatch(/locked/);
     expect((await tool('delete_campaign', { campaignId: id })).text).toMatch(/submitted for execution, so it cannot be deleted/);
 
-    // Stop: back to ready, editable, recorded, and it can be submitted again. The first name still works.
+    // Stop: back to draft (its approvals kept), editable, recorded, and it can be submitted again. The first name still works.
     const w = await tool('stop_campaign', { campaignId: id });
-    expect(w.data).toMatchObject({ state: 'ready', stoppedBy: 'growth' });
+    expect(w.data).toMatchObject({ state: 'draft', canSubmit: true, stoppedBy: 'growth' });
     expect((await tool('get_campaign', { campaignId: id })).data.lastStopped).toMatchObject({ by: 'growth' });
     expect((await tool('stop_campaign', { campaignId: id })).text).toMatch(/nothing to stop/);
     expect((await tool('withdraw_campaign', { campaignId: id })).text).toMatch(/nothing to stop/);
@@ -164,7 +167,7 @@ describe('a campaign through the MCP', () => {
     const copy = await tool('copy_campaign', { campaignId: id, name: 'Christmas push' });
     const copyId = String(copy.data.campaignId);
     expect(copyId).not.toBe(id);
-    expect(copy.data).toMatchObject({ state: 'ready', copiedFrom: id });
+    expect(copy.data).toMatchObject({ state: 'draft', canSubmit: false, copiedFrom: id }); // a copy's messages are approved afresh
     expect((copy.data.brief as { name: string; bucketCount: number })).toMatchObject({ name: 'Christmas push', bucketCount: 1 });
     expect((await tool('get_campaign', { campaignId: id })).data.state).toBe('scheduled');
     const copyChat = loadChat(copyId) as { turns: { content: string }[] };
@@ -195,7 +198,7 @@ describe('a campaign through the MCP', () => {
     expect(start.data).toMatchObject({ questionMode: 'assume', state: 'draft', allowedActions: [] });
     const id = String(start.data.campaignId);
     const st = await tool('get_campaign', { campaignId: id, waitSeconds: 5 });
-    expect(st.data.state).toBe('ready');
+    expect(st.data).toMatchObject({ state: 'draft', canSubmit: false });
     // The agent asked once; the same Skip the app sends went back, with every question id.
     expect(seen).toHaveLength(2);
     expect(seen[1].skipped).toHaveLength(2);

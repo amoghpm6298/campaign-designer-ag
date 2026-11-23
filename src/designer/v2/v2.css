@@ -458,12 +458,13 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-camp-status.st-ended, .cv-submitted.st-ended { background: #f2f4f7; color: #475467; border-color: #d0d5dd; }
 .cv-camp-status.st-submitted { background: #eff8ff; color: #175cd3; }
 .cv-states { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
-.cv-states button { border: 1px solid var(--v2-border, #e4e7ec); background: #fff; border-radius: 999px; padding: 5px 13px; font: inherit; font-size: 13px; color: var(--v2-text-2, #475467); cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.cv-states button { border: 1px solid var(--v2-border, #e4e7ec); background: #fff; border-radius: 999px; padding: 5px 13px; font: inherit; font-size: 13px; line-height: 20px; color: var(--v2-text-2, #475467); cursor: pointer; display: inline-flex; gap: 6px; align-items: baseline; }
 .cv-states button span { font-size: 11.5px; font-weight: 700; color: var(--v2-text-3, #98a2b3); }
 .cv-states button.on { background: #101828; border-color: #101828; color: #fff; }
 .cv-states button.on span { color: #d0d5dd; }
 .cv-camp-status.st-draft { background: #fffaeb; color: #b54708; }
-.cv-camp-status.st-ready { background: #ecfdf3; color: #027a48; }
+.cv-camp-notready { display: inline-flex; color: var(--v2-text-3, #98a2b3); cursor: help; }
+.cv-camp-notready:hover { color: var(--v2-text-2, #475467); }
 .cv-camp-dates { font-size: 12px; color: var(--v2-text-2); }
 .cv-camp-dates.unset { color: var(--v2-text-3); }
 .cv-state { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 4px 10px; white-space: nowrap; border: 1px solid transparent; }
@@ -829,6 +830,10 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .ca-side .cv-appr { margin: 0; }
 .ca-k { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #667085); margin-bottom: 2px; }
 .ca-where { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.ca-uselink { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; color: var(--v2-text, #101828); text-decoration: none; }
+.ca-uselink svg { color: var(--v2-text-3, #98a2b3); flex: none; }
+.ca-uselink:hover { color: var(--v2-primary, #0a66f0); text-decoration: underline; }
+.ca-uselink:hover svg { color: var(--v2-primary, #0a66f0); }
 .ca-decided { font-size: 12.5px; color: var(--text-muted, #667085); }
 .ca-reason { margin-top: 4px; color: var(--error-text, #b42318); }
 .ca-form { display: flex; flex-direction: column; gap: 8px; }
@@ -851,3 +856,12 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-camp-tab.on { background: var(--v2-primary-light, #e7f0fe); border-color: #8fb9f8; }
 .cv-intent-filter { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 500; color: var(--v2-primary, #0a66f0); background: var(--v2-primary-light, #e7f0fe); border: 1px solid #8fb9f8; border-radius: 999px; padding: 5px 12px; cursor: pointer; }
 .cv-intent-filter:hover { border-color: var(--v2-primary, #0a66f0); }
+
+/* Opened from Comm approvals: the message being reviewed is ringed briefly. */
+@keyframes cvDeepPulse { 0%, 100% { outline-color: rgba(10, 102, 240, 0); } 25%, 75% { outline-color: rgba(10, 102, 240, .55); } }
+.react-flow__node.cv-deep-pulse { outline: 3px solid rgba(10, 102, 240, .55); outline-offset: 5px; border-radius: 14px; animation: cvDeepPulse 1.3s ease-in-out 2; }
+@media (prefers-reduced-motion: reduce) { .react-flow__node.cv-deep-pulse { animation: none; } }
+
+/* The Campaigns title carries a sharp gold star. */
+.cv-home-title { display: flex; align-items: center; gap: 10px; }
+.cv-spark { color: #a5813f; flex: none; }

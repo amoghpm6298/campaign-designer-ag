@@ -2,7 +2,7 @@
 // start a new one. Opening a card loads its campaign and its chat from the
 // server, exactly as it was left.
 import { useEffect, useState } from 'react';
-import { Calendar, MessageSquare, Plus, RefreshCw, X } from 'lucide-react';
+import { Calendar, CircleAlert, MessageSquare, Plus, RefreshCw, X } from 'lucide-react';
 import { apiUrl } from '../api';
 import type { KnowledgeBase, Tenant } from '../types';
 import { DesignerV2, loadChat, type Stored } from './DesignerV2';
@@ -27,12 +27,13 @@ export interface CampaignSummary {
   state: CampaignState;
   /** What it is for; campaigns from before intents read as "other". */
   intent?: CampaignIntent;
+  /** For a draft: why it can't be submitted yet (empty when it can). */
+  notReady?: string[];
 }
 
-export type CampaignState = 'draft' | 'ready' | 'scheduled' | 'active' | 'ended';
+export type CampaignState = 'draft' | 'scheduled' | 'active' | 'ended';
 export const STATES: { key: CampaignState; label: string; hint: string }[] = [
-  { key: 'draft', label: 'Draft', hint: 'Being designed' },
-  { key: 'ready', label: 'Ready', hint: 'Designed, not submitted' },
+  { key: 'draft', label: 'Draft', hint: 'Not submitted yet' },
   { key: 'scheduled', label: 'Scheduled', hint: 'Submitted, before its start date' },
   { key: 'active', label: 'Active', hint: 'Submitted, between its dates' },
   { key: 'ended', label: 'Ended', hint: 'Submitted, after its end date' },
@@ -84,7 +85,13 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
       )}
       <header className="cv-home-head">
         <div>
-          <h1>Campaigns</h1>
+          <h1 className="cv-home-title">
+            {/* A sharp four-point star: draws the eye, and hints at the AI behind the page. */}
+            <svg className="cv-spark" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 0 L14.3 9.7 L24 12 L14.3 14.3 L12 24 L9.7 14.3 L0 12 L9.7 9.7 Z" fill="currentColor" />
+            </svg>
+            Campaigns
+          </h1>
           <p>
             {tenant.displayName}
             {list ? ` · ${list.length} campaign${list.length === 1 ? '' : 's'}` : ''}
@@ -184,6 +191,11 @@ function CampaignCard({ c, onOpen, onIntent, intentOn }: { c: CampaignSummary; o
       })()}
       <span className="cv-camp-top">
         <span className={`cv-camp-status st-${c.state}`}>{STATES.find((x) => x.key === c.state)?.label ?? c.state}</span>
+        {c.state === 'draft' && !!c.notReady?.length && (
+          <span className="cv-camp-notready" title={`Not ready to submit:\n${c.notReady.join('\n')}`} aria-label={`Not ready to submit: ${c.notReady.join(' ')}`}>
+            <CircleAlert size={14} />
+          </span>
+        )}
       </span>
       <b className="cv-camp-name">{c.name}</b>
       {c.ask && <span className="cv-camp-ask">“{c.ask}”</span>}

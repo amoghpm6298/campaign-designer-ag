@@ -331,8 +331,10 @@ export interface CampaignSummary {
   updatedAt: string;
   submitted?: Submission;
   schedule?: { startDate: string; endDate: string } | null;
-  /** Where it is: draft · ready · scheduled · active · ended (the same states the MCP reports). */
-  state: 'draft' | 'ready' | 'scheduled' | 'active' | 'ended';
+  /** Where it is: draft · scheduled · active · ended (the same states the MCP reports). Not submitted = draft. */
+  state: 'draft' | 'scheduled' | 'active' | 'ended';
+  /** The designer has finished building it (no unbuilt changes). Part of whether a draft can be submitted. */
+  designed: boolean;
 }
 
 /** Every saved campaign for a bank, newest first: what the Campaigns page shows. */
@@ -390,8 +392,9 @@ export function listCampaigns(tenantId: string, dir = campaignDir()): CampaignSu
           const st = submittedStage(sub);
           return st === 'submitted' ? 'active' : st;
         }
-        return chat?.body?.lastBuilt || chat?.body?.state?.flags?.campaignBuilt ? 'ready' : 'draft';
+        return 'draft';
       })(),
+      designed: !!(chat?.body?.lastBuilt || chat?.body?.state?.flags?.campaignBuilt),
     });
   }
   return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

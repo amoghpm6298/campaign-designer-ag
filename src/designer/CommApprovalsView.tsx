@@ -3,7 +3,7 @@
 // campaign: Approve, Edit & approve, or Reject with a reason. A rejected
 // message shows on the campaign's canvas with "Rewrite with designer".
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Pencil, ShieldCheck, X } from 'lucide-react';
+import { Check, ExternalLink, Pencil, ShieldCheck, X } from 'lucide-react';
 import { apiUrl } from './api';
 import { fmtDate } from './time';
 import { fetchLinks, type BankLink } from './LinksSection';
@@ -106,9 +106,7 @@ export function CommApprovalsView({ tenant, focusId }: { tenant: Tenant | null; 
                 <span className="ca-counts">
                   {count(q, 'pending') > 0 && <span className="ca-n pending">{count(q, 'pending')} pending</span>}
                   {count(q, 'rejected') > 0 && <span className="ca-n rejected">{count(q, 'rejected')} rejected</span>}
-                  <span className="ca-n approved">
-                    {count(q, 'approved')}/{q.records.length} approved
-                  </span>
+
                 </span>
               </button>
             ))}
@@ -187,7 +185,18 @@ function MessageRow({ r, sessionId, tenant, links, onChanged }: { r: ApprovalRec
     setMode('view');
     onChanged();
   };
-  const where = [...new Set(r.uses.map((u) => `${u.bucketName} · ${u.name}`))];
+  // Each place it is used, as a link that opens the campaign in a new tab, zoomed to this message.
+  const where = r.uses.filter((u, i) => r.uses.findIndex((x) => x.bucketName === u.bucketName && x.name === u.name) === i);
+  const linkTo = (u: ApprovalRecordView['uses'][number]) => {
+    const url = new URL(location.href);
+    url.search = '';
+    const bank = new URLSearchParams(location.search).get('bank');
+    if (bank) url.searchParams.set('bank', bank);
+    url.searchParams.set('c', sessionId);
+    url.searchParams.set('b', u.bucketId);
+    url.searchParams.set('step', u.stepId);
+    return url.toString();
+  };
   return (
     <article className={`ca-msg ${r.status}`}>
       <div className="ca-preview">
@@ -209,8 +218,10 @@ function MessageRow({ r, sessionId, tenant, links, onChanged }: { r: ApprovalRec
         </span>
         <div className="ca-where">
           <span className="ca-k">Used in</span>
-          {where.slice(0, 3).map((w) => (
-            <span key={w}>{w}</span>
+          {where.slice(0, 3).map((u) => (
+            <a key={`${u.bucketId}:${u.stepId}`} className="ca-uselink" href={linkTo(u)} target="_blank" rel="noreferrer" title="Open the campaign in a new tab, at this message">
+              {u.bucketName} · {u.name} <ExternalLink size={12} aria-hidden="true" />
+            </a>
           ))}
           {where.length > 3 && <span className="cv-muted">and {where.length - 3} more</span>}
         </div>

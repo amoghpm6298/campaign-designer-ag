@@ -81,7 +81,7 @@ export const MCP_TOOLS = [
   {
     name: 'get_campaign',
     description:
-      'Where a campaign is. Every campaign response has state and allowedActions. state is one of: "draft" (being designed: the designer is working, has questions for you, or replied), "ready" (designed and built), "scheduled" / "active" / "ended" (submitted for execution and locked: before, between or after its dates), "deleted". allowedActions lists the only tools you may call next for it (get_campaign, get_link and list_campaigns are always allowed); when it is empty the designer is working, so call again. In draft with questions, they are listed with options and why; when ready or submitted there is a brief (summary, dates, buckets, journeys, assumptions) to tell your human what was built. waitSeconds (up to 50) waits for the designer before answering: poll with it, not in a tight loop. A design usually takes 3-7 minutes.',
+      'Where a campaign is. Every campaign response has state and allowedActions. state is one of: "draft" (not submitted: the designer is working, has questions for you, or has built it; canSubmit says whether it can be submitted now and notReady says why not, e.g. messages waiting for the bank approval), "scheduled" / "active" / "ended" (submitted for execution and locked: before, between or after its dates), "deleted". allowedActions lists the only tools you may call next for it (get_campaign, get_link and list_campaigns are always allowed); when it is empty the designer is working, so call again. In draft with questions, they are listed with options and why; when built or submitted there is a brief (summary, dates, buckets, journeys, assumptions) to tell your human what was built. waitSeconds (up to 50) waits for the designer before answering: poll with it, not in a tight loop. A design usually takes 3-7 minutes.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -119,7 +119,7 @@ export const MCP_TOOLS = [
   {
     name: 'submit_campaign',
     description:
-      'Submit a ready campaign for execution. Only call this after your human has explicitly said the campaign is good to go, and has confirmed its start and end dates (shown in the brief). Pass startDate and endDate (YYYY-MM-DD) if the campaign has none or your human wants different ones: the start must be today or later, the end after the start; a recurring campaign can use a far-off end date. Refused if a journey does not fit between the dates. It locks the campaign: no further changes (stop_campaign to change it).',
+      'Submit a campaign for execution (only when get_campaign says canSubmit: true). Only call this after your human has explicitly said the campaign is good to go, and has confirmed its start and end dates (shown in the brief). Pass startDate and endDate (YYYY-MM-DD) if the campaign has none or your human wants different ones: the start must be today or later, the end after the start; a recurring campaign can use a far-off end date. Refused if a journey does not fit between the dates. It locks the campaign: no further changes (stop_campaign to change it).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -141,7 +141,7 @@ export const MCP_TOOLS = [
   {
     name: 'stop_campaign',
     description:
-      'Stop a submitted (scheduled or active) campaign. It goes back to ready: editable again (request_changes works), and submit_campaign can send it out again later with new dates. Customers\' progress is not kept, so submitting again starts it fresh. Only after your human asks for it. Who stopped it and when is recorded.',
+      'Stop a submitted (scheduled or active) campaign. It goes back to draft: editable again (request_changes works), and submit_campaign can send it out again later with new dates. Customers\' progress is not kept, so submitting again starts it fresh. Only after your human asks for it. Who stopped it and when is recorded.',
     inputSchema: { type: 'object', properties: { campaignId: { type: 'string' } }, required: ['campaignId'] },
   },
   {
@@ -188,14 +188,17 @@ function openQuestions(chat: StoredChat): AgentQuestion[] {
 }
 
 /** The one vocabulary for where a campaign is. */
-export type CampaignState = 'draft' | 'ready' | 'scheduled' | 'active' | 'ended' | 'deleted';
+export type CampaignState = 'draft' | 'scheduled' | 'active' | 'ended' | 'deleted';
 
 /** What the caller may do next, per state (get_campaign, get_link and list_campaigns are always available). */
 const ACTIONS = {
   working: [] as string[],
   questions: ['answer_questions', 'request_changes', 'delete_campaign'],
   draft: ['request_changes', 'delete_campaign'],
-  ready: ['request_changes', 'submit_campaign', 'copy_campaign', 'delete_campaign'],
+  /** Built, waiting for the bank's approval of its messages: everything but submit. */
+  awaiting: ['request_changes', 'copy_campaign', 'delete_campaign'],
+  /** Built and every message approved: it can be submitted. */
+  designed: ['request_changes', 'submit_campaign', 'copy_campaign', 'delete_campaign'],
   scheduled: ['stop_campaign', 'copy_campaign'],
   active: ['stop_campaign', 'copy_campaign'],
   ended: ['copy_campaign'],
@@ -242,7 +245,7 @@ export function campaignStatus(caller: Caller, id: string): Result {
   const ws = loadWithdrawals(id);
   if (ws.length) Object.assign(base, { lastStopped: { at: ws[ws.length - 1].at, by: ws[ws.length - 1].by } });
   const flags = (chat.state as AgentState | null)?.flags;
-  // Ready means built AND up to date: a turn that stopped with unbuilt changes is not ready to submit.
+  // Built means built AND up to date: a turn that stopped with unbuilt changes can't be submitted.
   const wasBuilt = flags ? !!flags.campaignBuilt : !!chat.lastBuilt;
   const unfinished = !!flags && !flags.campaignBuilt && !!chat.lastBuilt;
   if (isRunning(id)) return { ...base, state: 'draft', allowedActions: ACTIONS.working, doing: runningStep(id), next: 'The designer is working. Call get_campaign with waitSeconds: 50.' };
@@ -280,10 +283,16 @@ export function campaignStatus(caller: Caller, id: string): Result {
     const stores = loadStores(id);
     const c = stores.campaign;
     const summary = listCampaigns(caller.tenantId).find((x) => x.sessionId === id);
+    // Every message is approved by the bank (in the app, Comm approvals) before submit.
+    const ap = c ? summariseApprovals(syncApprovals(id, c, resolveTenant(caller.tenantId))) : null;
+    const waiting = ap ? approvalProblem(ap) : null;
+    const canSubmit = !waiting;
     return {
       ...base,
-      state: 'ready',
-      allowedActions: ACTIONS.ready,
+      state: 'draft',
+      canSubmit,
+      ...(canSubmit ? {} : { notReady: [waiting!.split('. Every message')[0].replace(/^./, (x) => x.toUpperCase()) + '.'] }),
+      allowedActions: canSubmit ? ACTIONS.designed : ACTIONS.awaiting,
       name: c?.name ?? summary?.name,
       message,
       brief: c ? campaignBrief(c, stores.context, campaignCost(c, stores.context, resolveTenant(caller.tenantId))) : null,
@@ -291,17 +300,10 @@ export function campaignStatus(caller: Caller, id: string): Result {
         .filter((e) => e.source === 'assumption')
         .map((e) => `${e.topic}: ${e.text}`),
       version: summary?.version ?? 0,
-      next: 'Show your human the summary, dates and link. Send changes with request_changes; submit only when they say it is good to go and confirm the dates.',
-      ...(() => {
-        // Every message is approved by the bank (in the app, Comm approvals) before submit.
-        const ap = c ? summariseApprovals(syncApprovals(id, c, resolveTenant(caller.tenantId))) : null;
-        if (!ap || !ap.total) return {};
-        const waiting = approvalProblem(ap);
-        return {
-          approvals: { approved: ap.approved, pending: ap.pending, rejected: ap.rejected, rejectedMessages: ap.rejectedList },
-          ...(waiting ? { next: `Show your human the summary and link. ${waiting} Approvals happen in the app; you can't approve messages. Rejected ones can be rewritten with request_changes.` } : {}),
-        };
-      })(),
+      ...(ap && ap.total ? { approvals: { approved: ap.approved, pending: ap.pending, rejected: ap.rejected, rejectedMessages: ap.rejectedList } } : {}),
+      next: canSubmit
+        ? 'Show your human the summary, dates and link. Send changes with request_changes; submit only when they say it is good to go and confirm the dates.'
+        : `Show your human the summary and link. ${waiting} Approvals happen in the app; you can't approve messages. Rejected ones can be rewritten with request_changes.`,
     };
   }
   return { ...base, state: 'draft', allowedActions: ACTIONS.draft, message, next: 'The designer replied without building. Relay its message and answer with request_changes.' };
@@ -332,7 +334,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
         state: 'draft',
         allowedActions: ACTIONS.working,
         questionMode,
-        next: questionMode === 'assume' ? 'Call get_campaign with waitSeconds: 50 until state is "ready"; its assumptions come with it.' : 'Call get_campaign with waitSeconds: 50 until it changes (it may come back with questions).',
+        next: questionMode === 'assume' ? 'Call get_campaign with waitSeconds: 50 until it has a brief (canSubmit says whether it can be submitted); its assumptions come with it.' : 'Call get_campaign with waitSeconds: 50 until it changes (it may come back with questions).',
       };
     }
 
@@ -398,9 +400,12 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       const id = String(args.campaignId ?? '');
       const chat = chatFor(caller, id);
       if (loadSubmission(id)) throw new ToolError(LOCKED);
-      if (isRunning(id)) throw new ToolError('The agent is still working on this campaign. Wait until get_campaign says "ready".');
+      if (isRunning(id)) throw new ToolError('The agent is still working on this campaign. Wait until get_campaign says canSubmit: true.');
       const st = campaignStatus(caller, id);
-      if (st.state !== 'ready') throw new ToolError(`Only a ready campaign can be submitted; this one is "${String(st.state)}"${(st.allowedActions as string[]).length ? ` (now: ${(st.allowedActions as string[]).join(', ')})` : ' and the designer is still working'}.`);
+      if (st.canSubmit !== true) {
+        const why = (st.notReady as string[] | undefined)?.join(' ');
+        throw new ToolError(`This campaign can't be submitted yet${why ? `: ${why}` : (st.allowedActions as string[]).length ? ` (now: ${(st.allowedActions as string[]).join(', ')})` : ': the designer is still working'}.`);
+      }
       const r = submitChecked(id, chat.tenantId, caller.label, { startDate: args.startDate as string | undefined, endDate: args.endDate as string | undefined }, 'ask with request_changes');
       if (!r.ok) throw new ToolError(r.error.replace('Give a startDate and an endDate (YYYY-MM-DD).', 'Confirm them with your human and pass startDate and endDate (YYYY-MM-DD).'));
       const sub = r.submission;
@@ -448,7 +453,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
         ...campaignStatus(caller, id),
         stoppedAt: w.at,
         stoppedBy: w.by,
-        message: 'Stopped. The campaign is ready again: it can be changed, and submit_campaign sends it out again (customers start fresh).',
+        message: 'Stopped. The campaign is a draft again: it can be changed, and submit_campaign sends it out again (customers start fresh).',
       };
     }
 
