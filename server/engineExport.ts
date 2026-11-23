@@ -119,4 +119,4 @@ export function toEngineCampaign(c: CampaignObject, tenant: Pick<TenantConfig, '
 }
 
 /** Field names that are reasoning, never sent to the engine (for tests and checks). */
-export const REASONING_FIELDS = ['rationale', 'hypothesis', 'successMetric', 'costAssumptions', 'splitIdea', 'describe', 'objective', 'barrier', 'why', 'stage'];
+export const REASONING_FIELDS = ['rationale', 'hypothesis', 'successMetric', 'costAssumptions', 'funnel', 'splitIdea', 'describe', 'objective', 'barrier', 'why', 'stage'];

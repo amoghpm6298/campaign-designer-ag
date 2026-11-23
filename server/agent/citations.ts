@@ -18,6 +18,7 @@ import type { TenantConfig } from '../tenants';
 import { bucketContext, currentEntries } from '../../src/designer/v2/contextView';
 import { incentivesFor } from '../incentives';
 import { campaignCost, type CostReport } from '../costModel';
+import { getBankSettings } from '../bankSettings';
 
 type Entry = CampaignContext['entries'][number];
 
@@ -169,8 +170,8 @@ export function agentTexts(campaign: CampaignObject, context: CampaignContext | 
     for (const s of (Array.isArray(list) ? list : []) as Record<string, unknown>[]) {
       const label = `${owner} › step "${String(s.name ?? s.label ?? s.kind ?? '')}"`;
       for (const k of ['rationale', 'hypothesis', 'successMetric']) if (typeof s[k] === 'string' && (s[k] as string).trim()) out.push({ where: `${label} ${k}`, text: s[k] as string });
-      const ca = s.costAssumptions as Record<string, { why?: unknown }> | undefined;
-      for (const k of ['reach', 'redeem']) if (typeof ca?.[k]?.why === 'string') out.push({ where: `${label} ${k} estimate`, text: ca[k].why as string });
+      const fu = s.funnel as Record<string, { why?: unknown }> | undefined;
+      for (const k of ['opens', 'converts']) if (typeof fu?.[k]?.why === 'string') out.push({ where: `${label} ${k} estimate`, text: fu[k].why as string });
       const idea = s.splitIdea as { hypothesis?: unknown } | undefined;
       if (typeof idea?.hypothesis === 'string') out.push({ where: `${label} split idea`, text: idea.hypothesis });
       for (const k of ['yes', 'no', 'otherwise']) walk(s[k], owner);
@@ -202,8 +203,8 @@ export function systemNumbers(campaign: CampaignObject, context: CampaignContext
         if (typeof p.weight === 'number') out.push(p.weight as number);
         waits(p.steps);
       }
-      const ca = s.costAssumptions as Record<string, Record<string, unknown>> | undefined;
-      for (const k of ['reach', 'redeem']) for (const f of ['expected', 'few']) if (typeof ca?.[k]?.[f] === 'number') out.push(ca[k][f] as number);
+      const fu = s.funnel as Record<string, Record<string, unknown>> | undefined;
+      for (const k of ['opens', 'converts']) if (typeof fu?.[k]?.rate === 'number') out.push(fu[k].rate as number);
     }
   };
   campaign.buckets.forEach((b) => waits(b.journey));
@@ -212,8 +213,11 @@ export function systemNumbers(campaign: CampaignObject, context: CampaignContext
   try {
     const cost = knownCost ?? campaignCost(campaign, context, tenant);
     grab(cost.total);
-    for (const l of cost.lines) grab([l.customers, l.qualified, l.avgReward, l.maxPerCustomer, l.under, l.expected, l.max]);
-    for (const b of cost.buckets) grab([b.under, b.expected, b.max]);
+    for (const l of cost.lines) grab([l.customers, l.qualified, l.avgReward, l.maxPerCustomer, l.expected, l.max, ...l.steps.map((x) => x.count)]);
+    for (const b of cost.buckets) grab([b.expected, b.max]);
+    // The funnel the build reports: who reaches, opens and converts on each message.
+    for (const m of cost.messages) grab([m.arrivingCount, m.delivered, m.opened, m.converted]);
+    grab(Object.values(getBankSettings(tenant?.tenantId ?? '').deliveryRates));
     for (const r of cost.routes) if (typeof r.size === 'number') out.push(r.size);
   } catch {
     /* no cost: nothing to add */

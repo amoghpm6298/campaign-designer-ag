@@ -19,7 +19,7 @@ import { buildCanvasModel } from '../../src/designer/v2/canvasModel';
 import type { CampaignObject } from '../../server/agent/types';
 
 const env = (): ToolEnv => ({ tenant: resolveTenant('TEN-YES')!, availableChannels: ['SMS', 'WHATSAPP', 'EMAIL'], goalStatement: 'x', sessionId: 's1', lookupCache: new Map() });
-const send = (name: string, ch = 'WHATSAPP') => ({ kind: 'send', name, stage: 'first-touch', describe: name, rationale: `why ${name}`, objective: ['activation'], channelPreference: [ch] });
+const send = (name: string, ch = 'WHATSAPP') => ({ kind: 'send', name, stage: 'first-touch', describe: name, rationale: `why ${name}`, objective: ['activation'], channelPreference: [ch], funnel: { opens: { rate: 0.6, why: 'judgement' }, converts: { rate: 0.1, why: 'judgement' } } });
 const exit = (outcome?: string, reason = 'End') => ({ kind: 'exit', reason, ...(outcome ? { outcome } : {}) });
 /** The response window after a last message. */
 const win = { kind: 'wait', durationHours: 96 };

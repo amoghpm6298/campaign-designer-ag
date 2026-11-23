@@ -22,6 +22,7 @@ import { checkJourneys } from './compile';
 import { bucketContext, currentEntries } from '../../src/designer/v2/contextView';
 import { gradeInsights, graderSendBack, insightProblems, insightReviewOn, logInsightEvent, MAX_INSIGHT_SENDBACKS } from './insightChecks';
 import { citationProblems } from './citations';
+import { funnelProblems } from './funnelChecks';
 import { ensureBaseline, recordVersion, setSummary, summariseVersion, type VersionEntry } from '../campaignVersions';
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
@@ -147,6 +148,8 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   // Insight checks (server/agent/insightChecks.ts): code, then the grader; each sends back at most twice.
   let insightCodeTries = 0;
   let citeTries = 0;
+  // Funnel estimates on every message (funnelChecks.ts): sent back at most twice, like the citations.
+  let funnelTries = 0;
   let gradeTries = 0;
   /**
    * Buckets to review: never reviewed, or their notes changed since. A bucket whose notes did not
@@ -432,6 +435,18 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
             continue;
           }
         }
+        // Every message needs its funnel estimates, or the funnel and the cost can't be worked out.
+        if (!wrapUp && !asked.length && built) {
+          const missing = funnelProblems(state.campaign);
+          logInsightEvent({ type: 'funnel_check', sessionId: req.sessionId, tenantId: tenant.tenantId, attempt: funnelTries + 1, missing });
+          if (missing.length && funnelTries < MAX_INSIGHT_SENDBACKS) {
+            funnelTries++;
+            em.emit('model.tool_call.completed', 'understanding', 'Sent back to add funnel estimates', { status: 'ok', correlationId: `funnel-${funnelTries}`, detail: missing.join(' | ').slice(0, 300), data: { tool: 'repair', input: missing, round } });
+            yield* drain();
+            conversation.push({ role: 'user', content: `AUTOMATIC CHECK (end of turn): these messages have no funnel estimates, so the funnel and the cost can't be worked out:\n${missing.map((x) => `- ${x}`).join('\n')}\nAdd them (edit_journey, one call per bucket), estimating for the people who arrive at each message, then build again. Change nothing else.` });
+            continue;
+          }
+        }
         // The campaign changed and was rebuilt, but the brief still describes the old one.
         if (!wrapUp && !asked.length && !briefAsked && built && state.campaign !== startCampaign) {
           const brief = currentEntries(state.context.entries, { kind: 'note', topic: 'campaign brief' })[0];
@@ -518,6 +533,11 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   if (citeTries >= MAX_INSIGHT_SENDBACKS && built && !asked.length) {
     const left = citationProblems(state.campaign, state.context, tenant, !!warehouseBank, env.managerSaid).errors;
     if (left.length) textSegments.push(`${left.length === 1 ? 'One figure doesn\'t' : `${left.length} figures don't`} match the data it cites yet. I've left ${left.length === 1 ? 'it' : 'them'} marked for you to check.`);
+  }
+  // Messages still without estimates after the send-backs are said plainly: their cost is incomplete.
+  if (funnelTries >= MAX_INSIGHT_SENDBACKS && built && !asked.length) {
+    const left = funnelProblems(state.campaign).length;
+    if (left) textSegments.push(`${left === 1 ? 'One message still has' : `${left} messages still have`} no estimate of how many people open and act on ${left === 1 ? 'it' : 'them'}, so the cost isn't complete yet. Ask me to fill ${left === 1 ? 'it' : 'them'} in.`);
   }
   // A turn that stops (e.g. at its step limit) with changes not yet built says so plainly: the canvas and
   // anything that reads the build would otherwise show an older or half-finished campaign as if it were done.

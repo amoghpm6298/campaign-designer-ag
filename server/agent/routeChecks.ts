@@ -17,7 +17,7 @@ export const DEFAULT_MIN_ROUTE = { customers: 1000, pctOfBucket: 5 };
 type Rec = Record<string, unknown>;
 
 /** Wording: what a route may change without being a different treatment. */
-const WORDING = new Set(['id', 'copy', 'cta', 'name', 'label', 'rationale', 'describe', 'objective', 'stage', 'reason', 'splitIdea', 'costAssumptions', 'hypothesis', 'successMetric', 'barrier', 'why']);
+const WORDING = new Set(['id', 'copy', 'cta', 'name', 'label', 'rationale', 'describe', 'objective', 'stage', 'reason', 'splitIdea', 'costAssumptions', 'funnel', 'hypothesis', 'successMetric', 'barrier', 'why']);
 
 /**
  * A route's treatment: everything that changes what customers get or when (the offer, the link,

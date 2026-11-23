@@ -175,15 +175,30 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   words and files it as brief topic "Spend".
 - **Offers in journeys:** a send carries `incentive: <id>` only; the system adds
   the offer's exact `offerLine` after the copy (like a link: `withOfferLine` /
-  `assembleSms`). Copy with amounts is flagged. Each offer send has
-  `costAssumptions` (reach, redeem: expected/few/why).
-- **Cost** (`server/costModel.ts`): code works out per step / bucket / campaign
-  in three scenarios (underperforms / as expected / outperforms = max), with
-  the equation and the source of each input. Never stored. Data OFF → per
-  1,000. The max counts an offer once per bucket. The same offer sent again
-  later on one path only counts the customers who haven't taken it up yet.
+  `assembleSms`). Copy with amounts is flagged.
+- **Cost: a step-by-step funnel** (2026-11-23, `server/costModel.ts`). Every
+  message carries the designer's `funnel` estimates: `opens` (of those it's
+  delivered to; none for SMS) and `converts` (of those who open, or receive for
+  SMS: reach the goal; on an offer message, take the offer up), each one best
+  estimate `{rate, why}` **for the people who arrive at that step**, given what
+  happened before. Delivery is the bank's rate per channel (Knowledge Base ›
+  Delivery, `bankSettings.deliveryRates`, typical rates to start). Code walks
+  each journey with a running count: delivered × opens × converts; goal checks
+  remove converters; branches on the last message split by those counts; signal
+  routes by real sizes; tests by percentage; the bank's SMS retry is added for
+  undelivered WhatsApp/RCS. An offer's **estimated** cost = those who take it
+  up (among those who qualify, once per customer) × the average reward; its
+  **max** = everyone who qualifies takes it. Bucket max = its most expensive
+  offer path (alternative paths: the larger; signal routes: the sum); campaign
+  max = the sum. The build tells the designer the funnel per message (who
+  arrives, delivered, opened, converted). `funnelChecks.ts`: every message has
+  its estimates. Whether a rate is right is the designer's judgement (a later
+  message can convert better: it depends on the message); a keyword check on
+  the reason was tried and removed the same day (it passed "urgency" in a
+  reason arguing for a lower rate). Replaces reach/redeem and
+  the three scenarios. Never stored; data OFF → per 1,000.
 - **Checks** (`server/agent/offerChecks.ts`): offer on the menu, valid, fits the
-  goal, no amounts in copy, estimates present, enough of the bucket qualifies,
+  goal, no amounts in copy, funnel estimates present, enough of the bucket qualifies,
   incentive strategy note + Spend brief, and the BUDGET PASS (as expected over
   `budgetCap` → cut offers, not people). Reported after every build and block
   submit.
@@ -216,7 +231,8 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   `list_incentives`. Banks without: ask whether one already exists.
 - The model never emits node ids, edge ids, field names or template ids. It
   writes the recipe; `buildFromBlueprint` builds and validates the graph.
-- Never invent conversion rates, lifts, cutoffs or rupee figures.
+- Never state conversion rates, lifts, cutoffs or rupee figures as fact: funnel
+  estimates are the designer's judgement, said so, and code works out the rupees.
 - Repair a failing build; never simplify a journey just to pass it.
 - Bank templates live with the bank: sends keep a blank template plus proposed
   copy until real ids are supplied.

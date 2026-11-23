@@ -120,7 +120,7 @@ export function campaignBrief(c: CampaignObject, context: CampaignContext | null
     // The designer's working plan (buckets, levers, money); older campaigns have it as separate notes.
     strategy: noteText(entries, 'campaign strategy') ?? ([noteText(entries, 'segmentation'), noteText(entries, 'incentive strategy')].filter(Boolean).join('\n\n') || null),
     ...(cost && cost.mode !== 'none'
-      ? { potentialSpend: { summary: costLine(cost), ifItUnderperforms: cost.total.under, asExpected: cost.total.expected, ifItOutperformsMax: cost.total.max, budgetCap: cost.budgetCap, unit: cost.mode === 'perThousand' ? 'per 1,000 customers (no data access)' : 'rupees, whole campaign', workedOutBy: 'code, from the data and the designer\'s estimates', ...(cost.notes.length ? { notes: cost.notes } : {}) } }
+      ? { potentialSpend: { summary: costLine(cost), estimated: cost.total.expected, max: cost.total.max, budgetCap: cost.budgetCap, unit: cost.mode === 'perThousand' ? 'per 1,000 customers (no data access)' : 'rupees, whole campaign', workedOutBy: 'code, from the data and the designer\'s estimates', ...(cost.notes.length ? { notes: cost.notes } : {}) } }
       : {}),
     membership: membershipText(c),
     ...(c.maxAttempts ? { timesThroughAtMost: c.maxAttempts } : {}),
@@ -138,7 +138,7 @@ export function campaignBrief(c: CampaignObject, context: CampaignContext | null
       firstPath: journeys[i].firstPath,
       // What each A/B test is for: arms, what it tries to learn, how the winner is judged.
       ...(journeys[i].tests.length ? { tests: journeys[i].tests } : {}),
-      ...(cost?.buckets.find((x) => x.bucketId === b.id) ? { potentialSpend: (({ under, expected, max }) => ({ ifItUnderperforms: under, asExpected: expected, ifItOutperformsMax: max }))(cost.buckets.find((x) => x.bucketId === b.id)!) } : {}),
+      ...(cost?.buckets.find((x) => x.bucketId === b.id) ? { potentialSpend: (({ expected, max }) => ({ estimated: expected, max }))(cost.buckets.find((x) => x.bucketId === b.id)!) } : {}),
     })),
     everyoneElse:
       ee?.approach === 'journey' ? `customers in no bucket get their own journey: ${journeyInWords(ee.journey).inWords}` : 'customers in no bucket get no messages',

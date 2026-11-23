@@ -143,6 +143,14 @@ export async function fetchOffers(tenantId: string): Promise<Offer[]> {
 }
 
 /** One offer, costed (mirrors server/costModel.ts). */
+export interface FunnelStepView {
+  name: string;
+  count: number | null;
+  source: 'bank' | 'designer' | 'code';
+  rate?: number;
+  why?: string;
+}
+
 export interface CostLineView {
   bucketId: string;
   bucketName: string;
@@ -152,15 +160,15 @@ export interface CostLineView {
   incentiveLabel: string;
   customers: number | null;
   qualified: number | null;
-  reach: { expected: number; few: number; why: string } | null;
-  redeem: { expected: number; few: number; why: string } | null;
+  opens: { rate: number; why: string } | null;
+  converts: { rate: number; why: string } | null;
+  steps: FunnelStepView[];
   avgReward: number;
   avgRewardSource: string;
   maxPerCustomer: number;
-  under: number | null;
   expected: number | null;
   max: number | null;
-  equations: { under: string; expected: string; max: string };
+  equations: { expected: string; max: string };
   confidence: 'high' | 'medium' | 'low';
   engineOnly: string[];
   route: string | null;
@@ -170,8 +178,8 @@ export interface CostLineView {
 export interface CostReportView {
   mode: 'totals' | 'perThousand' | 'none';
   lines: CostLineView[];
-  buckets: { bucketId: string; name: string; under: number; expected: number; max: number }[];
-  total: { under: number; expected: number; max: number; maxWithCap: number };
+  buckets: { bucketId: string; name: string; expected: number; max: number }[];
+  total: { expected: number; max: number; maxWithCap: number };
   budgetCap: number | null;
   notes: string[];
   routes: { bucketId: string; stepId: string; label: string; size: number | null; otherwise?: boolean }[];

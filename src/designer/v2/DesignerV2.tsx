@@ -609,6 +609,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               {cost && cost.mode !== 'none' && (
                 <button className="cv-strategy-cta cv-cost-cta" onClick={() => { setDrawerId(null); setStrategyOpen(false); setCostOpen({}); }} title="What the offers may cost the bank, offer by offer">
                   Total est. cost <b>₹{Math.round(cost.total.expected).toLocaleString('en-IN')}</b>
+                  <span className="cv-cost-cta-max">· Max ₹{Math.round(cost.total.max).toLocaleString('en-IN')}</span>
                   {cost.mode === 'perThousand' && <span className="cv-muted"> per 1,000 customers</span>}
                 </button>
               )}

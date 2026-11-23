@@ -352,7 +352,7 @@ export function agentApiPlugin(): Plugin {
             const q = new URL(req.url ?? '', 'http://x').searchParams;
             try {
               const st = (files.loadStores as (id: string) => { campaign: unknown; context: unknown })(q.get('sessionId') ?? '');
-              if (!st.campaign) return send(res, 200, { mode: 'none', lines: [], buckets: [], total: { under: 0, expected: 0, max: 0, maxWithCap: 0 }, budgetCap: null, notes: [] });
+              if (!st.campaign) return send(res, 200, { mode: 'none', lines: [], buckets: [], total: { expected: 0, max: 0, maxWithCap: 0 }, budgetCap: null, notes: [], routes: [], messages: [] });
               return send(res, 200, (C.campaignCost as (c: unknown, x: unknown, t: unknown) => unknown)(st.campaign, st.context, (T.resolveTenant as (id: string) => unknown)(q.get('tenantId') ?? '')));
             } catch (e) {
               return send(res, 400, { error: (e as Error).message });

@@ -271,8 +271,8 @@ describe('the prompt', () => {
       expect(p).toMatch(/## 3\. Changes, through chat/);
       expect(p).toMatch(/There are no approvals/);
       expect(p).not.toMatch(/request_signoff/);
-      expect(p.length).toBeLessThan(28500); // raised 2026-11-20 for the outcome/audience section and the insight notes
-      expect(systemPrompt(w, true).length).toBeLessThan(32000); // with the offers section // raised for endings + after-journey guidance
+      expect(p.length).toBeLessThan(30000); // raised 2026-11-23 for the FUNNEL estimates (every message: opens and converts, for those who arrive)
+      expect(systemPrompt(w, true).length).toBeLessThan(33500); // with the offers section // raised for endings + after-journey guidance, then 2026-11-23 for FUNNEL
     }
     expect(systemPrompt(true)).toMatch(/data warehouse/);
     expect(systemPrompt(false)).toMatch(/your own knowledge and judgement/);

@@ -11,6 +11,7 @@ import { warehouseAvailable } from '../warehouse';
 import { bucketContext, currentEntries } from '../../src/designer/v2/contextView';
 import { campaignCost, costLine, type CostReport } from '../costModel';
 import { todayIST } from './schedule';
+import { funnelProblems } from './funnelChecks';
 import { routeProblems } from './routeChecks';
 import { fieldProblems } from './fieldChecks';
 
@@ -49,9 +50,6 @@ export function offerProblems(campaign: CampaignObject, context: CampaignContext
       if (campaign.goal && !inc.fitsGoals.includes(campaign.goal.eventType)) problems.push(`${step}: the offer "${inc.label}" is earned by ${inc.trigger.action.replace('_', ' ')}, which doesn't serve the goal "${campaign.goal.eventType}". Choose an offer whose trigger fits the goal.`);
       const words = `${String(s.copy ?? '')} ${String(s.cta ?? '')}`;
       if (AMOUNT.test(words)) problems.push(`${step}: the copy states an amount or rate. Remove it: the system adds the offer's exact line ("${inc.offerLine}") after your copy. Write copy that leads into it.`);
-      const ca = (s.costAssumptions ?? {}) as Record<string, { expected?: unknown; few?: unknown; why?: unknown } | undefined>;
-      const okEst = (e?: { expected?: unknown; few?: unknown; why?: unknown }) => !!e && [e.expected, e.few].every((x) => typeof x === 'number' && x >= 0 && x <= 1) && Number(e.few) <= Number(e.expected) && typeof e.why === 'string' && !!e.why.trim();
-      if (!okEst(ca.reach) || !okEst(ca.redeem)) problems.push(`${step}: the offer needs costAssumptions: reach and redeem, each {expected, few, why} as fractions 0-1 (few ≤ expected), so the cost can be worked out.`);
       const sql = views[lane.id]?.sql;
       if (bank && sql) {
         const q = qualifyingShare(bank, signals, sql, inc);
@@ -70,6 +68,8 @@ export function offerProblems(campaign: CampaignObject, context: CampaignContext
   problems.push(...routeProblems(campaign, context, tenant, cost));
   // Personal words in messages: real, allowed, with fallbacks, SMS-length safe.
   problems.push(...fieldProblems(campaign, tenant));
+  // The designer's funnel estimates on every message: present, and a later message that converts better says why.
+  problems.push(...funnelProblems(campaign));
   if (!usesOffers) return { problems, cost };
   const notes = currentEntries(context?.entries ?? []);
   const strategy = notes.find((e) => e.kind === 'note' && ['campaign strategy', 'incentive strategy'].includes(e.topic.toLowerCase()));
@@ -82,7 +82,7 @@ export function offerProblems(campaign: CampaignObject, context: CampaignContext
   }
   if (!notes.some((e) => e.kind === 'brief' && e.topic.toLowerCase() === 'spend'))
     problems.push('The campaign uses offers but the manager\'s speed vs spend appetite isn\'t on file (brief topic "Spend"). Ask them, or note your assumption ("cheapest first").');
-  // The final budget pass: "as expected" must fit the budget; the cap protects the max.
+  // The final budget pass: the estimated cost must fit the budget; the cap protects the max.
   if (cost.mode === 'totals' && cost.budgetCap != null && cost.total.expected > cost.budgetCap) problems.push(budgetPass(cost));
   return { problems, cost };
 }
@@ -92,9 +92,9 @@ export function budgetPass(cost: CostReport): string {
   const rank = { low: 0, medium: 1, high: 2 } as const;
   const rows = [...cost.lines]
     .sort((a, b) => rank[a.confidence] - rank[b.confidence] || (b.expected ?? 0) - (a.expected ?? 0))
-    .map((l) => `- ${l.bucketName} › "${l.step}" · ${l.incentiveLabel}: as expected ${inr(l.expected ?? 0)}, max ${inr(l.max ?? 0)}, confidence ${l.confidence}`);
+    .map((l) => `- ${l.bucketName} › "${l.step}" · ${l.incentiveLabel}: estimated ${inr(l.expected ?? 0)}, max ${inr(l.max ?? 0)}, confidence ${l.confidence}`);
   return [
-    `BUDGET PASS: as expected the offers cost ${inr(cost.total.expected)}, over the ${inr(cost.budgetCap!)} budget. Fit it: cut offers, not people (no bucket is dropped). Cheapest change first: move an offer later (non-responders only), step a big offer down to a small one, narrow it to who needs it, or remove it (messages only). Start with low-confidence, expensive offers:`,
+    `BUDGET PASS: the offers' estimated cost is ${inr(cost.total.expected)}, over the ${inr(cost.budgetCap!)} budget. Fit it: cut offers, not people (no bucket is dropped). Cheapest change first: move an offer later (non-responders only), step a big offer down to a small one, narrow it to who needs it, or remove it (messages only). Start with low-confidence, expensive offers:`,
     ...rows,
     'Then write what you cut, why, and what it costs in results, in the Offers and budget section of your campaign strategy.',
   ].join('\n');

@@ -29,9 +29,10 @@ export function walkSteps(steps: BpStep[] | null | undefined, fn: (step: Rec, pa
  */
 export function ownSignature(s: Rec): string {
   // The reasoning (rationale, hypothesis, successMetric) is not part of what a step does.
-  const { id: _id, arms, paths, yes: _y, no: _n, otherwise: _o, rationale: _r, hypothesis: _h, successMetric: _m, costAssumptions: _ca, splitIdea: _si, ...own } = s;
+  const { id: _id, arms, paths, yes: _y, no: _n, otherwise: _o, rationale: _r, hypothesis: _h, successMetric: _m, costAssumptions: _ca, funnel: _fu, splitIdea: _si, ...own } = s;
   void _si;
   void _ca;
+  void _fu;
   void _r;
   void _h;
   void _m;

@@ -20,7 +20,7 @@ const ACTIVE = 'SELECT customer_id FROM customers WHERE is_active = 1';
 
 const send = (name: string, extra: Record<string, unknown> = {}) => ({ id: `s-${name}`, kind: 'send', name, rationale: 'r', copy: 'Use your card this week.', channelPreference: ['SMS'], ...extra });
 const tail = (name: string, extra: Record<string, unknown> = {}) => [send(name, extra), { id: `w-${name}`, kind: 'wait', durationHours: 72, rationale: 'w' }, { id: `g-${name}`, kind: 'goalCheck' }, { id: `e-${name}`, kind: 'exit', reason: 'End', outcome: 'no_response' }];
-const offer = { incentive: 'no_cost_emi_electronics', costAssumptions: { reach: { expected: 1, few: 1, why: 'j' }, redeem: { expected: 0.1, few: 0.05, why: 'j' } } };
+const offer = { incentive: 'no_cost_emi_electronics', funnel: { opens: { rate: 1, why: 'j' }, converts: { rate: 0.1, why: 'j' } } };
 const sw = (paths: { label: string; operator: string; value: string; steps: unknown[] }[], extra: Record<string, unknown> = {}) => ({ id: 'sw1', kind: 'branch', signal: 'top_category', label: 'What do they spend on most?', rationale: 'r', paths, otherwise: tail('else'), ...extra });
 const camp = (journey: unknown[], extra: Partial<CampaignObject> = {}): CampaignObject =>
   ({
@@ -187,16 +187,17 @@ describe('data access; code sizes signal buckets', () => {
 
 describe('a repeated offer on one path is taken up once', () => {
   it.runIf(yesData)('the second send of the same offer only counts those who have not taken it yet', () => {
-    const send = (id: string) => ({ id, kind: 'send', name: id, copy: 'x', rationale: 'r', channelPreference: ['WHATSAPP'], incentive: 'cashback_first_spend_100', costAssumptions: { reach: { expected: 0.5, few: 0.4, why: 'w' }, redeem: { expected: 0.2, few: 0.1, why: 'w' } } });
+    const send = (id: string) => ({ id, kind: 'send', name: id, copy: 'x', rationale: 'r', channelPreference: ['WHATSAPP'], incentive: 'cashback_first_spend_100', funnel: { opens: { rate: 0.5, why: 'w' }, converts: { rate: 0.2, why: 'w' } } });
     const st = fresh();
     st.campaign.buckets = [{ id: 'a', name: 'Long gap', priority: 1, rule: sig('days_since_last_txn', 'Greater than', '180'), journey: [send('first')] }] as never;
     const sized = autoSizeBuckets(st, tenantOf('TEN-YES')).state;
     const once = costOf(sized.campaign, sized.context, tenantOf('TEN-YES')).lines[0].expected!;
     sized.campaign.buckets[0].journey = [send('first'), { id: 'w', kind: 'wait', durationHours: 72 }, send('again')] as never;
     const twice = costOf(sized.campaign, sized.context, tenantOf('TEN-YES'));
-    // first takes 10%; the second applies to the other 90%.
-    expect(twice.lines[1].expected).toBeCloseTo(once * 0.9, -1);
-    expect(twice.lines[1].equations.expected).toMatch(/90% who haven't already taken this offer/);
+    // The first takes it up for 99.5% delivered (WhatsApp, SMS retry) × 50% open × 20% = 9.95% of those who qualify;
+    // the second, with no goal check between, only counts the other 90.05%.
+    expect(twice.lines[1].expected).toBeCloseTo(once * (1 - 0.0995), -1);
+    expect(twice.lines[1].equations.expected).toMatch(/of the 90% who haven't already taken this offer/);
   });
 });
 
@@ -245,7 +246,7 @@ describe('questions that need options', () => {
 
 describe('offers behind a route nobody can count in advance', () => {
   it.runIf(yesData)('are costed on the whole group above it, and say so', () => {
-    const send = { id: 'o', kind: 'send', name: 'Offer', copy: 'x', rationale: 'r', channelPreference: ['WHATSAPP'], incentive: 'cashback_first_spend_100', costAssumptions: { reach: { expected: 0.3, few: 0.2, why: 'w' }, redeem: { expected: 0.1, few: 0.05, why: 'w' } } };
+    const send = { id: 'o', kind: 'send', name: 'Offer', copy: 'x', rationale: 'r', channelPreference: ['WHATSAPP'], incentive: 'cashback_first_spend_100', funnel: { opens: { rate: 0.3, why: 'w' }, converts: { rate: 0.1, why: 'w' } } };
     const st = fresh();
     st.campaign.buckets = [
       { id: 'a', name: 'Long gap', priority: 1, rule: sig('days_since_last_txn', 'Greater than', '90'), journey: [{ id: 'sw', kind: 'branch', signal: 'read_last_message', label: 'Read it?', rationale: 'r', paths: [{ label: 'Read', operator: 'Is', value: 'true', steps: [send] }], otherwise: [{ ...send, id: 'o2' }] }] },

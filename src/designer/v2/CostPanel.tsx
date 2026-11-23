@@ -1,12 +1,12 @@
-// The estimated cost of the campaign, offer by offer, as funnels of people:
-// from everyone in the bucket down to those who take the offer up, in three
-// versions (underperforms, as expected, outperforms). Every number comes from
-// the server's cost calculator (code, never the AI); the funnel counts are
-// derived from the same figures, so they always add up to the cost shown.
-// The manager can change the designer's estimates and the budget cap here;
-// those are direct edits, worked out again with no agent involved.
+// The estimated cost of the campaign, offer by offer, each with the funnel of
+// people that leads to it: every step from the top of the bucket down to
+// taking the offer up, each labelled with where its number comes from (the
+// bank's delivery rate, the designer's estimate, or worked out). All numbers
+// come from the server's cost calculator (code, never the AI). The manager can
+// change the designer's estimates on an offer message and the spending cap
+// here; those are direct edits, worked out again with no agent involved.
 import { useState } from 'react';
-import type { CostLineView, CostReportView } from './api';
+import type { CostLineView, CostReportView, FunnelStepView } from './api';
 import type { DirectOp } from './EditPopover';
 import { FullPageModal } from './FullPageModal';
 import { withCites } from './Citations';
@@ -15,123 +15,122 @@ const inr = (n: number | null | undefined) => (n == null ? '—' : `₹${Math.ro
 const num = (n: number | null | undefined) => (n == null ? '—' : Math.round(n).toLocaleString('en-IN'));
 const pc = (f: number | undefined) => (f == null ? '—' : `${Math.round(f * 1000) / 10}%`);
 
-/** "If it underperforms ₹30,000 · As expected ₹90,000 · If it outperforms (max) ₹10,00,000". Used on the bucket cards. */
-export function SpendSummary({ under, expected, max, unit, compact }: { under: number; expected: number; max: number; unit?: string; compact?: boolean }) {
+/** "Est. ₹90,000 · Max ₹10,00,000". Used on the bucket cards. */
+export function SpendSummary({ expected, max, unit, compact }: { expected: number; max: number; unit?: string; compact?: boolean }) {
   return (
     <span className={`cv-spend${compact ? ' compact' : ''}`}>
       <span>
-        <i>{compact ? 'Under' : 'If it underperforms'}</i> {inr(under)}
-      </span>
-      <span>
-        <i>As expected</i> <b>{inr(expected)}</b>
+        <i>{compact ? 'Est.' : 'Estimated'}</i> <b>{inr(expected)}</b>
       </span>
       <span className="max">
-        <i>{compact ? 'Max' : 'If it outperforms (max)'}</i> {inr(max)}
+        <i>Max</i> {inr(max)}
       </span>
       {unit && <em>{unit}</em>}
     </span>
   );
 }
 
-type Version = 'under' | 'expected' | 'max';
-const VERSIONS: { key: Version; label: string }[] = [
-  { key: 'under', label: 'If it underperforms' },
-  { key: 'expected', label: 'As expected' },
-  { key: 'max', label: 'If it outperforms' },
-];
+const SOURCE: Record<FunnelStepView['source'], string> = { bank: "Bank's rate", designer: "Designer's estimate", code: 'Worked out' };
+/** Short form under each stage, where columns are narrow. */
+const SOURCE_SHORT: Record<FunnelStepView['source'], string> = { bank: 'Bank', designer: 'Designer', code: 'Worked out' };
 
-interface Funnel {
-  bucket: number | null;
-  qualify: number | null;
-  reach: number | null;
-  takeUp: number | null;
-  cost: number | null;
+/** Lines of at most `max` characters, at word breaks (at most three). */
+function wrap(text: string, max: number): string[] {
+  const out: string[] = [];
+  let line = '';
+  for (const w of text.split(/\s+/)) {
+    if (line && (line + ' ' + w).length > max) {
+      out.push(line);
+      line = w;
+    } else line = line ? `${line} ${w}` : w;
+  }
+  if (line) out.push(line);
+  return out.slice(0, 4);
 }
 
 /**
- * One version of an offer's funnel: who qualifies × reach × take-up, as the cost calculator counts it
- * (so the steps match the cost shown).
- * Outperforms is the most it can cost: everyone who qualifies takes it up, at the most per customer.
+ * The funnel, left to right, one stage per step on the way to the offer. People who convert and
+ * leave at a goal check are a note on the stage after it, so the shape only ever narrows.
  */
-function funnelOf(l: CostLineView, v: Version, perThousand: boolean): Funnel {
-  const bucket = perThousand ? 1000 : l.customers;
-  const qualify = perThousand ? 1000 : (l.qualified ?? l.customers);
-  if (v === 'max') return { bucket, qualify, reach: qualify, takeUp: qualify, cost: l.max };
-  const k = v === 'under' ? 'few' : 'expected';
-  const cost = v === 'under' ? l.under : l.expected;
-  const r = l.reach?.[k];
-  const d = l.redeem?.[k];
-  if (cost == null || r == null || d == null || qualify == null) return { bucket, qualify, reach: null, takeUp: null, cost: null };
-  // A later message with the same offer only counts those who haven't taken it yet. That share isn't sent
-  // to the browser, so it is read back from the cost; within rounding of the average reward it is 1.
-  const full = qualify * r * d * l.avgReward;
-  const left = full > 0 ? Math.min(1, cost / full) : 1;
-  const share = left > 0.97 ? 1 : left;
-  const reach = qualify * share * r;
-  return { bucket, qualify, reach, takeUp: reach * d, cost };
-}
-
-/** A data source in words a manager reads: "data: …" → "From the bank's data: …". */
-const plainSource = (s: string) =>
-  s === 'incentive menu (flat)' ? 'A fixed amount, set by the offer.' : s.replace(/^data: /, "From the bank's data: ").replace(/^no data: /, 'No data to work it out, so ');
-
-/**
- * A left-to-right funnel (one shape that narrows stage by stage), in one hue getting lighter.
- * Each stage is labelled directly: its name above, its share of the bucket and its count below.
- */
-function FunnelChart({ f }: { f: Funnel }) {
-  const stages: { name: string; n: number }[] = [
-    { name: 'In the bucket', n: f.bucket ?? 0 },
-    ...(f.qualify != null && f.qualify !== f.bucket ? [{ name: 'Qualify for the offer', n: f.qualify }] : []),
-    { name: 'Reach this message', n: f.reach ?? 0 },
-    { name: 'Take the offer up', n: f.takeUp ?? 0 },
-  ];
-  const base = stages[0].n || 1;
-  const W = 1000;
-  const top = 34;
-  const band = 150;
-  const cy = top + band / 2;
+function FunnelChart({ steps }: { steps: FunnelStepView[] }) {
+  const stages: (FunnelStepView & { left?: number | null })[] = [];
+  for (let i = 0; i < steps.length; i++) {
+    const st = steps[i];
+    if (st.name === 'Converted') {
+      // Converters leave: a note on the step after. When a path follows the goal check, the path is
+      // what this offer's people are (e.g. those who read and didn't buy), so the count of everyone
+      // left in the journey is skipped: it includes people on other paths.
+      let j = i + 1;
+      if (steps[j]?.name === 'Haven’t converted yet' && steps[j + 1]?.name.startsWith('Path:')) j++;
+      const next = steps[j];
+      if (next) {
+        stages.push({ ...next, left: st.count });
+        i = j;
+      }
+      continue;
+    }
+    stages.push(st);
+  }
+  const base = stages[0]?.count || 1;
+  const COL = 128;
+  const W = Math.max(960, COL * stages.length);
   const col = W / stages.length;
-  const h = (n: number) => Math.max(4, (band * Math.min(n, base)) / base);
-  const share = (n: number) => `${Math.round((1000 * n) / base) / 10}%`;
-  const fade = [1, 0.8, 0.62, 0.46, 0.34];
+  const top = 72;
+  const band = 140;
+  const cy = top + band / 2;
+  const h = (n: number | null) => (n == null ? 4 : Math.max(4, (band * Math.min(n, base)) / base));
+  const share = (n: number | null) => (n == null ? '—' : `${Math.round((1000 * n) / base) / 10}%`);
+  const chars = Math.max(12, Math.floor(col / 7.4));
   return (
-    <svg className="cf-funnel" viewBox={`0 0 ${W} ${top + band + 58}`} role="img" aria-label={stages.map((st) => `${st.name}: ${num(st.n)}`).join(', ')}>
-      {stages.map((st, i) => {
-        const x0 = i * col;
-        const x1 = (i + 1) * col - (i < stages.length - 1 ? 2 : 0);
-        const a = h(st.n);
-        const b = i < stages.length - 1 ? h(stages[i + 1].n) : a;
-        return (
-          <g key={st.name} className="cf-stage">
-            <title>{`${st.name}: ${num(st.n)} people, ${share(st.n)} of the bucket`}</title>
-            <polygon points={`${x0},${cy - a / 2} ${x1},${cy - b / 2} ${x1},${cy + b / 2} ${x0},${cy + a / 2}`} fill="var(--accent, #1d4ed8)" fillOpacity={fade[i] ?? 0.3} />
-            <text x={x0 + 10} y={18} className="cf-stage-name">
-              {st.name}
-            </text>
-            <text x={x0 + 10} y={top + band + 26} className="cf-stage-pct">
-              {share(st.n)}
-            </text>
-            <text x={x0 + 10} y={top + band + 48} className="cf-stage-n">
-              {num(st.n)} people
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+    <div className="cf-funnel-wrap">
+      <svg className="cf-funnel" viewBox={`0 0 ${W} ${top + band + 92}`} style={stages.length > 8 ? { minWidth: `${Math.round(W * 0.9)}px` } : undefined} role="img" aria-label={stages.map((st) => `${st.name}: ${num(st.count)}`).join(', ')}>
+        {stages.map((st, i) => {
+          const x0 = i * col;
+          const x1 = (i + 1) * col - (i < stages.length - 1 ? 2 : 0);
+          const a = h(st.count);
+          const b = i < stages.length - 1 ? h(stages[i + 1].count) : a;
+          const fade = 1 - (0.62 * i) / Math.max(1, stages.length - 1);
+          return (
+            <g key={i} className="cf-stage">
+              <title>{`${st.name}: ${num(st.count)} people (${share(st.count)} of the bucket). ${SOURCE[st.source]}${st.rate != null ? ` ${pc(st.rate)}` : ''}${st.why ? `: ${st.why}` : ''}`}</title>
+              <polygon points={`${x0},${cy - a / 2} ${x1},${cy - b / 2} ${x1},${cy + b / 2} ${x0},${cy + a / 2}`} fill="var(--accent, #1d4ed8)" fillOpacity={st.count == null ? 0.12 : fade} />
+              {wrap(st.name, chars).map((ln, k) => (
+                <text key={k} x={x0 + 8} y={14 + k * 15} className="cf-stage-name">
+                  {ln}
+                </text>
+              ))}
+              <text x={x0 + 8} y={top + band + 24} className="cf-stage-pct">
+                {num(st.count)}
+              </text>
+              <text x={x0 + 8} y={top + band + 44} className="cf-stage-n">
+                {share(st.count)}
+              </text>
+              <text x={x0 + 8} y={top + band + 64} className={`cf-stage-src ${st.source}`}>
+                {SOURCE_SHORT[st.source]}
+                {st.rate != null && st.source !== 'code' ? ` · ${pc(st.rate)}` : ''}
+              </text>
+              {st.left != null && st.left > 0 && (
+                <text x={x0 + 8} y={top + band + 84} className="cf-stage-left">
+                  {num(st.left)} converted, left
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 }
 
-function EstimateLine({ label, est, onSave, disabled }: { label: string; est: CostLineView['reach']; onSave: (expected: number, few: number) => Promise<void>; disabled: boolean }) {
+function EstimateLine({ label, help, est, onSave, disabled }: { label: string; help: string; est: { rate: number; why: string } | null; onSave: (pct: number) => Promise<void>; disabled: boolean }) {
   const [open, setOpen] = useState(false);
-  const [ex, setEx] = useState(est ? Math.round(est.expected * 100) : 0);
-  const [fw, setFw] = useState(est ? Math.round(est.few * 100) : 0);
+  const [v, setV] = useState(est ? Math.round(est.rate * 1000) / 10 : 0);
   const [busy, setBusy] = useState(false);
   const mine = est?.why === 'Set by the manager.';
   return (
     <div className="cf-est">
       <div className="cf-est-h">
-        <b>{label}</b> {pc(est?.expected)} as expected, {pc(est?.few)} if it underperforms
+        <b>{label}</b> {est ? pc(est.rate) : 'no estimate yet'} <span className="cv-muted">{help}</span>
         <span className="cf-est-src">{mine ? 'You set it' : 'The designer’s estimate'}</span>
         {!disabled && !open && (
           <button className="cv-link-btn" onClick={() => setOpen(true)}>
@@ -143,10 +142,7 @@ function EstimateLine({ label, est, onSave, disabled }: { label: string; est: Co
       {open && (
         <span className="cv-est-edit">
           <label>
-            As expected <input type="number" min={0} max={100} value={ex} onChange={(e) => setEx(Number(e.target.value))} />%
-          </label>
-          <label>
-            If it underperforms <input type="number" min={0} max={100} value={fw} onChange={(e) => setFw(Number(e.target.value))} />%
+            {label} <input type="number" min={0} max={100} step="0.5" value={v} onChange={(e) => setV(Number(e.target.value))} />%
           </label>
           <button className="cv-btn" onClick={() => setOpen(false)}>
             Cancel
@@ -156,7 +152,7 @@ function EstimateLine({ label, est, onSave, disabled }: { label: string; est: Co
             disabled={busy}
             onClick={async () => {
               setBusy(true);
-              await onSave(ex, fw);
+              await onSave(v);
               setBusy(false);
               setOpen(false);
             }}
@@ -169,10 +165,8 @@ function EstimateLine({ label, est, onSave, disabled }: { label: string; est: Co
   );
 }
 
-function OfferFunnel({ l, perThousand, locked, run }: { l: CostLineView; perThousand: boolean; locked: boolean; run: (op: DirectOp) => Promise<void> }) {
-  const [version, setVersion] = useState<Version>('expected');
-  const fs = VERSIONS.map((v) => ({ ...v, f: funnelOf(l, v.key, perThousand) }));
-  const shown = fs.find((v) => v.key === version)!;
+function OfferFunnel({ l, locked, run }: { l: CostLineView; locked: boolean; run: (op: DirectOp) => Promise<void> }) {
+  const sms = !l.opens && !l.steps.slice(-3).some((s) => s.name === 'Opened it');
   return (
     <article className="cf-offer">
       <header className="cf-offer-h">
@@ -183,50 +177,38 @@ function OfferFunnel({ l, perThousand, locked, run }: { l: CostLineView; perThou
             {l.route ? ` › ${l.route}` : ''} · in “{l.step}”
           </span>
         </div>
-        <div className="cf-switch" role="radiogroup" aria-label="Which version">
-          {fs.map((v) => (
-            <button key={v.key} role="radio" aria-checked={version === v.key} className={version === v.key ? 'on' : ''} onClick={() => setVersion(v.key)}>
-              {v.label}
-            </button>
-          ))}
-        </div>
       </header>
-      {shown.f.cost == null ? <div className="cf-none">No estimate yet for this version.</div> : <FunnelChart f={shown.f} />}
+      <FunnelChart steps={l.steps} />
       <div className="cf-costs">
         <div className="cf-cost-main">
-          <span>Cost, {shown.label.toLowerCase()}</span>
-          <b>{inr(shown.f.cost)}</b>
+          <span>Estimated cost</span>
+          <b>{inr(l.expected)}</b>
         </div>
-        {fs
-          .filter((v) => v.key !== version)
-          .map((v) => (
-            <button key={v.key} className="cf-cost-other" onClick={() => setVersion(v.key)}>
-              <span>{v.label}</span>
-              <b>{inr(v.f.cost)}</b>
-            </button>
-          ))}
+        <div className="cf-cost-other">
+          <span>Max, if everyone who qualifies takes it</span>
+          <b>{inr(l.max)}</b>
+        </div>
       </div>
+      {l.expected == null && <div className="cv-cost-warn">{l.equations.expected}</div>}
       <div className="cf-ests">
-        <EstimateLine label="Reach" est={l.reach} disabled={locked || !l.stepId} onSave={(e, f) => run({ op: 'costAssumption', bucketId: l.bucketId, stepId: l.stepId, which: 'reach', expected: e, few: f })} />
-        <EstimateLine label="Take-up" est={l.redeem} disabled={locked || !l.stepId} onSave={(e, f) => run({ op: 'costAssumption', bucketId: l.bucketId, stepId: l.stepId, which: 'redeem', expected: e, few: f })} />
+        {!sms && <EstimateLine label="Opens" help="of those it’s delivered to" est={l.opens} disabled={locked || !l.stepId} onSave={(pct) => run({ op: 'funnelRate', bucketId: l.bucketId, stepId: l.stepId, which: 'opens', pct })} />}
+        <EstimateLine label="Takes the offer up" help={sms ? 'of those who receive it' : 'of those who open it'} est={l.converts} disabled={locked || !l.stepId} onSave={(pct) => run({ op: 'funnelRate', bucketId: l.bucketId, stepId: l.stepId, which: 'converts', pct })} />
         <div className="cf-est">
           <div className="cf-est-h">
             <b>Cost per person who takes it up</b> {inr(l.avgReward)} on average, at most {inr(l.maxPerCustomer)}
           </div>
-          <div className="cv-muted">{plainSource(l.avgRewardSource)}</div>
+          <div className="cv-muted">{l.avgRewardSource === 'incentive menu (flat)' ? 'A fixed amount, set by the offer.' : l.avgRewardSource.replace(/^data: /, "From the bank's data: ").replace(/^no data: /, 'No data to work it out, so ')}</div>
         </div>
+        <div className="cv-muted">Under each step: its share of the bucket, and where its number comes from (Bank: the bank's delivery rate, set in Knowledge Base › Delivery · Designer: the designer's estimate · Worked out: by code). Hover a step to see why.</div>
         {l.engineOnly.length > 0 && <div className="cv-muted">The engine also checks: {l.engineOnly.join(' ')} So fewer may qualify than shown.</div>}
       </div>
       <details className="cf-working">
         <summary>How it’s worked out</summary>
         <div>
-          <i>If it underperforms:</i> {l.equations.under}
+          <i>Estimated:</i> {l.equations.expected}
         </div>
         <div>
-          <i>As expected:</i> {l.equations.expected}
-        </div>
-        <div>
-          <i>If it outperforms:</i> {l.equations.max}
+          <i>Max:</i> {l.equations.max}
         </div>
       </details>
     </article>
@@ -242,23 +224,19 @@ export function CostPanel({ report, focusBucket, locked, onDirect, onClose }: { 
   const run = async (op: DirectOp) => {
     setMsg(null);
     const r = await onDirect(op);
-    setMsg(r.ok ? 'Saved. The cost has been worked out again.' : (r.error ?? 'Not saved.'));
+    setMsg(r.ok ? 'Saved. The funnel and cost have been worked out again.' : (r.error ?? 'Not saved.'));
   };
   const t = report.total;
   return (
-    <FullPageModal title="Estimated cost of campaign" kicker="What the offers may cost the bank. Worked out by code from the bank's data and the designer's estimates." onClose={onClose} wide>
+    <FullPageModal title="Estimated cost of campaign" kicker="What the offers may cost the bank, worked out by code from the bank's delivery rates, its data and the designer's estimates." onClose={onClose} wide>
       <section className="cf-total">
-        <div className="cf-total-row">
-          <div>
-            <span>If it underperforms</span>
-            <b>{inr(t.under)}</b>
-          </div>
+        <div className="cf-total-row two">
           <div className="lead">
-            <span>As expected</span>
+            <span>Estimated cost</span>
             <b>{inr(t.expected)}</b>
           </div>
           <div>
-            <span>If it outperforms (the most)</span>
+            <span>Max, if everyone who qualifies takes every offer</span>
             <b>{inr(t.max)}</b>
           </div>
         </div>
@@ -276,10 +254,9 @@ export function CostPanel({ report, focusBucket, locked, onDirect, onClose }: { 
             </>
           )}
           {report.budgetCap != null && t.max > report.budgetCap && <span className="cv-muted">Offers stop once {inr(report.budgetCap)} is spent.</span>}
-          {report.budgetCap != null && t.expected > report.budgetCap && <div className="cv-cost-warn">The expected cost is over the cap. Ask the designer to cut offers to fit.</div>}
+          {report.budgetCap != null && t.expected > report.budgetCap && <div className="cv-cost-warn">The estimated cost is over the cap. Ask the designer to cut offers to fit.</div>}
         </div>
         {msg && <div className="cv-muted">{msg}</div>}
-        {report.lines.length > 1 && <div className="cv-muted">The most the campaign can cost counts each customer once per offer, so it can be less than the offers below added up.</div>}
         {report.notes.map((n) => (
           <div key={n} className="cv-muted">
             {n}
@@ -295,9 +272,9 @@ export function CostPanel({ report, focusBucket, locked, onDirect, onClose }: { 
         </div>
       )}
       {lines.map((l) => (
-        <OfferFunnel key={`${l.bucketId}-${l.stepId}-${l.incentiveId}`} l={l} perThousand={perThousand} locked={locked} run={run} />
+        <OfferFunnel key={`${l.bucketId}-${l.stepId}-${l.incentiveId}`} l={l} locked={locked} run={run} />
       ))}
-      <p className="cv-muted cv-drawer-hint">To change an offer or who gets it, ask in the chat. Estimates and the cap can be changed here.</p>
+      <p className="cv-muted cv-drawer-hint">To change an offer, a message or who gets it, ask in the chat. Estimates on offer messages and the cap can be changed here.</p>
     </FullPageModal>
   );
 }

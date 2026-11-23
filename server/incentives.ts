@@ -226,6 +226,8 @@ const exampleMenu = (tenant: MenuTenant): Incentive[] => mockLibrary(MOCK_FEES[t
 /** The incentive menu for a bank, paused and draft offers included. Empty when it has none. */
 export function incentivesFor(tenant: MenuTenant | null | undefined, dir = incentivesDir()): Incentive[] {
   if (!tenant?.incentives) return [];
+  // Without a bank id there is no file to read: the starting menu.
+  if (!tenant.tenantId) return exampleMenu(tenant);
   const p = fileFor(tenant.tenantId, dir);
   if (existsSync(p)) {
     try {

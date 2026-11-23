@@ -363,9 +363,10 @@ export type ChangeMap = Map<string, 'target' | 'knock'>;
 /** A step's own content (without its id or nested steps, with its arms'/paths' own settings). */
 function ownSig(st: CStep): string {
   // A change to the reasoning alone doesn't light up the canvas.
-  const { arms, paths, yes: _y, no: _n, otherwise: _o, id: _id, rationale: _r, hypothesis: _h, successMetric: _m, costAssumptions: _ca, splitIdea: _si, ...own } = st as CStep & { costAssumptions?: unknown; splitIdea?: unknown };
+  const { arms, paths, yes: _y, no: _n, otherwise: _o, id: _id, rationale: _r, hypothesis: _h, successMetric: _m, costAssumptions: _ca, funnel: _fu, splitIdea: _si, ...own } = st as CStep & { costAssumptions?: unknown; funnel?: unknown; splitIdea?: unknown };
   void _si;
   void _ca;
+  void _fu;
   void _r;
   void _h;
   void _m;

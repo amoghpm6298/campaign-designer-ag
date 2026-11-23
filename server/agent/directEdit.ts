@@ -25,7 +25,7 @@ export type DirectOp =
   | { op: 'maxAttempts'; value: number }
   | { op: 'schedule'; startDate: string; endDate: string }
   | { op: 'budgetCap'; value: number | null }
-  | { op: 'costAssumption'; bucketId: string; stepId: string; which: 'reach' | 'redeem'; expected: number; few: number };
+  | { op: 'funnelRate'; bucketId: string; stepId: string; which: 'opens' | 'converts'; pct: number };
 
 export interface DirectResult {
   ok: boolean;
@@ -89,20 +89,18 @@ function apply(state: AgentState, op: DirectOp): { state: AgentState; said: stri
   const hit = findStep(journey, op.stepId);
   if (!hit) return { error: 'That step no longer exists.' };
   const lane = bucket ? `"${bucket.name}"` : 'Everyone else';
-  if (op.op === 'costAssumption') {
-    // The manager overrides one of the designer's estimates; the cost is worked out again by code.
-    if (hit.step.kind !== 'send' || !hit.step.incentive) return { error: 'That message makes no offer.' };
-    const ex = Number(op.expected) / 100;
-    const fw = Number(op.few) / 100;
-    if (!(ex >= 0 && ex <= 1 && fw >= 0 && fw <= 1)) return { error: 'Use percentages from 0 to 100.' };
-    if (fw > ex) return { error: '"If it underperforms" must be no higher than "as expected".' };
-    const ca = { ...((hit.step.costAssumptions as Record<string, unknown>) ?? {}) } as Record<string, { expected: number; few: number; why: string }>;
-    const prevEst = ca[op.which];
-    ca[op.which] = { expected: ex, few: fw, why: 'Set by the manager.' };
-    const res = editJourney(state, op.bucketId, [{ op: 'replace', path: hit.path, step: { ...hit.step, costAssumptions: ca } }]);
+  if (op.op === 'funnelRate') {
+    // The manager overrides one of the designer's funnel estimates; the funnel and cost are worked out again by code.
+    if (hit.step.kind !== 'send' && hit.step.kind !== 'waitForEvent') return { error: 'That step has no funnel estimates.' };
+    const r = Number(op.pct) / 100;
+    if (!(r >= 0 && r <= 1)) return { error: 'Use a percentage from 0 to 100.' };
+    const fu = { ...((hit.step.funnel as Record<string, unknown>) ?? {}) } as Record<string, { rate: number; why: string }>;
+    const prev = fu[op.which];
+    fu[op.which] = { rate: r, why: 'Set by the manager.' };
+    const res = editJourney(state, op.bucketId, [{ op: 'replace', path: hit.path, step: { ...hit.step, funnel: fu } }]);
     if (res.error) return { error: res.error };
-    const w = (e?: { expected: number; few: number }) => (e ? `${Math.round(e.expected * 100)}% (if it underperforms ${Math.round(e.few * 100)}%)` : 'not set');
-    return { state: res.state, said: `${lane} "${String(hit.step.name ?? 'message')}" ${op.which === 'reach' ? 'reach' : 'take-up'}: ${w(prevEst)} → ${w(ca[op.which])}` };
+    const w = (e?: { rate: number }) => (e ? `${Math.round(e.rate * 100)}%` : 'not set');
+    return { state: res.state, said: `${lane} "${String(hit.step.name ?? 'message')}" ${op.which}: ${w(prev)} → ${w(fu[op.which])}` };
   }
   if (op.op === 'split') {
     if (hit.step.kind !== 'experiment') return { error: 'That step is not an A/B test.' };

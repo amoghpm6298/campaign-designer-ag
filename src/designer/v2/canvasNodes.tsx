@@ -762,7 +762,7 @@ function SpendLine({ bucketId }: { bucketId?: string }) {
       }}
     >
       <span className="cv-spendline-h">Potential spend on offers{r.mode === 'perThousand' ? ' · per 1,000 customers' : ''}</span>
-      <SpendSummary under={t.under} expected={t.expected} max={t.max} compact />
+      <SpendSummary expected={t.expected} max={t.max} compact />
       {!bucketId && r.budgetCap != null && <span className="cv-spendline-cap">Budget cap ₹{r.budgetCap.toLocaleString('en-IN')}</span>}
     </button>
   );

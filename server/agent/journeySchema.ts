@@ -43,12 +43,13 @@ export const STEP_DEF = {
     signal: { type: 'string', description: 'Branch only: route by one of the bank\'s signals (list_signals key, usable for switching). Each path then gives operator and value on that signal; otherwise (everyone else) is required.' },
     // an offer on a send (banks with an incentive menu)
     incentive: { type: 'string', description: 'Send only: the id of an offer from list_incentives that this message makes. The system adds the offer\'s exact line after the copy; never write the offer, amounts or terms yourself. Leave it out for a message with no offer.' },
-    costAssumptions: {
+    funnel: {
       type: 'object',
-      description: 'Required on a send that carries an incentive: your estimates for the cost calculator. reach = share of the bucket that gets this message (1 if everyone; lower if only non-responders reach it); redeem = share of those who take the offer up. Each as a fraction 0-1, for "expected" and for "few" (if the campaign underperforms; few <= expected), with why (where the estimate comes from: past results in the data, or your judgement).',
+      description:
+        'Required on every send (with or without an offer), and converts on a waitForEvent: your single best estimates of how the people who ARRIVE at this step move through it, given what already happened to them. opens = of those it is delivered to, the share who open it (leave out for SMS: no read receipts). converts = of those who open it (who receive it, for SMS), the share who reach the campaign goal before the next goal check; on an offer message, the share who take the offer up; on a waitForEvent, the share who do the event in the window. Each {rate: 0-1, why}. Delivery is the bank\'s rate, and how many arrive is worked out by the app: never estimate those.',
       properties: {
-        reach: { type: 'object', properties: { expected: { type: 'number' }, few: { type: 'number' }, why: { type: 'string' } }, required: ['expected', 'few', 'why'] },
-        redeem: { type: 'object', properties: { expected: { type: 'number' }, few: { type: 'number' }, why: { type: 'string' } }, required: ['expected', 'few', 'why'] },
+        opens: { type: 'object', properties: { rate: { type: 'number' }, why: { type: 'string' } }, required: ['rate', 'why'] },
+        converts: { type: 'object', properties: { rate: { type: 'number' }, why: { type: 'string' } }, required: ['rate', 'why'] },
       },
     },
     // send

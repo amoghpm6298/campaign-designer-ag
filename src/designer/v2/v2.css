@@ -703,3 +703,14 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cf-cost-other b { font-size: 15px; color: var(--text-muted, #667085); font-weight: 600; }
 .cf-cost-other:hover b { color: var(--accent, #1d4ed8); }
 @media (prefers-reduced-motion: reduce) { .cf-stage polygon { transition: none; } }
+/* Step-by-step funnel: every step labelled with its source; long paths scroll inside the card. */
+.cf-funnel-wrap { overflow-x: auto; }
+.cf-total-row.two { grid-template-columns: repeat(2, 1fr); }
+.cf-stage-name { font-size: 13px; font-weight: 600; fill: var(--text, #101828); }
+.cf-stage-pct { font-size: 18px; }
+.cf-stage-src { font-size: 12px; font-weight: 600; }
+.cf-stage-src.bank { fill: #0f766e; }
+.cf-stage-src.designer { fill: var(--accent, #1d4ed8); }
+.cf-stage-src.code { fill: var(--text-muted, #667085); }
+.cf-stage-left { font-size: 12px; fill: var(--text-muted, #667085); font-style: italic; }
+.cv-cost-cta-max { color: var(--text-muted, #667085); font-weight: 500; margin-left: 4px; }
