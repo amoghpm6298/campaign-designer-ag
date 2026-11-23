@@ -153,7 +153,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         setApprovals(d.records ?? []);
         window.dispatchEvent(new Event('cv:approvals-changed'));
       })
-      .catch(() => live && setApprovals(null));
+      .catch(() => live && setApprovals([]));
     return () => {
       live = false;
     };
@@ -594,7 +594,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             )}
           </span>
         )}
-        {!submission && !viewOnly && !viewing && (state?.flags.campaignBuilt || lastBuilt) && (
+        {!submission && !viewOnly && !viewing && (state?.flags.campaignBuilt || lastBuilt) && approvals !== null && (
           <span className="cv-del-wrap">
             {notApproved > 0 ? (
               <button

@@ -6,6 +6,7 @@
 // change the designer's estimates on an offer message and the spending cap
 // here; those are direct edits, worked out again with no agent involved.
 import { useState } from 'react';
+import { Gift } from 'lucide-react';
 import type { CostLineView, CostReportView, FunnelStepView } from './api';
 import type { DirectOp } from './EditPopover';
 import { FullPageModal } from './FullPageModal';
@@ -31,8 +32,6 @@ export function SpendSummary({ expected, max, unit, compact }: { expected: numbe
 }
 
 const SOURCE: Record<FunnelStepView['source'], string> = { bank: "Bank's rate", designer: "Designer's estimate", code: 'Worked out' };
-/** Short form under each stage, where columns are narrow. */
-const SOURCE_SHORT: Record<FunnelStepView['source'], string> = { bank: 'Bank', designer: 'Designer', code: 'Worked out' };
 
 /** Lines of at most `max` characters, at word breaks (at most three). */
 function wrap(text: string, max: number): string[] {
@@ -80,10 +79,18 @@ function FunnelChart({ steps }: { steps: FunnelStepView[] }) {
   const cy = top + band / 2;
   const h = (n: number | null) => (n == null ? 4 : Math.max(4, (band * Math.min(n, base)) / base));
   const share = (n: number | null) => (n == null ? '—' : `${Math.round((1000 * n) / base) / 10}%`);
+  // Each stage's headline: the share of the people at the stage before (the first stage is everyone).
+  const ofPrev = (i: number) => {
+    const n = stages[i].count;
+    const p = i === 0 ? n : stages[i - 1].count;
+    if (n == null || p == null) return '—';
+    if (!p) return '0%';
+    return `${Math.round((1000 * n) / p) / 10}%`;
+  };
   const chars = Math.max(12, Math.floor(col / 7.4));
   return (
     <div className="cf-funnel-wrap">
-      <svg className="cf-funnel" viewBox={`0 0 ${W} ${top + band + 92}`} style={stages.length > 8 ? { minWidth: `${Math.round(W * 0.9)}px` } : undefined} role="img" aria-label={stages.map((st) => `${st.name}: ${num(st.count)}`).join(', ')}>
+      <svg className="cf-funnel" viewBox={`0 0 ${W} ${top + band + 72}`} style={stages.length > 8 ? { minWidth: `${Math.round(W * 0.9)}px` } : undefined} role="img" aria-label={stages.map((st) => `${st.name}: ${num(st.count)}`).join(', ')}>
         {stages.map((st, i) => {
           const x0 = i * col;
           const x1 = (i + 1) * col - (i < stages.length - 1 ? 2 : 0);
@@ -100,17 +107,13 @@ function FunnelChart({ steps }: { steps: FunnelStepView[] }) {
                 </text>
               ))}
               <text x={x0 + 8} y={top + band + 24} className="cf-stage-pct">
-                {num(st.count)}
+                {ofPrev(i)}
               </text>
               <text x={x0 + 8} y={top + band + 44} className="cf-stage-n">
-                {share(st.count)}
-              </text>
-              <text x={x0 + 8} y={top + band + 64} className={`cf-stage-src ${st.source}`}>
-                {SOURCE_SHORT[st.source]}
-                {st.rate != null && st.source !== 'code' ? ` · ${pc(st.rate)}` : ''}
+                {st.count == null ? '—' : `${num(st.count)} ${st.count === 1 ? 'person' : 'people'}`}
               </text>
               {st.left != null && st.left > 0 && (
-                <text x={x0 + 8} y={top + band + 84} className="cf-stage-left">
+                <text x={x0 + 8} y={top + band + 64} className="cf-stage-left">
                   {num(st.left)} converted, left
                 </text>
               )}
@@ -122,56 +125,28 @@ function FunnelChart({ steps }: { steps: FunnelStepView[] }) {
   );
 }
 
-function EstimateLine({ label, help, est, onSave, disabled }: { label: string; help: string; est: { rate: number; why: string } | null; onSave: (pct: number) => Promise<void>; disabled: boolean }) {
-  const [open, setOpen] = useState(false);
-  const [v, setV] = useState(est ? Math.round(est.rate * 1000) / 10 : 0);
-  const [busy, setBusy] = useState(false);
+/** One of the designer's estimates, with its reasoning. Changed by asking in the chat, not here. */
+function EstimateLine({ label, help, est }: { label: string; help: string; est: { rate: number; why: string } | null }) {
   const mine = est?.why === 'Set by the manager.';
   return (
     <div className="cf-est">
       <div className="cf-est-h">
         <b>{label}</b> {est ? pc(est.rate) : 'no estimate yet'} <span className="cv-muted">{help}</span>
-        <span className="cf-est-src">{mine ? 'You set it' : 'The designer’s estimate'}</span>
-        {!disabled && !open && (
-          <button className="cv-link-btn" onClick={() => setOpen(true)}>
-            Change
-          </button>
-        )}
       </div>
-      {!mine && est?.why && <div className="cv-muted">{withCites(est.why)}</div>}
-      {open && (
-        <span className="cv-est-edit">
-          <label>
-            {label} <input type="number" min={0} max={100} step="0.5" value={v} onChange={(e) => setV(Number(e.target.value))} />%
-          </label>
-          <button className="cv-btn" onClick={() => setOpen(false)}>
-            Cancel
-          </button>
-          <button
-            className="cv-btn primary"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              await onSave(v);
-              setBusy(false);
-              setOpen(false);
-            }}
-          >
-            {busy ? 'Saving…' : 'Save'}
-          </button>
-        </span>
-      )}
+      {est?.why && <div className="cv-muted">{mine ? 'You set this.' : withCites(est.why)}</div>}
     </div>
   );
 }
 
-function OfferFunnel({ l, locked, run }: { l: CostLineView; locked: boolean; run: (op: DirectOp) => Promise<void> }) {
+function OfferFunnel({ l }: { l: CostLineView }) {
   const sms = !l.opens && !l.steps.slice(-3).some((s) => s.name === 'Opened it');
   return (
     <article className="cf-offer">
       <header className="cf-offer-h">
         <div>
-          <b>{l.incentiveLabel}</b>
+          <b className="cf-offer-name">
+            <Gift size={16} aria-hidden="true" /> {l.incentiveLabel}
+          </b>
           <span>
             {l.bucketName}
             {l.route ? ` › ${l.route}` : ''} · in “{l.step}”
@@ -191,15 +166,15 @@ function OfferFunnel({ l, locked, run }: { l: CostLineView; locked: boolean; run
       </div>
       {l.expected == null && <div className="cv-cost-warn">{l.equations.expected}</div>}
       <div className="cf-ests">
-        {!sms && <EstimateLine label="Opens" help="of those it’s delivered to" est={l.opens} disabled={locked || !l.stepId} onSave={(pct) => run({ op: 'funnelRate', bucketId: l.bucketId, stepId: l.stepId, which: 'opens', pct })} />}
-        <EstimateLine label="Takes the offer up" help={sms ? 'of those who receive it' : 'of those who open it'} est={l.converts} disabled={locked || !l.stepId} onSave={(pct) => run({ op: 'funnelRate', bucketId: l.bucketId, stepId: l.stepId, which: 'converts', pct })} />
+        {!sms && <EstimateLine label="Nudge open" help="of those it’s delivered to" est={l.opens} />}
+        <EstimateLine label="Offer participation" help={sms ? 'of those who receive it' : 'of those who open it'} est={l.converts} />
         <div className="cf-est">
           <div className="cf-est-h">
-            <b>Cost per person who takes it up</b> {inr(l.avgReward)} on average, at most {inr(l.maxPerCustomer)}
+            <b>Cost per participant</b> {inr(l.avgReward)} on average, at most {inr(l.maxPerCustomer)}
           </div>
           <div className="cv-muted">{l.avgRewardSource === 'incentive menu (flat)' ? 'A fixed amount, set by the offer.' : l.avgRewardSource.replace(/^data: /, "From the bank's data: ").replace(/^no data: /, 'No data to work it out, so ')}</div>
         </div>
-        <div className="cv-muted">Under each step: its share of the bucket, and where its number comes from (Bank: the bank's delivery rate, set in Knowledge Base › Delivery · Designer: the designer's estimate · Worked out: by code). Hover a step to see why.</div>
+        <div className="cv-muted">Each step shows the share of people from the step before, and how many people that is. Hover a step to see where its number comes from.</div>
         {l.engineOnly.length > 0 && <div className="cv-muted">The engine also checks: {l.engineOnly.join(' ')} So fewer may qualify than shown.</div>}
       </div>
       <details className="cf-working">
@@ -272,7 +247,7 @@ export function CostPanel({ report, focusBucket, locked, onDirect, onClose }: { 
         </div>
       )}
       {lines.map((l) => (
-        <OfferFunnel key={`${l.bucketId}-${l.stepId}-${l.incentiveId}`} l={l} locked={locked} run={run} />
+        <OfferFunnel key={`${l.bucketId}-${l.stepId}-${l.incentiveId}`} l={l} />
       ))}
       <p className="cv-muted cv-drawer-hint">To change an offer, a message or who gets it, ask in the chat. Estimates on offer messages and the cap can be changed here.</p>
     </FullPageModal>
