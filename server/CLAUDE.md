@@ -143,11 +143,11 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
 
 - **Smart Engage 2.0: intents and products** (2026-11-23). "Create new
   campaign" asks what it is for: Credit cards (usage, activation, churn,
-  something else) and Across the bank (product sign-ups); CASA tiles are shown
+  custom campaign) and Across the bank (product sign-ups); CASA tiles are shown
   as coming soon. The intent is stored on the campaign on its first turn
   (`campaign.intent`, `productId`; MCP `create_campaign` takes both) and shown
   to the designer every turn as a block in the APP STATUS (`agent/intent.ts`),
-  so the fixed prompt doesn't grow. Old campaigns read as "something else".
+  so the fixed prompt doesn't grow. Old campaigns read as "Custom campaign".
   **Products** (`server/products.ts`, the NBA agent's offering schema; product
   pages live in Links) are only pitched in a **product sign-ups** campaign: its
   goal is Product Events / Product Signed Up (the bank's feed, treated as
@@ -156,6 +156,22 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   campaigns is off for now**, to be tried separately: a first try showed a
   goal check removes everyone who converted, so a cross-sell "after the goal
   check" can never reach a buyer.
+
+- **Comm approvals** (2026-11-23, `server/approvals.ts`, `src/designer/CommApprovalsView.tsx`).
+  The designer drafts; the bank approves every message before a campaign can
+  be submitted. What is approved is the content a customer reads (channel,
+  copy, CTA, link, offer line), keyed by a hash of it: any change to the words
+  makes it pending again, and the same words on several paths are one
+  decision. Every build (and every read) syncs the queue: new messages pending,
+  decisions kept, unused records moved to history. `submitChecked` refuses
+  until all are approved (MCP too; `get_campaign` reports the counts, and the
+  MCP cannot approve). The designer sees the counts and rejected reasons in
+  the APP STATUS. The inbox (sidebar "Comm approvals", with a pending count)
+  offers Approve, Edit & approve (a direct `copy` edit, then approval) and
+  Reject with a required reason; a rejected card on the canvas has "Rewrite
+  with designer". Submitted campaigns are left out of the queue (locked, and
+  older ones predate approvals). Anyone with access approves for now; the
+  decision records who and when.
 
 ## Signals and incentives (menus by name)
 

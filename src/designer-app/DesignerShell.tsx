@@ -1,8 +1,8 @@
 // The standalone application shell: its own header, navigation and global
 // tenant selector. Nothing here comes from the ib-face-mock chrome.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Gift, Library, Link2, Megaphone, Package, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import logo from '../assets/hfLogo.svg';
+import { Gift, Library, Link2, Megaphone, Package, PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
+import logo from '../assets/hyperfaceMark.jpeg';
 import {
   applyOverrides,
   loadOverrides,
@@ -15,19 +15,32 @@ import { CampaignView, CampaignsHome } from '../designer/v2/CampaignsHome';
 import { OffersView } from '../designer/OffersView';
 import { LinksView } from '../designer/LinksView';
 import { ProductsView } from '../designer/ProductsView';
+import { CommApprovalsView } from '../designer/CommApprovalsView';
 import { KnowledgeBaseView } from '../designer/KnowledgeBaseView';
 import { ReloadPrompt } from './ReloadPrompt';
 import { listTenants, seedKnowledge } from '../designer/api';
+import { apiUrl } from '../designer/api';
 import { loadTenantId, saveTenantId } from '../designer/storage';
 import type { Capabilities, KnowledgeBase, Tenant } from '../designer/types';
 
 /** The bank, and whether the designer can read its data: "Yes Bank (Data access: Allowed)". */
 const tenantLabel = (t: Tenant) => `${t.displayName} (Data access: ${t.warehouseAccess ? 'Allowed' : 'Not allowed'})`;
 
-type Page = 'designer' | 'knowledge' | 'links' | 'offers' | 'products';
+type Page = 'designer' | 'knowledge' | 'links' | 'offers' | 'products' | 'approvals';
 
 export function DesignerShell() {
   const [page, setPage] = useState<Page>('designer');
+  // "Waiting for approvals" on a campaign opens Comm approvals at that campaign.
+  const [approvalsFocus, setApprovalsFocus] = useState<string | null>(null);
+  useEffect(() => {
+    const go = (e: Event) => {
+      setApprovalsFocus((e as CustomEvent<{ sessionId?: string }>).detail?.sessionId ?? null);
+      setOpenId(null);
+      setPage('approvals');
+    };
+    window.addEventListener('cv:open-approvals', go);
+    return () => window.removeEventListener('cv:open-approvals', go);
+  }, []);
   // The open campaign, if any; kept in the address (?c=…) so a link or a refresh opens it again.
   const [openId, setOpenId] = useState<string | null>(() => new URLSearchParams(location.search).get('c'));
   // Opened from a signed view link: one campaign, read-only, no navigation.
@@ -84,6 +97,36 @@ export function DesignerShell() {
   }, [tenantId]);
 
   const tenant = tenants.find((t) => t.tenantId === tenantId) ?? null;
+  // Pending Comm approvals, counted on the sidebar item. Refreshed on page changes and whenever a decision or a build changes the queue.
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+  useEffect(() => {
+    if (!tenant) return;
+    let live = true;
+    const load = () =>
+      fetch(apiUrl(`/api/approvals?tenantId=${encodeURIComponent(tenant.tenantId)}`))
+        .then((r) => r.json())
+        .then((d: { campaigns?: { records: { status: string }[] }[] }) => live && setPendingApprovals((d.campaigns ?? []).reduce((n, c) => n + c.records.filter((r) => r.status === 'pending').length, 0)))
+        .catch(() => undefined);
+    load();
+    window.addEventListener('cv:approvals-changed', load);
+    return () => {
+      live = false;
+      window.removeEventListener('cv:approvals-changed', load);
+    };
+  }, [tenant, page, openId]);
+  // Active campaigns (running now), counted on the Campaigns item.
+  const [activeCampaigns, setActiveCampaigns] = useState(0);
+  useEffect(() => {
+    if (!tenant) return;
+    let live = true;
+    fetch(apiUrl(`/api/campaigns?tenantId=${encodeURIComponent(tenant.tenantId)}`))
+      .then((r) => r.json())
+      .then((d: { campaigns?: { state?: string }[] }) => live && setActiveCampaigns((d.campaigns ?? []).filter((c) => c.state === 'active').length))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [tenant, page, openId]);
 
   // Drops the user's CHANGES, not the knowledge. The seed is recomputed on
   // every load, so this can no longer lose anything that was ours to give.
@@ -111,12 +154,11 @@ export function DesignerShell() {
         <div className={`h-16 flex items-center shrink-0 ${railOpen ? 'px-4 gap-2.5' : 'justify-center'}`}>
           {railOpen && (
             <>
-              {/* The mark keeps its own navy on a tinted chip rather than
-                  being knocked out white on a blue one: at 18px the swoosh
-                  inside it closes up and reads as a plain ring. */}
+              {/* The full Hyperface app mark (navy square, teal swoosh) at
+                  36px with rounded corners: big enough that the swoosh reads. */}
               <span className="flex flex-1 items-center gap-2.5 min-w-0">
-                <span className="w-8 h-8 rounded-[10px] bg-primary-light grid place-items-center shrink-0">
-                  <img src={logo} alt="" aria-hidden="true" width={19} height={19} />
+                <span className="w-9 h-9 rounded-[9px] overflow-hidden shrink-0">
+                  <img src={logo} alt="" aria-hidden="true" width={36} height={36} className="w-full h-full object-cover" />
                 </span>
                 <span className="leading-tight min-w-0">
                   {/* 12.5px semibold, not 14px bold: at 14px a longer product
@@ -151,6 +193,7 @@ export function DesignerShell() {
               ['links', 'Links', Link2],
               ['offers', 'Offers', Gift],
               ['products', 'Products', Package],
+              ['approvals', 'Comm approvals', ShieldCheck],
             ] as [Page, string, typeof Megaphone][]
           ).map(([k, label, Icon]) => {
             const on = page === k;
@@ -177,6 +220,24 @@ export function DesignerShell() {
                 {on && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-primary" />}
                 <Icon className="w-[18px] h-[18px] shrink-0" />
                 {railOpen && <span className="truncate">{label}</span>}
+                {k === 'designer' && activeCampaigns > 0 && (
+                  <span
+                    className={railOpen ? 'ml-auto inline-flex items-center h-5 px-1.5 rounded-full bg-[#f2f4f7] text-[11px] font-medium tabular-nums text-[#475467]' : 'absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-primary'}
+                    aria-label={`${activeCampaigns} active`}
+                    title={`${activeCampaigns} campaign${activeCampaigns === 1 ? '' : 's'} running now`}
+                  >
+                    {railOpen ? activeCampaigns : ''}
+                  </span>
+                )}
+                {k === 'approvals' && pendingApprovals > 0 && (
+                  <span
+                    className={railOpen ? 'ml-auto inline-flex items-center h-5 px-1.5 rounded-full bg-[#f2f4f7] text-[11px] font-medium tabular-nums text-[#475467]' : 'absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-primary'}
+                    aria-label={`${pendingApprovals} pending`}
+                    title={`${pendingApprovals} message${pendingApprovals === 1 ? '' : 's'} waiting for approval`}
+                  >
+                    {railOpen ? pendingApprovals : ''}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -253,6 +314,7 @@ export function DesignerShell() {
           <div style={{ padding: 30, fontSize: 13, color: 'var(--gray-600)' }}>Loading tenant and knowledge base…</div>
         )}
         {!bootError && page === 'links' && <LinksView key={tenant?.tenantId} tenant={tenant} />}
+        {!bootError && page === 'approvals' && <CommApprovalsView key={`${tenant?.tenantId}:${approvalsFocus}`} tenant={tenant} focusId={approvalsFocus} />}
         {!bootError && page === 'products' && <ProductsView key={tenant?.tenantId} tenant={tenant} />}
         {!bootError && page === 'offers' && <OffersView key={tenant?.tenantId} tenant={tenant} />}
         {!bootError && page === 'knowledge' && knowledge && (

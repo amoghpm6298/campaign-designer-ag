@@ -325,6 +325,8 @@ export interface CampaignSummary {
   messages: number;
   membership: 'one-time' | 'recurring' | null;
   refresh?: string;
+  /** What it is for (usage, activation, adoption, churn, other). */
+  intent: string;
   version: number;
   updatedAt: string;
   submitted?: Submission;
@@ -375,6 +377,8 @@ export function listCampaigns(tenantId: string, dir = campaignDir()): CampaignSu
       buckets: c?.buckets.length ?? 0,
       messages,
       membership: c?.membership ? (c.membership.type === 'open' ? 'recurring' : 'one-time') : null,
+      // What it is for (Smart Engage 2.0); campaigns from before intents read as "other".
+      intent: c?.intent ?? 'other',
       ...(c?.membership?.type === 'open' ? { refresh: c.membership.refresh ?? 'weekly' } : {}),
       version,
       updatedAt: [camp?.updatedAt, chat?.updatedAt].filter(Boolean).sort().pop() ?? '',

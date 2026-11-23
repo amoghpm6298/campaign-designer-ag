@@ -21,6 +21,7 @@ import { incentiveForAgent, incentivesFor, qualifyingShare, validFor } from '../
 import { todayIST } from './schedule';
 import { costLine, offerProblems } from './offerChecks';
 import { funnelReport } from '../costModel';
+import { syncApprovals } from '../approvals';
 import { autoSizeBuckets } from './autoSize';
 import { bucketContext } from '../../src/designer/v2/contextView';
 import {
@@ -822,6 +823,12 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
   const knockOns = checkJourneys(next.campaign, env.links, env.smsFallback ?? true, true);
   const openEndings = endingGaps(next.campaign);
   const offers = offerProblems(next.campaign, next.context, env.tenant);
+  // New or changed messages go to the bank's approval queue (Comm approvals); decisions on unchanged ones are kept.
+  try {
+    syncApprovals(env.sessionId, next.campaign, env.tenant);
+  } catch {
+    /* the queue is rebuilt from the campaign whenever it is read */
+  }
   const cites = citationProblems(next.campaign, next.context, env.tenant, !!env.warehouseBank, env.managerSaid ?? [env.goalStatement], offers.cost);
   next = setFlag(next, 'campaignBuilt', true, 'app', summary);
   next = log(next, 'app', 'campaign_built', `Built: ${summary}${notes.length ? `, ${notes.length} note(s)` : ''}`);

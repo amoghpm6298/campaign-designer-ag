@@ -13,7 +13,7 @@ export const INTENT_LABEL: Record<CampaignIntent, string> = {
   activation: 'Increase card activation',
   adoption: 'Drive product sign-ups',
   churn: 'Reduce churn',
-  other: 'Something else',
+  other: 'Custom campaign',
 };
 
 const GUIDE: Record<CampaignIntent, string> = {

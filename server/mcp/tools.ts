@@ -6,6 +6,7 @@ import { copyCampaign, deleteCampaign, findDeleted, listCampaigns, loadChat, loa
 import { campaignCost } from '../costModel';
 import { resolveTenant } from '../tenants';
 import { productsFor } from '../products';
+import { approvalProblem, summarise as summariseApprovals, syncApprovals } from '../approvals';
 import { isIntent } from '../agent/intent';
 import { toEngineCampaign } from '../engineExport';
 import { currentEntries } from '../../src/designer/v2/contextView';
@@ -291,6 +292,16 @@ export function campaignStatus(caller: Caller, id: string): Result {
         .map((e) => `${e.topic}: ${e.text}`),
       version: summary?.version ?? 0,
       next: 'Show your human the summary, dates and link. Send changes with request_changes; submit only when they say it is good to go and confirm the dates.',
+      ...(() => {
+        // Every message is approved by the bank (in the app, Comm approvals) before submit.
+        const ap = c ? summariseApprovals(syncApprovals(id, c, resolveTenant(caller.tenantId))) : null;
+        if (!ap || !ap.total) return {};
+        const waiting = approvalProblem(ap);
+        return {
+          approvals: { approved: ap.approved, pending: ap.pending, rejected: ap.rejected, rejectedMessages: ap.rejectedList },
+          ...(waiting ? { next: `Show your human the summary and link. ${waiting} Approvals happen in the app; you can't approve messages. Rejected ones can be rewritten with request_changes.` } : {}),
+        };
+      })(),
     };
   }
   return { ...base, state: 'draft', allowedActions: ACTIONS.draft, message, next: 'The designer replied without building. Relay its message and answer with request_changes.' };

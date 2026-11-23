@@ -7,6 +7,7 @@ import { LOCKED, loadChat, loadStores, loadSubmission, saveEngineCampaign, submi
 import { toEngineCampaign } from './engineExport';
 import { isRunning } from './mcp/runner';
 import { offerProblems } from './agent/offerChecks';
+import { approvalProblem, summarise, syncApprovals } from './approvals';
 import { resolveTenant } from './tenants';
 
 /**
@@ -48,6 +49,9 @@ export function submitChecked(
     return { ok: false, error: `Not submitted: the campaign runs ${windowDays} days (${sch.startDate} → ${sch.endDate}), but ${tooLong.map((l) => `"${l.name}" takes about ${l.days} days`).join(', ')}. Give later dates, or ${fixHint} for shorter journeys.` };
   const broken = [...checkJourneys(c, undefined, true, true), ...offerProblems(c, loadStores(sessionId).context, resolveTenant(tenantId)).problems];
   if (broken.length) return { ok: false, error: `Not submitted: these need fixing first (${fixHint}):\n- ${broken.join('\n- ')}` };
+  // Every message a customer would read is approved by the bank first (Comm approvals).
+  const waiting = approvalProblem(summarise(syncApprovals(sessionId, c, resolveTenant(tenantId))));
+  if (waiting) return { ok: false, error: `Not submitted: ${waiting}` };
   // What the engine runs: only its fields, checked, then frozen with the submission.
   const exported = toEngineCampaign(c, resolveTenant(tenantId));
   if (exported.problems.length) return { ok: false, error: `Not submitted: the engine version has problems (${fixHint}):\n- ${exported.problems.join('\n- ')}` };

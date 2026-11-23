@@ -13,9 +13,9 @@ export const INTENTS: { key: CampaignIntent; letter: string; label: string; hint
   { key: 'activation', letter: 'B', label: 'Increase card activation', hint: 'Get cardholders to start using a card they already have.' },
   { key: 'adoption', letter: 'C', label: 'Drive product sign-ups', hint: 'Sell a product to your customers: a card upgrade, a loan, insurance.' },
   { key: 'churn', letter: 'D', label: 'Reduce churn', hint: 'Keep cardholders who are drifting away.' },
-  { key: 'other', letter: 'E', label: 'Something else', hint: 'Any other kind of credit card campaign. Describe it in your own words.' },
+  { key: 'other', letter: 'E', label: 'Custom campaign', hint: 'Any other credit card campaign. Describe it in your own words.' },
 ];
-export const intentLabel = (k: string | null | undefined) => INTENTS.find((i) => i.key === k)?.label ?? 'Something else';
+export const intentLabel = (k: string | null | undefined) => INTENTS.find((i) => i.key === k)?.label ?? 'Custom campaign';
 
 const mem = new Map<string, IntentChoice>();
 const key = (id: string) => `cd.intent.${id}`;

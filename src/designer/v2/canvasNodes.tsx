@@ -115,7 +115,7 @@ function Marked({ text, offerLine, fields }: { text: string; offerLine?: string;
   );
 }
 
-function ChannelPreview({ channel, text, cta, bank, subject, time, link, offerLine, fields }: { channel: string; text: string; cta?: string; bank: string; subject?: string; time?: string; link?: BankLink; offerLine?: string; fields?: FieldSampleView[] }) {
+export function ChannelPreview({ channel, text, cta, bank, subject, time, link, offerLine, fields }: { channel: string; text: string; cta?: string; bank: string; subject?: string; time?: string; link?: BankLink; offerLine?: string; fields?: FieldSampleView[] }) {
   const clock = fmtClock(time);
   // No link: no button and no URL; the CTA wording, if any, stays part of the message.
   const button = link && cta ? cta : null;
@@ -327,6 +327,7 @@ function SendCard({ data }: { data: CdNodeData }) {
   return (
     <Card cat="send" icon={CHANNEL_ICON[ch] ?? 'paperplane'} type={`Send · ${CHANNEL_LABEL[ch] ?? ch}`} data={data} extra="cv-clickable" title="Open the message preview">
       <div className="dc-node-label">{sendTitle({ ...st, name: st.name || st.label })}</div>
+      <ApprovalChip stepId={st.id} />
       {linkState.broken && <div className="cv-link-bad" title={linkState.broken}>⚠ {linkState.broken}</div>}
       {st.product && (() => {
         const pr = data.products?.find((x) => x.product_id === st.product);
@@ -650,7 +651,7 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
     case 'experiment':
       body = (
         <Hexagon data={data} color="#7a52d1" fill="#f9f6ff" icon="flask" kind="A/B test">
-          <div className="cv-shape-label">{st.label || 'Which version works better?'}</div>
+          <div className="cv-shape-label full">{st.label || 'Which version works better?'}</div>
           <RationalePill st={st} />
         </Hexagon>
       );
@@ -697,6 +698,38 @@ export interface EditApi {
 }
 export const EditContext = createContext<EditApi | null>(null);
 /** The campaign's potential spend on offers, and how to open its working. */
+/** Comm approvals: each message's status (by step id), and the "Rewrite with designer" action for a rejected one. */
+export interface ApprovalView {
+  status: 'pending' | 'approved' | 'rejected';
+  reason?: string;
+}
+export const ApprovalContext = createContext<{ byStep: Record<string, ApprovalView>; rewrite?: (stepId: string, reason: string) => void } | null>(null);
+
+function ApprovalChip({ stepId }: { stepId?: string }) {
+  const ap = useContext(ApprovalContext);
+  const v = stepId ? ap?.byStep[stepId] : undefined;
+  if (!v) return null;
+  const label = v.status === 'approved' ? 'Approved' : v.status === 'rejected' ? 'Rejected' : 'Pending approval';
+  return (
+    <div className={`cv-appr ${v.status}`} onClick={(e) => e.stopPropagation()}>
+      <span className="cv-appr-tag" title={v.status === 'rejected' && v.reason ? `Rejected: ${v.reason}` : label}>
+        <i aria-hidden="true" />
+        {label}
+      </span>
+      {v.status === 'rejected' && (
+        <>
+          {v.reason && <div className="cv-appr-reason">“{v.reason}”</div>}
+          {ap?.rewrite && (
+            <button className="cv-btn cv-appr-rewrite nodrag" onClick={() => ap.rewrite!(stepId!, v.reason ?? '')}>
+              <Sparkles size={12} /> Rewrite with designer
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export const CostContext = createContext<{ report: CostReportView | null; open: (bucketId?: string) => void } | null>(null);
 
 const inrS = (n: number | null | undefined) => (n == null ? '—' : `₹${Math.round(n).toLocaleString('en-IN')}`);

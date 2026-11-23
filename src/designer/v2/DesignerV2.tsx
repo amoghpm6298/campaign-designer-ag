@@ -12,7 +12,8 @@ import { apiUrl } from '../api';
 import { CostPanel } from './CostPanel';
 import { StrategyPanel, type StrategyNote } from './StrategyPanel';
 import { currentEntries as currentNotes } from './contextView';
-import { FileText } from 'lucide-react';
+import { FileText, ShieldCheck } from 'lucide-react';
+import type { ApprovalRecordView } from '../CommApprovalsView';
 import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, submitCampaignApi, runBucketSizing, fetchOffers, fetchCost, fetchFields, type CostReportView, type FieldSampleView, type Offer, type Stores, type Submission, type Withdrawal } from './api';
 import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
@@ -25,7 +26,7 @@ import { buildCanvasModel, classifyChanges, diffChangedSteps, type CStep } from 
 import { ChatPanel, type Cue } from './ChatPanel';
 import { mergeEvent, plainText } from './logic';
 import { SourcesContext, sourcesFromEntries } from './Citations';
-import { STAGE_LABEL, submittedStage } from './lifecycle';
+import { submittedStage } from './lifecycle';
 import { NodeDrawer } from './NodeDrawer';
 import { QuestionOverlay } from './QuestionOverlay';
 import { FLAG_LABELS, FLAG_ORDER, type AgentState, type CampaignContext, type CampaignObject, type AnswerItem, type Focus, type V2Event, type V2Turn, type VersionEntry } from './types';
@@ -84,11 +85,6 @@ function cancelChatSave() {
   clearTimeout(saveTimer);
 }
 
-/** "20 Nov" (or "20 Nov 2027" outside this year) from "2026-11-20". */
-const fmtShortDay = (d: string) => {
-  const dt = new Date(`${d}T00:00:00Z`);
-  return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(dt.getUTCFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}), timeZone: 'UTC' });
-};
 
 export const newCampaignId = () => `cv-${Date.now().toString(36)}`;
 
@@ -102,7 +98,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // The campaign object and its context, as saved on the server for this chat.
   const [stores, setStores] = useState<Stores>({ campaign: null, context: null });
   const [submission, setSubmission] = useState<Submission | null>(null);
-  const [lastWithdrawal, setLastWithdrawal] = useState<Withdrawal | null>(null);
+  const [, setLastWithdrawal] = useState<Withdrawal | null>(null);
   const [withdrawing, setWithdrawing] = useState<'ask' | 'busy' | string | null>(null);
   const [submitting, setSubmitting] = useState<'ask' | 'busy' | string | null>(null);
   const pauseLabel = 'Stop campaign';
@@ -145,6 +141,24 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
       live = false;
     };
   }, [stores.campaign, stores.context, sessionId, tenant.tenantId]);
+  // Comm approvals: every message is approved by the bank before the campaign can be submitted.
+  const [approvals, setApprovals] = useState<ApprovalRecordView[] | null>(null);
+  useEffect(() => {
+    if (!stores.campaign || submission) return setApprovals(null);
+    let live = true;
+    fetch(apiUrl(`/api/approvals?tenantId=${encodeURIComponent(tenant.tenantId)}&sessionId=${encodeURIComponent(sessionId)}`))
+      .then((r) => r.json())
+      .then((d: { records?: ApprovalRecordView[] }) => {
+        if (!live) return;
+        setApprovals(d.records ?? []);
+        window.dispatchEvent(new Event('cv:approvals-changed'));
+      })
+      .catch(() => live && setApprovals(null));
+    return () => {
+      live = false;
+    };
+  }, [stores.campaign, submission, sessionId, tenant.tenantId]);
+  const notApproved = (approvals ?? []).filter((r) => r.status !== 'approved').length;
   // The bank's delivery setting: undelivered WhatsApp goes again by SMS.
   const [smsFallback, setSmsFallback] = useState(true);
   useEffect(() => {
@@ -430,7 +444,6 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
 
   const drawerNode = drawerId ? model.nodes.find((n) => n.id === drawerId) : null;
   const drawerBucket = drawerNode ? plan?.buckets.find((b) => b.id === drawerNode.data.lane)?.name ?? 'Everyone else' : '';
-  const opening = turns.find((t) => t.role === 'user')?.content;
   const hasCanvas = model.nodes.length > 0;
   // The designer's campaign strategy note (its working plan); older campaigns have it as separate notes.
   const strategy: StrategyNote | null = (() => {
@@ -461,32 +474,13 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           </button>
         )}
         <div className="cv-title">
+          {(() => {
+            const it = (stores.campaign as { intent?: string } | null)?.intent ?? pendingIntent(sessionId)?.intent;
+            return it ? <span className="cv-intent" title="What this campaign is for, chosen when it was created">{intentLabel(it)}</span> : null;
+          })()}
           <b>{plan?.name || 'New campaign'}</b>
-          <span className="cv-sub">
-            {opening ? `“${opening.length > 80 ? `${opening.slice(0, 80)}…` : opening}” · ` : ''}
-            {tenant.displayName}
-          </span>
         </div>
-        {(() => {
-          const it = (stores.campaign as { intent?: string } | null)?.intent ?? pendingIntent(sessionId)?.intent;
-          return it ? <span className="cv-intent" title="What this campaign is for, chosen when it was created">{intentLabel(it)}</span> : null;
-        })()}
-        {!submission && (
-          <span className={`cv-state st-${state?.flags.campaignBuilt || lastBuilt ? 'ready' : 'draft'}`} title={state?.flags.campaignBuilt || lastBuilt ? 'Designed, not submitted yet' : 'Being designed'}>
-            {state?.flags.campaignBuilt || lastBuilt ? 'Ready' : 'Draft'}
-          </span>
-        )}
-        {submission && (
-          <span className={`cv-submitted st-${submittedStage(submission)}`} title={`Submitted by ${submission.by} on ${new Date(submission.at).toLocaleString()}`}>
-            {STAGE_LABEL[submittedStage(submission)]}{submittedStage(submission) === 'submitted' ? ' for execution' : ''}
-            {submission.startDate && submission.endDate ? ` · runs ${fmtShortDay(submission.startDate)} → ${fmtShortDay(submission.endDate)}` : ''} · {submission.by}
-          </span>
-        )}
-        {!submission && lastWithdrawal && (
-          <span className="cv-withdrawn" title="Stopped: it can be changed and submitted again">
-            Stopped · {new Date(lastWithdrawal.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {lastWithdrawal.by}
-          </span>
-        )}
+        {/* The campaign's status (Ready, Submitted, Stopped…) shows on the Campaigns page, not here. */}
         <span className="cv-top-gap" />
         <MoreMenu
           items={[
@@ -565,6 +559,15 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         )}
         {!submission && !viewOnly && !viewing && (state?.flags.campaignBuilt || lastBuilt) && (
           <span className="cv-del-wrap">
+            {notApproved > 0 ? (
+              <button
+                className="cv-btn cv-appr-wait"
+                onClick={() => window.dispatchEvent(new CustomEvent('cv:open-approvals', { detail: { sessionId } }))}
+                title="Every message must be approved by the bank before the campaign can be submitted. Open Comm approvals."
+              >
+                <ShieldCheck size={14} /> Waiting for approvals ({notApproved})
+              </button>
+            ) : (
             <button
               className="cv-btn primary"
               disabled={busy}
@@ -576,6 +579,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             >
               Submit for execution
             </button>
+            )}
             {submitting && (
               <div className="cv-del-pop" role="dialog" aria-label="Submit for execution">
                 <b>Submit for execution</b>
@@ -658,6 +662,14 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               links={links}
               offers={offers}
               products={products}
+              approvals={approvals ? {
+                byStep: Object.fromEntries(approvals.flatMap((r) => r.uses.map((u) => [u.stepId, { status: r.status, reason: r.reason }]))),
+                rewrite: locked || busy ? undefined : (stepId, reason) => {
+                  const r = approvals.find((x) => x.uses.some((u) => u.stepId === stepId));
+                  const where = r ? `"${r.uses[0].name}" in ${r.uses[0].bucketName}${r.uses.length > 1 ? ` (used in ${r.uses.length} places; rewrite it everywhere)` : ''}` : 'this message';
+                  send(`The bank's approver rejected the message ${where}. Their reason: "${reason}". Rewrite its wording to fix that, and change nothing else in the campaign.`);
+                },
+              } : null}
               fields={fields}
               cost={cost}
               onOpenCost={(bucketId) => { setDrawerId(null); setStrategyOpen(false); setCostOpen({ bucketId }); }}

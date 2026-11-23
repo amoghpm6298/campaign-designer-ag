@@ -1,6 +1,6 @@
 /* Campaign Designer — canvas first. The canvas cards themselves use the
    builder's own node styles (src/canvas/dripCanvas.css). */
-.cv-wrap {
+.cv-wrap, .ca-page {
   --v2-primary: var(--color-primary, #0a66f0);
   --v2-primary-light: var(--color-primary-light, #e7f0fe);
   --v2-border: var(--color-border, #e4e7ec);
@@ -235,6 +235,8 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-shape-kind { display: inline-flex; align-items: center; gap: 4px; font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
 .cv-shape-kind svg.ic { width: 12px; height: 12px; }
 .cv-shape-label { font-size: 11.5px; font-weight: 600; color: #101828; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+/* An A/B test's hexagon grows with its name (canvasModel shapeHeight), so its name is never cut. */
+.cv-shape .cv-shape-label.full { -webkit-line-clamp: unset; display: block; }
 .cv-shape-meta { font-size: 10.5px; color: #667085; }
 .cv-chip-node { box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; font-size: 12.5px; font-weight: 600; color: #475467; background: #fff; border: 1.5px solid #c3c9d3; }
 .cv-chip-node span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -378,7 +380,7 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 
 /* --- Campaigns page ---------------------------------------------------------------- */
 .cv-home { height: 100%; overflow: auto; background: #f9fafb; padding: 28px 32px 40px; box-sizing: border-box; color: #101828; }
-.cv-home-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.cv-home-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 .cv-home-head h1 { margin: 0; font-size: 24px; font-weight: 700; }
 .cv-home-head p { margin: 4px 0 0; color: #667085; font-size: 13.5px; }
 .cv-home .cv-btn.primary { background: #0a66f0; border-color: #0a66f0; color: #fff; font-weight: 600; }
@@ -395,7 +397,7 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-camp-status.built { color: #027a48; background: #ecfdf3; }
 .cv-camp-status.draft { color: #b54708; background: #fffaeb; }
 .cv-camp-mode { font-size: 11.5px; color: #475467; background: #f2f4f7; border-radius: 6px; padding: 2px 7px; }
-.cv-camp-name { font-size: 16px; line-height: 1.3; }
+.cv-camp-name { font-size: 14.5px; font-weight: 600; line-height: 1.35; }
 .cv-camp-ask { font-size: 13px; color: #667085; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .cv-camp-stats { display: flex; flex-wrap: wrap; gap: 12px; margin-top: auto; font-size: 12.5px; color: #344054; }
 .cv-camp-stats span, .cv-camp-when { display: inline-flex; align-items: center; gap: 5px; }
@@ -455,9 +457,9 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-camp-status.st-active, .cv-submitted.st-active { background: #ecfdf3; color: #067647; border-color: #abefc6; }
 .cv-camp-status.st-ended, .cv-submitted.st-ended { background: #f2f4f7; color: #475467; border-color: #d0d5dd; }
 .cv-camp-status.st-submitted { background: #eff8ff; color: #175cd3; }
-.cv-states { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
-.cv-states button { border: 1px solid var(--v2-border); background: #fff; border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; color: var(--v2-text-2); cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
-.cv-states button span { font-size: 11.5px; font-weight: 700; color: var(--v2-text-3); }
+.cv-states { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.cv-states button { border: 1px solid var(--v2-border, #e4e7ec); background: #fff; border-radius: 999px; padding: 5px 13px; font: inherit; font-size: 13px; color: var(--v2-text-2, #475467); cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.cv-states button span { font-size: 11.5px; font-weight: 700; color: var(--v2-text-3, #98a2b3); }
 .cv-states button.on { background: #101828; border-color: #101828; color: #fff; }
 .cv-states button.on span { color: #d0d5dd; }
 .cv-camp-status.st-draft { background: #fffaeb; color: #b54708; }
@@ -741,7 +743,8 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .im-prod b { font-size: 13.5px; }
 .im-prod span span { font-size: 12px; color: var(--text-muted, #667085); }
 .im-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.cv-intent { font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--accent-wash, #eef2ff); color: var(--accent, #1d4ed8); white-space: nowrap; }
+.cv-title .cv-intent { align-self: flex-start; margin-bottom: 3px; margin-left: -8px; } /* the pill's padding: its text lines up with the title */
+.cv-intent { flex: none; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--accent-wash, #eef2ff); color: var(--accent, #1d4ed8); white-space: nowrap; }
 @media (max-width: 600px) { .im-prod-list { grid-template-columns: 1fr; } }
 .cv-product-badge { margin: 4px 0 6px; display: inline-block; padding: 2px 8px; border-radius: 999px; background: #eef4ff; border: 1px solid #b2ccff; color: #1d4ed8; font-size: 11.5px; font-weight: 600; }
 .cv-revenue-wip { display: inline-flex; align-items: center; padding: 7px 12px; border-radius: 999px; border: 1px dashed var(--border-strong, #d0d5dd); background: var(--surface, #fff); color: var(--text-faint, #98a2b3); font-size: 12.5px; font-weight: 500; }
@@ -781,3 +784,70 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .im-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 24px 16px; display: flex; flex-direction: column; gap: 14px; overscroll-behavior: contain; }
 .im-actions { flex: none; padding: 14px 24px 20px; border-top: 1px solid var(--border, #e4e7ec); }
 .im-section { display: flex; flex-direction: column; gap: 14px; }
+
+.im-icon.sm { width: 28px; height: 28px; border-radius: 8px; }
+.cv-camp-when-row { display: flex; align-items: center; gap: 6px; color: var(--text, #101828); }
+.cv-camp-when-row.unset { color: var(--text-faint, #98a2b3); }
+.cv-camp-recur { display: inline-flex; color: var(--accent, #1d4ed8); }
+
+
+/* Comm approvals: a message's status, on its canvas card and in the inbox. */
+.cv-appr { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 6px; }
+.cv-appr-tag { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; font-size: 11.5px; font-weight: 500; color: var(--text-muted, #667085); }
+.cv-appr-tag i { width: 7px; height: 7px; border-radius: 50%; background: var(--v2-primary, #0a66f0); }
+.cv-appr.approved .cv-appr-tag i { background: var(--success-text, #067647); }
+.cv-appr.approved .cv-appr-tag { color: var(--success-text, #067647); }
+.cv-appr.rejected .cv-appr-tag i { background: var(--error-text, #b42318); }
+.cv-appr.rejected .cv-appr-tag { color: var(--error-text, #b42318); }
+.cv-appr-reason { font-size: 12px; line-height: 1.4; color: var(--error-text, #b42318); background: var(--error-bg, #fef3f2); border: 1px solid var(--error-border, #fecdca); border-radius: 8px; padding: 6px 8px; }
+.cv-appr-rewrite { align-self: flex-start; font-size: 12px; padding: 4px 10px; gap: 5px; }
+.cv-appr-wait { gap: 6px; }
+.cv-appr-wait svg { color: var(--v2-primary, #0a66f0); }
+
+/* The Comm approvals inbox: campaigns on the left, the chosen campaign's messages on the right. */
+.ca-page { max-width: none; display: flex; flex-direction: column; height: 100%; overflow: hidden; background: transparent; font-size: inherit; }
+.ca-filters { margin: 0 0 16px; }
+.ca-inbox { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 18px; flex: 1; min-height: 0; }
+.ca-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 0; padding: 2px 4px 24px 2px; }
+.ca-camp { text-align: left; font: inherit; border: 1px solid var(--border, #e4e7ec); background: var(--surface, #fff); border-radius: 12px; padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+.ca-camp b { font-size: 13.5px; font-weight: 600; line-height: 1.35; color: var(--text, #101828); }
+.ca-camp.on { border-color: var(--accent, #1d4ed8); box-shadow: 0 0 0 1px var(--accent, #1d4ed8); }
+.ca-camp:focus-visible { outline: 2px solid var(--accent, #1d4ed8); outline-offset: 2px; }
+.ca-counts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ca-n { font-size: 11.5px; border-radius: 999px; padding: 1px 8px; background: var(--surface-2, #f2f4f7); color: var(--text-muted, #667085); }
+.ca-n.pending { background: var(--v2-primary-light, #e7f0fe); color: var(--v2-primary, #0a66f0); }
+.ca-n.rejected { background: var(--error-bg, #fef3f2); color: var(--error-text, #b42318); }
+.ca-msgs { display: flex; flex-direction: column; gap: 12px; min-width: 0; overflow-y: auto; min-height: 0; padding: 2px 4px 24px 2px; }
+.ca-msgs > *, .ca-list > * { flex: none; }
+.ca-msgs-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ca-msgs-head h2 { font-size: 16px; font-weight: 600; margin: 0 0 2px; }
+.ca-confirm { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.ca-msg { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 20px; border: 1px solid var(--border, #e4e7ec); background: var(--surface, #fff); border-radius: 14px; padding: 16px; }
+.ca-msg.rejected { border-color: var(--error-border, #fecdca); }
+.ca-preview { min-width: 0; }
+.ca-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ca-side .cv-appr { margin: 0; }
+.ca-k { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #667085); margin-bottom: 2px; }
+.ca-where { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.ca-decided { font-size: 12.5px; color: var(--text-muted, #667085); }
+.ca-reason { margin-top: 4px; color: var(--error-text, #b42318); }
+.ca-form { display: flex; flex-direction: column; gap: 8px; }
+.ca-form label { display: flex; flex-direction: column; }
+.ca-form textarea, .ca-form input { font: inherit; font-size: 13px; border: 1px solid var(--border, #e4e7ec); border-radius: 8px; padding: 8px 10px; resize: vertical; }
+.ca-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+.ca-actions .cv-btn { gap: 5px; }
+.ca-reject { color: var(--error-text, #b42318); }
+.ca-reject.solid { background: var(--error-text, #b42318); border-color: var(--error-text, #b42318); color: #fff; }
+@media (max-width: 1100px) { .ca-page { height: auto; overflow: visible; } .ca-inbox { grid-template-columns: 1fr; } .ca-list, .ca-msgs { overflow: visible; } .ca-msg { grid-template-columns: 1fr; } }
+
+/* Campaigns page: one grid; each card's intent is a small tab sticking out of its top edge. */
+.cv-grid-tabbed { row-gap: 30px; padding-top: 12px; }
+.cv-grid-tabbed .cv-camp { position: relative; }
+.cv-camp-tab { position: absolute; top: -11px; left: 14px; display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border-radius: 7px; background: #fff; border: 1px solid #e4e7ec; color: var(--v2-primary, #0a66f0); font-size: 11px; font-weight: 600; white-space: nowrap; max-width: calc(100% - 28px); overflow: hidden; text-overflow: ellipsis; }
+.cv-camp:hover .cv-camp-tab { border-color: #8fb9f8; }
+.cv-camp-tab { cursor: pointer; transition: background .15s, border-color .15s; }
+.cv-camp-tab:hover { background: var(--v2-primary-light, #e7f0fe); border-color: #8fb9f8; }
+.cv-camp-tab:focus-visible { outline: 2px solid var(--v2-primary, #0a66f0); outline-offset: 2px; }
+.cv-camp-tab.on { background: var(--v2-primary-light, #e7f0fe); border-color: #8fb9f8; }
+.cv-intent-filter { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 500; color: var(--v2-primary, #0a66f0); background: var(--v2-primary-light, #e7f0fe); border: 1px solid #8fb9f8; border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+.cv-intent-filter:hover { border-color: var(--v2-primary, #0a66f0); }

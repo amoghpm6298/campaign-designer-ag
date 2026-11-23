@@ -70,6 +70,6 @@ describe('the intent tells the designer where to look', () => {
   it('sign-ups names the product; other intents say nothing about products; old campaigns read as "something else"', () => {
     expect(intentBlock(camp([], { intent: 'adoption', productId: 'travel_card' }), YES)).toMatch(/Drive product sign-ups[\s\S]*"name":"Travel credit card"/);
     expect(intentBlock(camp([], { intent: 'usage' }), YES)).not.toMatch(/product/i);
-    expect(intentBlock(camp([]), YES)).toMatch(/Something else/);
+    expect(intentBlock(camp([]), YES)).toMatch(/Custom campaign/);
   });
 });

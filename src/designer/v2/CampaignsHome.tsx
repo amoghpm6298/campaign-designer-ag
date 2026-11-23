@@ -2,12 +2,12 @@
 // start a new one. Opening a card loads its campaign and its chat from the
 // server, exactly as it was left.
 import { useEffect, useState } from 'react';
-import { Layers, MessageSquare, Plus, RefreshCw, Send } from 'lucide-react';
+import { Calendar, MessageSquare, Plus, RefreshCw, X } from 'lucide-react';
 import { apiUrl } from '../api';
 import type { KnowledgeBase, Tenant } from '../types';
 import { DesignerV2, loadChat, type Stored } from './DesignerV2';
-import { IntentModal } from './IntentModal';
-import type { IntentChoice } from './intent';
+import { IntentModal, LOOK } from './IntentModal';
+import { INTENTS, intentLabel, type CampaignIntent, type IntentChoice } from './intent';
 import './v2.css';
 
 export interface CampaignSummary {
@@ -25,6 +25,8 @@ export interface CampaignSummary {
   submitted?: { at: string; by: string; startDate?: string; endDate?: string };
   schedule?: { startDate: string; endDate: string } | null;
   state: CampaignState;
+  /** What it is for; campaigns from before intents read as "other". */
+  intent?: CampaignIntent;
 }
 
 export type CampaignState = 'draft' | 'ready' | 'scheduled' | 'active' | 'ended';
@@ -52,6 +54,9 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
   const [choosing, setChoosing] = useState(false);
   const [list, setList] = useState<CampaignSummary[] | null>(null);
   const [filter, setFilter] = useState<CampaignState | 'all'>('all');
+  // Tapping a card's intent tab shows only that intent; tapping it again shows all.
+  const [intentFilter, setIntentFilter] = useState<CampaignIntent | null>(null);
+  const toggleIntent = (k: CampaignIntent) => setIntentFilter((cur) => (cur === k ? null : k));
   useEffect(() => {
     let live = true;
     setList(null);
@@ -64,6 +69,7 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
     };
   }, [tenant.tenantId]);
 
+  const inIntent = (list ?? []).filter((c) => !intentFilter || (c.intent ?? 'other') === intentFilter);
   return (
     <div className="cv-home">
       {choosing && (
@@ -103,47 +109,29 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
         <>
         <div className="cv-states" role="tablist">
           <button role="tab" aria-selected={filter === 'all'} className={filter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>
-            All <span>{list.length}</span>
+            All <span>{inIntent.length}</span>
           </button>
           {STATES.map((s) => (
             <button key={s.key} role="tab" title={s.hint} aria-selected={filter === s.key} className={`st-${s.key}${filter === s.key ? ' on' : ''}`} onClick={() => setFilter(s.key)}>
-              {s.label} <span>{list.filter((c) => c.state === s.key).length}</span>
+              {s.label} <span>{inIntent.filter((c) => c.state === s.key).length}</span>
             </button>
           ))}
+          {intentFilter && (() => {
+            const { Icon } = LOOK[intentFilter];
+            return (
+              <button className="cv-intent-filter" onClick={() => setIntentFilter(null)} title="Show every intent" aria-label={`Showing ${intentLabel(intentFilter)} only. Clear.`}>
+                <Icon size={13} aria-hidden="true" /> {intentLabel(intentFilter)} <X size={13} aria-hidden="true" />
+              </button>
+            );
+          })()}
         </div>
-        <div className="cv-grid">
-          <button className="cv-card-new" onClick={() => setChoosing(true)}>
-            <Plus size={22} />
-            <b>Create new campaign</b>
-            <span>Start from a goal, in a sentence</span>
-          </button>
-          {list.filter((c) => filter === 'all' || c.state === filter).map((c) => (
-            <button key={c.sessionId} className="cv-camp" onClick={() => onOpen(c.sessionId)}>
-              <span className="cv-camp-top">
-                <span className={`cv-camp-status st-${c.state}`}>{STATES.find((x) => x.key === c.state)?.label ?? c.state}</span>
-                {c.membership && <span className="cv-camp-mode">{c.membership === 'recurring' ? `Recurring · ${c.refresh}` : 'One-time'}</span>}
-              </span>
-              <b className="cv-camp-name">{c.name}</b>
-              <span className={`cv-camp-dates${c.schedule ? '' : ' unset'}`}>{c.schedule ? `${day(c.schedule.startDate)} → ${day(c.schedule.endDate)}` : 'Dates not set'}</span>
-              {c.ask && <span className="cv-camp-ask">“{c.ask}”</span>}
-              <span className="cv-camp-stats">
-                <span>
-                  <Layers size={13} /> {c.buckets} bucket{c.buckets === 1 ? '' : 's'}
-                </span>
-                <span>
-                  <Send size={13} /> {c.messages} message{c.messages === 1 ? '' : 's'}
-                </span>
-                {c.version > 0 && (
-                  <span>
-                    <RefreshCw size={13} /> v{c.version}
-                  </span>
-                )}
-              </span>
-              <span className="cv-camp-when">
-                <MessageSquare size={12} /> Edited {ago(c.updatedAt)}
-              </span>
-            </button>
-          ))}
+        {/* One grid; each card carries its intent as a small tab on its top edge. */}
+        <div className="cv-grid cv-grid-tabbed">
+          {inIntent
+            .filter((c) => filter === 'all' || c.state === filter)
+            .map((c) => (
+              <CampaignCard key={c.sessionId} c={c} onOpen={onOpen} onIntent={toggleIntent} intentOn={!!intentFilter} />
+            ))}
         </div>
         </>
       )}
@@ -164,4 +152,53 @@ export function CampaignView({ knowledge, tenant, sessionId, onBack }: { knowled
   }, [sessionId]);
   if (initial === undefined) return <div className="cv-home-empty">Opening the campaign…</div>;
   return <DesignerV2 key={sessionId} knowledge={knowledge} tenant={tenant} sessionId={sessionId} initial={initial} onBack={onBack} />;
+}
+
+function CampaignCard({ c, onOpen, onIntent, intentOn }: { c: CampaignSummary; onOpen: (id: string) => void; onIntent: (k: CampaignIntent) => void; intentOn: boolean }) {
+  return (
+    <button className="cv-camp" onClick={() => onOpen(c.sessionId)}>
+      {(() => {
+        const key = (c.intent ?? 'other') as CampaignIntent;
+        const { Icon } = LOOK[key] ?? LOOK.other;
+        return (
+          <span
+            className={`cv-camp-tab${intentOn ? ' on' : ''}`}
+            role="button"
+            tabIndex={0}
+            title={intentOn ? 'Show every intent' : `Show only ${INTENTS.find((x) => x.key === key)?.label ?? 'this intent'}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onIntent(key);
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return;
+              e.preventDefault();
+              e.stopPropagation();
+              onIntent(key);
+            }}
+          >
+            <Icon size={12} aria-hidden="true" />
+            {INTENTS.find((x) => x.key === key)?.label ?? 'Custom campaign'}
+          </span>
+        );
+      })()}
+      <span className="cv-camp-top">
+        <span className={`cv-camp-status st-${c.state}`}>{STATES.find((x) => x.key === c.state)?.label ?? c.state}</span>
+      </span>
+      <b className="cv-camp-name">{c.name}</b>
+      {c.ask && <span className="cv-camp-ask">“{c.ask}”</span>}
+      <span className={`cv-camp-stats cv-camp-when-row${c.schedule ? '' : ' unset'}`}>
+        <Calendar size={13} aria-hidden="true" />
+        {c.schedule ? `${day(c.schedule.startDate)} → ${day(c.schedule.endDate)}` : 'Dates not set'}
+        {c.membership === 'recurring' && (
+          <span className="cv-camp-recur" title={`Recurring · ${c.refresh ?? 'weekly'}`} aria-label={`Recurring, ${c.refresh ?? 'weekly'}`}>
+            <RefreshCw size={13} />
+          </span>
+        )}
+      </span>
+      <span className="cv-camp-when">
+        <MessageSquare size={12} /> Edited {ago(c.updatedAt)}
+      </span>
+    </button>
+  );
 }

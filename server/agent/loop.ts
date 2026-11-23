@@ -24,6 +24,17 @@ import { gradeInsights, graderSendBack, insightProblems, insightReviewOn, logIns
 import { citationProblems } from './citations';
 import { funnelProblems } from './funnelChecks';
 import { intentBlock, isIntent } from './intent';
+import { approvalsLine, summarise, syncApprovals } from '../approvals';
+
+/** The bank's approval of each message, for the designer: what is approved, waiting, rejected and why. */
+function approvalsBlock(sessionId: string, state: AgentState, tenant: Parameters<typeof syncApprovals>[2]): string {
+  if (!state.flags.campaignBuilt && !state.campaign.buckets.length) return '';
+  try {
+    return `## Message approvals (the bank approves every message before the campaign can run)\n${approvalsLine(summarise(syncApprovals(sessionId, state.campaign, tenant)))}`;
+  } catch {
+    return '';
+  }
+}
 import { ensureBaseline, recordVersion, setSummary, summariseVersion, type VersionEntry } from '../campaignVersions';
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
@@ -226,7 +237,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       role: 'user',
       content: [
         { type: 'text', text: String(last.content) },
-        { type: 'text', text: [statusBlock(state, bankLinks, delivery.smsFallback), intentBlock(state.campaign, tenant), focusSection(state, req.focus)].filter(Boolean).join('\n\n') },
+        { type: 'text', text: [statusBlock(state, bankLinks, delivery.smsFallback), intentBlock(state.campaign, tenant), approvalsBlock(req.sessionId, state, tenant), focusSection(state, req.focus)].filter(Boolean).join('\n\n') },
       ],
     };
   }

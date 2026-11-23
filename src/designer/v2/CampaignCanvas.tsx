@@ -5,8 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Background, BaseEdge, Controls, EdgeLabelRenderer, getSmoothStepPath, MiniMap, ReactFlow, ReactFlowProvider, useNodesInitialized, useNodesState, useReactFlow, useStore, type Edge, type EdgeProps, type Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import '../../canvas/dripCanvas.css';
-import { buildCanvasModel, FIXED_SHAPES, NODE_H, type CNodeKind } from './canvasModel';
-import { cdNodeTypes, CostContext, EditContext, SizingContext, type CdNodeData, type EditApi } from './canvasNodes';
+import { buildCanvasModel, FIXED_SHAPES, shapeHeight, type CNodeKind } from './canvasModel';
+import { ApprovalContext, cdNodeTypes, CostContext, EditContext, SizingContext, type ApprovalView, type CdNodeData, type EditApi } from './canvasNodes';
 import type { CostReportView, FieldSampleView, Offer, SizingRun } from './api';
 import type { ChangeMap } from './canvasModel';
 import type { BankLink } from '../LinksSection';
@@ -67,6 +67,8 @@ interface Props {
   links?: BankLink[];
   /** The bank's incentive menu, to show offer lines on messages. */
   offers?: Offer[];
+  /** Comm approvals: each message's status by step id, and the rewrite action. */
+  approvals?: { byStep: Record<string, ApprovalView>; rewrite?: (stepId: string, reason: string) => void } | null;
   /** The bank's products, to name the product a message pitches. */
   products?: { product_id: string; product_name: string; product_type: string }[];
   /** Personal fields with sample values, for message previews. */
@@ -92,7 +94,7 @@ function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClic
         id: n.id,
         type: 'cd',
         position: { x: n.x, y: n.y },
-        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText, bankName, links, offers, products, fields, smsFallback } satisfies CdNodeData,
+        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: shapeHeight(n.data.kind, n.data.step) } : {}), goalText, bankName, links, offers, products, fields, smsFallback } satisfies CdNodeData,
         draggable: false,
         connectable: false,
         selectable: n.data.kind === 'send',
@@ -238,6 +240,7 @@ function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClic
 export function CampaignCanvas(props: Props) {
   return (
     <div className={`cv-canvas dc-graph-wrap${props.edit?.editingId ? ' cv-focus-mode' : ''}`}>
+      <ApprovalContext.Provider value={props.approvals ?? null}>
       <CostContext.Provider value={props.onOpenCost ? { report: props.cost ?? null, open: props.onOpenCost } : null}>
       <SizingContext.Provider value={props.runSizing ?? null}>
       <EditContext.Provider value={props.edit ?? null}>
@@ -247,6 +250,7 @@ export function CampaignCanvas(props: Props) {
       </EditContext.Provider>
       </SizingContext.Provider>
       </CostContext.Provider>
+      </ApprovalContext.Provider>
     </div>
   );
 }

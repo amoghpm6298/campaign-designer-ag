@@ -25,7 +25,8 @@ export type DirectOp =
   | { op: 'maxAttempts'; value: number }
   | { op: 'schedule'; startDate: string; endDate: string }
   | { op: 'budgetCap'; value: number | null }
-  | { op: 'funnelRate'; bucketId: string; stepId: string; which: 'opens' | 'converts'; pct: number };
+  | { op: 'funnelRate'; bucketId: string; stepId: string; which: 'opens' | 'converts'; pct: number }
+  | { op: 'copy'; bucketId: string; stepId: string; copy: string; cta?: string };
 
 export interface DirectResult {
   ok: boolean;
@@ -101,6 +102,17 @@ function apply(state: AgentState, op: DirectOp): { state: AgentState; said: stri
     if (res.error) return { error: res.error };
     const w = (e?: { rate: number }) => (e ? `${Math.round(e.rate * 100)}%` : 'not set');
     return { state: res.state, said: `${lane} "${String(hit.step.name ?? 'message')}" ${op.which}: ${w(prev)} → ${w(fu[op.which])}` };
+  }
+  if (op.op === 'copy') {
+    // An approver's edit to a message's wording (Comm approvals: edit & approve).
+    if (hit.step.kind !== 'send') return { error: 'That step is not a message.' };
+    const copy = String(op.copy ?? '').trim();
+    if (!copy) return { error: 'The message can\'t be empty.' };
+    if (/https?:\/\/|www\./i.test(`${copy} ${op.cta ?? ''}`)) return { error: 'A message can\'t contain a web address: its link is added by the system.' };
+    const step = { ...hit.step, copy, ...(op.cta !== undefined ? { cta: String(op.cta).trim() } : {}) };
+    const res = editJourney(state, op.bucketId, [{ op: 'replace', path: hit.path, step }]);
+    if (res.error) return { error: res.error };
+    return { state: res.state, said: `${lane} "${String(hit.step.name ?? 'message')}": wording edited in approval` };
   }
   if (op.op === 'split') {
     if (hit.step.kind !== 'experiment') return { error: 'That step is not an A/B test.' };

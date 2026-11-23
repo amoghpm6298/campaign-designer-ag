@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import { handleMcpHttp, parseTokens } from '../../server/mcp/handler';
 import { setStreamForTests, isRunning, waitForTurn } from '../../server/mcp/runner';
 import { addQuestions, initialState, recordAnswers } from '../../server/agent/state';
-import { listCampaigns, loadChat, saveCampaignObject } from '../../server/campaignFiles';
+import { listCampaigns, loadChat, loadStores, saveCampaignObject } from '../../server/campaignFiles';
+import { resolveTenant } from '../../server/tenants';
 import { directEdit } from '../../server/agent/directEdit';
 import { checkViewToken, makeViewToken, viewAllows } from '../../server/viewLinks';
 import { todayIST } from '../../server/agent/schedule';
@@ -134,6 +135,12 @@ describe('a campaign through the MCP', () => {
     expect((await tool('submit_campaign', { campaignId: id, startDate: day(-1), endDate: day(30) })).text).toMatch(/in the past/);
     expect((await tool('submit_campaign', { campaignId: id, startDate: day(5), endDate: day(2) })).text).toMatch(/must be after startDate/);
     expect((await tool('submit_campaign', { campaignId: id, startDate: day(1), endDate: day(3) })).text).toMatch(/runs 2 days.*"Dormant" takes about 3 days/);
+    // Every message is approved by the bank first (Comm approvals, in the app); the MCP can't approve.
+    const ready = (await tool('get_campaign', { campaignId: id })).data as { approvals?: { pending: number } };
+    expect(ready.approvals).toMatchObject({ approved: 0, pending: 1, rejected: 0 });
+    expect((await tool('submit_campaign', { campaignId: id, startDate: day(1), endDate: day(30) })).text).toMatch(/1 message is waiting for approval/);
+    const { syncApprovals, decide } = await import('../../server/approvals');
+    for (const r of syncApprovals(id, loadStores(id).campaign!, resolveTenant('TEN-YES'))) decide(id, r.fp, 'approve', 'compliance');
     const sub = await tool('submit_campaign', { campaignId: id, startDate: day(1), endDate: day(30) });
     expect(sub.data).toMatchObject({ state: 'scheduled', allowedActions: ['stop_campaign', 'copy_campaign'], submittedBy: 'growth', startDate: day(1), endDate: day(30) }); // starts tomorrow
     expect((await tool('get_campaign', { campaignId: id })).data).toMatchObject({ startDate: day(1), endDate: day(30) });

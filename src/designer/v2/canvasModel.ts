@@ -180,6 +180,18 @@ export const NODE_H: Record<CNodeKind, number> = {
   exit: 38,
 };
 
+/**
+ * A drawn shape's height. An A/B test grows with its name: its hexagon's text area is the width less
+ * the slanted ends, so each line of wrapped name (~6.4px a character at 11.5px) adds 15px.
+ */
+export function shapeHeight(kind: CNodeKind, step?: { label?: string } | null): number {
+  if (kind !== 'experiment') return NODE_H[kind];
+  const base = NODE_H.experiment;
+  const textW = NODE_W.experiment - 2 * (base / 2.4) - 8;
+  const lines = Math.max(1, Math.ceil(((step?.label ?? '').length * 6.4) / textW));
+  return base + 8 + (lines - 1) * 15;
+}
+
 /** Kinds drawn as fixed shapes (their height never comes from measuring). */
 // Waits are boxes that grow when their AI rationale is opened, so they are measured.
 export const FIXED_SHAPES: CNodeKind[] = ['holdout', 'goalcheck', 'branch', 'experiment', 'condition', 'exit'];
@@ -265,7 +277,7 @@ function layoutLane(lane: LaneBuild, measured: Record<string, number>): { pos: R
   const g = new dagre.graphlib.Graph();
   g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 64, marginx: 0, marginy: 0 });
   g.setDefaultEdgeLabel(() => ({}));
-  for (const n of lane.nodes) g.setNode(n.id, { width: NODE_W[n.data.kind], height: (measured[n.id] ?? NODE_H[n.data.kind]) + 6 });
+  for (const n of lane.nodes) g.setNode(n.id, { width: NODE_W[n.data.kind], height: (measured[n.id] ?? shapeHeight(n.data.kind, n.data.step)) + 6 });
   for (const e of lane.edges) if (!e.sideways) g.setEdge(e.source, e.target);
   dagre.layout(g);
   const pos: Record<string, { x: number; y: number }> = {};
@@ -275,7 +287,7 @@ function layoutLane(lane: LaneBuild, measured: Record<string, number>): { pos: R
   for (const n of lane.nodes) {
     const p = g.node(n.id);
     const w = NODE_W[n.data.kind];
-    const h = measured[n.id] ?? NODE_H[n.data.kind];
+    const h = measured[n.id] ?? shapeHeight(n.data.kind, n.data.step);
     pos[n.id] = { x: p.x - w / 2, y: p.y - h / 2 };
     minX = Math.min(minX, p.x - w / 2);
     maxX = Math.max(maxX, p.x + w / 2);
@@ -344,7 +356,7 @@ export function buildCanvasModel(
     const l = layoutLane(lane, measured);
     for (const n of lane.nodes) {
       const p = l.pos[n.id];
-      nodes.push({ id: n.id, data: n.data, x: x + p.x, y: laneTop + p.y, width: NODE_W[n.data.kind], height: measured[n.id] ?? NODE_H[n.data.kind] });
+      nodes.push({ id: n.id, data: n.data, x: x + p.x, y: laneTop + p.y, width: NODE_W[n.data.kind], height: measured[n.id] ?? shapeHeight(n.data.kind, n.data.step) });
     }
     edges.push(...lane.edges);
     x += l.width + LANE_GAP;

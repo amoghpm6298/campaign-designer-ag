@@ -15,12 +15,12 @@ interface ProductLite {
 }
 
 /** One icon and colour per intent, so the tiles read at a glance. */
-const LOOK: Record<CampaignIntent, { Icon: LucideIcon; tone: string }> = {
+export const LOOK: Record<CampaignIntent, { Icon: LucideIcon; tone: string }> = {
   usage: { Icon: TrendingUp, tone: 'blue' },
-  activation: { Icon: Zap, tone: 'amber' },
-  adoption: { Icon: ShoppingBag, tone: 'green' },
-  churn: { Icon: UserCheck, tone: 'rose' },
-  other: { Icon: Wrench, tone: 'violet' },
+  activation: { Icon: Zap, tone: 'blue' },
+  adoption: { Icon: ShoppingBag, tone: 'blue' },
+  churn: { Icon: UserCheck, tone: 'blue' },
+  other: { Icon: Wrench, tone: 'blue' },
 };
 
 /** Where Smart Engage goes next: savings and current accounts (CASA). Shown for perspective, not selectable yet. */
@@ -40,10 +40,10 @@ const SECTIONS: { title: string; Icon: LucideIcon; keys: CampaignIntent[] }[] = 
 /** One icon and colour per product type. */
 const PRODUCT_LOOK: Record<string, { Icon: LucideIcon; tone: string }> = {
   card: { Icon: CreditCard, tone: 'blue' },
-  loan: { Icon: Banknote, tone: 'green' },
-  fd: { Icon: Landmark, tone: 'amber' },
-  insurance: { Icon: ShieldCheck, tone: 'rose' },
-  other: { Icon: Package, tone: 'violet' },
+  loan: { Icon: Banknote, tone: 'blue' },
+  fd: { Icon: Landmark, tone: 'blue' },
+  insurance: { Icon: ShieldCheck, tone: 'blue' },
+  other: { Icon: Package, tone: 'blue' },
 };
 
 export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; onPick: (c: IntentChoice) => void; onClose: () => void }) {

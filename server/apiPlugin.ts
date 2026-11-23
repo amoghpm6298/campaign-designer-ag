@@ -477,6 +477,75 @@ export function agentApiPlugin(): Plugin {
               return send(res, 400, { ok: false, error: (e as Error).message });
             }
           }
+          // Comm approvals: every message is approved by the bank before a campaign can run.
+          if (url === '/api/approvals' && req.method === 'GET') {
+            const A = await load('approvals.ts');
+            const T = await load('tenants.ts');
+            const files = await load('campaignFiles.ts');
+            const q = new URL(req.url ?? '', 'http://x').searchParams;
+            const tenantId = q.get('tenantId') ?? '';
+            const tenant = (T.resolveTenant as (id: string) => unknown)(tenantId);
+            const sync = A.syncApprovals as (id: string, c: unknown, t: unknown) => { status: string }[];
+            const summarise = A.summarise as (r: unknown[]) => unknown;
+            try {
+              const one = q.get('sessionId');
+              if (one) {
+                const c = (files.loadStores as (id: string) => { campaign: unknown }).call(null, one).campaign;
+                const records = c ? sync(one, c, tenant) : [];
+                return send(res, 200, { records, summary: summarise(records) });
+              }
+              // The inbox: every campaign of this bank that has messages, with its queue.
+              // Submitted campaigns are locked (and those from before approvals were never queued): only campaigns that can still change.
+              const list = (files.listCampaigns as (t: string) => { sessionId: string; name: string; state: string; intent?: string; submitted?: unknown }[])(tenantId);
+              const campaigns = list
+                .filter((cs) => !cs.submitted)
+                .map((cs) => {
+                  const c = (files.loadStores as (id: string) => { campaign: unknown })(cs.sessionId).campaign;
+                  const records = c ? sync(cs.sessionId, c, tenant) : [];
+                  return { sessionId: cs.sessionId, name: cs.name, state: cs.state, intent: cs.intent, records, summary: summarise(records) };
+                })
+                .filter((x) => x.records.length);
+              return send(res, 200, { campaigns });
+            } catch (e) {
+              return send(res, 400, { error: (e as Error).message });
+            }
+          }
+          if (url === '/api/approvals/decide' && req.method === 'POST') {
+            const A = await load('approvals.ts');
+            const T = await load('tenants.ts');
+            const D = await load('agent/directEdit.ts');
+            const files = await load('campaignFiles.ts');
+            const body = (await readBody(req)) as { sessionId?: string; tenantId?: string; fp?: string; action?: string; reason?: string; copy?: string; cta?: string; by?: string };
+            const sessionId = String(body.sessionId ?? '');
+            const tenantId = String(body.tenantId ?? '');
+            const tenant = (T.resolveTenant as (id: string) => unknown)(tenantId);
+            const by = String(body.by ?? 'approver').slice(0, 60);
+            try {
+              if (body.action === 'approve' || body.action === 'reject') {
+                const out = (A.decide as (s: string, fp: string, a: string, by: string, r?: string) => { ok: boolean })(sessionId, String(body.fp ?? ''), body.action, by, body.reason);
+                return send(res, out.ok ? 200 : 400, out);
+              }
+              if (body.action === 'edit') {
+                // Edit & approve: the new wording goes into the campaign (every place this message is used), then it is approved.
+                const c = (files.loadStores as (id: string) => { campaign: unknown })(sessionId).campaign;
+                const records = (A.syncApprovals as (s: string, c: unknown, t: unknown) => { fp: string; uses: { bucketId: string; stepId: string }[] }[])(sessionId, c, tenant);
+                const rec = records.find((r) => r.fp === body.fp);
+                if (!rec) return send(res, 400, { ok: false, error: 'That message is no longer in the campaign.' });
+                for (const u of rec.uses) {
+                  const r = (D.directEdit as (s: string, t: string, op: unknown) => { ok: boolean; error?: string })(sessionId, tenantId, { op: 'copy', bucketId: u.bucketId, stepId: u.stepId, copy: body.copy ?? '', cta: body.cta });
+                  if (!r.ok) return send(res, 400, r);
+                }
+                const after = (files.loadStores as (id: string) => { campaign: unknown })(sessionId).campaign;
+                const now = (A.syncApprovals as (s: string, c: unknown, t: unknown) => { fp: string; uses: { stepId: string }[] }[])(sessionId, after, tenant);
+                const edited = now.find((r) => r.uses.some((u) => u.stepId === rec.uses[0].stepId));
+                if (!edited) return send(res, 400, { ok: false, error: 'The edited message could not be found.' });
+                return send(res, 200, (A.decide as (s: string, fp: string, a: string, by: string) => { ok: boolean })(sessionId, edited.fp, 'approve', by));
+              }
+              return send(res, 400, { ok: false, error: 'Unknown action.' });
+            } catch (e) {
+              return send(res, 400, { ok: false, error: (e as Error).message });
+            }
+          }
           // The signals an offer's rules may use (no SQL), for the Offers page.
           if (url === '/api/signals' && req.method === 'GET') {
             const S = await load('signals.ts');
