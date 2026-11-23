@@ -1,7 +1,7 @@
 // The standalone application shell: its own header, navigation and global
 // tenant selector. Nothing here comes from the ib-face-mock chrome.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Gift, Library, Link2, Megaphone, Package, PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
+import { Check, Gift, Library, Link2, Megaphone, Package, PanelLeftClose, PanelLeftOpen, ShieldCheck, X } from 'lucide-react';
 import logo from '../assets/hyperfaceMark.jpeg';
 import {
   applyOverrides,
@@ -272,8 +272,12 @@ export function DesignerShell() {
                 ))}
               </select>
               {tenant && (
-                <div className="mt-1.5 px-0.5 text-[12px] text-text-tertiary" title={tenant.warehouseAccess ? "The designer explores and sizes buckets from this bank's data" : "The designer works from your answers and its own knowledge"}>
-                  (Data access: {tenant.warehouseAccess ? 'Allowed' : 'Not allowed'})
+                <div
+                  className={`mt-2 px-0.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider ${tenant.warehouseAccess ? 'text-[#067647]' : 'text-text-tertiary'}`}
+                  title={tenant.warehouseAccess ? "The designer explores and sizes buckets from this bank's data" : "The designer works from your answers and its own knowledge"}
+                >
+                  {tenant.warehouseAccess ? 'Live data access' : 'No live data access'}
+                  {tenant.warehouseAccess ? <Check className="w-3.5 h-3.5" strokeWidth={2.5} aria-hidden="true" /> : <X className="w-3.5 h-3.5" strokeWidth={2.5} aria-hidden="true" />}
                 </div>
               )}
             </div>
