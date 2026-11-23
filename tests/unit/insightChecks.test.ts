@@ -16,56 +16,45 @@ const camp = {
 
 let n = 0;
 const entry = (e: Record<string, unknown>) => ({ id: `c${++n}`, at: new Date(Date.now() + n).toISOString(), source: 'agent', text: '', ...e });
-const query = entry({ kind: 'research', topic: 'query: Logins by lapse group', data: { purpose: 'Logins by lapse group', rows: [{ group: 'lapsed', n: 3880, logged_30d: 2900 }, { group: 'slow', n: 7002, logged_30d: 1200 }] } });
-const WHY = 'Three in four of them opened the app in the last 30 days (2,900 of 3,880) but did not use the card.';
+const query = entry({ kind: 'research', topic: 'query: Q1 Logins by lapse group', source: 'data', data: { qid: 'Q1', purpose: 'Logins by lapse group', rows: [{ group: 'lapsed', n: 3880, logged_30d: 2900 }, { group: 'slow', n: 7002, logged_30d: 1200 }] } });
+const BET = 'Three in four of them opened the app in the last 30 days (2,900 of 3,880) [Q1] but did not use the card, so we bet the card fell out of their routine: one reminder, then the offer.';
+const TRACK = 'Share making a purchase within 7 days of the offer. If under 5%, the offer is not the lever: test a bigger reward next time.';
 const full = (extra: Record<string, unknown>[] = []): CampaignContext =>
   ({
     entries: [
       query,
-      entry({ kind: 'bucket', bucketId: 'lapsed', topic: 'why stuck', text: WHY, data: { queries: ['query: Logins by lapse group'] } }),
-      entry({ kind: 'bucket', bucketId: 'lapsed', topic: 'so we', text: 'So we reach them inside the app moment, with the offer only for non-responders.', data: { steps: ['Cashback nudge'] } }),
-      entry({ kind: 'bucket', bucketId: 'slow', topic: 'why stuck', text: 'Only 1,200 of 7,002 opened the app in 30 days: they have drifted from the bank, not just the card.', data: { queries: ['Logins by lapse group'] } }),
-      entry({ kind: 'bucket', bucketId: 'slow', topic: 'so we', text: 'So we lead with SMS, not app-linked WhatsApp, and no offer.' }),
+      entry({ kind: 'bucket', bucketId: 'lapsed', topic: 'rationale', text: BET }),
+      entry({ kind: 'bucket', bucketId: 'lapsed', topic: 'metric', text: TRACK }),
+      entry({ kind: 'bucket', bucketId: 'slow', topic: 'rationale', text: 'Only 1,200 of 7,002 opened the app in 30 days [Q1]: they drifted from the bank, so we lead with SMS and no offer.' }),
+      entry({ kind: 'bucket', bucketId: 'slow', topic: 'metric', text: 'Share who spend within 14 days of the SMS; if above 10%, keep SMS first for this group.' }),
       ...extra.map(entry),
     ],
   }) as unknown as CampaignContext;
 
-describe('the code check', () => {
-  it('passes when both notes exist and connect to real queries and steps', () => {
+describe('the code check on the two blocks', () => {
+  it('passes when both blocks exist, the bet cites real queries and the tracking says what happens next', () => {
     expect(insightProblems(camp, full(), true)).toEqual([]);
   });
-  it('catches missing notes, uncited findings, made-up citations and steps that do not exist', () => {
-    const ctx = full([
-      { kind: 'bucket', bucketId: 'lapsed', topic: 'why stuck', text: WHY, data: { queries: ['query: A query nobody ran at all'] } },
-      { kind: 'bucket', bucketId: 'lapsed', topic: 'so we', text: 'So we change the second message completely.', data: { steps: ['Second message'] } },
-    ]);
-    const p = insightProblems(camp, ctx, true).join(' ');
-    expect(p).toMatch(/"Lapsed": "why stuck" cites "query: A query nobody ran at all", which is not in the notebook/);
-    expect(p).toMatch(/"so we" names "Second message", which is not a step/);
-    // A paraphrase of a real step ("Cashback nudge experiment" for "Cashback nudge") is fine.
-    const para = full([{ kind: 'bucket', bucketId: 'lapsed', topic: 'so we', text: 'So we reach them inside the app moment first.', data: { steps: ['Cashback nudge experiment'] } }]);
-    expect(insightProblems(camp, para, true).join(' ')).not.toMatch(/not a step/);
-    expect(insightProblems(camp, { entries: [] } as unknown as CampaignContext, true).join(' ')).toMatch(/no "why stuck" note[\s\S]*no "so we" note/);
-    const uncited = full([{ kind: 'bucket', bucketId: 'slow', topic: 'why stuck', text: 'They are a quiet group who do not spend much at all these days.' }]);
-    expect(insightProblems(camp, uncited, true).join(' ')).toMatch(/"Slowing": its "why stuck" cites no query/);
+  it('catches a missing block, an uncited bet, a made-up citation, a query with no rows, and tracking with no next step', () => {
+    expect(insightProblems(camp, { entries: [] } as unknown as CampaignContext, true).join(' ')).toMatch(/no rationale block[\s\S]*no "what we'll track" block/);
+    const p = insightProblems(
+      camp,
+      full([
+        { kind: 'bucket', bucketId: 'lapsed', topic: 'rationale', text: 'They are a quiet group who rarely use the card any more, so we lead with a reminder and then an offer for them.' },
+        { kind: 'bucket', bucketId: 'slow', topic: 'rationale', text: 'Only 1,200 of 7,002 opened the app [Q9], so they drifted away from the bank altogether and need SMS.' },
+        { kind: 'bucket', bucketId: 'slow', topic: 'metric', text: 'Share who spend within 14 days of the first message.' },
+      ]),
+      true,
+    ).join(' ');
+    expect(p).toMatch(/"Lapsed": its rationale cites no query/);
+    expect(p).toMatch(/"Slowing": its rationale cites \[Q9\], which is not in the notebook/);
+    expect(p).toMatch(/"Slowing": "what we'll track" names a measure but not what we'd do next/);
   });
-  it('a paraphrased citation gets a "did you mean" pointing at the real query', () => {
-    const ctx = full([{ kind: 'bucket', bucketId: 'lapsed', topic: 'why stuck', text: WHY, data: { queries: ['query: app logins in each lapse group'] } }]);
-    expect(insightProblems(camp, ctx, true).join(' ')).toMatch(/did you mean "query: Logins by lapse group"\?/);
-  });
-  it('a written research note is not evidence: the citation must reach a query result with rows', () => {
-    const ctx = full([
-      { kind: 'research', topic: 'never-transacted by cohort age', text: 'My summary: 42% to 21%.' },
-      { kind: 'bucket', bucketId: 'slow', topic: 'why stuck', text: 'The never-transacted share halves from 42% to 21% between the first two fortnights.', data: { queries: ['never-transacted by cohort age'] } },
-    ]);
-    expect(insightProblems(camp, ctx, true).join(' ')).toMatch(/"Slowing": "why stuck" cites "never-transacted by cohort age", which is a written note, not a query result/);
-  });
-  it('without data, a note must say it rests on the manager or a hypothesis', () => {
-    const p = insightProblems(camp, full(), false).join(' ');
-    expect(p).toMatch(/must say what it rests on/);
+  it('without data, the bet must say whether it rests on the manager or a hypothesis', () => {
+    expect(insightProblems(camp, full(), false).join(' ')).toMatch(/must say what it rests on/);
     const ok = full([
-      { kind: 'bucket', bucketId: 'lapsed', topic: 'why stuck', text: WHY, data: { basis: 'manager' } },
-      { kind: 'bucket', bucketId: 'slow', topic: 'why stuck', text: 'My judgement: a short gap usually closes on its own for everyday spenders.', data: { basis: 'hypothesis' } },
+      { kind: 'bucket', bucketId: 'lapsed', topic: 'rationale', text: BET, data: { basis: 'manager' } },
+      { kind: 'bucket', bucketId: 'slow', topic: 'rationale', text: 'My judgement: a short gap usually closes on its own for everyday spenders, so one free nudge.', data: { basis: 'hypothesis' } },
     ]);
     expect(insightProblems(camp, ok, false)).toEqual([]);
   });
@@ -74,7 +63,7 @@ describe('the code check', () => {
 describe('the grader', () => {
   it('sees the notes and the cited rows, never the reasoning', () => {
     const t = graderInput(camp, full());
-    expect(t).toMatch(/why stuck: Three in four/);
+    expect(t).toMatch(/why this bucket, and our bet: Three in four/);
     expect(t).toMatch(/rows: \[\{"group":"lapsed","n":3880,"logged_30d":2900\}/);
   });
   it('recomputes pass from the scores, so it cannot pass a weak bucket', async () => {
@@ -117,6 +106,6 @@ describe('logs and prompt', () => {
     expect(p).toMatch(/What you are optimising for/);
     expect(p).toMatch(/Indian cardholders, who are sharp and hard to move/);
     expect(p).toMatch(/A pattern that is the same in every group explains none of them/);
-    expect(p).toMatch(/"why stuck"[\s\S]*"so we"/);
+    expect(p).toMatch(/WHY THIS BUCKET, AND OUR BET[\s\S]*WHAT WE'LL TRACK/);
   });
 });

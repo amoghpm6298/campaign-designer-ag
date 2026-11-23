@@ -6,6 +6,7 @@
 // (default <repo>/data/warehouse).
 import { DatabaseSync } from 'node:sqlite';
 import { MessageChannel, receiveMessageOnPort, Worker, type MessagePort } from 'node:worker_threads';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,7 +38,29 @@ function startWorker() {
   return worker;
 }
 
-/** Runs one statement in the worker and waits for it, at most `timeoutMs`. */
+/**
+ * Runs one statement in its own process, killed outright at the limit. For SQL the agent (or the
+ * analyst) wrote: such a query can run for ever, and an abandoned worker thread would keep burning
+ * CPU (it did: a stuck query held the server at 99% CPU). ~36 ms start-up per query.
+ */
+function runInProcess<T>(path: string, sql: string, mode: 'all' | 'get', timeoutMs = queryTimeoutMs()): T {
+  const r = spawnSync(process.execPath, ['--no-warnings', fileURLToPath(new URL('./warehouseQuery.mjs', import.meta.url)), JSON.stringify({ path, sql, mode })], {
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    killSignal: 'SIGKILL',
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if ((r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT' || r.signal === 'SIGKILL') {
+    throw new QueryTimeoutError(
+      `The query took longer than ${Math.round(timeoutMs / 1000)} seconds and was stopped. Narrow it: filter early, aggregate in SQL, and avoid joining transactions to themselves across every customer.`,
+    );
+  }
+  if (r.error) throw r.error;
+  if (r.status !== 0) throw new Error((r.stderr || 'The query failed.').trim().split('\n').pop());
+  return JSON.parse(r.stdout) as T;
+}
+
+/** Runs one statement in the worker and waits for it, at most `timeoutMs`. For code-built queries. */
 function runOffThread<T>(path: string, sql: string, mode: 'all' | 'get', timeoutMs = queryTimeoutMs()): T {
   const wk = worker ?? startWorker();
   Atomics.store(wk.flag, 0, 0);
@@ -134,7 +157,7 @@ export function runWarehouseQuery(bank: string, sql: string): { columns: string[
   if (bad) throw new Error(bad);
   open(bank);
   const t0 = Date.now();
-  const rows = runOffThread<Record<string, unknown>[]>(warehousePath(bank), `SELECT * FROM (${sql.trim().replace(/;+\s*$/, '')}) LIMIT ${MAX_ROWS + 1}`, 'all');
+  const rows = runInProcess<Record<string, unknown>[]>(warehousePath(bank), `SELECT * FROM (${sql.trim().replace(/;+\s*$/, '')}) LIMIT ${MAX_ROWS + 1}`, 'all');
   const truncated = rows.length > MAX_ROWS;
   const kept = rows.slice(0, MAX_ROWS);
   return { columns: kept.length ? Object.keys(kept[0]) : [], rows: kept, truncated, ms: Date.now() - t0 };
@@ -146,7 +169,7 @@ export function countCustomers(bank: string, sql: string): number {
   if (bad) throw new Error(bad);
   open(bank);
   const inner = sql.trim().replace(/;+\s*$/, '');
-  const row = runOffThread<{ n: number }>(warehousePath(bank), `SELECT COUNT(DISTINCT customer_id) AS n FROM (${inner})`, 'get');
+  const row = runInProcess<{ n: number }>(warehousePath(bank), `SELECT COUNT(DISTINCT customer_id) AS n FROM (${inner})`, 'get');
   return Number(row.n);
 }
 

@@ -31,6 +31,10 @@ export default defineConfig(({ mode }) => {
     // since Playwright's own test()/expect() aren't compatible with it.
     // Scope vitest to the unit suite only.
     include: ['tests/unit/**/*.test.ts'],
+    // With the mock warehouse present, a file's first build computes every signal's customers
+    // cold (a few seconds), and several files do it at once in parallel. 15 s, not the 5 s
+    // default, so contention doesn't fail a correct test. CI has no warehouse, so it is unaffected.
+    testTimeout: 15_000,
   },
   }
 })

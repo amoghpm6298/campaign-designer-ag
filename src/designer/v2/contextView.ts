@@ -53,7 +53,11 @@ export interface BucketView {
   sql?: string;
   size?: number;
   sizeError?: string;
-  /** Level 2: what holds this group back, as the data (or the manager) shows it. */
+  /** The query ids block 1 (rationale) rests on: its inline [Q7] markers and data.queries. */
+  rationaleQueries?: string[];
+  /** "data" when it cites queries; "manager" or "hypothesis" without data. */
+  rationaleBasis?: string;
+  /** Older campaigns only (before the two blocks): what holds this group back. */
   whyStuck?: string;
   /** The notebook topics of the queries that show it. */
   whyStuckQueries?: string[];
@@ -75,7 +79,13 @@ export function bucketContext(entries: ContextEntryLike[]): Record<string, Bucke
     const topic = e.topic.trim().toLowerCase();
     if (e.kind === 'bucket') {
       if (topic === 'behaviour' || topic === 'behavior') v.behaviour = e.text;
-      else if (topic === 'rationale' || topic === 'thesis') v.rationale = e.text; // "thesis": campaigns before the rename
+      else if (topic === 'rationale' || topic === 'thesis') {
+        // "thesis": campaigns before the rename. Its sources: inline [Q7] markers and/or data.queries.
+        v.rationale = e.text;
+        const q = Array.isArray(e.data?.queries) ? (e.data!.queries as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+        v.rationaleQueries = [...new Set([...q, ...[...(e.text ?? '').matchAll(/\[(Q\d+)\]/g)].map((m) => m[1])])];
+        v.rationaleBasis = typeof e.data?.basis === 'string' ? e.data.basis : v.rationaleQueries.length ? 'data' : undefined;
+      }
       else if (topic === 'metric') v.metric = e.text;
       else if (topic === 'why stuck') {
         v.whyStuck = e.text;

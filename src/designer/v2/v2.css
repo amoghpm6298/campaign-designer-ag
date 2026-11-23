@@ -605,3 +605,22 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-sources-label { font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
 .cv-sources-item { display: flex; align-items: baseline; gap: 4px; }
 @media (prefers-reduced-motion: reduce) { .cv-cite { transition: none; } }
+
+/* Bucket card, top-down: name → size + SQL/Test → who → spend → two explanation blocks. */
+.cv-bucket-sizerow { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 8px 10px; border-radius: var(--r-md, 8px); background: var(--accent-wash); border: 1px solid var(--accent-tint); flex-wrap: wrap; }
+.cv-bucket-size { display: inline-flex; align-items: baseline; gap: 5px; font-size: var(--t-sm); font-weight: 500; color: var(--text-muted); }
+.cv-bucket-size b { font-size: 30px; line-height: 1.05; font-weight: 800; color: var(--accent); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.cv-bucket-size.muted { font-size: var(--t-xs); }
+.cv-bucket-hold { font-size: 11px; color: var(--text-muted); }
+.cv-bucket-tools { margin-left: auto; display: inline-flex; gap: 4px; }
+.cv-tool-btn { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+.cv-tool-btn:hover { color: var(--accent); border-color: var(--accent-edge); }
+.cv-tool-btn.on { color: var(--accent); border-color: var(--accent); background: var(--accent-wash); }
+.cv-tool-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cv-bucket .cv-bucket-who { margin-top: 6px; }
+.cv-bucket .cv-sql { margin-top: 6px; }
+.cv-explain { margin-top: 8px; padding: 8px 10px; border-radius: var(--r-md, 8px); background: var(--surface); border: 1px solid var(--border); }
+.cv-explain-title { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; }
+.cv-explain-text { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--neutral-900); }
+.cv-explain-text.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.cv-explain-more { margin-top: 3px; padding: 0; border: 0; background: none; font: inherit; font-size: 11.5px; font-weight: 600; color: var(--accent); cursor: pointer; }

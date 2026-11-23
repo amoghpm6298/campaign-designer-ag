@@ -2,7 +2,7 @@
 // accents from src/canvas/dripCanvas.css). Read-only: the campaign changes
 // through the chat, never by clicking a card. Clicking a message opens its
 // preview.
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { Handle, NodeToolbar, Position } from '@xyflow/react';
 import { ChevronDown, ChevronRight, Pencil, Play, Sparkles } from 'lucide-react';
 import type { CostReportView, FieldSampleView, Offer, SizingRun } from './api';
@@ -361,18 +361,16 @@ function SendCard({ data }: { data: CdNodeData }) {
 function BucketCard({ data }: { data: CdNodeData }) {
   const b = data.bucket!;
   // Execution (name, holdout, journey) comes from the campaign object; the
-  // reasoning and size come from the context.
+  // reasoning and size come from the context. Read top-down: who and how many
+  // (with the query behind it), then the two explanation blocks.
   const info = data.info ?? {};
-  const [why, setWhy] = useState(false);
   const evidence = info.evidence ?? 'hypothesis';
-  const size =
-    typeof info.size === 'number'
-      ? `${info.size.toLocaleString('en-IN')} customers`
-      : info.sizeError
-        ? 'Not sized'
-        : evidence === 'measured'
-          ? 'Sizing…'
-          : 'Size unknown (no data warehouse)';
+  const [panel, setPanel] = useState<'sql' | 'test' | null>(null);
+  const sized = typeof info.size === 'number';
+  const sizeNote = info.sizeError ? 'Not sized' : evidence === 'measured' ? 'Sizing…' : 'Size unknown (no data warehouse)';
+  // Block 1: why this bucket and the bet (older campaigns: their "why stuck" / "so we" notes).
+  const bet = info.rationale?.trim() || [info.whyStuck, info.soWe].filter(Boolean).join(' ');
+  const track = info.metric?.trim();
   return (
     <div className={`dc-node-card size-standard cv-card cv-bucket ev-${evidence}`} style={{ width: data.width }}>
       <div className="dc-node-type">
@@ -381,51 +379,70 @@ function BucketCard({ data }: { data: CdNodeData }) {
         <span className={`cv-ev ${evidence}`}>{EVIDENCE[evidence]}</span>
       </div>
       <div className="dc-node-label cv-bucket-name">{b.name}</div>
-      {/* Who is in it first, then how many, then why (on demand). */}
-      {info.behaviour && <p className="cv-bucket-who">{info.behaviour}</p>}
-      {/* The insight first: what holds this group back, and what the campaign does about it. */}
-      {(info.whyStuck || info.soWe) && (
-        <div className="cv-insight">
-          {info.whyStuck && (
-            <p className="cv-insight-line" title={info.whyStuck}>
-              <b>Why stuck</b> {withCites(info.whyStuck, 'ws')}
-            </p>
-          )}
-          {info.soWe && (
-            <p className="cv-insight-line" title={info.soWe}>
-              <b>So we</b> {withCites(info.soWe, 'sw')}
-            </p>
-          )}
-          {info.insightCheck && !info.insightCheck.pass && (
-            <p className="cv-insight-warn" title={info.insightCheck.reason}>
-              <b>Needs a closer look:</b> {info.insightCheck.reason}
-            </p>
-          )}
-        </div>
-      )}
-      <div className="cv-bucket-meta">
-        {size}
-        {b.holdoutPct ? ` · ${b.holdoutPct}% held back to measure` : ''}
+      <div className="cv-bucket-sizerow">
+        {sized ? (
+          <span className="cv-bucket-size">
+            <b>{info.size!.toLocaleString('en-IN')}</b> customers
+          </span>
+        ) : (
+          <span className="cv-bucket-size muted">{sizeNote}</span>
+        )}
+        {b.holdoutPct ? <span className="cv-bucket-hold">{b.holdoutPct}% held back</span> : null}
+        {info.sql && <BucketTools open={panel} onOpen={setPanel} />}
       </div>
+      {info.sql && panel && <BucketSql bucketId={b.id} sql={info.sql} mode={panel} />}
+      {info.behaviour && <p className="cv-bucket-who">{info.behaviour}</p>}
       <SpendLine bucketId={b.id} />
-      {info.rationale && (
-        <>
-          <button
-            type="button"
-            className="cv-bucket-why nodrag nopan"
-            aria-expanded={why}
-            onClick={(e) => {
-              e.stopPropagation();
-              setWhy((v) => !v);
-            }}
-          >
-            {why ? <ChevronDown size={13} /> : <ChevronRight size={13} />} AI rationale
-          </button>
-          {why && <p className="cv-bucket-p">{withCites(info.rationale, 'br')}</p>}
-        </>
+      {bet && <ExplainBlock title="Why this bucket, and our bet" text={bet} k="bet" />}
+      {track && <ExplainBlock title="What we'll track" text={track} k="track" />}
+      {info.insightCheck && !info.insightCheck.pass && (
+        <p className="cv-insight-warn" title={info.insightCheck.reason}>
+          <b>Needs a closer look:</b> {info.insightCheck.reason}
+        </p>
       )}
-      {info.sql && <BucketSql bucketId={b.id} sql={info.sql} />}
       {!b.journey?.length && <div className="cv-bucket-pending">Journey not designed yet</div>}
+    </div>
+  );
+}
+
+/** "SQL" shows how the bucket is counted; "Test" runs it on the data now. */
+function BucketTools({ open, onOpen }: { open: 'sql' | 'test' | null; onOpen: (p: 'sql' | 'test' | null) => void }) {
+  const canRun = !!useContext(SizingContext);
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  return (
+    <span className="cv-bucket-tools nodrag nopan">
+      <button type="button" className={`cv-tool-btn${open === 'sql' ? ' on' : ''}`} aria-pressed={open === 'sql'} onClick={(e) => (stop(e), onOpen(open === 'sql' ? null : 'sql'))}>
+        SQL
+      </button>
+      {canRun && (
+        <button type="button" className={`cv-tool-btn${open === 'test' ? ' on' : ''}`} aria-pressed={open === 'test'} onClick={(e) => (stop(e), onOpen(open === 'test' ? null : 'test'))}>
+          <Play size={10} strokeWidth={2.5} /> Test
+        </button>
+      )}
+    </span>
+  );
+}
+
+/** One explanation block: a few lines, the rest on demand; sources as chips. */
+function ExplainBlock({ title, text, k }: { title: string; text: string; k: string }) {
+  const [more, setMore] = useState(false);
+  const long = text.length > 220;
+  return (
+    <div className="cv-explain">
+      <div className="cv-explain-title">{title}</div>
+      <p className={`cv-explain-text${more || !long ? '' : ' clamp'}`}>{withCites(text, k)}</p>
+      {long && (
+        <button
+          type="button"
+          className="cv-explain-more nodrag nopan"
+          onClick={(e) => {
+            e.stopPropagation();
+            setMore((v) => !v);
+          }}
+        >
+          {more ? 'Show less' : 'Show more'}
+        </button>
+      )}
     </div>
   );
 }
@@ -752,64 +769,56 @@ function SpendLine({ bucketId }: { bucketId?: string }) {
 export const SizingContext = createContext<((bucketId: string) => Promise<SizingRun>) | null>(null);
 
 /** The SQL that sized a bucket, and a button to run it again now. */
-function BucketSql({ bucketId, sql }: { bucketId: string; sql: string }) {
+function BucketSql({ bucketId, sql, mode }: { bucketId: string; sql: string; mode: 'sql' | 'test' }) {
   const run = useContext(SizingContext);
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<SizingRun | null>(null);
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  const go = async () => {
+    if (!run) return;
+    setBusy(true);
+    setRes(await run(bucketId));
+    setBusy(false);
+  };
+  // "Test" runs as soon as it opens.
+  useEffect(() => {
+    if (mode === 'test' && !res && !busy) void go();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
   return (
-    <>
-      <button type="button" className="cv-bucket-why nodrag nopan" aria-expanded={open} onClick={(e) => (stop(e), setOpen((v) => !v))}>
-        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />} SQL query
-      </button>
-      {open && (
-        <div className="cv-sql nodrag nopan nowheel" onClick={stop}>
-          <pre className="cv-sql-code">{sql.trim()}</pre>
-          {run && (
-            <button
-              type="button"
-              className="cv-sql-run"
-              disabled={busy}
-              onClick={async (e) => {
-                stop(e);
-                setBusy(true);
-                setRes(await run(bucketId));
-                setBusy(false);
-              }}
-            >
-              <Play size={11} strokeWidth={2.5} /> {busy ? 'Running…' : res ? 'Run again' : 'Run SQL'}
-            </button>
-          )}
-          {res && !res.ok && <div className="cv-sql-err">{res.error}</div>}
-          {res?.ok && (
-            <div className="cv-sql-res">
-              <div className="cv-sql-count">
-                <b>{(res.size ?? 0).toLocaleString('en-IN')} customers</b> now
-                {typeof res.savedSize === 'number' && (res.savedSize === res.size ? ' · matches the saved size' : ` · saved size was ${res.savedSize.toLocaleString('en-IN')}`)}
-                {` · ${res.ms} ms`}
-                {res.dataAsOf ? ` · data up to ${res.dataAsOf}` : ''}
-              </div>
-              {!!res.rows?.length && (
-                <div className="cv-sql-table">
-                  <table>
-                    <thead>
-                      <tr>{res.columns!.map((c) => <th key={c}>{c}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                      {res.rows.map((r, i) => (
-                        <tr key={i}>{res.columns!.map((c) => <td key={c}>{String(r[c] ?? '')}</td>)}</tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <div className="cv-sql-note">First {res.rows.length} of {(res.size ?? 0).toLocaleString('en-IN')}</div>
-                </div>
-              )}
+    <div className="cv-sql nodrag nopan nowheel" onClick={stop}>
+      {mode === 'sql' && <pre className="cv-sql-code">{sql.trim()}</pre>}
+      {mode === 'test' && busy && <div className="cv-sql-count">Running on the data…</div>}
+      {mode === 'test' && res && !res.ok && <div className="cv-sql-err">{res.error}</div>}
+      {mode === 'test' && res?.ok && (
+        <div className="cv-sql-res">
+          <div className="cv-sql-count">
+            <b>{(res.size ?? 0).toLocaleString('en-IN')} customers</b> now
+            {typeof res.savedSize === 'number' && (res.savedSize === res.size ? ' · matches the saved size' : ` · saved size was ${res.savedSize.toLocaleString('en-IN')}`)}
+            {` · ${res.ms} ms`}
+            {res.dataAsOf ? ` · data up to ${res.dataAsOf}` : ''}
+          </div>
+          {!!res.rows?.length && (
+            <div className="cv-sql-table">
+              <table>
+                <thead>
+                  <tr>{res.columns!.map((c) => <th key={c}>{c}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {res.rows.map((r, i) => (
+                    <tr key={i}>{res.columns!.map((c) => <td key={c}>{String(r[c] ?? '')}</td>)}</tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="cv-sql-note">First {res.rows.length} of {(res.size ?? 0).toLocaleString('en-IN')}</div>
             </div>
           )}
+          <button type="button" className="cv-sql-run" disabled={busy} onClick={(e) => (stop(e), void go())}>
+            <Play size={11} strokeWidth={2.5} /> {busy ? 'Running…' : 'Run again'}
+          </button>
         </div>
       )}
-    </>
+    </div>
   );
 }
 

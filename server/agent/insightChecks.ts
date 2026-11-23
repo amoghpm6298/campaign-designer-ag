@@ -21,7 +21,6 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CampaignContext, CampaignObject } from './types';
-import type { BpStep } from '../blueprint';
 import { bucketContext, currentEntries } from '../../src/designer/v2/contextView';
 import { callClaude } from '../anthropic';
 import { queryById, rowsOf } from './citations';
@@ -56,75 +55,38 @@ function findQuery(context: CampaignContext | null, cite: string) {
   return matches.find((e) => rowsOf(e.data).length) ?? matches[0];
 }
 
-/** The query record whose topic shares the most words with a mistyped citation (a paraphrase from memory). */
-function closestQuery(context: CampaignContext | null, cite: string): string | null {
-  const words = (s: string) => new Set(norm(s).split(/[^a-z0-9]+/).filter((w) => w.length > 2));
-  const want = words(cite);
-  let best: { topic: string; score: number } | null = null;
-  for (const e of currentEntries(context?.entries ?? [], { kind: 'research' })) {
-    if (!rowsOf(e.data).length) continue;
-    const have = words(e.topic);
-    const score = [...want].filter((w) => have.has(w)).length / Math.max(1, Math.min(want.size, have.size));
-    if (!best || score > best.score) best = { topic: e.topic, score };
-  }
-  return best && best.score >= 0.4 ? best.topic : null;
-}
 
-/** Every step's id and name in a journey, lower-cased. */
-function stepNames(journey: BpStep[] | null | undefined): Set<string> {
-  const out = new Set<string>();
-  const walk = (list: unknown) => {
-    for (const s of (Array.isArray(list) ? list : []) as Record<string, unknown>[]) {
-      for (const k of ['id', 'name', 'label']) if (typeof s[k] === 'string' && s[k]) out.add(String(s[k]).toLowerCase().trim());
-      for (const k of ['yes', 'no', 'otherwise']) walk(s[k]);
-      for (const k of ['paths', 'arms']) for (const p of (Array.isArray(s[k]) ? s[k] : []) as Record<string, unknown>[]) walk(p.steps);
-    }
-  };
-  walk(journey);
-  return out;
-}
 
-/** Code check: what is missing or not connected, per bucket. Empty when every bucket is complete. */
+/**
+ * Code check on the two blocks per bucket: "why this bucket, and our bet" (rationale) and "what
+ * we'll track" (metric). Empty when every bucket is complete.
+ */
 export function insightProblems(campaign: CampaignObject, context: CampaignContext | null, hasData: boolean): string[] {
   const views = bucketContext(context?.entries ?? []);
   const out: string[] = [];
   for (const b of campaign.buckets) {
     const v = views[b.id] ?? {};
     const name = `Bucket "${b.name}"`;
-    if (!v.whyStuck || v.whyStuck.trim().length < 40)
-      out.push(`${name}: no "why stuck" note (add_context kind "bucket", topic "why stuck"): what holds THIS group back, with its numbers.`);
+    if (!v.rationale || v.rationale.trim().length < 60)
+      out.push(`${name}: no rationale block (add_context kind "bucket", topic "rationale"): why this bucket, with its numbers and sources, and the hypothesis you are betting on.`);
     else if (hasData) {
-      const cites = v.whyStuckQueries ?? [];
-      if (!cites.length) out.push(`${name}: its "why stuck" cites no query. Give data {queries: [the notebook topics of the queries that show it, e.g. "query: <purpose>"]}; run one if you have none.`);
+      const cites = v.rationaleQueries ?? [];
+      if (!cites.length) out.push(`${name}: its rationale cites no query. Put the source after each figure, e.g. "[Q7]"; run the query first if you have none.`);
       else {
         const missing = cites.filter((c) => !findQuery(context, c));
         const noRows = cites.filter((c) => {
           const q = findQuery(context, c);
           return q && !rowsOf(q.data).length;
         });
-        if (missing.length) {
-          const hints = missing.map((m) => closestQuery(context, m)).filter(Boolean);
-          out.push(
-            `${name}: "why stuck" cites ${missing.map((m) => `"${m}"`).join(', ')}, which ${missing.length === 1 ? 'is' : 'are'} not in the notebook. Cite queries you actually ran, by their exact topic${hints.length ? `; did you mean ${[...new Set(hints)].map((h) => `"${h}"`).join(' or ')}?` : ' ("query: <purpose>").'}`,
-          );
-        }
-        if (noRows.length)
-          out.push(`${name}: "why stuck" cites ${noRows.map((m) => `"${m}"`).join(', ')}, which ${noRows.length === 1 ? 'is a written note' : 'are written notes'}, not ${noRows.length === 1 ? 'a query result' : 'query results'}. Cite the query records the numbers came from (topic "query: <purpose>", with rows), so they can be checked.`);
+        if (missing.length) out.push(`${name}: its rationale cites ${missing.map((m) => `[${m}]`).join(', ')}, which ${missing.length === 1 ? 'is' : 'are'} not in the notebook. Cite queries you actually ran.`);
+        if (noRows.length) out.push(`${name}: its rationale cites ${noRows.map((m) => `[${m}]`).join(', ')}, which returned no rows. Cite the query the figures came from.`);
       }
-    } else if (!v.whyStuckBasis || !['manager', 'hypothesis'].includes(v.whyStuckBasis)) {
-      out.push(`${name}: its "why stuck" must say what it rests on: data {basis: "manager"} if the manager said it, {basis: "hypothesis"} if it is your judgement.`);
+    } else if (!v.rationaleBasis || !['manager', 'hypothesis'].includes(v.rationaleBasis)) {
+      out.push(`${name}: its rationale must say what it rests on: data {basis: "manager"} if the manager said it, {basis: "hypothesis"} if it is your judgement.`);
     }
-    if (!v.soWe || v.soWe.trim().length < 20) out.push(`${name}: no "so we" note (topic "so we"): what that finding changed in this bucket's design, or that the data did not separate this group so the lever is a hypothesis to test.`);
-    else if (v.soWeSteps?.length) {
-      const names = stepNames(b.journey as BpStep[] | null);
-      // Tolerant of a paraphrase like "X experiment" for a step named "X"; still catches a renamed step.
-      const known = [...names];
-      const gone = v.soWeSteps.filter((s) => {
-        const w = s.toLowerCase().trim();
-        return !names.has(w) && !known.some((n) => n.length >= 8 && (w.startsWith(n) || n.startsWith(w)));
-      });
-      if (gone.length) out.push(`${name}: "so we" names ${gone.map((g) => `"${g}"`).join(', ')}, which ${gone.length === 1 ? 'is' : 'are'} not a step in its journey. Name steps as they are (their name), or leave steps out.`);
-    }
+    if (!v.metric || v.metric.trim().length < 30) out.push(`${name}: no "what we'll track" block (topic "metric"): the measure, over what window, and what we'd do next depending on the result.`);
+    else if (!/\bif\b|\bthen\b|\bnext\b|\botherwise\b|\bunless\b|\bbelow\b|\babove\b|\bunder\b|\bover\b/i.test(v.metric))
+      out.push(`${name}: "what we'll track" names a measure but not what we'd do next. Add the decision it informs (e.g. "if under 5% buy within 7 days, test a bigger reward").`);
   }
   return out;
 }
@@ -167,7 +129,7 @@ export function graderInput(campaign: CampaignObject, context: CampaignContext |
     .sort((a, b) => a.priority - b.priority)
     .map((b) => {
       const v = views[b.id] ?? {};
-      const evidence = (v.whyStuckQueries ?? []).map((c) => {
+      const evidence = (v.rationaleQueries ?? []).map((c) => {
         const q = findQuery(context, c);
         const d = (q?.data ?? {}) as { purpose?: string };
         const rows = rowsOf(q?.data);
@@ -176,8 +138,8 @@ export function graderInput(campaign: CampaignObject, context: CampaignContext |
       return [
         `BUCKET ${b.id} "${b.name}" (checked ${b.priority}${typeof v.size === 'number' ? `, ${v.size} customers` : ''})${only && !only.includes(b.id) ? ' [already reviewed: for comparison only, do not grade]' : ''}`,
         `rule: ${JSON.stringify(b.rule).slice(0, 600)}`,
-        `why stuck: ${v.whyStuck ?? '(missing)'}${v.whyStuckBasis && v.whyStuckBasis !== 'data' ? ` [basis: ${v.whyStuckBasis}]` : ''}`,
-        `so we: ${v.soWe ?? '(missing)'}`,
+        `why this bucket, and our bet: ${v.rationale ?? '(missing)'}${v.rationaleBasis && v.rationaleBasis !== 'data' ? ` [basis: ${v.rationaleBasis}]` : ''}`,
+        `what we'll track: ${v.metric ?? '(missing)'}`,
         evidence.length ? `cited evidence:\n${evidence.join('\n')}` : 'cited evidence: none',
       ].join('\n');
     });

@@ -112,10 +112,21 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   ₹0.1.
 - **Warehouse queries never freeze the server** (2026-11-20). node:sqlite is
   synchronous and can't interrupt a query; one runaway query froze the whole
-  server (and ignored a normal stop). Every query now runs in a worker thread
-  (`server/warehouseWorker.mjs`) with a hard limit (`WAREHOUSE_QUERY_TIMEOUT_MS`,
-  default 30 s); on timeout the worker is abandoned and the agent gets a plain
-  "narrow it" error.
+  server (and ignored a normal stop). SQL the agent or analyst wrote (and bucket
+  sizing) runs in its own process (`server/warehouseQuery.mjs`, ~36 ms start-up),
+  killed outright at the limit (`WAREHOUSE_QUERY_TIMEOUT_MS`, default 30 s). An
+  abandoned worker thread was tried first and kept burning CPU (99% for over an
+  hour). Code-built queries (signals, for the cost model) stay in a worker
+  thread (`server/warehouseWorker.mjs`): bounded and cached.
+- **Two blocks per bucket** (2026-11-23): "rationale" = why this bucket (cited)
+  and the bet (worded as a hypothesis); "metric" = what we'll track, by when,
+  and what we'd do next. They replace "why stuck / so we" (now gone) and the
+  bucket-level "AI rationale" toggle. The card reads top-down: name, size
+  (headline, with SQL and Test buttons), one-line who, spend, the two blocks.
+  The code check (`insightProblems`) requires both: the rationale cites a real
+  query with rows (inline [Q7] or data.queries); the tracking names a next step.
+- **A model call that fails on the network, a timeout or an overloaded API is
+  retried** (the round, twice, with a pause) instead of ending the turn.
 - **Inline sources, checked by code** (2026-11-20, `agent/citations.ts`,
   `src/designer/v2/Citations.tsx`). Every query is filed with a short id (Q1,
   Q2…, never reused). Everything the agent writes cites figures at the end of

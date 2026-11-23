@@ -821,7 +821,7 @@ export function buildCampaign(state: AgentState, env: ToolEnv): ToolOutcome {
   const knockOns = checkJourneys(next.campaign, env.links, env.smsFallback ?? true, true);
   const openEndings = endingGaps(next.campaign);
   const offers = offerProblems(next.campaign, next.context, env.tenant);
-  const cites = citationProblems(next.campaign, next.context, env.tenant, !!env.warehouseBank, env.managerSaid ?? [env.goalStatement]);
+  const cites = citationProblems(next.campaign, next.context, env.tenant, !!env.warehouseBank, env.managerSaid ?? [env.goalStatement], offers.cost);
   next = setFlag(next, 'campaignBuilt', true, 'app', summary);
   next = log(next, 'app', 'campaign_built', `Built: ${summary}${notes.length ? `, ${notes.length} note(s)` : ''}`);
   return {

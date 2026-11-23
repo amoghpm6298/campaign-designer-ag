@@ -17,7 +17,7 @@ import type { CampaignContext, CampaignObject } from './types';
 import type { TenantConfig } from '../tenants';
 import { bucketContext, currentEntries } from '../../src/designer/v2/contextView';
 import { incentivesFor } from '../incentives';
-import { campaignCost } from '../costModel';
+import { campaignCost, type CostReport } from '../costModel';
 
 type Entry = CampaignContext['entries'][number];
 
@@ -183,7 +183,7 @@ export function agentTexts(campaign: CampaignObject, context: CampaignContext | 
 }
 
 /** Numbers that are facts of the campaign itself, never data claims needing a source. */
-export function systemNumbers(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'incentives' | 'warehouse'> | null): number[] {
+export function systemNumbers(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'incentives' | 'warehouse'> | null, knownCost?: CostReport): number[] {
   const out: number[] = [];
   const grab = (v: unknown) => {
     if (typeof v === 'number' && Number.isFinite(v)) out.push(v);
@@ -210,7 +210,7 @@ export function systemNumbers(campaign: CampaignObject, context: CampaignContext
   // Bucket sizes, the cost calculator's figures, the offer menu, and the manager's answers.
   for (const v of Object.values(bucketContext(context?.entries ?? []))) if (typeof v.size === 'number') out.push(v.size);
   try {
-    const cost = campaignCost(campaign, context, tenant);
+    const cost = knownCost ?? campaignCost(campaign, context, tenant);
     grab(cost.total);
     for (const l of cost.lines) grab([l.customers, l.qualified, l.avgReward, l.maxPerCustomer, l.under, l.expected, l.max]);
     for (const b of cost.buckets) grab([b.under, b.expected, b.max]);
@@ -259,11 +259,12 @@ export function citationProblems(
   tenant: Pick<TenantConfig, 'incentives' | 'warehouse'> | null,
   hasData = !!tenant?.warehouse,
   managerSaid: string[] = [],
+  knownCost?: CostReport,
 ): CitationReport {
   const errors: string[] = [];
   const warnings: string[] = [];
   const stats = { texts: 0, cited: 0, matched: 0, mismatched: 0, uncited: 0, unknownSources: 0 };
-  const system = [...systemNumbers(campaign, context, tenant), ...managerNumbers(null, managerSaid)];
+  const system = [...systemNumbers(campaign, context, tenant, knownCost), ...managerNumbers(null, managerSaid)];
   const isSystem = (n: WrittenNumber) => (!n.decimals && !n.pct && n.value <= 10) || system.some((v) => Math.abs(v - n.value) < 1e-9) || matchesSourceDirect(n, system);
   const sourceCache = new Map<string, number[] | null>();
   const sourceNumbers = (id: string): number[] | null => {

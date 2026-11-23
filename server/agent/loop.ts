@@ -75,6 +75,14 @@ export function toolEnvFor(tenantId: string | undefined, sessionId: string, goal
 }
 
 /** Alternating user/assistant messages, merging consecutive turns from the same side. */
+/** Failures worth one more try: the network, a timeout, rate limits, an overloaded or failing API. */
+export function isTransient(e: unknown): boolean {
+  const status = (e as { status?: number })?.status;
+  const msg = String((e as Error)?.message ?? '');
+  if (status === 429 || status === 529 || (typeof status === 'number' && status >= 500)) return true;
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|network|timed out|overloaded|terminated/i.test(msg);
+}
+
 function toApiMessages(messages: AgentRequest['messages']): ApiMessage[] {
   const out: { role: 'user' | 'assistant'; content: string }[] = [];
   for (const m of messages ?? []) {
@@ -322,6 +330,19 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
           if (attempt === 0 && isTooLong(e)) {
             await compactNow(round, true);
             yield* drain();
+            continue;
+          }
+          // A dropped connection, a timeout or an overloaded API is usually gone in seconds: retry the
+          // round (twice, with a pause) instead of ending the whole turn over one blip. Nothing from
+          // the failed attempt is kept, so the round starts clean.
+          if (attempt < 2 && isTransient(e)) {
+            roundText = '';
+            toolUses.length = 0;
+            content = [];
+            stopReason = undefined;
+            em.emit('model.tool_call.completed', 'understanding', 'Connection dropped, retrying', { status: 'ok', correlationId: `retry-${round}-${attempt}`, detail: (e as Error).message.slice(0, 200), data: { tool: 'retry', round } });
+            yield* drain();
+            await new Promise((r) => setTimeout(r, 4_000 * (attempt + 1)));
             continue;
           }
           throw e;
