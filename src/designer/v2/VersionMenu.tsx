@@ -21,8 +21,19 @@ const SOURCE: Record<VersionEntry['source'], { icon: React.ReactNode; label: str
   repair: { icon: <Wrench size={12} />, label: 'Automatic fix' },
 };
 
-export function VersionMenu({ versions, viewing, onView }: { versions: VersionEntry[]; viewing: number | null; onView: (n: number) => void }) {
-  const [open, setOpen] = useState(false);
+/**
+ * With `onClose`, it shows only the list, opened from somewhere else (the More options menu),
+ * and calls onClose when it closes. Without it, it is its own button and dropdown.
+ */
+export function VersionMenu({ versions, viewing, onView, onClose }: { versions: VersionEntry[]; viewing: number | null; onView: (n: number) => void; onClose?: () => void }) {
+  const [openSelf, setOpenSelf] = useState(false);
+  const open = onClose ? true : openSelf;
+  const setOpen = (v: boolean | ((x: boolean) => boolean)) => {
+    const next = typeof v === 'function' ? v(open) : v;
+    if (onClose) {
+      if (!next) onClose();
+    } else setOpenSelf(next);
+  };
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) return;
@@ -34,11 +45,13 @@ export function VersionMenu({ versions, viewing, onView }: { versions: VersionEn
   const shown = viewing ?? latest?.n;
   return (
     <div className="cv-ver" ref={ref}>
-      <button className={`cv-btn${viewing ? ' cv-ver-old' : ''}`} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <History size={14} /> v{shown}
-        <span className="cv-ver-when">· {viewing ? 'viewing' : ago(latest.at)}</span>
-        <ChevronDown size={14} />
-      </button>
+      {!onClose && (
+        <button className={`cv-btn${viewing ? ' cv-ver-old' : ''}`} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+          <History size={14} /> v{shown}
+          <span className="cv-ver-when">· {viewing ? 'viewing' : ago(latest.at)}</span>
+          <ChevronDown size={14} />
+        </button>
+      )}
       {open && (
         <div className="cv-ver-list" role="menu">
           <div className="cv-ver-head">Versions of this campaign</div>

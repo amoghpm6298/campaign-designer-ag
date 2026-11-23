@@ -1,4 +1,4 @@
-// Knowledge Base → Links: the bank's link registry. Every destination a
+// Links: the bank's link registry (its own page in the sidebar). Every destination a
 // message may send a customer to. Messages carry a link's reference; the real
 // URL is added when the message is sent, so fixing a URL here fixes every
 // campaign. Short links come from the bank's own whitelisted shortener.
@@ -76,10 +76,10 @@ export function LinksSection({ tenant }: { tenant: Tenant | null }) {
   const set = (patch: Partial<BankLink>) => setEditing((e) => (e ? { ...e, link: { ...e.link, ...patch } } : e));
 
   return (
-    <section className="hf-section">
-      <div className="cd-section-head">
+    <section>
+      <div className="cd-page-head">
         <div>
-          <h2 className="hf-h2">Links</h2>
+          <h1>Links</h1>
           <p className="cd-lede">
             Where {tenant.displayName}'s messages can send customers. Campaigns use a link's reference; the real URL is added when a message is sent, so a
             change here reaches every campaign. SMS needs a short link from the bank's own whitelisted shortener.
@@ -161,7 +161,6 @@ export function LinksSection({ tenant }: { tenant: Tenant | null }) {
             <span className="kl-name">
               <b>{l.label}</b>
               <code>{l.ref}</code>
-              {l.mock && <span className="kl-tag mock" title="Example data, not the bank's real link">Example</span>}
               {l.status === 'retired' && <span className="kl-tag retired">Retired</span>}
               <span className="kl-purpose">{l.purpose}</span>
             </span>

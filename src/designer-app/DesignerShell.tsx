@@ -1,7 +1,7 @@
 // The standalone application shell: its own header, navigation and global
 // tenant selector. Nothing here comes from the ib-face-mock chrome.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Gift, Library, Megaphone, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Gift, Library, Link2, Megaphone, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import logo from '../assets/hfLogo.svg';
 import {
   applyOverrides,
@@ -12,13 +12,17 @@ import {
 import { newCampaignId } from '../designer/v2/DesignerV2';
 import { CampaignView, CampaignsHome } from '../designer/v2/CampaignsHome';
 import { OffersView } from '../designer/OffersView';
+import { LinksView } from '../designer/LinksView';
 import { KnowledgeBaseView } from '../designer/KnowledgeBaseView';
 import { ReloadPrompt } from './ReloadPrompt';
 import { listTenants, seedKnowledge } from '../designer/api';
 import { loadTenantId, saveTenantId } from '../designer/storage';
 import type { Capabilities, KnowledgeBase, Tenant } from '../designer/types';
 
-type Page = 'designer' | 'knowledge' | 'offers';
+/** The bank, and whether the designer can read its data: "Yes Bank (Data access: Allowed)". */
+const tenantLabel = (t: Tenant) => `${t.displayName} (Data access: ${t.warehouseAccess ? 'Allowed' : 'Not allowed'})`;
+
+type Page = 'designer' | 'knowledge' | 'links' | 'offers';
 
 export function DesignerShell() {
   const [page, setPage] = useState<Page>('designer');
@@ -143,6 +147,7 @@ export function DesignerShell() {
             [
               ['designer', 'Campaigns', Megaphone],
               ['knowledge', 'Knowledge Base', Library],
+              ['links', 'Links', Link2],
               ['offers', 'Offers', Gift],
             ] as [Page, string, typeof Megaphone][]
           ).map(([k, label, Icon]) => {
@@ -203,11 +208,16 @@ export function DesignerShell() {
                   </option>
                 ))}
               </select>
+              {tenant && (
+                <div className="mt-1.5 px-0.5 text-[12px] text-text-tertiary" title={tenant.warehouseAccess ? "The designer explores and sizes buckets from this bank's data" : "The designer works from your answers and its own knowledge"}>
+                  (Data access: {tenant.warehouseAccess ? 'Allowed' : 'Not allowed'})
+                </div>
+              )}
             </div>
           ) : (
             <span
               className="mx-auto grid w-8 h-8 place-items-center rounded-full bg-primary-light text-primary text-[11.5px] font-bold"
-              title={tenant?.displayName ?? tenantId}
+              title={tenant ? tenantLabel(tenant) : tenantId}
             >
               {(tenant?.displayName ?? tenantId ?? '?').slice(0, 2).toUpperCase()}
             </span>
@@ -236,6 +246,7 @@ export function DesignerShell() {
         {!bootError && page === 'designer' && (!knowledge || !tenant) && (
           <div style={{ padding: 30, fontSize: 13, color: 'var(--gray-600)' }}>Loading tenant and knowledge base…</div>
         )}
+        {!bootError && page === 'links' && <LinksView key={tenant?.tenantId} tenant={tenant} />}
         {!bootError && page === 'offers' && <OffersView key={tenant?.tenantId} tenant={tenant} />}
         {!bootError && page === 'knowledge' && knowledge && (
           <KnowledgeBaseView

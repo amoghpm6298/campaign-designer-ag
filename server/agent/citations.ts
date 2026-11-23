@@ -183,7 +183,7 @@ export function agentTexts(campaign: CampaignObject, context: CampaignContext | 
 }
 
 /** Numbers that are facts of the campaign itself, never data claims needing a source. */
-export function systemNumbers(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'incentives' | 'warehouse'> | null, knownCost?: CostReport): number[] {
+export function systemNumbers(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'tenantId' | 'incentives' | 'warehouse'> | null, knownCost?: CostReport): number[] {
   const out: number[] = [];
   const grab = (v: unknown) => {
     if (typeof v === 'number' && Number.isFinite(v)) out.push(v);
@@ -223,7 +223,7 @@ export function systemNumbers(campaign: CampaignObject, context: CampaignContext
   return out.flatMap((v) => [v, v - 1, v + 1]);
 }
 
-function offerNumbers(tenant: Pick<TenantConfig, 'incentives' | 'warehouse'> | null): number[] {
+function offerNumbers(tenant: Pick<TenantConfig, 'tenantId' | 'incentives' | 'warehouse'> | null): number[] {
   const out: number[] = [];
   const grab = (v: unknown): void => {
     if (typeof v === 'number' && Number.isFinite(v)) out.push(v);
@@ -256,7 +256,7 @@ const short = (s: string, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` 
 export function citationProblems(
   campaign: CampaignObject,
   context: CampaignContext | null,
-  tenant: Pick<TenantConfig, 'incentives' | 'warehouse'> | null,
+  tenant: Pick<TenantConfig, 'tenantId' | 'incentives' | 'warehouse'> | null,
   hasData = !!tenant?.warehouse,
   managerSaid: string[] = [],
   knownCost?: CostReport,

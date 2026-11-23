@@ -22,7 +22,7 @@ const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 const AMOUNT = /(₹\s?\d)|(\brs\.?\s?\d)|(\binr\s?\d)|(\d+(\.\d+)?\s?%)|(\b\d+x\b)/i;
 
 /** Every problem with the offers, plus the cost report they were judged against. */
-export function offerProblems(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'incentives' | 'warehouse' | 'minRouteSize'> | null): { problems: string[]; cost: CostReport } {
+export function offerProblems(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'tenantId' | 'incentives' | 'warehouse' | 'minRouteSize'> | null): { problems: string[]; cost: CostReport } {
   const problems: string[] = [];
   const menu = incentivesFor(tenant);
   const bank = tenant?.warehouse?.bank && warehouseAvailable(tenant.warehouse.bank) ? tenant.warehouse.bank : null;

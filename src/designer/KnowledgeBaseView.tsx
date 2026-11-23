@@ -25,7 +25,6 @@ import {
 } from './knowledgeStore';
 import type { Capabilities, KnowledgeBase, KnowledgeDocument, Tenant } from './types';
 import './designer.css';
-import { LinksSection } from './LinksSection';
 import { DeliverySetting } from './DeliverySetting';
 
 interface Props {
@@ -43,7 +42,74 @@ interface Props {
 const fmtSize = (b: number) => (b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${Math.round(b / 1024)} KB` : `${(b / 1048576).toFixed(1)} MB`);
 // Dates come from the shared IST formatter, not from the viewer's machine.
 
+type KbTab = 'knows' | 'documents' | 'delivery' | 'changes';
+const KB_TABS: KbTab[] = ['knows', 'documents', 'delivery', 'changes'];
+
+/** The open tab lives in the URL (?kb=documents), so it survives a reload and can be shared. */
+function readKbTab(): KbTab {
+  try {
+    const t = new URLSearchParams(window.location.search).get('kb') as KbTab | null;
+    return t && KB_TABS.includes(t) ? t : 'knows';
+  } catch {
+    return 'knows';
+  }
+}
+function writeKbTab(t: KbTab) {
+  try {
+    const u = new URL(window.location.href);
+    if (t === 'knows') u.searchParams.delete('kb');
+    else u.searchParams.set('kb', t);
+    window.history.replaceState(null, '', u);
+  } catch {
+    /* the tab still switches; only the URL is not updated */
+  }
+}
+
+/** One section per tab. Arrow keys move between tabs. */
+function KbTabs({ tab, onTab, changes }: { tab: KbTab; onTab: (t: KbTab) => void; changes: number }) {
+  const tabs: [KbTab, string][] = [
+    ['knows', 'What the agent knows'],
+    ['documents', 'Your documents'],
+    ['delivery', 'Delivery'],
+    ...(changes > 0 ? ([['changes', `Your changes (${changes})`]] as [KbTab, string][]) : []),
+  ];
+  const move = (dir: number) => {
+    const i = tabs.findIndex(([k]) => k === tab);
+    const next = tabs[(i + dir + tabs.length) % tabs.length][0];
+    onTab(next);
+    document.getElementById(`kb-tab-${next}`)?.focus();
+  };
+  return (
+    <div className="kb-tabs" role="tablist" aria-label="Knowledge Base sections">
+      {tabs.map(([k, label]) => (
+        <button
+          key={k}
+          id={`kb-tab-${k}`}
+          role="tab"
+          aria-selected={tab === k}
+          tabIndex={tab === k ? 0 : -1}
+          className={`kb-tab${tab === k ? ' on' : ''}`}
+          onClick={() => onTab(k)}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowRight') move(1);
+            if (e.key === 'ArrowLeft') move(-1);
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function KnowledgeBaseView({ knowledge, seed, overrides, capabilities, onOverrides, onReset, tenant }: Props) {
+  const [picked, setPicked] = useState<KbTab>(() => readKbTab());
+  const setTab = (t: KbTab) => {
+    setPicked(t);
+    writeKbTab(t);
+  };
+  // "Your changes" only exists while there are changes; show the first tab once the last one is undone.
+  const tab: KbTab = picked === 'changes' && changeCount(overrides) === 0 ? 'knows' : picked;
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState<string | null>(null);
   const [newCategory, setNewCategory] = useState('');
@@ -235,6 +301,8 @@ export function KnowledgeBaseView({ knowledge, seed, overrides, capabilities, on
         </div>
       )}
 
+      <KbTabs tab={tab} onTab={setTab} changes={changeCount(overrides)} />
+
       {/* The synthetic-data notice lived here. Removed along with the rest of
           the prototype disclaimers: the product should read as the product,
           and the provenance of the demo data is said out loud in the room. */}
@@ -251,7 +319,7 @@ export function KnowledgeBaseView({ knowledge, seed, overrides, capabilities, on
           section on arrival. What a user actually wants on this page is
           their own changes — few, high-value, and the only part that can be
           wrong because of something they did. */}
-      {changeCount(overrides) > 0 && (
+      {tab === 'changes' && changeCount(overrides) > 0 && (
         <section className="hf-section">
           <div className="cd-kb-headrow">
             <h2 className="hf-h2">Your changes</h2>
@@ -303,10 +371,11 @@ export function KnowledgeBaseView({ knowledge, seed, overrides, capabilities, on
         </section>
       )}
 
-      <DeliverySetting tenant={tenant ?? null} />
+      {tab === 'delivery' && <DeliverySetting tenant={tenant ?? null} />}
 
-      <LinksSection tenant={tenant ?? null} />
 
+
+      {tab === 'knows' && (
       <section className="hf-section">
         {/* Heading left, the section's ONE primary action right — the same
             shape as the page header above it, rather than a third placement
@@ -436,9 +505,11 @@ export function KnowledgeBaseView({ knowledge, seed, overrides, capabilities, on
           </span>
         </div>
       </section>
+      )}
 
       {/* Your own material, second. It is the thing you can change, which is
           why it keeps the upload button, but it is not what the page is. */}
+      {tab === 'documents' && (
       <section className="hf-section">
         <div className="cd-section-head">
           <div>
@@ -514,6 +585,7 @@ export function KnowledgeBaseView({ knowledge, seed, overrides, capabilities, on
           </>
         )}
       </section>
+      )}
 
       {preview && (
         <div className="cd-modal-back" onClick={() => setPreview(null)}>

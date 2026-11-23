@@ -14,7 +14,7 @@ import { fillFields, formatValue, malformedFields, parseFields } from '../../src
 /** A short link's length, for counting an SMS before the real link is known. */
 const SHORT_LINK = 'https://xx.in/AbCd1';
 
-export function fieldProblems(campaign: CampaignObject, tenant: Pick<TenantConfig, 'incentives' | 'warehouse'> | null): string[] {
+export function fieldProblems(campaign: CampaignObject, tenant: Pick<TenantConfig, 'tenantId' | 'incentives' | 'warehouse'> | null): string[] {
   const out: string[] = [];
   const signals = signalsFor(tenant);
   const samples = fieldSamples(tenant, formatValue);

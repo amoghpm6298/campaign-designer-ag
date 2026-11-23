@@ -1,7 +1,7 @@
 // The chat on the right: the conversation, what the agent did on each turn
 // (as compact chips you can open), and a cue card that points at the canvas.
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ArrowRight, ArrowUp, Check, ChevronRight, Highlighter, LayoutDashboard, Loader2, MessageCircleQuestion, Pencil, Wrench, X } from 'lucide-react';
+import { AlertCircle, ArrowRight, ArrowUp, Check, ChevronRight, Highlighter, LayoutDashboard, Loader2, MessageCircleQuestion, MessageSquare, PanelRightClose, Pencil, Wrench, X } from 'lucide-react';
 import { RichText } from '../RichText';
 import { buildTrace } from './logic';
 import type { AnswerItem, Focus, V2Event, V2Turn } from './types';
@@ -13,6 +13,23 @@ export interface Cue {
   action?: { label: string; run: () => void };
   secondary?: { label: string; run: () => void };
 }
+
+/** Collapsed or not is a per-viewer convenience: remembered in this browser only, and harmless if storage is unavailable. */
+const COLLAPSE_KEY = 'cd.chatCollapsed';
+const readCollapsed = () => {
+  try {
+    return window.localStorage.getItem(COLLAPSE_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+const writeCollapsed = (v: boolean) => {
+  try {
+    window.localStorage.setItem(COLLAPSE_KEY, v ? '1' : '0');
+  } catch {
+    /* not remembered; still works */
+  }
+};
 
 const STARTERS = ['Get new cardholders to activate their card', 'I want to drive spends during Diwali', 'Convert big-ticket purchases to EMI'];
 
@@ -37,6 +54,18 @@ export function ChatPanel({
 }) {
   const [draft, setDraft] = useState('');
   const [openAnswers, setOpenAnswers] = useState<AnswerItem[] | null>(null);
+  const [collapsed, setCollapsedState] = useState(readCollapsed);
+  const [seen, setSeen] = useState(turns.length);
+  const setCollapsed = (v: boolean) => {
+    setCollapsedState(v);
+    writeCollapsed(v);
+    if (!v) setSeen(turns.length);
+  };
+  // While open, everything is seen; while collapsed, a new reply shows as a dot on the rail.
+  useEffect(() => {
+    if (!collapsed) setSeen(turns.length);
+  }, [collapsed, turns.length]);
+  const unread = collapsed && turns.length > seen && turns[turns.length - 1]?.role === 'assistant';
   const endRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });
@@ -47,11 +76,28 @@ export function ChatPanel({
     setDraft('');
   };
 
+  // On narrow screens the chat sits under the canvas and is never collapsed.
+  const narrow = typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 900px)').matches;
+  if (collapsed && !narrow)
+    return (
+      <button className="cv-chat-rail" onClick={() => setCollapsed(false)} aria-label={`Open the chat${unread ? ' (new reply)' : ''}`} title="Open the chat">
+        <MessageSquare size={18} />
+        {unread && <span className="cv-rail-unread" aria-hidden="true" />}
+        <span className={`cv-rail-dot${busy ? ' busy' : ''}`} title={busy ? 'Working' : 'Ready'} />
+        <span className="cv-rail-label">Chat</span>
+      </button>
+    );
+
   return (
     <section className="cv-chat">
       <header className="cv-chat-head">
         <b>Chat</b>
-        <span className={`cv-status${busy ? ' busy' : ''}`}>{busy ? 'Working' : 'Ready'}</span>
+        <span className="cv-chat-head-r">
+          <span className={`cv-status${busy ? ' busy' : ''}`}>{busy ? 'Working' : 'Ready'}</span>
+          <button className="cv-icon-btn cv-chat-collapse" onClick={() => setCollapsed(true)} aria-label="Collapse the chat" title="Collapse the chat">
+            <PanelRightClose size={16} />
+          </button>
+        </span>
       </header>
       <div className="cv-msgs">
         {!turns.length && (

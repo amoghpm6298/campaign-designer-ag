@@ -138,7 +138,7 @@ const isEstimate = (v: unknown): v is Estimate => {
 };
 
 /** Every offer in the campaign, costed, per step, per bucket and in total. */
-export function campaignCost(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'incentives' | 'warehouse'> | null): CostReport {
+export function campaignCost(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'tenantId' | 'incentives' | 'warehouse'> | null): CostReport {
   const menu = incentivesFor(tenant);
   const bank = tenant?.warehouse?.bank && warehouseAvailable(tenant.warehouse.bank) ? tenant.warehouse.bank : null;
   const signals = signalsFor(tenant);
@@ -342,7 +342,7 @@ export interface CostSnapshot {
   unit: 'totals' | 'perThousand';
 }
 
-export function costSnapshot(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'incentives' | 'warehouse'> | null): CostSnapshot | null {
+export function costSnapshot(campaign: CampaignObject, context: CampaignContext | null, tenant: Pick<TenantConfig, 'tenantId' | 'incentives' | 'warehouse'> | null): CostSnapshot | null {
   try {
     const r = campaignCost(campaign, context, tenant);
     if (r.mode === 'none') return null;

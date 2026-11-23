@@ -6,7 +6,7 @@
 // that points at the canvas. No stages, no approvals: questions, then the
 // whole campaign in one go, then changes by asking in the chat.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Copy, Eye, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Copy, Eye, History, ListChecks, Trash2, X } from 'lucide-react';
 import type { KnowledgeBase, Tenant } from '../types';
 import { apiUrl } from '../api';
 import { CostPanel } from './CostPanel';
@@ -17,6 +17,7 @@ import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, resto
 import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
 import { VersionMenu } from './VersionMenu';
+import { MoreMenu } from './MoreMenu';
 import type { CdNodeData, EditApi } from './canvasNodes';
 import { CampaignCanvas } from './CampaignCanvas';
 import { buildCanvasModel, classifyChanges, diffChangedSteps, type CStep } from './canvasModel';
@@ -167,6 +168,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   const [pulse, setPulse] = useState(0);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [activity, setActivity] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<'ask' | 'deleting' | string | null>(null);
   const deleteCampaign = async () => {
     setConfirmDelete('deleting');
@@ -470,35 +472,32 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             Stopped · {new Date(lastWithdrawal.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {lastWithdrawal.by}
           </span>
         )}
-        <span
-          className={`cv-wh${tenant.warehouseAccess ? ' on' : ''}`}
-          title={tenant.warehouseAccess ? "Live bank data access is ON: buckets are explored and sized from this bank's data" : "Live bank data access is OFF for this bank: buckets are hypotheses from your answers and the agent's knowledge"}
-        >
-          Live bank data access: {tenant.warehouseAccess ? 'ON' : 'OFF'}
-        </span>
         <span className="cv-top-gap" />
-        {versions.length > 0 && !viewOnly && <VersionMenu versions={versions} viewing={viewing?.v.n ?? null} onView={view} />}
-        {!viewOnly && stores.campaign && (
-          <button
-            className="cv-btn"
-            disabled={busy}
-            title="Make an editable copy to adapt: a new season, audience or channel mix. The original stays as it is."
-            onClick={async () => {
-              const r = await copyCampaign(sessionId, tenant.tenantId);
-              if (r.ok && r.sessionId) window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/designer.html?c=${encodeURIComponent(r.sessionId)}&bank=${encodeURIComponent(tenant.tenantId)}`;
-            }}
-          >
-            <Copy size={14} /> Duplicate
-          </button>
-        )}
-        <button className="cv-btn" onClick={() => setActivity((v) => !v)}>
-          <MoreHorizontal size={14} /> Activity
-        </button>
-        {!viewOnly && (
-        <span className="cv-del-wrap">
-          <button className="cv-btn cv-btn-del" disabled={busy || locked} title={busy ? 'Wait for the agent to finish' : 'Delete this campaign'} onClick={() => setConfirmDelete((v) => (v ? null : 'ask'))}>
-            <Trash2 size={14} /> Delete
-          </button>
+        <MoreMenu
+          items={[
+            ...(versions.length > 0 && !viewOnly ? [{ key: 'versions', label: viewing ? `Versions (viewing v${viewing.v.n})` : 'Versions', icon: <History size={15} />, onSelect: () => setVersionsOpen(true) }] : []),
+            ...(!viewOnly && stores.campaign
+              ? [
+                  {
+                    key: 'duplicate',
+                    label: 'Duplicate',
+                    icon: <Copy size={15} />,
+                    disabled: busy,
+                    title: 'Make an editable copy to adapt: a new season, audience or channel mix. The original stays as it is.',
+                    onSelect: async () => {
+                      const r = await copyCampaign(sessionId, tenant.tenantId);
+                      if (r.ok && r.sessionId) window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/designer.html?c=${encodeURIComponent(r.sessionId)}&bank=${encodeURIComponent(tenant.tenantId)}`;
+                    },
+                  },
+                ]
+              : []),
+            { key: 'activity', label: activity ? 'Hide activity' : 'Activity', icon: <ListChecks size={15} />, onSelect: () => setActivity((v) => !v) },
+            ...(!viewOnly
+              ? [{ key: 'delete', label: 'Delete', icon: <Trash2 size={15} />, danger: true, disabled: busy || locked, title: busy ? 'Wait for the agent to finish' : 'Delete this campaign', onSelect: () => setConfirmDelete('ask') }]
+              : []),
+          ]}
+        >
+          {versionsOpen && versions.length > 0 && <VersionMenu versions={versions} viewing={viewing?.v.n ?? null} onView={view} onClose={() => setVersionsOpen(false)} />}
           {confirmDelete && (
             <div className="cv-del-pop" role="dialog" aria-label="Delete campaign">
               <b>{plan?.name ? `Delete “${plan.name}”?` : 'Delete this campaign?'}</b>
@@ -514,14 +513,8 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               </div>
             </div>
           )}
-        </span>
-        )}
+        </MoreMenu>
         {/* The main action sits last, on the right: Submit for a ready campaign, Stop for a live one. */}
-        {cost && cost.mode === 'totals' && (
-          <button className="cv-est" onClick={() => setCostOpen({})} title="Potential spend on offers, as expected. Tap for the working.">
-            Est. offers ₹{Math.round(cost.total.expected).toLocaleString('en-IN')}
-          </button>
-        )}
         {submission && !viewOnly && submittedStage(submission) !== 'ended' && (
           <span className="cv-del-wrap">
             <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title="Stop it: back to Ready, editable; you can submit it again">
@@ -611,10 +604,20 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
       <SourcesContext.Provider value={sources}>
       <div className="cv-main">
         <section className="cv-stage">
-          {strategy && (
-            <button className="cv-strategy-cta" onClick={() => { setDrawerId(null); setCostOpen(null); setStrategyOpen(true); }} title="The designer's working plan: buckets, levers, money and budget">
-              <FileText size={14} /> Campaign strategy
-            </button>
+          {(strategy || (cost && cost.mode !== 'none')) && (
+            <div className="cv-stage-ctas">
+              {cost && cost.mode !== 'none' && (
+                <button className="cv-strategy-cta cv-cost-cta" onClick={() => { setDrawerId(null); setStrategyOpen(false); setCostOpen({}); }} title="What the offers may cost the bank, offer by offer">
+                  Total est. cost <b>₹{Math.round(cost.total.expected).toLocaleString('en-IN')}</b>
+                  {cost.mode === 'perThousand' && <span className="cv-muted"> per 1,000 customers</span>}
+                </button>
+              )}
+              {strategy && (
+                <button className="cv-strategy-cta" onClick={() => { setDrawerId(null); setCostOpen(null); setStrategyOpen(true); }} title="The designer's working plan: buckets, levers, money and budget">
+                  <FileText size={14} /> Campaign strategy
+                </button>
+              )}
+            </div>
           )}
           {hasCanvas ? (
             <CampaignCanvas

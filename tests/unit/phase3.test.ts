@@ -8,12 +8,10 @@ import { planToBlueprint } from '../../server/agent/compile';
 import { campaignCost } from '../../server/costModel';
 import { routeProblems } from '../../server/agent/routeChecks';
 import { toEngineCampaign } from '../../server/engineExport';
-import { applyJourneyOps, initialState } from '../../server/agent/state';
-import { signalsFor } from '../../server/signals';
+import { applyJourneyOps } from '../../server/agent/state';
 import { resolveTenant } from '../../server/tenants';
 import { warehousePath } from '../../server/warehouse';
-import type { ToolEnv } from '../../server/agent/tools';
-import type { AgentState, CampaignContext, CampaignObject } from '../../server/agent/types';
+import type { CampaignContext, CampaignObject } from '../../server/agent/types';
 
 const YES = resolveTenant('TEN-YES')!;
 const hasYes = existsSync(warehousePath('yesbank'));
@@ -43,7 +41,6 @@ const ctx = (): CampaignContext =>
       { id: 'c3', at, kind: 'brief', topic: 'Spend', text: 'Cheapest first.', source: 'manager' },
     ],
   }) as unknown as CampaignContext;
-const env: ToolEnv = { tenant: YES, availableChannels: ['SMS'], goalStatement: 'x', sessionId: 's', lookupCache: new Map(), ...(hasYes ? { warehouseBank: 'yesbank' } : {}) };
 
 beforeEach(() => {
   process.env.CAMPAIGN_DIR = mkdtempSync(join(tmpdir(), 'cd-p3-'));

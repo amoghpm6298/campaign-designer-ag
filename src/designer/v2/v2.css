@@ -551,7 +551,8 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-offer-details i { font-style: normal; font-weight: 700; color: #be185d; margin-right: 4px; }
 
 /* The campaign strategy: a button at the top of the canvas, and its note rendered as markdown. */
-.cv-strategy-cta { position: absolute; top: 12px; left: 12px; z-index: 6; display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; border: 1px solid #d0d5dd; background: #fff; color: #101828; font: inherit; font-size: 13px; font-weight: 600; box-shadow: 0 1px 3px rgba(16, 24, 40, .08); cursor: pointer; }
+.cv-stage-ctas { position: absolute; top: 12px; right: 12px; z-index: 6; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 24px); }
+.cv-strategy-cta { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; border: 1px solid #d0d5dd; background: #fff; color: #101828; font: inherit; font-size: 13px; font-weight: 600; box-shadow: 0 1px 3px rgba(16, 24, 40, .08); cursor: pointer; }
 .cv-strategy-cta:hover { border-color: #1d4ed8; color: #1d4ed8; }
 .cv-strategy { width: 520px; }
 .cv-strategy-body { padding: 4px 20px 20px; overflow: auto; }
@@ -625,3 +626,80 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-explain-text { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--neutral-900); }
 .cv-explain-text.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .cv-explain-more { margin-top: 3px; padding: 0; border: 0; background: none; font: inherit; font-size: 11.5px; font-weight: 600; color: var(--accent); cursor: pointer; }
+
+/* Full-page reader (FullPageModal): the strategy and the cost of the campaign. */
+.fpm-back { position: fixed; inset: 0; z-index: 60; background: rgba(16, 24, 40, .45); display: flex; justify-content: center; align-items: flex-start; padding: 32px 24px; overflow-y: auto; }
+.fpm { width: min(820px, 100%); background: var(--surface, #fff); border-radius: 16px; box-shadow: 0 24px 48px rgba(16, 24, 40, .18); outline: none; display: flex; flex-direction: column; }
+.fpm.wide { width: min(1040px, 100%); }
+.fpm-head { position: sticky; top: -32px; z-index: 1; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 22px 28px 14px; background: var(--surface, #fff); border-bottom: 1px solid var(--border, #e4e7ec); border-radius: 16px 16px 0 0; }
+.fpm-head h2 { margin: 2px 0 0; font-size: 22px; font-weight: 700; color: var(--text, #101828); }
+.fpm-kicker { font-size: 12px; color: var(--text-muted, #667085); }
+.fpm-x { border: 0; background: none; color: var(--text-muted, #667085); cursor: pointer; padding: 6px; border-radius: 8px; }
+.fpm-x:hover { background: var(--surface-sunken, #f2f4f7); color: var(--text, #101828); }
+.fpm-body { padding: 18px 28px 28px; }
+.fpm-body .cv-md { max-width: 72ch; font-size: 15px; line-height: 1.6; }
+@media (max-width: 700px) { .fpm-back { padding: 0; } .fpm { border-radius: 0; min-height: 100%; } .fpm-head { top: 0; border-radius: 0; padding: 16px; } .fpm-body { padding: 14px 16px 20px; } }
+
+/* Estimated cost of campaign: offer by offer, as funnels in three versions. */
+.cf-total { border: 1px solid var(--border, #e4e7ec); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.cf-total-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.cf-total-row > div { display: flex; flex-direction: column; gap: 2px; }
+.cf-total-row span { font-size: 12px; color: var(--text-muted, #667085); }
+.cf-total-row b { font-size: 20px; color: var(--text, #101828); }
+.cf-total-row .lead b { font-size: 26px; color: var(--accent, #1d4ed8); }
+.cf-filter { font-size: 13px; color: var(--text-muted, #667085); margin: -6px 0 12px; }
+.cf-offer { border: 1px solid var(--border, #e4e7ec); border-radius: 12px; padding: 16px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px; }
+.cf-offer-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.cf-offer-h > div:first-child { display: flex; flex-direction: column; gap: 2px; }
+.cf-offer-h b { font-size: 16px; color: var(--text, #101828); }
+.cf-offer-h span { font-size: 13px; color: var(--text-muted, #667085); }
+.cf-none { font-size: 13px; color: var(--text-muted, #667085); }
+.cf-ests { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.cf-est-h { color: var(--text, #101828); display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.cf-est-src { font-size: 11.5px; color: var(--text-muted, #667085); background: var(--surface-sunken, #f2f4f7); border-radius: 999px; padding: 1px 8px; }
+.cf-working summary { font-size: 12.5px; color: var(--text-muted, #667085); cursor: pointer; }
+.cf-working div { font-size: 12.5px; color: var(--text-muted, #667085); margin-top: 4px; }
+@media (max-width: 760px) { .cf-total-row { grid-template-columns: 1fr; } .cf-offer-h { flex-direction: column; } }
+
+/* More options menu in the campaign header. */
+.cv-more-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; min-width: 190px; background: var(--v2-surface); border: 1px solid var(--v2-border); border-radius: 10px; box-shadow: 0 12px 28px rgba(16, 24, 40, .14); padding: 4px; display: flex; flex-direction: column; }
+.cv-more-item { display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 8px 10px; border-radius: 7px; font: inherit; font-size: 13.5px; color: var(--v2-text, #101828); cursor: pointer; text-align: left; }
+.cv-more-item:hover:not(:disabled), .cv-more-item:focus-visible { background: var(--v2-subtle, #f2f4f7); outline: none; }
+.cv-more-item:disabled { opacity: .5; cursor: default; }
+.cv-more-item.danger { color: var(--v2-err); }
+.cv-more .cv-ver-list { right: 0; left: auto; }
+
+.cv-cost-cta b { color: var(--accent, #1d4ed8); font-weight: 700; margin-left: 2px; }
+
+/* The chat can collapse to a slim rail; the canvas takes the width. */
+.cv-chat-head-r { display: inline-flex; align-items: center; gap: 6px; }
+.cv-chat-rail { width: 44px; flex: none; position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0; border: 0; border-left: 1px solid var(--v2-border); background: var(--v2-surface); color: var(--v2-text-2, #344054); cursor: pointer; font: inherit; }
+.cv-chat-rail:hover { background: var(--v2-subtle, #f2f4f7); color: var(--v2-primary); }
+.cv-chat-rail:focus-visible { outline: 2px solid var(--v2-primary); outline-offset: -2px; }
+.cv-rail-label { writing-mode: vertical-rl; font-size: 12px; font-weight: 600; letter-spacing: .04em; }
+.cv-rail-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--v2-ok, #12b76a); }
+.cv-rail-dot.busy { background: var(--v2-primary); animation: cv-pulse 1.2s ease-in-out infinite; }
+.cv-rail-unread { position: absolute; top: 10px; right: 9px; width: 9px; height: 9px; border-radius: 50%; background: var(--v2-err, #d92d20); border: 2px solid var(--v2-surface); }
+@keyframes cv-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .cv-rail-dot.busy { animation: none; } }
+@media (max-width: 900px) { .cv-chat-collapse { display: none; } }
+.cf-switch { display: inline-flex; border: 1px solid var(--border, #e4e7ec); border-radius: 9px; overflow: hidden; flex: none; }
+.cf-switch button { border: 0; border-right: 1px solid var(--border, #e4e7ec); background: var(--surface, #fff); padding: 6px 11px; font: inherit; font-size: 12.5px; color: var(--text-muted, #667085); cursor: pointer; }
+.cf-switch button:last-child { border-right: 0; }
+.cf-switch button.on { background: var(--accent-wash, #eef2ff); color: var(--accent, #1d4ed8); font-weight: 600; }
+.cf-switch button:focus-visible { outline: 2px solid var(--accent, #1d4ed8); outline-offset: -2px; }
+.cf-funnel { width: 100%; height: auto; display: block; }
+.cf-stage polygon { transition: fill-opacity .15s; }
+.cf-stage:hover polygon { fill-opacity: 1; }
+.cf-stage-name { font-size: 15px; font-weight: 600; fill: var(--text, #101828); }
+.cf-stage-pct { font-size: 20px; font-weight: 700; fill: var(--text, #101828); }
+.cf-stage-n { font-size: 14px; fill: var(--text-muted, #667085); }
+.cf-costs { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 28px; border-top: 1px solid var(--border, #e4e7ec); padding-top: 12px; }
+.cf-cost-main { display: flex; flex-direction: column; gap: 2px; }
+.cf-cost-main span { font-size: 12.5px; color: var(--text-muted, #667085); }
+.cf-cost-main b { font-size: 24px; color: var(--text, #101828); }
+.cf-cost-other { display: flex; flex-direction: column; gap: 1px; border: 0; background: none; padding: 0; font: inherit; text-align: left; cursor: pointer; }
+.cf-cost-other span { font-size: 12px; color: var(--text-muted, #667085); }
+.cf-cost-other b { font-size: 15px; color: var(--text-muted, #667085); font-weight: 600; }
+.cf-cost-other:hover b { color: var(--accent, #1d4ed8); }
+@media (prefers-reduced-motion: reduce) { .cf-stage polygon { transition: none; } }
