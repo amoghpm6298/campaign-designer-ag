@@ -52,9 +52,23 @@ function wrap(text: string, max: number): string[] {
  * leave at a goal check are a note on the stage after it, so the shape only ever narrows.
  */
 function FunnelChart({ steps }: { steps: FunnelStepView[] }) {
-  const stages: (FunnelStepView & { left?: number | null })[] = [];
+  const stages: (FunnelStepView & { left?: number | null; openedNote?: string })[] = [];
+  // Only the message carrying the offer narrows the funnel step by step (you must receive and open
+  // it to take the offer up). On every earlier message, people it doesn't reach and people who don't
+  // open it carry on in the journey too: so an earlier message is one stage, "sent" to everyone who
+  // arrived, with how many it reached and how many opened it as a note.
+  const offerMsg = steps.map((s) => s.name).findLastIndex((n) => n.endsWith('” delivered'));
+  const pct = (n: number | null | undefined, of: number | null | undefined) => (n == null || !of ? null : `${Math.round((1000 * n) / of) / 10}%`);
   for (let i = 0; i < steps.length; i++) {
     const st = steps[i];
+    if (i < offerMsg && st.name.endsWith('” delivered')) {
+      const arrived = stages[stages.length - 1]?.count ?? null;
+      const opened = steps[i + 1]?.name === 'Opened it' ? steps[i + 1] : null;
+      const notes = [pct(st.count, arrived) && `${pct(st.count, arrived)} delivered`, opened && pct(opened.count, st.count) && `${pct(opened.count, st.count)} opened it`].filter(Boolean);
+      stages.push({ ...st, name: st.name.replace(/ delivered$/, ' sent'), count: arrived, source: 'code', openedNote: notes.join(' · ') || undefined });
+      if (opened) i++;
+      continue;
+    }
     if (st.name === 'Converted') {
       // Converters leave: a note on the step after. When a path follows the goal check, the path is
       // what this offer's people are (e.g. those who read and didn't buy), so the count of everyone
@@ -90,7 +104,7 @@ function FunnelChart({ steps }: { steps: FunnelStepView[] }) {
   const chars = Math.max(12, Math.floor(col / 7.4));
   return (
     <div className="cf-funnel-wrap">
-      <svg className="cf-funnel" viewBox={`0 0 ${W} ${top + band + 72}`} style={stages.length > 8 ? { minWidth: `${Math.round(W * 0.9)}px` } : undefined} role="img" aria-label={stages.map((st) => `${st.name}: ${num(st.count)}`).join(', ')}>
+      <svg className="cf-funnel" viewBox={`0 0 ${W} ${top + band + 88}`} style={stages.length > 8 ? { minWidth: `${Math.round(W * 0.9)}px` } : undefined} role="img" aria-label={stages.map((st) => `${st.name}: ${num(st.count)}`).join(', ')}>
         {stages.map((st, i) => {
           const x0 = i * col;
           const x1 = (i + 1) * col - (i < stages.length - 1 ? 2 : 0);
@@ -117,6 +131,11 @@ function FunnelChart({ steps }: { steps: FunnelStepView[] }) {
                   {num(st.left)} converted, left
                 </text>
               )}
+              {st.openedNote?.split(' · ').map((ln, k) => (
+                <text key={k} x={x0 + 8} y={top + band + 64 + k * 16} className="cf-stage-left">
+                  {ln}
+                </text>
+              ))}
             </g>
           );
         })}
