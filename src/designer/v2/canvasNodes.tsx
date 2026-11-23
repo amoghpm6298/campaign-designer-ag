@@ -424,8 +424,10 @@ function BucketTools({ open, onOpen }: { open: 'sql' | 'test' | null; onOpen: (p
 }
 
 /** One explanation block: a few lines, the rest on demand; sources as chips. */
-function ExplainBlock({ title, text, k }: { title: string; text: string; k: string }) {
+function ExplainBlock({ title, text: raw, k }: { title: string; text: string; k: string }) {
   const [more, setMore] = useState(false);
+  // The block already has its title: drop the same label if the designer repeated it ("Why one bucket, and our bet: …").
+  const text = raw.replace(/^\s*(?:why (?:this|one|these) buckets?[^:]{0,40}|what we'?ll track|our bet|hypothesis)\s*:\s*/i, '');
   const long = text.length > 220;
   return (
     <div className="cv-explain">
