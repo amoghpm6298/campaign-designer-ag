@@ -2,7 +2,7 @@
 // start a new one. Opening a card loads its campaign and its chat from the
 // server, exactly as it was left.
 import { useEffect, useState } from 'react';
-import { Calendar, CircleAlert, MessageSquare, Plus, RefreshCw, X } from 'lucide-react';
+import { Calendar, MessageSquare, Plus, RefreshCw, X } from 'lucide-react';
 import { apiUrl } from '../api';
 import type { KnowledgeBase, Tenant } from '../types';
 import { DesignerV2, loadChat, type Stored } from './DesignerV2';
@@ -27,8 +27,6 @@ export interface CampaignSummary {
   state: CampaignState;
   /** What it is for; campaigns from before intents read as "other". */
   intent?: CampaignIntent;
-  /** For a draft: why it can't be submitted yet (empty when it can). */
-  notReady?: string[];
 }
 
 export type CampaignState = 'draft' | 'scheduled' | 'active' | 'ended';
@@ -88,7 +86,7 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
           <h1 className="cv-home-title">
             {/* A sharp four-point star: draws the eye, and hints at the AI behind the page. */}
             <svg className="cv-spark" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 0 L14.3 9.7 L24 12 L14.3 14.3 L12 24 L9.7 14.3 L0 12 L9.7 9.7 Z" fill="currentColor" />
+              <path d="M12 0 L15.2 8.8 L24 12 L15.2 15.2 L12 24 L8.8 15.2 L0 12 L8.8 8.8 Z" fill="currentColor" strokeLinejoin="round" stroke="currentColor" strokeWidth="0.6" />
             </svg>
             Campaigns
           </h1>
@@ -191,11 +189,6 @@ function CampaignCard({ c, onOpen, onIntent, intentOn }: { c: CampaignSummary; o
       })()}
       <span className="cv-camp-top">
         <span className={`cv-camp-status st-${c.state}`}>{STATES.find((x) => x.key === c.state)?.label ?? c.state}</span>
-        {c.state === 'draft' && !!c.notReady?.length && (
-          <span className="cv-camp-notready" title={`Not ready to submit:\n${c.notReady.join('\n')}`} aria-label={`Not ready to submit: ${c.notReady.join(' ')}`}>
-            <CircleAlert size={14} />
-          </span>
-        )}
       </span>
       <b className="cv-camp-name">{c.name}</b>
       {c.ask && <span className="cv-camp-ask">“{c.ask}”</span>}

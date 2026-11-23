@@ -380,12 +380,7 @@ export function agentApiPlugin(): Plugin {
           if (url === '/api/campaigns' && req.method === 'GET') {
             const files = await load('campaignFiles.ts');
             const tenantId = new URL(req.url ?? '', 'http://x').searchParams.get('tenantId') ?? '';
-            // A draft that can't be submitted yet says why (the card shows a "not ready" icon).
-            const R = await load('readiness.ts');
-            const list = (files.listCampaigns as (t: string) => { sessionId: string; state: string; designed: boolean }[])(tenantId);
-            return send(res, 200, {
-              campaigns: list.map((c) => (c.state === 'draft' ? { ...c, notReady: (R.notReadyReasons as (s: string, t: string, d: boolean) => string[])(c.sessionId, tenantId, c.designed) } : c)),
-            });
+            return send(res, 200, { campaigns: (files.listCampaigns as (t: string) => unknown[])(tenantId) });
           }
           if (url === '/api/campaign/chat') {
             const files = await load('campaignFiles.ts');
