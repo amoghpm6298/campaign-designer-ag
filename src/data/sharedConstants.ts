@@ -83,6 +83,9 @@ export const EVENT_CATEGORIES: Record<string, EventCategoryMeta> = {
   // Opt-outs are deliberately not an event here: STOP / unsubscribe is a
   // system rule that takes the customer out of every campaign.
   'Message Events': { events: ['Replied'], isNew: true },
+  // Proposed: the bank's feed saying a customer signed up for a product
+  // (Smart Engage 2.0 product campaigns). Which product is on the campaign.
+  'Product Events': { events: ['Product Signed Up'], isNew: true },
 };
 
 // Which flow a customer completed a triggering action through.

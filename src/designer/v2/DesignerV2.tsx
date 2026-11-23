@@ -18,6 +18,7 @@ import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
 import { VersionMenu } from './VersionMenu';
 import { MoreMenu } from './MoreMenu';
+import { intentLabel, pendingIntent } from './intent';
 import type { CdNodeData, EditApi } from './canvasNodes';
 import { CampaignCanvas } from './CampaignCanvas';
 import { buildCanvasModel, classifyChanges, diffChangedSteps, type CStep } from './canvasModel';
@@ -130,6 +131,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // The bank's link registry: where each message's link really goes.
   const [links, setLinks] = useState<BankLink[]>([]);
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [products, setProducts] = useState<{ product_id: string; product_name: string; product_type: string }[]>([]);
   const [fields, setFields] = useState<FieldSampleView[]>([]);
   // Potential spend on offers: worked out by the server whenever the campaign changes.
   const [cost, setCost] = useState<CostReportView | null>(null);
@@ -148,6 +150,10 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   useEffect(() => {
     fetchLinks(tenant.tenantId).then(setLinks).catch(() => setLinks([]));
     fetchOffers(tenant.tenantId).then(setOffers).catch(() => setOffers([]));
+    fetch(apiUrl(`/api/products?tenantId=${encodeURIComponent(tenant.tenantId)}`))
+      .then((r) => r.json())
+      .then((d: { products?: { product_id: string; product_name: string; product_type: string }[] }) => setProducts(d.products ?? []))
+      .catch(() => setProducts([]));
     fetchFields(tenant.tenantId).then(setFields).catch(() => setFields([]));
     fetch(apiUrl(`/api/bank-settings?tenantId=${encodeURIComponent(tenant.tenantId)}`))
       .then((r) => r.json())
@@ -248,6 +254,8 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         skipped: opts.skipped,
         focus: opts.focus ?? null,
         repair: opts.repair ?? false,
+        // A new campaign carries the intent chosen when it was created, until the server has stored it.
+        ...(!(stores.campaign as { intent?: string } | null)?.intent && pendingIntent(sessionId) ? { intent: pendingIntent(sessionId) } : {}),
       },
       {
         onEvent: (e) => {
@@ -459,6 +467,10 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             {tenant.displayName}
           </span>
         </div>
+        {(() => {
+          const it = (stores.campaign as { intent?: string } | null)?.intent ?? pendingIntent(sessionId)?.intent;
+          return it ? <span className="cv-intent" title="What this campaign is for, chosen when it was created">{intentLabel(it)}</span> : null;
+        })()}
         {!submission && (
           <span className={`cv-state st-${state?.flags.campaignBuilt || lastBuilt ? 'ready' : 'draft'}`} title={state?.flags.campaignBuilt || lastBuilt ? 'Designed, not submitted yet' : 'Being designed'}>
             {state?.flags.campaignBuilt || lastBuilt ? 'Ready' : 'Draft'}
@@ -620,6 +632,11 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
                   {cost.mode === 'perThousand' && <span className="cv-muted"> per 1,000 customers</span>}
                 </button>
               )}
+              {cost && cost.mode !== 'none' && (
+                <span className="cv-revenue-wip" title="What the campaign may earn the bank: being worked on, for every kind of campaign at once.">
+                  Est. revenue: coming soon
+                </span>
+              )}
               {strategy && (
                 <button className="cv-strategy-cta" onClick={() => { setDrawerId(null); setCostOpen(null); setStrategyOpen(true); }} title="The designer's working plan: buckets, levers, money and budget">
                   <FileText size={14} /> Campaign strategy
@@ -640,6 +657,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               bankName={(tenant.issuer || tenant.displayName).replace(/\s*\(.*?\)\s*/g, '').trim()}
               links={links}
               offers={offers}
+              products={products}
               fields={fields}
               cost={cost}
               onOpenCost={(bucketId) => { setDrawerId(null); setStrategyOpen(false); setCostOpen({ bucketId }); }}

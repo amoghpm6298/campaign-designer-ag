@@ -73,14 +73,45 @@ function seedFor(tenantId: string): BankLink[] {
   ];
 }
 
+/** The product pages the starting product list links to (server/products.ts). Marked mock. */
+function productLinkSeeds(tenantId: string): BankLink[] {
+  const at = '2026-11-23T00:00:00.000Z';
+  const bank = tenantId === 'TEN-YES' ? { web: 'https://www.yesbank.in/cards', short: 'https://yesb.in' } : { web: 'https://www.indusind.com/in/en/personal/cards', short: 'https://indus.in' };
+  const mk = (ref: string, label: string, purpose: string, path: string, code: string): BankLink => ({
+    ref,
+    label,
+    purpose,
+    url: `${bank.web}/${path}`,
+    shortUrl: `${bank.short}/${code}`,
+    channels: ['SMS', 'WHATSAPP', 'EMAIL'],
+    status: 'active',
+    mock: true,
+    updatedAt: at,
+  });
+  return [
+    mk('apply_upgrade', 'Upgrade your card', 'Opens the card upgrade application, pre-filled for the customer.', 'upgrade', 'Up3k1'),
+    mk('apply_addon', 'Get an add-on card', 'Opens the add-on card application for a family member.', 'add-on', 'Ad5n2'),
+    mk('apply_loan_on_card', 'Loan on your card', 'Shows the pre-approved loan on the card and lets the customer take it in the app.', 'loan-on-card', 'Lc7q4'),
+    mk('apply_balance_transfer', 'Transfer a balance', 'Lets the customer move another card’s balance to this card at a lower rate.', 'balance-transfer', 'Bt2w8'),
+    mk('buy_card_protection', 'Card protection plan', 'Explains the card protection plan and lets the customer buy it in the app.', 'protection', 'Cp9e3'),
+    mk('apply_travel_card', 'Apply for the travel card', 'Opens the travel credit card application.', 'travel-card', 'Tr4m6'),
+  ];
+}
+
 export function listLinks(tenantId: string, dir = linksDir()): BankLink[] {
   const p = fileFor(tenantId, dir);
-  if (!existsSync(p)) return seedFor(tenantId);
-  try {
-    return JSON.parse(readFileSync(p, 'utf8')) as BankLink[];
-  } catch {
-    return seedFor(tenantId);
+  let links: BankLink[];
+  if (!existsSync(p)) links = seedFor(tenantId);
+  else {
+    try {
+      links = JSON.parse(readFileSync(p, 'utf8')) as BankLink[];
+    } catch {
+      links = seedFor(tenantId);
+    }
   }
+  // The product pages are there for every bank, unless the bank already has a link with that reference.
+  const have = new Set(links.map((l) => l.ref));
+  return [...links, ...productLinkSeeds(tenantId).filter((l) => !have.has(l.ref))];
 }
 
 function write(tenantId: string, links: BankLink[], dir: string): void {

@@ -43,6 +43,7 @@ export const STEP_DEF = {
     signal: { type: 'string', description: 'Branch only: route by one of the bank\'s signals (list_signals key, usable for switching). Each path then gives operator and value on that signal; otherwise (everyone else) is required.' },
     // an offer on a send (banks with an incentive menu)
     incentive: { type: 'string', description: 'Send only: the id of an offer from list_incentives that this message makes. The system adds the offer\'s exact line after the copy; never write the offer, amounts or terms yourself. Leave it out for a message with no offer.' },
+    product: { type: 'string', description: 'Send only, product sign-ups campaigns only: the id of the campaign\'s product (given in the status), on every message that pitches it. Set link to the product\'s link. Never in any other campaign.' },
     funnel: {
       type: 'object',
       description:

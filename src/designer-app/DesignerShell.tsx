@@ -1,7 +1,7 @@
 // The standalone application shell: its own header, navigation and global
 // tenant selector. Nothing here comes from the ib-face-mock chrome.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Gift, Library, Link2, Megaphone, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Gift, Library, Link2, Megaphone, Package, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import logo from '../assets/hfLogo.svg';
 import {
   applyOverrides,
@@ -10,9 +10,11 @@ import {
   type KnowledgeOverrides,
 } from '../designer/knowledgeStore';
 import { newCampaignId } from '../designer/v2/DesignerV2';
+import { setPendingIntent } from '../designer/v2/intent';
 import { CampaignView, CampaignsHome } from '../designer/v2/CampaignsHome';
 import { OffersView } from '../designer/OffersView';
 import { LinksView } from '../designer/LinksView';
+import { ProductsView } from '../designer/ProductsView';
 import { KnowledgeBaseView } from '../designer/KnowledgeBaseView';
 import { ReloadPrompt } from './ReloadPrompt';
 import { listTenants, seedKnowledge } from '../designer/api';
@@ -22,7 +24,7 @@ import type { Capabilities, KnowledgeBase, Tenant } from '../designer/types';
 /** The bank, and whether the designer can read its data: "Yes Bank (Data access: Allowed)". */
 const tenantLabel = (t: Tenant) => `${t.displayName} (Data access: ${t.warehouseAccess ? 'Allowed' : 'Not allowed'})`;
 
-type Page = 'designer' | 'knowledge' | 'links' | 'offers';
+type Page = 'designer' | 'knowledge' | 'links' | 'offers' | 'products';
 
 export function DesignerShell() {
   const [page, setPage] = useState<Page>('designer');
@@ -148,6 +150,7 @@ export function DesignerShell() {
               ['knowledge', 'Knowledge Base', Library],
               ['links', 'Links', Link2],
               ['offers', 'Offers', Gift],
+              ['products', 'Products', Package],
             ] as [Page, string, typeof Megaphone][]
           ).map(([k, label, Icon]) => {
             const on = page === k;
@@ -240,12 +243,17 @@ export function DesignerShell() {
           <CampaignView key={`${tenant.tenantId}:${openId}`} knowledge={knowledge} tenant={tenant} sessionId={openId} onBack={() => setOpenId(null)} />
         )}
         {!bootError && page === 'designer' && knowledge && tenant && !openId && !viewOnly && (
-          <CampaignsHome key={tenant.tenantId} tenant={tenant} onOpen={setOpenId} onCreate={() => setOpenId(newCampaignId())} />
+          <CampaignsHome key={tenant.tenantId} tenant={tenant} onOpen={setOpenId} onCreate={(choice) => {
+              const id = newCampaignId();
+              setPendingIntent(id, choice);
+              setOpenId(id);
+            }} />
         )}
         {!bootError && page === 'designer' && (!knowledge || !tenant) && (
           <div style={{ padding: 30, fontSize: 13, color: 'var(--gray-600)' }}>Loading tenant and knowledge base…</div>
         )}
         {!bootError && page === 'links' && <LinksView key={tenant?.tenantId} tenant={tenant} />}
+        {!bootError && page === 'products' && <ProductsView key={tenant?.tenantId} tenant={tenant} />}
         {!bootError && page === 'offers' && <OffersView key={tenant?.tenantId} tenant={tenant} />}
         {!bootError && page === 'knowledge' && knowledge && (
           <KnowledgeBaseView

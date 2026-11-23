@@ -1609,8 +1609,9 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .cd-lat-fill.bad { background: var(--bad); opacity: 0.6; }
 
 /* Knowledge Base tabs: one section per tab. */
-.kb-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 4px 0 8px; overflow-x: auto; }
-.kb-tab { border: 0; background: none; padding: 10px 14px; font: inherit; font-size: 14px; font-weight: 500; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; white-space: nowrap; }
+/* Pulled up under the page header (its 32px bottom margin is for sections, not tabs); flush with the title. */
+.kb-tabs { display: flex; gap: 28px; border-bottom: 1px solid var(--border); margin: -16px 0 8px; overflow-x: auto; }
+.kb-tab { display: inline-flex; align-items: center; gap: 7px; border: 0; background: none; padding: 8px 0 10px; font: inherit; font-size: 14px; font-weight: 500; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; white-space: nowrap; }
 .kb-tab:hover { color: var(--text); }
 .kb-tab.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .kb-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-sm); }

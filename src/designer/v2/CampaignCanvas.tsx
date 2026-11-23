@@ -67,6 +67,8 @@ interface Props {
   links?: BankLink[];
   /** The bank's incentive menu, to show offer lines on messages. */
   offers?: Offer[];
+  /** The bank's products, to name the product a message pitches. */
+  products?: { product_id: string; product_name: string; product_type: string }[];
   /** Personal fields with sample values, for message previews. */
   fields?: FieldSampleView[];
   /** Potential spend on offers, and how to open its working. */
@@ -76,7 +78,7 @@ interface Props {
   smsFallback?: boolean;
 }
 
-function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName, links, offers, fields, smsFallback, cost }: Props) {
+function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClick, bankName, links, offers, products, fields, smsFallback, cost }: Props) {
   const measured = useRef<Record<string, number>>({});
   const [tick, setTick] = useState(0);
   const model = useMemo(() => buildCanvasModel(campaign, context, changed, measured.current),
@@ -90,12 +92,12 @@ function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClic
         id: n.id,
         type: 'cd',
         position: { x: n.x, y: n.y },
-        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText, bankName, links, offers, fields, smsFallback } satisfies CdNodeData,
+        data: { ...n.data, width: n.width, ...(FIXED_SHAPES.includes(n.data.kind) ? { height: NODE_H[n.data.kind] } : {}), goalText, bankName, links, offers, products, fields, smsFallback } satisfies CdNodeData,
         draggable: false,
         connectable: false,
         selectable: n.data.kind === 'send',
       })),
-    [model, goalText, bankName, links, offers, fields, smsFallback],
+    [model, goalText, bankName, links, offers, products, fields, smsFallback],
   );
   const edges: Edge[] = useMemo(() => {
     // A step with several routes sends each one out of its own side: the

@@ -5,6 +5,8 @@ import type { AgentQuestion, AgentState } from '../agent/types';
 import { copyCampaign, deleteCampaign, findDeleted, listCampaigns, loadChat, loadEngineCampaign, loadStores, loadSubmission, loadWithdrawals, withdrawCampaign, LOCKED } from '../campaignFiles';
 import { campaignCost } from '../costModel';
 import { resolveTenant } from '../tenants';
+import { productsFor } from '../products';
+import { isIntent } from '../agent/intent';
 import { toEngineCampaign } from '../engineExport';
 import { currentEntries } from '../../src/designer/v2/contextView';
 import type { AnswerItem } from '../../src/designer/v2/types';
@@ -65,6 +67,12 @@ export const MCP_TOOLS = [
           enum: ['ask', 'assume'],
           description: '"ask" (default): the designer may come back with clarifying questions (get_campaign then lists them, with answer_questions allowed). "assume": no questions come back; it makes its own calls, lists them as assumptions, and builds straight away. Choose "assume" when your human wants a first draft fast or cannot answer now; they can still correct anything with request_changes.',
         },
+        intent: {
+          type: 'string',
+          enum: ['usage', 'activation', 'adoption', 'churn', 'other'],
+          description: 'What the campaign is for: usage (more card use), activation (first use), adoption (product sign-ups: sell a product, give productId), churn (keep at-risk cardholders), other (anything else; the default). It points the designer at the right goal, data and levers.',
+        },
+        productId: { type: 'string', description: 'For intent "adoption": the product to sell, an id from list_products.' },
       },
       required: ['brief'],
     },
@@ -145,6 +153,11 @@ export const MCP_TOOLS = [
     name: 'get_link',
     description: 'A fresh canvas link for a campaign. Links open the campaign read-only with no password for 24 hours; call this when one has expired.',
     inputSchema: { type: 'object', properties: { campaignId: { type: 'string' } }, required: ['campaignId'] },
+  },
+  {
+    name: 'list_products',
+    description: "The bank's products to sell (card upgrades, add-on cards, loans on the card, insurance…), each with its id, what it is and who it is for. Use an id as productId for an \"adoption\" campaign.",
+    inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'list_campaigns',
@@ -292,8 +305,15 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       const idea = raw.trim();
       if (!idea) throw new ToolError('brief is required: describe the campaign, from one line to a full brief.');
       const questionMode = args.questions === 'assume' ? 'assume' : 'ask';
+      const intent = isIntent(args.intent) ? args.intent : 'other';
+      const productId = typeof args.productId === 'string' ? args.productId.trim() : '';
+      if (intent === 'adoption') {
+        const products = productsFor(resolveTenant(caller.tenantId)).filter((p) => p.status === 'live');
+        if (!productId || !products.some((p) => p.product_id === productId))
+          throw new ToolError(`intent "adoption" needs productId, one of: ${products.map((p) => `${p.product_id} (${p.product_name})`).join(', ')}.`);
+      }
       const id = newId();
-      const r = startTurn(id, caller.tenantId, { content: idea }, { questionMode });
+      const r = startTurn(id, caller.tenantId, { content: idea }, { questionMode, intent: { intent, ...(intent === 'adoption' ? { productId } : {}) } });
       if (!r.ok) throw new ToolError(r.error);
       return {
         campaignId: id,
@@ -436,6 +456,12 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       return { campaignId: id, ...linkInfo(caller, id) };
     }
 
+    case 'list_products':
+      return {
+        products: productsFor(resolveTenant(caller.tenantId))
+          .filter((p) => p.status === 'live')
+          .map((p) => ({ productId: p.product_id, name: p.product_name, type: p.product_type, description: p.description, forWhom: p.target_audience_description })),
+      };
     case 'list_campaigns':
       return {
         campaigns: listCampaigns(caller.tenantId).map((c) => ({

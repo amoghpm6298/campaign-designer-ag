@@ -23,6 +23,7 @@ import { bucketContext, currentEntries } from '../../src/designer/v2/contextView
 import { gradeInsights, graderSendBack, insightProblems, insightReviewOn, logInsightEvent, MAX_INSIGHT_SENDBACKS } from './insightChecks';
 import { citationProblems } from './citations';
 import { funnelProblems } from './funnelChecks';
+import { intentBlock, isIntent } from './intent';
 import { ensureBaseline, recordVersion, setSummary, summariseVersion, type VersionEntry } from '../campaignVersions';
 import { warehouseAvailable } from '../warehouse';
 import type { AgentQuestion, AgentRequest, AgentResponse, AgentState } from './types';
@@ -77,6 +78,9 @@ export function toolEnvFor(tenantId: string | undefined, sessionId: string, goal
 
 /** Alternating user/assistant messages, merging consecutive turns from the same side. */
 /** Failures worth one more try: the network, a timeout, rate limits, an overloaded or failing API. */
+/** How often a reply cut off mid tool call is asked to redo the work in smaller steps. */
+export const MAX_CUT_OFF_RETRIES = 2;
+
 export function isTransient(e: unknown): boolean {
   const status = (e as { status?: number })?.status;
   const msg = String((e as Error)?.message ?? '');
@@ -141,6 +145,12 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   // The campaign itself lives on disk, keyed by this chat's session id. The
   // request carries only the conversation; whatever campaign it sends is ignored.
   let state: AgentState = withStoresFromDisk(normaliseState(req.state), req.sessionId);
+  // A new campaign's intent (and product), chosen when it was created: stored once, on the first turn.
+  if (!state.campaign.intent && req.intent && isIntent(req.intent.intent)) {
+    const before = state;
+    state = { ...state, campaign: { ...state.campaign, intent: req.intent.intent, ...(req.intent.intent === 'adoption' && req.intent.productId ? { productId: String(req.intent.productId) } : {}) } };
+    persistIfChanged(before, state, req.sessionId, req.tenantId ?? '');
+  }
   // What the campaign was when this turn started: a turn that changes it becomes a version.
   const startCampaign = state.campaign;
   const turnStart = new Date().toISOString();
@@ -216,7 +226,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       role: 'user',
       content: [
         { type: 'text', text: String(last.content) },
-        { type: 'text', text: [statusBlock(state, bankLinks, delivery.smsFallback), focusSection(state, req.focus)].filter(Boolean).join('\n\n') },
+        { type: 'text', text: [statusBlock(state, bankLinks, delivery.smsFallback), intentBlock(state.campaign, tenant), focusSection(state, req.focus)].filter(Boolean).join('\n\n') },
       ],
     };
   }
@@ -284,6 +294,8 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   let built: { graph: unknown; campaign: unknown; notes: string[] } | null = null;
   let wrapUp = false;
   let repairRounds = 0;
+  // Replies cut off at their length limit mid tool call: asked to redo in smaller steps, at most this often.
+  let cutOffRetries = 0;
 
   try {
     for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -358,7 +370,21 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
         em.emit('model.completed', 'understanding', '', { data: { round, inputTokens: usage.input_tokens, outputTokens: usage.output_tokens ?? 0, pctOfWindow: Math.round((usage.input_tokens / window) * 1000) / 10, cutoff } });
       }
       if (roundText.trim()) textSegments.push(roundText.trim());
-      conversation.push({ role: 'assistant', content });
+      // Tool calls are only run when the reply asks for them (stop reason "tool_use"). Any others, e.g. a
+      // reply cut off at its length limit mid-call, never stay in the conversation: the API refuses tool
+      // calls without results, and the next message added would then end the whole turn in an error.
+      const unrun = stopReason !== 'tool_use' && toolUses.length > 0;
+      const kept = unrun ? (content as { type?: string }[]).filter((b) => b.type !== 'tool_use') : content;
+      conversation.push({ role: 'assistant', content: kept.length ? kept : [{ type: 'text', text: '(My reply was cut off.)' }] });
+      // Cut off while writing tool calls: ask for the same work in smaller steps, instead of ending the turn.
+      if (unrun && stopReason === 'max_tokens' && cutOffRetries < MAX_CUT_OFF_RETRIES) {
+        cutOffRetries++;
+        for (const t of toolUses) em.emit('model.tool_call.failed', 'understanding', 'Cut off before it finished', { status: 'failed', correlationId: t.id, data: { tool: t.name, round } });
+        em.emit('model.tool_call.completed', 'understanding', 'Reply too long: redoing it in smaller steps', { status: 'ok', correlationId: `cutoff-${cutOffRetries}`, data: { tool: 'repair', input: toolUses.map((t) => t.name), round } });
+        yield* drain();
+        conversation.push({ role: 'user', content: 'AUTOMATIC NOTE: your last reply was too long and was cut off before your tool calls finished, so none of them ran. Redo the same work in smaller steps: one tool call at a time, one bucket per call.' });
+        continue;
+      }
 
       if (!toolUses.length || stopReason !== 'tool_use') {
         // The agent thinks it is done. If this turn changed the campaign and

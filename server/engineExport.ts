@@ -17,7 +17,7 @@ export const ENGINE_FORMAT_VERSION = 'cd-engine-1';
 
 /** The fields each step kind sends to the engine. Anything else stays in the design. */
 const STEP_FIELDS: Record<string, string[]> = {
-  send: ['id', 'kind', 'name', 'channelPreference', 'fallbackChannel', 'copy', 'cta', 'link', 'incentive', 'delayDays', 'atTime'],
+  send: ['id', 'kind', 'name', 'channelPreference', 'fallbackChannel', 'copy', 'cta', 'link', 'incentive', 'product', 'delayDays', 'atTime'],
   wait: ['id', 'kind', 'durationHours'],
   waitForEvent: ['id', 'kind', 'eventCategory', 'eventType', 'conditions', 'timeoutDays'],
   goalCheck: ['id', 'kind'],

@@ -95,7 +95,15 @@ export interface CampaignObject {
   schedule?: { startDate: string; endDate: string } | null;
   /** The most the campaign may spend on offers, in rupees. The engine stops issuing offers once it is spent. */
   budgetCap?: number | null;
+  /** What the campaign is for, chosen when it was created (Smart Engage 2.0). Older campaigns: none, read as "other". */
+  intent?: CampaignIntent | null;
+  /** The product an "adoption" campaign sells (server/products.ts). */
+  productId?: string | null;
 }
+
+/** usage: more card use · activation: first use · adoption: sign up for a product · churn: keep at-risk customers · other: anything else. */
+export type CampaignIntent = 'usage' | 'activation' | 'adoption' | 'churn' | 'other';
+export const CAMPAIGN_INTENTS: CampaignIntent[] = ['usage', 'activation', 'adoption', 'churn', 'other'];
 
 export type AfterOutcome = 'converted' | 'no_response' | 'not_reachable' | 'declined';
 export const AFTER_OUTCOMES: AfterOutcome[] = ['no_response', 'not_reachable', 'declined', 'converted'];
@@ -185,6 +193,8 @@ export interface AgentRequest {
   focus?: { kind: 'step' | 'bucket' | 'entry' | 'goal' | 'everyone_else'; bucketId?: string; stepId?: string } | null;
   /** An app-started repair turn: the last user message was written by the app, not the manager. */
   repair?: boolean;
+  /** A new campaign's intent (and product, for adoption), chosen in the app or via the MCP. Stored on the first turn only. */
+  intent?: { intent: CampaignIntent; productId?: string } | null;
 }
 
 export interface AgentResponse {

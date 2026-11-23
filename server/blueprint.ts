@@ -468,7 +468,7 @@ function resolveAttributeName(
  */
 const GENERIC_EVENT_WORDS = new Set([
   'EVENT', 'EVENTS', 'STATUS', 'CHANGED', 'CHANGE', 'COMPLETED', 'COMPLETE', 'CREATED', 'UPDATED',
-  'NEW', 'DONE', 'SUCCESS', 'SUCCESSFUL', 'CONFIRMED', 'RECEIVED',
+  'NEW', 'DONE', 'SUCCESS', 'SUCCESSFUL', 'CONFIRMED', 'RECEIVED', 'UP', 'IN', 'ON', 'OFF',
 ]);
 
 /**

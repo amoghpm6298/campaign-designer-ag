@@ -454,6 +454,29 @@ export function agentApiPlugin(): Plugin {
               return send(res, 502, { error: (e as Error).message });
             }
           }
+          // The bank's products (Smart Engage 2.0): list, add or change, pause / resume.
+          if (url === '/api/products' && req.method === 'GET') {
+            const P = await load('products.ts');
+            const T = await load('tenants.ts');
+            const tenantId = new URL(req.url ?? '', 'http://x').searchParams.get('tenantId') ?? '';
+            return send(res, 200, { products: (P.productsFor as (t: unknown) => unknown[])((T.resolveTenant as (id: string) => unknown)(tenantId)) });
+          }
+          if ((url === '/api/products' || url === '/api/products/status') && req.method === 'POST') {
+            const P = await load('products.ts');
+            const T = await load('tenants.ts');
+            const body = (await readBody(req)) as { tenantId?: string; product?: unknown; id?: string; status?: string };
+            const tenant = (T.resolveTenant as (id: string) => unknown)(String(body.tenantId ?? ''));
+            if (!tenant) return send(res, 400, { ok: false, error: 'Unknown bank.' });
+            try {
+              const out =
+                url === '/api/products'
+                  ? (P.saveProduct as (t: unknown, p: unknown) => { ok: boolean })(tenant, body.product ?? {})
+                  : (P.setProductStatus as (t: unknown, id: string, s: string) => { ok: boolean })(tenant, String(body.id ?? ''), String(body.status ?? ''));
+              return send(res, out.ok ? 200 : 400, out);
+            } catch (e) {
+              return send(res, 400, { ok: false, error: (e as Error).message });
+            }
+          }
           // The signals an offer's rules may use (no SQL), for the Offers page.
           if (url === '/api/signals' && req.method === 'GET') {
             const S = await load('signals.ts');

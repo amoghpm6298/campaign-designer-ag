@@ -26,6 +26,8 @@ export interface CdNodeData extends CNodeData {
   links?: BankLink[];
   /** The bank's incentive menu, to show the exact offer line the system adds to a message. */
   offers?: Offer[];
+  /** The bank's products, to name the product a message pitches. */
+  products?: { product_id: string; product_name: string; product_type: string }[];
   /** Personal fields usable in messages, with sample values, for previews. */
   fields?: FieldSampleView[];
   /** The bank's delivery setting: undelivered WhatsApp goes again by SMS. */
@@ -326,6 +328,16 @@ function SendCard({ data }: { data: CdNodeData }) {
     <Card cat="send" icon={CHANNEL_ICON[ch] ?? 'paperplane'} type={`Send · ${CHANNEL_LABEL[ch] ?? ch}`} data={data} extra="cv-clickable" title="Open the message preview">
       <div className="dc-node-label">{sendTitle({ ...st, name: st.name || st.label })}</div>
       {linkState.broken && <div className="cv-link-bad" title={linkState.broken}>⚠ {linkState.broken}</div>}
+      {st.product && (() => {
+        const pr = data.products?.find((x) => x.product_id === st.product);
+        return pr ? (
+          <div className="cv-product-badge" title="A product this message pitches, from the bank's Products list">
+            Product: {pr.product_name}
+          </div>
+        ) : (
+          <div className="cv-link-bad">⚠ Unknown product "{st.product}"</div>
+        );
+      })()}
       {st.incentive && (offer ? (
         <OfferBadge label={offer.label} terms={offer.terms} stepId={st.id} />
       ) : (

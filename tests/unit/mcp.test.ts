@@ -74,7 +74,7 @@ describe('the MCP endpoint', () => {
     expect(init.result.instructions).toMatch(/submit_campaign only after/);
     expect((await call({ jsonrpc: '2.0', method: 'notifications/initialized' })).status).toBe(202);
     const list = (await call({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).json as { result: { tools: { name: string }[] } };
-    expect(list.result.tools.map((t) => t.name)).toEqual(['create_campaign', 'get_campaign', 'answer_questions', 'request_changes', 'submit_campaign', 'copy_campaign', 'stop_campaign', 'delete_campaign', 'get_link', 'list_campaigns']);
+    expect(list.result.tools.map((t) => t.name)).toEqual(['create_campaign', 'get_campaign', 'answer_questions', 'request_changes', 'submit_campaign', 'copy_campaign', 'stop_campaign', 'delete_campaign', 'get_link', 'list_products', 'list_campaigns']);
   });
 });
 

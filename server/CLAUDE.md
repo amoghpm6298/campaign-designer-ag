@@ -141,6 +141,22 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   Claims in words (no number) can't be checked by code: that is for the
   whole-campaign review.
 
+- **Smart Engage 2.0: intents and products** (2026-11-23). "Create new
+  campaign" asks what it is for: Credit cards (usage, activation, churn,
+  something else) and Across the bank (product sign-ups); CASA tiles are shown
+  as coming soon. The intent is stored on the campaign on its first turn
+  (`campaign.intent`, `productId`; MCP `create_campaign` takes both) and shown
+  to the designer every turn as a block in the APP STATUS (`agent/intent.ts`),
+  so the fixed prompt doesn't grow. Old campaigns read as "something else".
+  **Products** (`server/products.ts`, the NBA agent's offering schema; product
+  pages live in Links) are only pitched in a **product sign-ups** campaign: its
+  goal is Product Events / Product Signed Up (the bank's feed, treated as
+  instant), and every message that pitches it carries `product: <id>` and the
+  product's link (`agent/productChecks.ts`). **Cross-selling inside other
+  campaigns is off for now**, to be tried separately: a first try showed a
+  goal check removes everyone who converted, so a cross-sell "after the goal
+  check" can never reach a buyer.
+
 ## Signals and incentives (menus by name)
 
 - **Signals** (`server/signals.ts`): named, defined facts about a customer

@@ -12,6 +12,7 @@ import { bucketContext, currentEntries } from '../../src/designer/v2/contextView
 import { campaignCost, costLine, type CostReport } from '../costModel';
 import { todayIST } from './schedule';
 import { funnelProblems } from './funnelChecks';
+import { productProblems } from './productChecks';
 import { routeProblems } from './routeChecks';
 import { fieldProblems } from './fieldChecks';
 
@@ -70,6 +71,8 @@ export function offerProblems(campaign: CampaignObject, context: CampaignContext
   problems.push(...fieldProblems(campaign, tenant));
   // The designer's funnel estimates on every message: present, and a later message that converts better says why.
   problems.push(...funnelProblems(campaign));
+  // Products: real, linked to their page, one per bucket, cross-sells after the main goal, enough eligible.
+  problems.push(...productProblems(campaign, context, tenant));
   if (!usesOffers) return { problems, cost };
   const notes = currentEntries(context?.entries ?? []);
   const strategy = notes.find((e) => e.kind === 'note' && ['campaign strategy', 'incentive strategy'].includes(e.topic.toLowerCase()));

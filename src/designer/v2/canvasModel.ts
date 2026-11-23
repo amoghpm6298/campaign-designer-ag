@@ -61,6 +61,8 @@ export interface CStep {
   link?: string;
   /** An offer from the bank's incentive menu, by id. The system adds its exact offer line to the message. */
   incentive?: string;
+  /** A product from the bank's product list that this message pitches (an adoption campaign, or a cross-sell). */
+  product?: string;
   /** Branch: routes by one of the bank's signals (a signal switch). */
   signal?: string;
   /** The designer's split idea on this step, and what the helper found. */

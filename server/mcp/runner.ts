@@ -54,7 +54,7 @@ export interface UserTurn {
  * Starts one turn in the background and returns at once. Refuses a locked
  * campaign or one already working.
  */
-export function startTurn(sessionId: string, tenantId: string, user: UserTurn, opts: { answers?: Record<string, string>; skipped?: string[]; questionMode?: 'ask' | 'assume' } = {}): { ok: true } | { ok: false; error: string } {
+export function startTurn(sessionId: string, tenantId: string, user: UserTurn, opts: { answers?: Record<string, string>; skipped?: string[]; questionMode?: 'ask' | 'assume'; intent?: AgentRequest['intent'] } = {}): { ok: true } | { ok: false; error: string } {
   if (loadSubmission(sessionId)) return { ok: false, error: LOCKED };
   if (running.has(sessionId)) return { ok: false, error: 'The agent is still working on this campaign. Check back with get_campaign.' };
   const loaded = loadChat(sessionId) as StoredChat | null;
@@ -87,7 +87,7 @@ export function startTurn(sessionId: string, tenantId: string, user: UserTurn, o
 }
 
 /** One agent turn, saved as the app saves it. Returns the questions it asked, if any. */
-async function runTurn(chat: StoredChat, sessionId: string, tenantId: string, user: UserTurn, opts: { answers?: Record<string, string>; skipped?: string[] }, onStep: (s: string) => void): Promise<AgentQuestion[]> {
+async function runTurn(chat: StoredChat, sessionId: string, tenantId: string, user: UserTurn, opts: { answers?: Record<string, string>; skipped?: string[]; intent?: AgentRequest['intent'] }, onStep: (s: string) => void): Promise<AgentQuestion[]> {
   const before = loadStores(sessionId).campaign;
   const turns: V2Turn[] = [...chat.turns, { role: 'user', content: user.content, ...(user.answerSet ? { answerSet: user.answerSet } : {}) }];
   // Saved straight away, so the link shows the request while the agent works.
@@ -103,6 +103,7 @@ async function runTurn(chat: StoredChat, sessionId: string, tenantId: string, us
       skipped: opts.skipped,
       focus: null,
       repair: false,
+      ...(opts.intent ? { intent: opts.intent } : {}),
     });
     let r: AgentResponse;
     while (true) {

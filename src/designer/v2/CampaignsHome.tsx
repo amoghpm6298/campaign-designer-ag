@@ -6,6 +6,8 @@ import { Layers, MessageSquare, Plus, RefreshCw, Send } from 'lucide-react';
 import { apiUrl } from '../api';
 import type { KnowledgeBase, Tenant } from '../types';
 import { DesignerV2, loadChat, type Stored } from './DesignerV2';
+import { IntentModal } from './IntentModal';
+import type { IntentChoice } from './intent';
 import './v2.css';
 
 export interface CampaignSummary {
@@ -45,7 +47,9 @@ const ago = (iso: string) => {
   return new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; onOpen: (id: string) => void; onCreate: () => void }) {
+export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; onOpen: (id: string) => void; onCreate: (choice: IntentChoice) => void }) {
+  // "Create new campaign" first asks what the campaign is for.
+  const [choosing, setChoosing] = useState(false);
   const [list, setList] = useState<CampaignSummary[] | null>(null);
   const [filter, setFilter] = useState<CampaignState | 'all'>('all');
   useEffect(() => {
@@ -62,6 +66,16 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
 
   return (
     <div className="cv-home">
+      {choosing && (
+        <IntentModal
+          tenantId={tenant.tenantId}
+          onClose={() => setChoosing(false)}
+          onPick={(c) => {
+            setChoosing(false);
+            onCreate(c);
+          }}
+        />
+      )}
       <header className="cv-home-head">
         <div>
           <h1>Campaigns</h1>
@@ -70,7 +84,7 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
             {list ? ` · ${list.length} campaign${list.length === 1 ? '' : 's'}` : ''}
           </p>
         </div>
-        <button className="cv-btn primary" onClick={onCreate}>
+        <button className="cv-btn primary" onClick={() => setChoosing(true)}>
           <Plus size={15} /> Create new campaign
         </button>
       </header>
@@ -81,7 +95,7 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
         <div className="cv-home-empty">
           <b>No campaigns yet</b>
           <p>Describe what you want customers to do, and the agent asks a few questions, then builds the campaign.</p>
-          <button className="cv-btn primary" onClick={onCreate}>
+          <button className="cv-btn primary" onClick={() => setChoosing(true)}>
             <Plus size={15} /> Create your first campaign
           </button>
         </div>
@@ -98,7 +112,7 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
           ))}
         </div>
         <div className="cv-grid">
-          <button className="cv-card-new" onClick={onCreate}>
+          <button className="cv-card-new" onClick={() => setChoosing(true)}>
             <Plus size={22} />
             <b>Create new campaign</b>
             <span>Start from a goal, in a sentence</span>

@@ -16,6 +16,8 @@ export interface AgentStreamBody {
   focus?: Focus | null;
   /** An app-started repair turn. */
   repair?: boolean;
+  /** A new campaign's intent (and product), stored by the server on the first turn. */
+  intent?: { intent: string; productId?: string } | null;
 }
 
 export async function runAgentStream(

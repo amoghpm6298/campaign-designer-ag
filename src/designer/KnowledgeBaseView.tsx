@@ -11,6 +11,7 @@
 import { fmtDate } from './time';
 import { groupKnowledge, docsForAgent } from '../data/knowledgeShape';
 import { useMemo, useRef, useState } from 'react';
+import { BookOpen, FileText, History, Send, type LucideIcon } from 'lucide-react';
 import { SUPPORTED_DOC_TYPES, MAX_DOC_BYTES, isSupportedDoc } from './storage';
 import {
   addEntry,
@@ -67,11 +68,11 @@ function writeKbTab(t: KbTab) {
 
 /** One section per tab. Arrow keys move between tabs. */
 function KbTabs({ tab, onTab, changes }: { tab: KbTab; onTab: (t: KbTab) => void; changes: number }) {
-  const tabs: [KbTab, string][] = [
-    ['knows', 'What the agent knows'],
-    ['documents', 'Your documents'],
-    ['delivery', 'Delivery'],
-    ...(changes > 0 ? ([['changes', `Your changes (${changes})`]] as [KbTab, string][]) : []),
+  const tabs: [KbTab, string, LucideIcon][] = [
+    ['knows', 'What the agent knows', BookOpen],
+    ['documents', 'Your documents', FileText],
+    ['delivery', 'Delivery', Send],
+    ...(changes > 0 ? ([['changes', `Your changes (${changes})`, History]] as [KbTab, string, LucideIcon][]) : []),
   ];
   const move = (dir: number) => {
     const i = tabs.findIndex(([k]) => k === tab);
@@ -81,7 +82,7 @@ function KbTabs({ tab, onTab, changes }: { tab: KbTab; onTab: (t: KbTab) => void
   };
   return (
     <div className="kb-tabs" role="tablist" aria-label="Knowledge Base sections">
-      {tabs.map(([k, label]) => (
+      {tabs.map(([k, label, Icon]) => (
         <button
           key={k}
           id={`kb-tab-${k}`}
@@ -95,6 +96,7 @@ function KbTabs({ tab, onTab, changes }: { tab: KbTab; onTab: (t: KbTab) => void
             if (e.key === 'ArrowLeft') move(-1);
           }}
         >
+          <Icon size={16} aria-hidden="true" />
           {label}
         </button>
       ))}
