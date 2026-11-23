@@ -18,12 +18,12 @@ const digest = (password: string) => createHash('sha256').update(`campaigndesign
 const escape = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 const page = (action: string, error = '', next = '') => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Campaign Designer</title><style>
+<title>Smart Engage 2.0</title><style>
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f7f9;font:15px/1.4 system-ui,-apple-system,sans-serif;color:#1d2433}
 form{background:#fff;padding:28px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);width:min(320px,calc(100vw - 32px));display:grid;gap:12px}
 h1{font-size:18px;margin:0 0 4px}input,button{font:inherit;padding:10px 12px;border-radius:8px;border:1px solid #cfd5df}
 button{background:#1d2433;color:#fff;border:0;cursor:pointer}.err{color:#b42318;font-size:13px;margin:0}</style></head>
-<body><form method="post" action="${escape(action)}"><h1>Campaign Designer</h1>
+<body><form method="post" action="${escape(action)}"><h1>Smart Engage 2.0</h1>
 <input type="password" name="password" placeholder="Password" autofocus required>${next ? `<input type="hidden" name="next" value="${escape(next)}">` : ''}
 ${error ? `<p class="err">${escape(error)}</p>` : ''}<button>Enter</button></form></body></html>`;
 

@@ -138,7 +138,7 @@ export const MCP_TOOLS = [
   {
     name: 'delete_campaign',
     description:
-      'Delete a campaign that has NOT been submitted (a draft, e.g. a test). Refused for a submitted campaign: stop it first. Only after your human asks for it. It disappears from the list and its links stop working; Hyperface keeps a copy, so a mistaken delete can be recovered by the Campaign Designer team.',
+      'Delete a campaign that has NOT been submitted (a draft, e.g. a test). Refused for a submitted campaign: stop it first. Only after your human asks for it. It disappears from the list and its links stop working; Hyperface keeps a copy, so a mistaken delete can be recovered by the Smart Engage team.',
     inputSchema: { type: 'object', properties: { campaignId: { type: 'string' } }, required: ['campaignId'] },
   },
   {
@@ -197,7 +197,7 @@ const stageOf = (sub: Parameters<typeof submittedStage>[0]): 'scheduled' | 'acti
 function deletedState(caller: Caller, id: string): Result | null {
   const d = findDeleted(id);
   if (!d || d.tenantId !== caller.tenantId) return null;
-  return { campaignId: id, state: 'deleted', deletedAt: d.deletedAt, allowedActions: ACTIONS.deleted, message: 'This campaign was deleted. The Campaign Designer team can recover it if that was a mistake.' };
+  return { campaignId: id, state: 'deleted', deletedAt: d.deletedAt, allowedActions: ACTIONS.deleted, message: 'This campaign was deleted. The Smart Engage team can recover it if that was a mistake.' };
 }
 
 export function campaignStatus(caller: Caller, id: string): Result {
@@ -427,7 +427,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       if (loadSubmission(id)) throw new ToolError('This campaign is submitted for execution, so it cannot be deleted. Stop it first if your human really wants it gone.');
       if (isRunning(id)) throw new ToolError('The agent is still working on this campaign. Wait for it to finish, then delete.');
       deleteCampaign(id, chat.tenantId);
-      return { campaignId: id, state: 'deleted', allowedActions: ACTIONS.deleted, message: 'Deleted. It no longer appears in list_campaigns and its links no longer work. Hyperface keeps a copy, so the Campaign Designer team can recover it if this was a mistake.' };
+      return { campaignId: id, state: 'deleted', allowedActions: ACTIONS.deleted, message: 'Deleted. It no longer appears in list_campaigns and its links no longer work. Hyperface keeps a copy, so the Smart Engage team can recover it if this was a mistake.' };
     }
 
     case 'get_link': {

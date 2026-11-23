@@ -45,50 +45,13 @@ interface SignalInfo {
   operators: string[];
 }
 
+/** New offers are created in the offer creation agent; this page shows, edits and pauses them. */
+const OFFER_AGENT_URL = 'https://ai.product.hyperface.co/offercreationagent/';
+
 const ACTION: Record<Action, string> = { spend: 'Spend', first_spend: 'Make a first spend', emi_conversion: 'Convert a purchase to EMI' };
 const COST: Record<CostType, string> = { flat: 'A fixed amount', pctOfSpend: 'A share of spend', interest: 'An interest discount', cardFee: 'A card fee waived' };
 const STATUS: Record<Offer['status'], string> = { live: 'Live', paused: 'Paused', draft: 'Draft' };
 const inr = (n: number | undefined) => (n == null || !Number.isFinite(n) ? '—' : `₹${Math.round(n).toLocaleString('en-IN')}`);
-const today = () => new Date().toISOString().slice(0, 10);
-
-const blank = (): Offer => ({
-  id: '',
-  label: '',
-  size: 'small',
-  mechanic: '',
-  trigger: { action: 'spend', withinDays: 30 },
-  costType: 'flat',
-  cost: { perRedemption: 100 },
-  maxCostPerCustomer: 0,
-  requires: [],
-  eligibility: [],
-  unmatchedCriteria: [],
-  validFrom: today(),
-  validTo: today(),
-  terms: '',
-  offerLine: '',
-  status: 'live',
-});
-
-/** A draft from the describe step as a form value: what was said is filled, what wasn't stays empty (never a made-up default). */
-function fromDraft(d: Partial<Offer> | null): Offer {
-  const b = blank();
-  if (!d) return b;
-  return {
-    ...b,
-    ...d,
-    trigger: { ...b.trigger, ...(d.trigger ?? {}) } as Offer['trigger'],
-    cost: d.cost ?? {},
-    costType: d.costType ?? b.costType,
-    size: d.size ?? b.size,
-    validFrom: d.validFrom ?? '',
-    validTo: d.validTo ?? '',
-    requires: d.requires ?? [],
-    eligibility: d.eligibility ?? [],
-    unmatchedCriteria: d.unmatchedCriteria ?? [],
-    status: 'live',
-  };
-}
 
 async function getJson<T>(path: string): Promise<T | null> {
   const res = await fetch(apiUrl(path));
@@ -119,7 +82,6 @@ export function OffersView({ tenant }: { tenant: Tenant | null }) {
   const [editing, setEditing] = useState<{ offer: Offer; isNew: boolean } | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
-  const [describing, setDescribing] = useState(false);
   const tenantId = tenant?.tenantId ?? '';
 
   const reload = async () => {
@@ -150,7 +112,6 @@ export function OffersView({ tenant }: { tenant: Tenant | null }) {
   const sorted = [...offers].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status) || a.maxCostPerCustomer - b.maxCostPerCustomer);
 
   const open = (offer: Offer, isNew: boolean) => {
-    setDescribing(false);
     setProblems([]);
     setEditing({ offer: structuredClone(offer), isNew });
   };
@@ -179,27 +140,13 @@ export function OffersView({ tenant }: { tenant: Tenant | null }) {
           </p>
         </div>
         {tenant.incentiveMenu && (
-          <button
-            className="cd-btn primary"
-            onClick={() => {
-              setEditing(null);
-              setDescribing(true);
-            }}
-          >
-            Add offer
-          </button>
+          <a className="of-create" href={OFFER_AGENT_URL} target="_blank" rel="noreferrer">
+            Create with Offer Creation agent
+          </a>
         )}
       </div>
 
       {!tenant.incentiveMenu && <div className="of-empty">{tenant.displayName} has no offer menu. Its campaigns persuade with messages only.</div>}
-
-      {describing && (
-        <DescribeOffer
-          tenantId={tenantId}
-          onCancel={() => setDescribing(false)}
-          onForm={(draft) => open(fromDraft(draft), true)}
-        />
-      )}
 
       {editing && (
         <OfferForm
@@ -526,95 +473,6 @@ function OfferForm(props: {
         </button>
         <button className="cd-btn primary" disabled={saving} onClick={onSave}>
           {saving ? 'Saving…' : 'Save offer'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-interface Turn {
-  role: 'ops' | 'designer';
-  text: string;
-}
-
-/**
- * Add an offer by describing it. The designer drafts the fields and asks for
- * whatever is missing until the draft passes the same checks as a save; then
- * the filled form opens for review. Ops can switch to the form at any point.
- */
-function DescribeOffer({ tenantId, onCancel, onForm }: { tenantId: string; onCancel: () => void; onForm: (draft: Partial<Offer> | null) => void }) {
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [draft, setDraft] = useState<Partial<Offer> | null>(null);
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    ref.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  }, []);
-
-  const send = async () => {
-    const said = text.trim();
-    if (!said || busy) return;
-    const next = [...turns, { role: 'ops' as const, text: said }];
-    setTurns(next);
-    setText('');
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(apiUrl('/api/incentives/draft'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tenantId, turns: next, current: draft }) });
-      const r = (await res.json().catch(() => ({}))) as { draft?: Partial<Offer>; question?: string | null; done?: boolean; error?: string };
-      if (!res.ok || !r.draft) throw new Error(r.error ?? 'Could not draft the offer. Try again.');
-      setDraft(r.draft);
-      if (r.done) return onForm(r.draft);
-      setTurns([...next, { role: 'designer', text: r.question ?? 'Tell me a little more about the offer.' }]);
-    } catch (e) {
-      setError((e as Error).message);
-      setTurns(turns);
-      setText(said);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div ref={ref} className="kl-form of-describe">
-      <div className="of-label">Describe the offer</div>
-      <span className="kl-hint">
-        In your own words: what the customer gets, what they must do and by when, what it costs the bank, and the dates. The designer fills
-        in the form and asks for anything missing.
-      </span>
-      {turns.length > 0 && (
-        <div className="of-convo">
-          {turns.map((t, i) => (
-            <div key={i} className={`of-msg ${t.role}`}>
-              {t.text}
-            </div>
-          ))}
-        </div>
-      )}
-      {busy && <div className="of-msg designer busy">Drafting the offer…</div>}
-      <textarea
-        aria-label={turns.length ? 'Your answer' : 'Describe the offer'}
-        rows={turns.length ? 2 : 4}
-        value={text}
-        disabled={busy}
-        placeholder={turns.length ? 'Your answer' : 'e.g. ₹250 cashback when a customer spends ₹5,000 on dining within 21 days. Costs us ₹250 each. Runs December to February.'}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send();
-        }}
-      />
-      {error && <div className="kl-error">{error}</div>}
-      <div className="kl-actions">
-        <button className="cd-btn" onClick={onCancel}>
-          Cancel
-        </button>
-        <button className="cd-btn" onClick={() => onForm(draft)} disabled={busy}>
-          {draft ? 'Fill the rest in the form' : 'Use the form instead'}
-        </button>
-        <button className="cd-btn primary" onClick={send} disabled={busy || !text.trim()}>
-          {busy ? 'Drafting…' : turns.length ? 'Send' : 'Draft the offer'}
         </button>
       </div>
     </div>

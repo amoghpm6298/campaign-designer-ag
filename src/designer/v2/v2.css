@@ -551,7 +551,10 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-offer-details i { font-style: normal; font-weight: 700; color: #be185d; margin-right: 4px; }
 
 /* The campaign strategy: a button at the top of the canvas, and its note rendered as markdown. */
-.cv-stage-ctas { position: absolute; top: 12px; right: 12px; z-index: 6; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 24px); }
+/* Spans the top of the canvas: the cost on the left, the strategy on the right. Only the buttons take clicks. */
+.cv-stage-ctas { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 6; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; pointer-events: none; }
+.cv-stage-ctas > * { pointer-events: auto; }
+.cv-stage-ctas > .cv-strategy-cta:not(.cv-cost-cta) { margin-left: auto; }
 .cv-strategy-cta { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; border: 1px solid #d0d5dd; background: #fff; color: #101828; font: inherit; font-size: 13px; font-weight: 600; box-shadow: 0 1px 3px rgba(16, 24, 40, .08); cursor: pointer; }
 .cv-strategy-cta:hover { border-color: #1d4ed8; color: #1d4ed8; }
 .cv-strategy { width: 520px; }
@@ -713,4 +716,4 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cf-stage-src.designer { fill: var(--accent, #1d4ed8); }
 .cf-stage-src.code { fill: var(--text-muted, #667085); }
 .cf-stage-left { font-size: 12px; fill: var(--text-muted, #667085); font-style: italic; }
-.cv-cost-cta-max { color: var(--text-muted, #667085); font-weight: 500; margin-left: 4px; }
+.cv-cost-cta-max { color: var(--text-muted, #667085); font-weight: 500; font-size: 11.5px; }

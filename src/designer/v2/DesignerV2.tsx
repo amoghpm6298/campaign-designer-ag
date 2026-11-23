@@ -91,6 +91,9 @@ const fmtShortDay = (d: string) => {
 
 export const newCampaignId = () => `cv-${Date.now().toString(36)}`;
 
+/** "₹1.4L", "₹18k" (below a lakh: the nearest thousand), "₹2.3Cr": a rounded figure for the canvas button; the exact one is in its tooltip and the cost view. */
+const roundInr = (n: number) => (n >= 1e7 ? `₹${Math.round(n / 1e6) / 10}Cr` : n >= 1e5 ? `₹${Math.round(n / 1e4) / 10}L` : n >= 1e3 ? `₹${Math.round(n / 1000)}k` : `₹${Math.round(n)}`);
+
 export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { knowledge: KnowledgeBase; tenant: Tenant; sessionId: string; initial: Stored | null; onBack: () => void }) {
   const fresh = initial;
   const [turns, setTurns] = useState<V2Turn[]>(fresh?.turns ?? []);
@@ -607,9 +610,13 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           {(strategy || (cost && cost.mode !== 'none')) && (
             <div className="cv-stage-ctas">
               {cost && cost.mode !== 'none' && (
-                <button className="cv-strategy-cta cv-cost-cta" onClick={() => { setDrawerId(null); setStrategyOpen(false); setCostOpen({}); }} title="What the offers may cost the bank, offer by offer">
-                  Total est. cost <b>₹{Math.round(cost.total.expected).toLocaleString('en-IN')}</b>
-                  <span className="cv-cost-cta-max">· Max ₹{Math.round(cost.total.max).toLocaleString('en-IN')}</span>
+                <button
+                  className="cv-strategy-cta cv-cost-cta"
+                  onClick={() => { setDrawerId(null); setStrategyOpen(false); setCostOpen({}); }}
+                  title={`Estimated ₹${Math.round(cost.total.expected).toLocaleString('en-IN')}, max ₹${Math.round(cost.total.max).toLocaleString('en-IN')}. What the offers may cost the bank, offer by offer.`}
+                >
+                  Total est. cost <b>~{roundInr(cost.total.expected)}</b>
+                  <span className="cv-cost-cta-max">(Max ~{roundInr(cost.total.max)})</span>
                   {cost.mode === 'perThousand' && <span className="cv-muted"> per 1,000 customers</span>}
                 </button>
               )}

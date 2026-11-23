@@ -1,10 +1,10 @@
-# Hyperface Campaign Designer — setup and usage guide for your AI assistant
+# Hyperface Smart Engage 2.0 — setup and usage guide for your AI assistant
 
-You are reading this because a Hyperface teammate asked you to connect them to the **Hyperface Campaign Designer** and help them use it. Follow the setup below, then use the tools as described in "How to use it". Speak to your user in plain words; never show them raw JSON.
+You are reading this because a Hyperface teammate asked you to connect them to **Hyperface Smart Engage 2.0** (the campaign designer) and help them use it. Follow the setup below, then use the tools as described in "How to use it". Speak to your user in plain words; never show them raw JSON.
 
 ## What it is
 
-The Campaign Designer is Hyperface's own campaign agent. From a brief, anything from one line ("get dormant cardholders spending again before Diwali") to a full document, it designs a full card campaign for a bank: **buckets** of customers with different reasons for not acting, and a **message journey** for each (WhatsApp, SMS, email; waits; checks; endings). It is reached through an MCP server.
+Smart Engage 2.0 is Hyperface's own campaign agent. From a brief, anything from one line ("get dormant cardholders spending again before Diwali") to a full document, it designs a full card campaign for a bank: **buckets** of customers with different reasons for not acting, and a **message journey** for each (WhatsApp, SMS, email; waits; checks; endings). It is reached through an MCP server.
 
 **You do not design campaigns yourself.** You pass your user's brief to the designer, relay its questions and your user's changes, tell your user what was built, and submit only when they say so.
 
@@ -25,7 +25,7 @@ Run this, with the token in place of `<team token>`:
 claude mcp add --transport http --scope user campaign-designer https://ai.product.hyperface.co/campaigndesigneragent/mcp --header "Authorization: Bearer <team token>"
 ```
 
-Then tell your user: "Done. Restart Claude Code (or open a new session) so the Campaign Designer tools load, then type `/mcp` to check that **campaign-designer** is connected with 10 tools." The tools only appear in a new session.
+Then tell your user: "Done. Restart Claude Code (or open a new session) so the Smart Engage tools load, then type `/mcp` to check that **campaign-designer** is connected with 10 tools." The tools only appear in a new session.
 
 ### If you are Claude Desktop or another app that cannot run commands
 
@@ -60,7 +60,7 @@ Once the tools are available, call `list_campaigns`. A list (possibly empty) mea
 | `submit_campaign(campaignId, startDate, endDate)` | Submit for execution. Locks the campaign. Dates (YYYY-MM-DD) are optional if the campaign already has them; pass them to set or change them. Start today or later, end after the start (a recurring campaign can use a far-off end). Refused if a journey doesn't fit between the dates. |
 | `copy_campaign(campaignId, name)` | A new editable draft from an existing campaign (even a submitted one), keeping the designer's reasoning and chat; the original is unchanged. Use it for a variant: a new season or month, a different audience, a different channel mix or cadence, an A/B alternative. For a different goal, use `create_campaign` instead. Then adapt it with `request_changes`. |
 | `stop_campaign(campaignId)` | Stop a submitted (scheduled or active) campaign. It goes back to **ready**: editable again, and `submit_campaign` can send it out again later with new dates. Customers' progress is not kept, so it starts fresh. |
-| `delete_campaign(campaignId)` | Delete a draft (not submitted), e.g. a test. Refused for submitted campaigns: stop first. A copy is kept, so the Campaign Designer team can recover a mistaken delete. |
+| `delete_campaign(campaignId)` | Delete a draft (not submitted), e.g. a test. Refused for submitted campaigns: stop first. A copy is kept, so the Smart Engage team can recover a mistaken delete. |
 | `get_link(campaignId)` | A fresh canvas link. |
 | `list_campaigns()` | All IBL campaigns with state, allowed actions, dates and link. |
 
@@ -90,7 +90,7 @@ Every campaign response carries `state` and `allowedActions`.
 - `draft`: being designed. While the designer is working, `allowedActions` is empty: wait and call `get_campaign` again. If it has **questions**, they are listed and `answer_questions` is allowed. If it **replied** without building (it asked something in its message), answer with `request_changes`. If something **failed**, `error` says so: try `request_changes` once more, then tell your user.
 - `ready`: designed and built, with a brief. Change it, submit it, copy it or delete it.
 - `scheduled` / `active` / `ended`: submitted for execution and locked; which one depends on today's date and the campaign's dates. Scheduled and active campaigns can be stopped (back to ready). Ended ones can only be copied.
-- `deleted`: gone from the list; the Campaign Designer team can recover it.
+- `deleted`: gone from the list; the Smart Engage team can recover it.
 
 **Rule: only call a tool that is in `allowedActions`** for that campaign (`get_campaign`, `get_link` and `list_campaigns` are always fine). Anything else will be refused.
 
@@ -122,4 +122,4 @@ Canvas links open that one campaign **read-only, with no password, for 24 hours*
 - The designer only designs communication. It never invents an incentive, an amount or a link, and neither should you.
 - One request at a time per campaign: while it is working, wait.
 - Don't edit the same campaign in the Hyperface app while you are working on it here.
-- If something keeps failing, tell your user to contact the Campaign Designer team (Nimit).
+- If something keeps failing, tell your user to contact the Smart Engage team (Nimit).

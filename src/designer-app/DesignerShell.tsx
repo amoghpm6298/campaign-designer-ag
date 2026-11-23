@@ -117,10 +117,9 @@ export function DesignerShell() {
                   <img src={logo} alt="" aria-hidden="true" width={19} height={19} />
                 </span>
                 <span className="leading-tight min-w-0">
-                  {/* 12.5px semibold, not 14px bold: "Campaign Designer" is
-                      six characters longer than the name this rail was sized
-                      for, and at 14px it truncates inside a 256px drawer. */}
-                  <span className="block text-text-primary font-semibold text-[12.5px] truncate">Campaign Designer</span>
+                  {/* 12.5px semibold, not 14px bold: at 14px a longer product
+                      name truncates inside a 256px drawer. */}
+                  <span className="block text-text-primary font-semibold text-[12.5px] truncate">Smart Engage 2.0</span>
                   <span className="block text-text-tertiary text-[11px]">Hyperface</span>
                 </span>
               </span>
