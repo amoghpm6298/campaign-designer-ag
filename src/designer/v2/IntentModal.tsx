@@ -2,9 +2,9 @@
 // The choice points the designer at the right goal, data and levers. For
 // product sign-ups, the product is picked from the bank's Products list.
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Banknote, Building2, CreditCard, Landmark, Package, PiggyBank, ShieldCheck, ShoppingBag, Smartphone, TrendingUp, UserCheck, Wallet, Wrench, X, Zap, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, Banknote, Sparkles, Building2, CreditCard, Landmark, Package, PiggyBank, ShieldCheck, ShoppingBag, Smartphone, TrendingUp, UserCheck, Wallet, Wrench, X, Zap, type LucideIcon } from 'lucide-react';
 import { apiUrl } from '../api';
-import { INTENTS, type CampaignIntent, type IntentChoice } from './intent';
+import { BRIEF_SUGGESTIONS, INTENTS, type CampaignIntent, type IntentChoice } from './intent';
 
 interface ProductLite {
   product_id: string;
@@ -50,8 +50,13 @@ export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; o
   const [intent, setIntent] = useState<CampaignIntent | null>(null);
   const [products, setProducts] = useState<ProductLite[] | null>(null);
   const [productId, setProductId] = useState('');
-  // Two steps: what the campaign is for, then (for product sign-ups) which product.
-  const [step, setStep] = useState<'intent' | 'product'>('intent');
+  // What the campaign is for, then (for product sign-ups) which product, then the brief.
+  const [step, setStep] = useState<'intent' | 'product' | 'brief'>('intent');
+  const [brief, setBrief] = useState('');
+  const productName = products?.find((p) => p.product_id === productId)?.product_name ?? 'the product';
+  const steps = intent === 'adoption' ? 3 : 2;
+  const stepNo = step === 'intent' ? 1 : step === 'product' ? 2 : steps;
+  const intentText = INTENTS.find((x) => x.key === intent)?.label ?? '';
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     box.current?.focus();
@@ -67,14 +72,27 @@ export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; o
       .then((d: { products?: ProductLite[] }) => setProducts((d.products ?? []).filter((p) => p.status === 'live')))
       .catch(() => setProducts([]));
   }, [intent, products, tenantId]);
-  const finish = () => intent && onPick({ intent, ...(intent === 'adoption' ? { productId } : {}) });
+  const finish = () => intent && brief.trim() && onPick({ intent, ...(intent === 'adoption' ? { productId } : {}), brief: brief.trim() });
+  const next = () => {
+    if (step === 'intent') return setStep(intent === 'adoption' ? 'product' : 'brief');
+    if (step === 'product') return setStep('brief');
+    finish();
+  };
+  // A brief written for one intent doesn't carry over to another.
+  useEffect(() => setBrief(''), [intent]);
+  const back = () => setStep(step === 'brief' && intent === 'adoption' ? 'product' : 'intent');
   return (
     <div className="im-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div ref={box} className="im" role="dialog" aria-modal="true" aria-labelledby="im-title" tabIndex={-1}>
         <header className="im-head">
           <div>
-            {step === 'product' && <div className="im-step">Step 2 of 2 · Drive product sign-ups</div>}
-            <h2 id="im-title">{step === 'intent' ? 'What do you want this campaign to do?' : 'Which product do you want to sell?'}</h2>
+            {step !== 'intent' && (
+              <div className="im-step">
+                Step {stepNo} of {steps} · {intentText}
+                {step === 'brief' && intent === 'adoption' ? ` · ${productName}` : ''}
+              </div>
+            )}
+            <h2 id="im-title">{step === 'intent' ? 'What do you want this campaign to do?' : step === 'product' ? 'Which product do you want to sell?' : 'Describe your campaign'}</h2>
           </div>
           <button className="fpm-x" onClick={onClose} aria-label="Close">
             <X size={18} />
@@ -121,6 +139,35 @@ export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; o
             ))}
           </div>
           </>
+        ) : step === 'brief' ? (
+          <div className="im-brief">
+            <label className="im-brief-label" htmlFor="im-brief-text">
+              Who it is for, what counts as success, timing, channels and any offer or budget. A sentence is enough; more detail helps.
+            </label>
+            <textarea
+              id="im-brief-text"
+              className="im-brief-text"
+              rows={5}
+              autoFocus
+              value={brief}
+              placeholder="For example: get cardholders who used the card once or twice in the last 90 days to use it more, over the next 6 weeks."
+              onChange={(e) => setBrief(e.target.value)}
+            />
+            <div className="im-sugg-h">
+              <Sparkles size={14} aria-hidden="true" /> Start from a suggestion
+            </div>
+            <div className="im-sugg">
+              {(intent ? BRIEF_SUGGESTIONS[intent] : []).map((x) => {
+                const text = x.brief.replace(/\{product\}/g, productName);
+                return (
+                  <button key={x.title} className={`im-sugg-card${brief === text ? ' on' : ''}`} onClick={() => setBrief(text)}>
+                    <b>{x.title}</b>
+                    <span>{text}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         ) : products === null ? (
           <div className="cv-muted">Loading products…</div>
         ) : products.length === 0 ? (
@@ -143,8 +190,8 @@ export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; o
         )}
         </div>
         <div className="im-actions">
-          {step === 'product' ? (
-            <button className="cv-btn im-back-btn" onClick={() => setStep('intent')}>
+          {step !== 'intent' ? (
+            <button className="cv-btn im-back-btn" onClick={back}>
               <ArrowLeft size={15} /> Back
             </button>
           ) : (
@@ -154,10 +201,10 @@ export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; o
           )}
           <button
             className="cv-btn primary"
-            disabled={step === 'intent' ? !intent : !productId}
-            onClick={() => (step === 'intent' && intent === 'adoption' ? setStep('product') : finish())}
+            disabled={step === 'intent' ? !intent : step === 'product' ? !productId : !brief.trim()}
+            onClick={next}
           >
-            Continue
+            {step === 'brief' ? 'Create campaign' : 'Continue'}
           </button>
         </div>
       </div>

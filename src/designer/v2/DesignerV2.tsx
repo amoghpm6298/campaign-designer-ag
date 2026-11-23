@@ -19,7 +19,7 @@ import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
 import { VersionMenu } from './VersionMenu';
 import { MoreMenu } from './MoreMenu';
-import { intentLabel, pendingIntent } from './intent';
+import { intentLabel, pendingIntent, setPendingIntent } from './intent';
 import type { CdNodeData, EditApi } from './canvasNodes';
 import { CampaignCanvas } from './CampaignCanvas';
 import { buildCanvasModel, classifyChanges, diffChangedSteps, type CStep } from './canvasModel';
@@ -307,6 +307,17 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
       ctrl.signal,
     );
   };
+
+  // A brief written in the "Create new campaign" modal goes to the designer as soon as the campaign opens.
+  const briefSent = useRef(false);
+  useEffect(() => {
+    const p = pendingIntent(sessionId);
+    if (briefSent.current || !p?.brief || turns.length || busy || new URLSearchParams(location.search).has('view')) return;
+    briefSent.current = true;
+    setPendingIntent(sessionId, { ...p, brief: undefined });
+    send(p.brief);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** After a direct edit or a restore: show the new campaign, highlight what changed, log it for the agent. */
   const applyEdit = (r: Awaited<ReturnType<typeof directEdit>>, focus: Focus | null) => {

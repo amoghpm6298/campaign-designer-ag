@@ -871,3 +871,18 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-camp-status.st-scheduled { background: #f0f6ff; color: #5a7fbf; border-color: transparent; }
 .cv-camp-status.st-active { background: #effaf4; color: #4f8f6b; border-color: transparent; }
 .cv-camp-status.st-ended { background: #f5f6f8; color: #8a94a6; border-color: transparent; }
+
+/* The intent modal's last step: the brief, with suggestions for the chosen intent. */
+.im-brief { display: flex; flex-direction: column; gap: 10px; }
+.im-brief-label { font-size: 13px; color: var(--v2-text-2, #475467); line-height: 1.45; }
+.im-brief-text { font: inherit; font-size: 14px; line-height: 1.5; border: 1px solid var(--v2-border, #e4e7ec); border-radius: 12px; padding: 12px 14px; resize: vertical; min-height: 110px; }
+.im-brief-text:focus { outline: none; border-color: var(--v2-primary, #0a66f0); box-shadow: 0 0 0 3px rgba(10, 102, 240, .12); }
+.im-sugg-h { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--v2-text-3, #98a2b3); }
+.im-sugg-h svg { color: #a5813f; }
+.im-sugg { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.im-sugg-card { text-align: left; font: inherit; cursor: pointer; border: 1px solid var(--v2-border, #e4e7ec); background: #fff; border-radius: 12px; padding: 10px 14px; display: flex; flex-direction: column; gap: 3px; transition: border-color .15s, background .15s; }
+.im-sugg-card b { font-size: 13.5px; font-weight: 600; color: var(--v2-text, #101828); }
+.im-sugg-card span { font-size: 12.5px; color: var(--v2-text-2, #475467); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.im-sugg-card:hover { border-color: #8fb9f8; background: #f8fbff; }
+.im-sugg-card.on { border-color: var(--v2-primary, #0a66f0); background: var(--v2-primary-light, #e7f0fe); }
+.im-sugg-card:focus-visible { outline: 2px solid var(--v2-primary, #0a66f0); outline-offset: 2px; }
