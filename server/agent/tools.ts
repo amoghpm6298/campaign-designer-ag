@@ -305,7 +305,7 @@ const INCENTIVE_TOOLS: ToolDef[] = [
     name: 'list_incentives',
     title: "Checking the bank's offers",
     description:
-      "The bank's incentive menu: special offers a campaign may use on top of what customers are already eligible for, cheapest first, valid for the campaign's dates. Each has its mechanic, trigger (what the customer must do), the goals it fits, its cost to the bank, what it requires (product eligibility set by the bank: a campaign never grants it), who it is meant for, rules only the engine can check, budget left, and its exact terms. Never invent an offer, amount or term; use only these, by id. Give bucketId (with data access, once the bucket is sized) to see how many of that bucket meet each offer's requirements and targeting.",
+      "The bank's incentive menu: special offers a campaign may use on top of what customers are already eligible for, cheapest first, valid for the campaign's dates. Each has its mechanic, trigger (what the customer must do), the goals it fits, its cost to the bank, what it requires (product eligibility set by the bank: a campaign never grants it), who it is meant for, rules only the engine can check, and its exact terms. Never invent an offer, amount or term; use only these, by id. Give bucketId (with data access, once the bucket is sized) to see how many of that bucket meet each offer's requirements and targeting.",
     input_schema: { type: 'object', properties: { bucketId: { type: 'string', description: 'Optional: a sized bucket, to count who qualifies.' } } },
   },
 ];
@@ -615,7 +615,7 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
         doneTitle: "Checked the bank's offers",
         summary: `${list.length} offer${list.length === 1 ? '' : 's'}${bucketId ? ` for ${bucketId}` : ''}`,
         result: list,
-        forModel: `${JSON.stringify(list)}${dropped ? ` ${dropped} more not valid for the campaign's dates or out of budget.` : ''}${note} MOCK library: standard credit card offers with dummy figures.`,
+        forModel: `${JSON.stringify(list)}${dropped ? ` ${dropped} more not valid for the campaign's dates or paused.` : ''}${note} MOCK library: standard credit card offers with dummy figures.`,
       };
     }
 

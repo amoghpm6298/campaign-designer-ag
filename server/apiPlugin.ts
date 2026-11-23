@@ -412,12 +412,55 @@ export function agentApiPlugin(): Plugin {
               return send(res, 400, { error: (e as Error).message });
             }
           }
-          // The bank's incentive menu (mock): offers by id, with the exact line the system puts into a message.
+          // The bank's incentive menu (ops manage it on the Offers page): offers by id, with the exact line the system puts into a message.
           if (url === '/api/incentives' && req.method === 'GET') {
             const I = await load('incentives.ts');
             const T = await load('tenants.ts');
             const tenantId = new URL(req.url ?? '', 'http://x').searchParams.get('tenantId') ?? '';
             return send(res, 200, { incentives: (I.incentivesFor as (t: unknown) => unknown[])((T.resolveTenant as (id: string) => unknown)(tenantId)) });
+          }
+          // Ops manage the offer menu: add or change an offer, or pause / resume one. Every save is checked.
+          if ((url === '/api/incentives' || url === '/api/incentives/status') && req.method === 'POST') {
+            const I = await load('incentives.ts');
+            const T = await load('tenants.ts');
+            const body = (await readBody(req)) as { tenantId?: string; incentive?: unknown; id?: string; status?: string };
+            const tenant = (T.resolveTenant as (id: string) => unknown)(String(body.tenantId ?? ''));
+            if (!tenant) return send(res, 400, { ok: false, error: 'Unknown bank.' });
+            try {
+              const out =
+                url === '/api/incentives'
+                  ? (I.saveIncentive as (t: unknown, i: unknown) => { ok: boolean })(tenant, body.incentive ?? {})
+                  : (I.setIncentiveStatus as (t: unknown, id: string, s: string) => { ok: boolean })(tenant, String(body.id ?? ''), String(body.status ?? ''));
+              return send(res, out.ok ? 200 : 400, out);
+            } catch (e) {
+              return send(res, 400, { ok: false, error: (e as Error).message });
+            }
+          }
+          // An offer described in plain words → its fields, asking for whatever is missing. Nothing is saved.
+          if (url === '/api/incentives/draft' && req.method === 'POST') {
+            const D = await load('incentiveDraft.ts');
+            const T = await load('tenants.ts');
+            const body = (await readBody(req)) as { tenantId?: string; turns?: unknown[]; current?: unknown };
+            const tenant = (T.resolveTenant as (id: string) => { incentives?: boolean } | null)(String(body.tenantId ?? ''));
+            if (!tenant?.incentives) return send(res, 400, { error: 'This bank has no offer menu.' });
+            const turns = (Array.isArray(body.turns) ? body.turns : [])
+              .filter((t): t is { role: string; text: string } => !!t && typeof (t as { text?: unknown }).text === 'string')
+              .slice(-20)
+              .map((t) => ({ role: t.role === 'designer' ? 'designer' : 'ops', text: t.text.slice(0, 4000) }));
+            if (!turns.some((t) => t.role === 'ops' && t.text.trim())) return send(res, 400, { error: 'Describe the offer first.' });
+            try {
+              return send(res, 200, await (D.draftIncentive as (t: unknown, turns: unknown, c: unknown) => Promise<unknown>)(tenant, turns, body.current ?? null));
+            } catch (e) {
+              return send(res, 502, { error: (e as Error).message });
+            }
+          }
+          // The signals an offer's rules may use (no SQL), for the Offers page.
+          if (url === '/api/signals' && req.method === 'GET') {
+            const S = await load('signals.ts');
+            const T = await load('tenants.ts');
+            const tenantId = new URL(req.url ?? '', 'http://x').searchParams.get('tenantId') ?? '';
+            const all = (S.signalsForAgent as (s: unknown) => { usableIn: string[] }[])((S.signalsFor as (t: unknown) => unknown)((T.resolveTenant as (id: string) => unknown)(tenantId)));
+            return send(res, 200, { signals: all.filter((x) => x.usableIn.includes('eligibility')) });
           }
           // Personal fields usable in messages, with a typical and the longest value (for previews).
           if (url === '/api/fields' && req.method === 'GET') {

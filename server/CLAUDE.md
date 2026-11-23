@@ -152,10 +152,24 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
 - **Incentives** (`server/incentives.ts`): special offers on top of what the
   customer is already eligible for, each with its cost to the bank, what it
   `requires` (product eligibility set by the bank; a campaign never grants it),
-  who it is meant for, budget, dates and exact terms. MOCK library of standard
-  credit card offers until the real one exists; only `incentivesFor()` changes
-  then. `list_incentives` (banks with `incentives: true`) lists valid offers
-  cheapest first and, for a sized bucket, counts who qualifies.
+  who it is meant for, dates and exact terms. Offers carry no budget: spend is
+  tracked by each campaign against its own cap (`budgetCap`, the budget pass). One file per bank,
+  `data/incentives/<tenantId>.json`, managed by ops on the **Offers** page
+  (third item in the nav, `src/designer/OffersView.tsx`). Until the first save
+  a bank gets the starting menu (standard card offers). Offers can also be
+  added by describing them in words (`server/incentiveDraft.ts`): the model
+  drafts the fields, the same checks run, and it fixes what it can itself (up
+  to 2 rounds) and asks ops for any fact it lacks, until the draft passes; the
+  filled form then opens for review. Nothing is saved without that review. Every save goes through `checkIncentive`: the cost fields must suit
+  the cost type and the trigger (share of spend needs a spend trigger, an
+  interest discount needs EMI), rules must use real signals, dates must make
+  sense, and the customer line is at most 160 characters with no
+  link. The most an offer can cost per customer and the goals it serves are
+  worked out, not typed. Offers are paused, never deleted (campaigns refer to
+  them by id); a paused offer drops off the agent's menu at once and existing
+  campaigns that use it are flagged by the offer check. `list_incentives`
+  (banks with `incentives: true`) lists valid offers cheapest first and, for a
+  sized bucket, counts who qualifies.
 - **Prompt sections by bank:** core + data ON/OFF + incentives ON/OFF. With a
   menu, the agent asks about speed vs spend (and an optional budget) in its own
   words and files it as brief topic "Spend".

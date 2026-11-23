@@ -106,11 +106,11 @@ describe('incentive menu', () => {
     expect(list.find((i) => i.id === 'annual_fee_waiver')!.cost.feeByCardType).toHaveProperty('Yes First Exclusive');
   });
 
-  it('valid only within its dates and while budget remains', () => {
+  it('valid only within its dates and while live', () => {
     const i = incentivesFor(YES)[0];
     expect(validFor(i, { startDate: '2026-12-01', endDate: '2026-12-20' }, '2026-11-19')).toBe(true);
     expect(validFor(i, { startDate: '2027-03-20', endDate: '2027-04-20' }, '2026-11-19')).toBe(false);
-    expect(validFor({ ...i, budget: { total: 1, remaining: 0 } }, null, '2026-11-19')).toBe(false);
+    expect(validFor({ ...i, status: 'paused' }, null, '2026-11-19')).toBe(false);
   });
 
   it.runIf(hasYes)('counts who in a group meets the requirements and the targeting', () => {

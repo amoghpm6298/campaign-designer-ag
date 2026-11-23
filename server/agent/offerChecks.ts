@@ -45,7 +45,7 @@ export function offerProblems(campaign: CampaignObject, context: CampaignContext
         problems.push(`${step}: "${s.incentive}" is not an offer on this bank's menu. Use an id from list_incentives, or remove the offer.`);
         return;
       }
-      if (!validFor(inc, campaign.schedule, todayIST())) problems.push(`${step}: the offer "${inc.label}" isn't valid for the campaign's dates (${inc.validFrom} to ${inc.validTo}) or has no budget left. Choose another offer or change the dates.`);
+      if (!validFor(inc, campaign.schedule, todayIST())) problems.push(`${step}: the offer "${inc.label}" isn't valid for the campaign's dates (${inc.validFrom} to ${inc.validTo}) or is paused. Choose another offer or change the dates.`);
       if (campaign.goal && !inc.fitsGoals.includes(campaign.goal.eventType)) problems.push(`${step}: the offer "${inc.label}" is earned by ${inc.trigger.action.replace('_', ' ')}, which doesn't serve the goal "${campaign.goal.eventType}". Choose an offer whose trigger fits the goal.`);
       const words = `${String(s.copy ?? '')} ${String(s.cta ?? '')}`;
       if (AMOUNT.test(words)) problems.push(`${step}: the copy states an amount or rate. Remove it: the system adds the offer's exact line ("${inc.offerLine}") after your copy. Write copy that leads into it.`);
