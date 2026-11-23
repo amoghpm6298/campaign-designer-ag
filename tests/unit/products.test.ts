@@ -9,20 +9,23 @@ import { intentBlock } from '../../server/agent/intent';
 import { listLinks } from '../../server/links';
 import { resolveTenant } from '../../server/tenants';
 import { signalsFor } from '../../server/signals';
+import { existsSync } from 'node:fs';
+import { warehousePath } from '../../server/warehouse';
 import type { CampaignObject } from '../../server/agent/types';
 
 const YES = resolveTenant('TEN-YES')!;
+const hasYes = existsSync(warehousePath('yesbank'));
 const dir = () => mkdtempSync(join(tmpdir(), 'cd-products-'));
 
 describe('the product list', () => {
-  it('starts with card-focused products whose pages are in Links, and each passes its own checks', () => {
+  it.runIf(hasYes)('starts with card-focused products whose pages are in Links, and each passes its own checks', () => {
     const refs = listLinks('TEN-YES').map((l) => l.ref);
     const list = productsFor(YES, dir());
     expect(list.map((p) => p.product_id)).toEqual(['premium_upgrade', 'addon_card', 'loan_on_card', 'balance_transfer', 'card_protection', 'travel_card']);
     for (const p of list) expect(refs).toContain(p.link);
     for (const p of list) expect(checkProduct(p, signalsFor(YES), refs).problems).toEqual([]);
   });
-  it('a save needs a real link and real signals; pausing keeps it on the list', () => {
+  it.runIf(hasYes)('a save needs a real link and real signals; pausing keeps it on the list', () => {
     const d = dir();
     const bad = saveProduct(YES, { product_id: 'gold', product_name: 'Gold card', product_type: 'card', description: 'x', link: 'nowhere', eligibility: [{ attribute: 'vip', operator: 'Equals', value: '1' }] }, 'ops', d);
     expect(bad.ok).toBe(false);
@@ -36,6 +39,15 @@ describe('the product list', () => {
 
 const send = (extra: Record<string, unknown> = {}) => ({ kind: 'send', name: 'Pitch', channelPreference: ['SMS'], ...extra });
 const camp = (journey: unknown[], extra: Partial<CampaignObject> = {}) => ({ goal: { eventCategory: 'Transaction Events', eventType: 'Transaction' }, buckets: [{ id: 'b', name: 'Active', priority: 1, journey }], ...extra }) as unknown as CampaignObject;
+
+describe('without data access', () => {
+  it('eligibility rules are kept as written, not checked: nothing can be counted', () => {
+    const { checkProduct: check } = { checkProduct };
+    const r = check({ product_id: 'x1', product_name: 'X', product_type: 'card', description: 'x', link: 'apply_upgrade', eligibility: [{ attribute: 'spend_90d', operator: 'Greater than', value: '1' }] }, [], ['apply_upgrade']);
+    expect(r.problems).toEqual([]);
+    expect(r.product!.eligibility).toHaveLength(1);
+  });
+});
 
 describe('products in journeys', () => {
   it('cross-selling is off outside a product sign-ups campaign; inside one, one product, linked to its page', () => {

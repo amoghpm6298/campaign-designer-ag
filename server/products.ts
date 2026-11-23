@@ -162,7 +162,10 @@ export function checkProduct(input: Partial<Product>, signals: Signal[], linkRef
   if (!link) problems.push('Choose the product page from Links.');
   else if (!linkRefs.includes(link)) problems.push(`There is no link "${link}". Add it in Links first.`);
   const words = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
+  // A bank without data access has only journey signals: its eligibility rules are kept as written, but can't be checked.
+  const checkable = signals.some((x) => x.kind !== 'journey');
   const eligibility = (Array.isArray(input.eligibility) ? input.eligibility : []).map((raw) => {
+    if (!checkable) return raw as SignalCondition;
     const c = canonicalCondition(signals, raw as SignalCondition);
     const p = signalConditionProblem(signals, c, 'eligibility');
     if (p) problems.push(`Eligibility: ${p.replace(/ Use list_signals;.*$/, '')}`);
