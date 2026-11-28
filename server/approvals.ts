@@ -135,6 +135,25 @@ export function syncApprovals(sessionId: string, campaign: CampaignObject, tenan
   return Object.values(next);
 }
 
+/**
+ * A campaign converted into a flow: the flow's messages that are word for word
+ * what the bank already approved in the campaign start approved (who approved
+ * them, and when, kept). Anything the designer then rewrites gets a new
+ * fingerprint and goes back to Pending, as always.
+ */
+export function carryApprovals(fromId: string, toId: string, campaign: CampaignObject, tenant: Pick<TenantConfig, 'tenantId' | 'incentives' | 'warehouse'> | null, dir = approvalsDir()): number {
+  const from = load(fromId, dir);
+  const carried: Record<string, ApprovalRecord> = {};
+  for (const m of messagesOf(campaign, tenant)) {
+    const prev = from.records[m.fp];
+    if (prev?.status === 'approved' && !carried[m.fp]) carried[m.fp] = { ...prev, uses: [] };
+  }
+  if (!Object.keys(carried).length) return 0;
+  save(toId, { records: carried, history: [] }, dir);
+  syncApprovals(toId, campaign, tenant, dir); // fills in where each is used
+  return Object.keys(carried).length;
+}
+
 /** The current queue for a campaign (after syncing it with the campaign). */
 export const approvalsFor = syncApprovals;
 

@@ -98,6 +98,8 @@ export interface CampaignObject {
   schedule?: { startDate: string; endDate?: string } | null;
   /** Flow (always on) or campaign (one-time), chosen when it was created and fixed (src/designer/v2/kind.ts). Older items: none, read from membership. */
   kind?: CampaignKind | null;
+  /** A flow converted from a one-time campaign that ran (server/convertToFlow.ts): where it came from and the manager's note. */
+  origin?: { fromId: string; fromName: string; note?: string; by: string; at: string } | null;
   /** The most the campaign may spend on offers, in rupees. The engine stops issuing offers once it is spent. */
   budgetCap?: number | null;
   /** What the campaign is for, chosen when it was created (Smart Engage 2.0). Older campaigns: none, read as "other". */

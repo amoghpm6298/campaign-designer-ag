@@ -241,6 +241,26 @@ function afterLine(c: AgentState['campaign']): string {
   return Object.entries(a).map(([k, v]) => `${k} ${v === 'leave' ? 'leaves' : `may rejoin after ${v} days`}`).join('; ') + `; opted out never; stopping rule: ${c.maxAttempts ? `at most ${c.maxAttempts} times through, then everyone leaves` : 'NOT SET'}`;
 }
 
+/**
+ * A flow converted from a one-time campaign that ran (server/convertToFlow.ts).
+ * The campaign is the evidence: what it tried worked well enough for the manager
+ * to make it always on. So the designer keeps what was proven and changes what a
+ * one-time campaign does differently from a flow. The manager's note comes first.
+ */
+function originBlock(c: AgentState['campaign']): string[] {
+  const o = c.origin;
+  if (!o) return [];
+  return [
+    '## Converted from a campaign',
+    `- This flow started as a copy of the one-time campaign "${o.fromName}", which ran; the manager chose to make it always on.${o.note ? ` Their note, which comes first: "${o.note}"` : ''}`,
+    '- Keep what was proven: who each bucket is for and the lever behind its journey. Drop or merge a bucket only if their note says so, or if it cannot work always on (say which and why).',
+    '- Change what differs in a flow: the entry catches people as they become eligible (and how often: the refresh); the goal is per customer, within N days of joining; journeys run from the join day; copy that mentions dates, festivals or campaign deadlines loses them; any budget is monthly (budgetCap); set what happens after the journey and the stopping rule; set a start date.',
+    '- KEEP THE WORDING. Messages the bank approved in the campaign stay approved here only while their words stay exactly the same; any rewrite goes back to the bank for approval. So reword a message ONLY if it mentions a date, festival, season, sale, deadline or "this campaign", or if their note asks for it. A message that is already true for anyone who joins at any time stays word for word, even where you would phrase it differently. Say how many messages you reworded and why.',
+    '- KEEP THE NAME. The manager named this flow when converting it; never change name unless they ask.',
+    '- In each bucket\'s rationale, say it was tried in that campaign. Rebuild, then rewrite your campaign strategy and brief for the flow.',
+  ];
+}
+
 /** The app-written state the agent reads each turn. Facts only, no instructions. */
 export function statusBlock(s: AgentState, links?: BankLink[], smsFallback = true): string {
   const c = s.campaign;
@@ -288,6 +308,7 @@ export function statusBlock(s: AgentState, links?: BankLink[], smsFallback = tru
     `Today: ${todayIST()} (India). This is a ${kindOf(c) === 'flow' ? 'FLOW (always on)' : 'one-time CAMPAIGN'}. Dates: ${scheduleText(c.schedule)}.`,
     '## Flags',
     fmtFlags(s),
+    ...originBlock(c),
     '## On file (read with get_campaign / get_context)',
     onFile,
     ...(links ? ['## Links (read with list_links)', linksLine(s, links, smsFallback)] : []),

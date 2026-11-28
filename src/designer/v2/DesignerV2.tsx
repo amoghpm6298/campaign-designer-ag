@@ -12,14 +12,14 @@ import { apiUrl } from '../api';
 import { CostPanel } from './CostPanel';
 import { StrategyPanel, type StrategyNote } from './StrategyPanel';
 import { currentEntries as currentNotes } from './contextView';
-import { FileText, ShieldCheck } from 'lucide-react';
+import { FileText, Route, ShieldCheck } from 'lucide-react';
 import type { ApprovalRecordView } from '../CommApprovalsView';
-import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, submitCampaignApi, runBucketSizing, fetchOffers, fetchCost, fetchFields, type CostReportView, type FieldSampleView, type Offer, type Stores, type Submission, type Withdrawal } from './api';
+import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, convertToFlowApi, type ConversionView, submitCampaignApi, runBucketSizing, fetchOffers, fetchCost, fetchFields, type CostReportView, type FieldSampleView, type Offer, type Stores, type Submission, type Withdrawal } from './api';
 import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
 import { VersionMenu } from './VersionMenu';
 import { MoreMenu } from './MoreMenu';
-import { intentLabel, pendingIntent, setPendingIntent } from './intent';
+import { intentLabel, pendingIntent, setPendingIntent, type IntentChoice } from './intent';
 import type { CdNodeData, EditApi } from './canvasNodes';
 import { CampaignCanvas } from './CampaignCanvas';
 import { buildCanvasModel, classifyChanges, diffChangedSteps, type CStep } from './canvasModel';
@@ -99,7 +99,12 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // The campaign object and its context, as saved on the server for this chat.
   const [stores, setStores] = useState<Stores>({ campaign: null, context: null });
   const [submission, setSubmission] = useState<Submission | null>(null);
-  const [, setLastWithdrawal] = useState<Withdrawal | null>(null);
+  const [lastWithdrawal, setLastWithdrawal] = useState<Withdrawal | null>(null);
+  // The flows this campaign became (Convert to flow), and the Convert box: its name and the note for the designer.
+  const [conversions, setConversions] = useState<ConversionView[]>([]);
+  const [converting, setConverting] = useState<'ask' | 'busy' | string | null>(null);
+  const [convName, setConvName] = useState('');
+  const [convNote, setConvNote] = useState('');
   const [withdrawing, setWithdrawing] = useState<'ask' | 'busy' | string | null>(null);
   const [submitting, setSubmitting] = useState<'ask' | 'busy' | string | null>(null);
   // Flow (always on) or campaign (one-time): stored on the item, or chosen just now for a new one.
@@ -111,10 +116,11 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   useEffect(() => {
     let live = true;
     fetchStores(sessionId)
-      .then(({ submission: sub, lastWithdrawal: lw, ...st }) => {
+      .then(({ submission: sub, lastWithdrawal: lw, conversions: cv, ...st }) => {
         if (!live) return;
         setSubmission(sub);
         setLastWithdrawal(lw);
+        setConversions(cv);
         setStores((cur) => (cur.campaign || cur.context ? cur : st));
       })
       .catch(() => {
@@ -214,6 +220,10 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // Opened from a signed view link (?view=…): this one campaign, read-only.
   const viewOnly = useMemo(() => new URLSearchParams(location.search).has('view'), []);
   const locked = !!submission || viewOnly;
+  // Has this campaign run (live now, ended, or submitted once and stopped since)? Only then can it become a flow.
+  const campaignHasRun = (!!submission && submittedStage(submission) !== 'scheduled') || !!lastWithdrawal;
+  /** Another flow or campaign of this bank, in the same tab. */
+  const itemHref = (id: string) => `${import.meta.env.BASE_URL.replace(/\/$/, '')}/designer.html?c=${encodeURIComponent(id)}&bank=${encodeURIComponent(tenant.tenantId)}`;
   // The password page, then back to this same campaign, editable.
   const loginToEdit = useMemo(() => {
     const base = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -515,6 +525,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           </button>
         )}
         <div className="cv-title">
+          <span className="cv-title-tags">
           {(() => {
             const it = (stores.campaign as { intent?: string } | null)?.intent ?? pendingIntent(sessionId)?.intent;
             return (
@@ -524,6 +535,18 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               </span>
             );
           })()}
+          {/* Where a flow came from, and what a campaign became: the sandbox and what graduated from it. */}
+          {stores.campaign?.origin && (
+            <a className="cv-lineage" href={itemHref(stores.campaign.origin.fromId)} title={stores.campaign.origin.note ? `Note: ${stores.campaign.origin.note}` : 'The campaign this flow was converted from'}>
+              <Route size={12} aria-hidden="true" /> Converted from {stores.campaign.origin.fromName}
+            </a>
+          )}
+          {conversions.map((cv) => (
+            <a key={cv.toId} className="cv-lineage" href={itemHref(cv.toId)} title={cv.note ? `Note: ${cv.note}` : 'A flow made from this campaign'}>
+              <Route size={12} aria-hidden="true" /> Now a flow: {cv.toName}
+            </a>
+          ))}
+          </span>
           <b>{plan?.name || `New ${noun}`}</b>
         </div>
         {/* The campaign's status (Draft, Scheduled, Active…) shows on the Campaigns page, not here. */}
@@ -546,12 +569,71 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
                   },
                 ]
               : []),
+            // Campaigns are the sandbox: one that has run can become an always-on flow. The campaign itself stays as it is.
+            ...(!viewOnly && kind === 'campaign' && stores.campaign && campaignHasRun
+              ? [
+                  {
+                    key: 'convert',
+                    label: 'Convert to flow',
+                    icon: <Route size={15} />,
+                    disabled: busy,
+                    title: 'Make what worked here always on: a new flow, built from this campaign by the designer. This campaign stays as it is.',
+                    onSelect: () => {
+                      setConvName(`${plan?.name || stores.campaign?.name || 'Campaign'}, always on`);
+                      setConvNote('');
+                      setConverting('ask');
+                    },
+                  },
+                ]
+              : []),
             { key: 'activity', label: activity ? 'Hide activity' : 'Activity', icon: <ListChecks size={15} />, onSelect: () => setActivity((v) => !v) },
             ...(!viewOnly
               ? [{ key: 'delete', label: 'Delete', icon: <Trash2 size={15} />, danger: true, disabled: busy || locked, title: busy ? 'Wait for the agent to finish' : 'Delete this campaign', onSelect: () => setConfirmDelete('ask') }]
               : []),
           ]}
         >
+          {converting && (
+            <div className="cv-del-pop cv-convert-pop" role="dialog" aria-label="Convert to flow">
+              <b>Convert to an always-on flow</b>
+              <p>The designer turns this campaign into a flow: people join as they become eligible, and it runs until you stop it. This campaign stays as it is.</p>
+              <label className="cv-convert-field">
+                <span>Name of the flow</span>
+                <input value={convName} onChange={(e) => setConvName(e.target.value)} disabled={converting === 'busy'} autoFocus />
+              </label>
+              <label className="cv-convert-field">
+                <span>
+                  Note for the designer <i>(optional)</i>
+                </span>
+                <textarea
+                  rows={3}
+                  value={convNote}
+                  onChange={(e) => setConvNote(e.target.value)}
+                  disabled={converting === 'busy'}
+                  placeholder="For example: drop the dormant bucket, it didn't work. Make the messages warmer. WhatsApp only."
+                />
+              </label>
+              {converting !== 'ask' && converting !== 'busy' && <p className="cv-del-err">{converting}</p>}
+              <div className="cv-del-btns">
+                <button className="cv-btn" onClick={() => setConverting(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="cv-btn primary"
+                  disabled={converting === 'busy' || !convName.trim()}
+                  onClick={async () => {
+                    setConverting('busy');
+                    const r = await convertToFlowApi(sessionId, tenant.tenantId, convName.trim(), convNote.trim());
+                    if (!r.ok || !r.sessionId) return setConverting(r.error ?? 'Could not convert it.');
+                    // The new flow opens and its designer starts on the conversion, in the manager's name.
+                    setPendingIntent(r.sessionId, { intent: (r.intent ?? 'other') as IntentChoice['intent'], ...(r.productId ? { productId: r.productId } : {}), kind: 'flow', brief: r.brief });
+                    window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/designer.html?c=${encodeURIComponent(r.sessionId)}&bank=${encodeURIComponent(tenant.tenantId)}`;
+                  }}
+                >
+                  {converting === 'busy' ? 'Converting…' : 'Convert to flow'}
+                </button>
+              </div>
+            </div>
+          )}
           {versionsOpen && versions.length > 0 && <VersionMenu versions={versions} viewing={viewing?.v.n ?? null} onView={view} onClose={() => setVersionsOpen(false)} />}
           {confirmDelete && (
             <div className="cv-del-pop" role="dialog" aria-label={`Delete ${noun}`}>

@@ -291,6 +291,37 @@ it is created (the Flows or Campaigns page, or `kind` on the MCP's
   canvas header, Go live / Stop flow, the entry card and its edit popover all
   follow the kind.
 
+## Convert to flow (2026-11-28)
+
+Campaigns are the sandbox; what worked graduates into a flow. On a campaign
+that has **run** (active, ended, or submitted once and stopped: `hasRun` in
+`server/convertToFlow.ts`), the ⋯ menu offers **Convert to flow**: a name for
+the flow (required) and an optional note for the designer ("drop the dormant
+bucket", "warmer copy", "WhatsApp only").
+
+- `convertToFlow` copies the WHOLE campaign into a new flow (kind flow, open
+  weekly, no schedule, budget, afterJourney or maxAttempts yet; buckets,
+  journeys and step ids as they were), copies the context plus a "converted
+  from" note, carries over the bank's approvals for messages whose words are
+  unchanged (`carryApprovals` in `server/approvals.ts`), and records the
+  conversion beside the campaign (`conversions.json`; `campaign.json` may be
+  locked). The flow keeps `origin {fromId, fromName, note, by, at}`.
+- The app then opens the flow and sends the designer `conversionBrief` (in the
+  manager's name, their note last) through the same pending-brief path as a
+  new item. The status's "Converted from a campaign" block, every turn, says:
+  the note comes first; keep who each bucket is for and the lever; change what
+  differs in a flow; rewrite only what's needed (rewrites need re-approval).
+- Lineage both ways: the canvas header ("Converted from …" / "Now a flow: …")
+  and the list cards. Not yet: merging into an existing flow, results-based
+  gating, an MCP tool.
+- The status block also tells the designer to keep the manager's name for the
+  flow and to reword only messages with dates, festivals, deadlines or "this
+  campaign" (or what the note asks): a first test reworded all 16 messages, so
+  none kept its approval, and renamed the flow.
+- Local testing: editing any file under `server/` restarts the dev server and
+  kills a designer run in progress (the browser shows "network error" or the
+  turn just stops). Don't edit server files while a run is going.
+
 ## Rules worth keeping
 
 - Never invent an incentive. Banks with a menu: offers only from

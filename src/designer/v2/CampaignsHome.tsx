@@ -3,7 +3,7 @@
 // component, filtered by kind. Opening a card loads its campaign and its chat from the
 // server, exactly as it was left.
 import { useEffect, useState } from 'react';
-import { Calendar, MessageSquare, Plus, Repeat, X } from 'lucide-react';
+import { Calendar, MessageSquare, Plus, Repeat, Route, X } from 'lucide-react';
 import { apiUrl } from '../api';
 import type { KnowledgeBase, Tenant } from '../types';
 import { DesignerV2, loadChat, type Stored } from './DesignerV2';
@@ -29,6 +29,10 @@ export interface CampaignSummary {
   state: CampaignState;
   /** Flow (always on) or campaign (one-time). */
   kind?: CampaignKind;
+  /** A flow converted from a campaign. */
+  origin?: { fromId: string; fromName: string };
+  /** A campaign that became flows. */
+  convertedTo?: { toId: string; toName: string }[];
   /** What it is for; campaigns from before intents read as "other". */
   intent?: CampaignIntent;
 }
@@ -216,6 +220,16 @@ function CampaignCard({ c, kind, onOpen, onIntent, intentOn }: { c: CampaignSumm
       </span>
       <b className="cv-camp-name">{c.name}</b>
       {c.ask && <span className="cv-camp-ask">“{c.ask}”</span>}
+      {c.origin && (
+        <span className="cv-camp-lineage">
+          <Route size={12} aria-hidden="true" /> From the campaign {c.origin.fromName}
+        </span>
+      )}
+      {!!c.convertedTo?.length && (
+        <span className="cv-camp-lineage">
+          <Route size={12} aria-hidden="true" /> Now a flow{c.convertedTo.length > 1 ? `: ${c.convertedTo.length} flows` : `: ${c.convertedTo[0].toName}`}
+        </span>
+      )}
       <span className={`cv-camp-stats cv-camp-when-row${c.schedule ? '' : ' unset'}`}>
         <Calendar size={13} aria-hidden="true" />
         {kind === 'flow'

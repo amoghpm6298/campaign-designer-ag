@@ -110,6 +110,17 @@ export async function copyCampaign(sessionId: string, tenantId: string): Promise
   return (await res.json().catch(() => ({ ok: false, error: 'Could not reach the server.' }))) as { ok: boolean; sessionId?: string; name?: string; error?: string };
 }
 
+/** A campaign that has run becomes a new always-on flow; the campaign is unchanged. `brief` is the first message for the flow designer. */
+export async function convertToFlowApi(
+  sessionId: string,
+  tenantId: string,
+  name: string,
+  note: string,
+): Promise<{ ok: boolean; sessionId?: string; name?: string; brief?: string; intent?: string | null; productId?: string | null; error?: string }> {
+  const res = await fetch(apiUrl('/api/campaign/convert'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, tenantId, name, note }) });
+  return (await res.json().catch(() => ({ ok: false, error: 'Could not reach the server.' }))) as { ok: boolean; sessionId?: string; error?: string };
+}
+
 export async function withdrawCampaign(sessionId: string, tenantId: string): Promise<{ ok: boolean; withdrawal?: Withdrawal; error?: string }> {
   const res = await fetch(apiUrl('/api/campaign/withdraw'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, tenantId }) });
   return (await res.json().catch(() => ({ ok: false, error: 'Could not reach the server.' }))) as { ok: boolean; withdrawal?: Withdrawal; error?: string };
@@ -213,11 +224,20 @@ export async function runBucketSizing(sessionId: string, tenantId: string, bucke
 }
 
 /** The campaign object and its context, as this chat has them on file on the server. */
-export async function fetchStores(sessionId: string): Promise<Stores & { submission: Submission | null; lastWithdrawal: Withdrawal | null }> {
+/** A flow this campaign was converted into. */
+export interface ConversionView {
+  toId: string;
+  toName: string;
+  note?: string;
+  by: string;
+  at: string;
+}
+
+export async function fetchStores(sessionId: string): Promise<Stores & { submission: Submission | null; lastWithdrawal: Withdrawal | null; conversions: ConversionView[] }> {
   const res = await fetch(apiUrl(`/api/campaign?sessionId=${encodeURIComponent(sessionId)}`));
-  if (!res.ok) return { campaign: null, context: null, submission: null, lastWithdrawal: null };
-  const body = (await res.json()) as Partial<Stores> & { submission?: Submission | null; lastWithdrawal?: Withdrawal | null };
-  return { campaign: body.campaign ?? null, context: body.context ?? null, submission: body.submission ?? null, lastWithdrawal: body.lastWithdrawal ?? null };
+  if (!res.ok) return { campaign: null, context: null, submission: null, lastWithdrawal: null, conversions: [] };
+  const body = (await res.json()) as Partial<Stores> & { submission?: Submission | null; lastWithdrawal?: Withdrawal | null; conversions?: ConversionView[] };
+  return { campaign: body.campaign ?? null, context: body.context ?? null, submission: body.submission ?? null, lastWithdrawal: body.lastWithdrawal ?? null, conversions: body.conversions ?? [] };
 }
 
 export interface EditResult {

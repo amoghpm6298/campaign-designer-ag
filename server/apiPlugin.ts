@@ -314,6 +314,21 @@ export function agentApiPlugin(): Plugin {
               return send(res, 400, { ok: false, error: (e as Error).message });
             }
           }
+          // Convert a campaign that has run into a new always-on flow (the campaign is unchanged).
+          if (url === '/api/campaign/convert' && req.method === 'POST') {
+            const conv = await load('convertToFlow.ts');
+            const body = (await readBody(req)) as { sessionId?: string; tenantId?: string; name?: string; note?: string };
+            try {
+              const r = (conv.convertToFlow as (s: string, t: string, o: { name: string; note?: string; by: string }) => object)(String(body.sessionId ?? ''), String(body.tenantId ?? ''), {
+                name: String(body.name ?? ''),
+                note: typeof body.note === 'string' ? body.note : '',
+                by: 'Campaign manager',
+              });
+              return send(res, 200, { ok: true, ...r });
+            } catch (e) {
+              return send(res, 400, { ok: false, error: (e as Error).message });
+            }
+          }
           // Stop a submitted campaign: back to Ready, editable; it can be submitted again.
           if (url === '/api/campaign/withdraw' && req.method === 'POST') {
             const files = await load('campaignFiles.ts');
@@ -341,7 +356,15 @@ export function agentApiPlugin(): Plugin {
             try {
               const stores = (files.loadStores as (id: string) => { campaign: unknown; context: unknown })(sessionId);
               const ws = (files.loadWithdrawals as (s: string) => unknown[])(sessionId);
-              return send(res, 200, { campaign: stores.campaign ?? null, context: stores.context ?? null, submission: (files.loadSubmission as (s: string) => unknown)(sessionId), lastWithdrawal: ws[ws.length - 1] ?? null });
+              const conv = await load('convertToFlow.ts');
+              return send(res, 200, {
+                campaign: stores.campaign ?? null,
+                context: stores.context ?? null,
+                submission: (files.loadSubmission as (s: string) => unknown)(sessionId),
+                lastWithdrawal: ws[ws.length - 1] ?? null,
+                // The flows this campaign became (Convert to flow).
+                conversions: (conv.loadConversions as (s: string) => unknown[])(sessionId),
+              });
             } catch {
               return send(res, 400, { error: 'Not a valid session id.' });
             }

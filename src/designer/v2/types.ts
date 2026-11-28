@@ -63,6 +63,8 @@ export interface CampaignObject {
   schedule?: { startDate: string; endDate?: string } | null;
   /** Flow (always on) or campaign (one-time); see kind.ts. */
   kind?: 'flow' | 'campaign' | null;
+  /** A flow converted from a campaign that ran: where it came from and the manager's note. */
+  origin?: { fromId: string; fromName: string; note?: string; by: string; at: string } | null;
   /** The most the campaign may spend on offers, in rupees. */
   budgetCap?: number | null;
 }

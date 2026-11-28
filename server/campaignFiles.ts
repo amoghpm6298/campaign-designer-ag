@@ -334,6 +334,10 @@ export interface CampaignSummary {
   schedule?: { startDate: string; endDate?: string } | null;
   /** Flow (always on) or campaign (one-time). */
   kind: CampaignKind;
+  /** A flow converted from a campaign: which one. */
+  origin?: { fromId: string; fromName: string };
+  /** A campaign that became flows: which ones. */
+  convertedTo?: { toId: string; toName: string }[];
   /** Where it is: draft · scheduled · active (a flow: live) · ended (campaigns) · stopped (flows). Not submitted = draft. */
   state: 'draft' | 'scheduled' | 'active' | 'ended' | 'stopped';
   /** The designer has finished building it (no unbuilt changes). Part of whether a draft can be submitted. */
@@ -390,6 +394,17 @@ export function listCampaigns(tenantId: string, dir = campaignDir()): CampaignSu
       ...(loadSubmission(name, dir) ? { submitted: loadSubmission(name, dir)! } : {}),
       ...(c?.schedule ? { schedule: c.schedule } : {}),
       kind: kindOf(c),
+      // Campaigns are the sandbox: a flow converted from one says where it came from, and the campaign which flows it became.
+      ...(c?.origin ? { origin: { fromId: c.origin.fromId, fromName: c.origin.fromName } } : {}),
+      ...(() => {
+        try {
+          const p = join(folder, 'conversions.json');
+          const list = existsSync(p) ? (JSON.parse(readFileSync(p, 'utf8')) as { toId: string; toName: string }[]) : [];
+          return list.length ? { convertedTo: list.map(({ toId, toName }) => ({ toId, toName })) } : {};
+        } catch {
+          return {};
+        }
+      })(),
       state: (() => {
         const sub = loadSubmission(name, dir);
         if (sub) {
