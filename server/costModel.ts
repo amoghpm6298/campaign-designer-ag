@@ -22,6 +22,7 @@ import type { TenantConfig } from './tenants';
 import { bucketContext } from '../src/designer/v2/contextView';
 import { incentivesFor, type Incentive } from './incentives';
 import { conditionSql, signalsFor } from './signals';
+import { scopeContext, withinScope } from './logos';
 import { customerIds, runWarehouseQuery, warehouseAvailable } from './warehouse';
 import { DEFAULT_DELIVERY_RATES, fallbackFor, getBankSettings } from './bankSettings';
 
@@ -236,7 +237,8 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
   };
 
   for (const lane of lanes) {
-    const laneSql = views[lane.id]?.sql;
+    // Within the scope: a query saved before scopes existed is narrowed here too.
+    const laneSql = views[lane.id]?.sql ? withinScope(views[lane.id]!.sql!, campaign.scope) : undefined;
     const laneSet = ids(laneSql);
     const savedSize = typeof views[lane.id]?.size === 'number' ? (views[lane.id]!.size as number) : null;
     const held = (n: number | null) => (n == null ? null : Math.round(n * (1 - lane.holdoutPct / 100)));
@@ -409,7 +411,7 @@ export function campaignCost(campaign: CampaignObject, context: CampaignContext 
         if (st.kind === 'branch' && typeof st.signal === 'string' && st.signal) {
           // A signal switch: real route sizes from the data; people split, so the max adds up.
           const paths = (st.paths as { label?: string; operator?: string; value?: string; steps?: BpStep[] }[]) ?? [];
-          const condSets = paths.map((q) => ids(conditionSql(signals, { attribute: st.signal as string, operator: q.operator, value: q.value })));
+          const condSets = paths.map((q) => ids(conditionSql(signals, { attribute: st.signal as string, operator: q.operator, value: q.value }, scopeContext(campaign.scope))));
           const routeShare = (set: Set<string> | null) => (p.set && set && p.set.size ? set.size / p.set.size : null);
           let sum = 0;
           paths.forEach((q, i) => {

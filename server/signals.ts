@@ -31,8 +31,31 @@ export interface Signal {
   sensitivity: 'normal' | 'restricted';
 }
 
-/** "Today" for a warehouse is the last date in its data. */
-const ASOF = `(SELECT MAX(transaction_date) FROM transactions)`;
+// Signal SQL is written with three placeholders, filled in when it runs (resolveSignalSql):
+//   {{ASOF}}   "today": the last date in the data, or a past date (the 90-day trend replays the rules);
+//   {{TX}}     the transactions that count: only the scoped logos' cards, and none after "today";
+//   {{CARDS}}  the cards that count: only the scoped logos, and none issued after "today".
+// So every rule, size and trend counts within the flow's or campaign's scope, and nobody writes a logo filter.
+const ASOF = '{{ASOF}}';
+
+/** What a signal is evaluated within: the scoped logos (none = all cards) and the day it is evaluated as of (none = the data's last day). */
+export interface SignalContext {
+  logos?: string[];
+  asOf?: string;
+}
+
+/** Fills in a signal's placeholders for a scope and a day. */
+export function resolveSignalSql(sql: string, ctx: SignalContext = {}): string {
+  const lit = (v: string) => `'${v.replace(/'/g, "''")}'`;
+  const logos = ctx.logos?.length ? `logo_id IN (${ctx.logos.map(lit).join(', ')})` : '';
+  const asof = ctx.asOf ? lit(ctx.asOf) : '(SELECT MAX(transaction_date) FROM transactions)';
+  const txWhere = [ctx.asOf ? `transaction_date <= ${lit(ctx.asOf)}` : '', logos ? `card_id IN (SELECT card_id FROM cards WHERE ${logos})` : ''].filter(Boolean);
+  const cardWhere = [ctx.asOf ? `issued_date <= ${lit(ctx.asOf)}` : '', logos].filter(Boolean);
+  return sql
+    .replaceAll('{{ASOF}}', asof)
+    .replaceAll('{{TX}}', txWhere.length ? `(SELECT * FROM transactions WHERE ${txWhere.join(' AND ')})` : 'transactions')
+    .replaceAll('{{CARDS}}', cardWhere.length ? `(SELECT * FROM cards WHERE ${cardWhere.join(' AND ')})` : 'cards');
+}
 
 /** Data signals for a bank with the standard mock warehouse (customers, transactions, emi_eligibility). */
 const DATA_SIGNALS: Signal[] = [
@@ -48,12 +71,45 @@ const DATA_SIGNALS: Signal[] = [
     sensitivity: 'normal',
   },
   {
-    key: 'card_type',
-    label: 'Card variant',
+    key: 'logo',
+    label: 'Card logo held',
     type: 'category',
     kind: 'profile',
-    definition: 'The card product the customer holds.',
-    sql: `SELECT customer_id, card_type AS value FROM customers`,
+    definition: 'The card logos (card products) the customer holds, within the scope. A customer with two cards matches both.',
+    sql: `SELECT k.customer_id, l.name AS value FROM {{CARDS}} k JOIN logos l ON l.logo_id = k.logo_id`,
+    usableIn: ['rule', 'switch', 'eligibility'],
+    status: 'proposed',
+    sensitivity: 'normal',
+  },
+  {
+    key: 'cards_held',
+    label: 'Cards held with the bank',
+    type: 'number',
+    kind: 'profile',
+    definition: 'How many of the bank\'s credit cards the customer holds, any logo.',
+    sql: `SELECT customer_id, COUNT(*) AS value FROM cards WHERE issued_date <= {{ASOF}} GROUP BY customer_id`,
+    usableIn: ['rule', 'switch', 'eligibility'],
+    status: 'proposed',
+    sensitivity: 'normal',
+  },
+  {
+    key: 'card_activated',
+    label: 'Card activated',
+    type: 'bool',
+    kind: 'behaviour',
+    definition: 'Whether the customer has activated their card (any card in the scope).',
+    sql: `SELECT customer_id, CASE WHEN MAX(CASE WHEN activated = 1 AND activated_date <= {{ASOF}} THEN 1 ELSE 0 END) = 1 THEN 'true' ELSE 'false' END AS value FROM {{CARDS}} GROUP BY customer_id`,
+    usableIn: ['rule', 'switch', 'eligibility'],
+    status: 'proposed',
+    sensitivity: 'normal',
+  },
+  {
+    key: 'days_since_card_issued',
+    label: 'Days since the card was issued',
+    type: 'days',
+    kind: 'profile',
+    definition: 'Days since their card in the scope was issued (the newest, if they hold more than one).',
+    sql: `SELECT customer_id, CAST(julianday({{ASOF}}) - julianday(MAX(issued_date)) AS INTEGER) AS value FROM {{CARDS}} GROUP BY customer_id`,
     usableIn: ['rule', 'switch', 'copy', 'eligibility'],
     status: 'proposed',
     sensitivity: 'normal',
@@ -97,7 +153,7 @@ const DATA_SIGNALS: Signal[] = [
     type: 'bool',
     kind: 'behaviour',
     definition: 'Whether the customer has made at least one card transaction.',
-    sql: `SELECT c.customer_id, CASE WHEN EXISTS (SELECT 1 FROM transactions t WHERE t.customer_id = c.customer_id) THEN 'true' ELSE 'false' END AS value FROM customers c`,
+    sql: `SELECT c.customer_id, CASE WHEN EXISTS (SELECT 1 FROM {{TX}} t WHERE t.customer_id = c.customer_id) THEN 'true' ELSE 'false' END AS value FROM customers c`,
     usableIn: ['rule', 'switch', 'eligibility'],
     status: 'proposed',
     sensitivity: 'normal',
@@ -108,7 +164,7 @@ const DATA_SIGNALS: Signal[] = [
     type: 'days',
     kind: 'behaviour',
     definition: 'Days between the last card transaction and today. Empty for customers who never used the card.',
-    sql: `SELECT customer_id, CAST(julianday(${ASOF}) - julianday(MAX(transaction_date)) AS INTEGER) AS value FROM transactions GROUP BY customer_id`,
+    sql: `SELECT customer_id, CAST(julianday(${ASOF}) - julianday(MAX(transaction_date)) AS INTEGER) AS value FROM {{TX}} GROUP BY customer_id`,
     usableIn: ['rule', 'switch', 'eligibility'],
     status: 'proposed',
     sensitivity: 'normal',
@@ -119,7 +175,7 @@ const DATA_SIGNALS: Signal[] = [
     type: 'money',
     kind: 'behaviour',
     definition: 'Total card spend in rupees over the last 90 days (0 if none).',
-    sql: `SELECT c.customer_id, COALESCE((SELECT ROUND(SUM(t.amount)) FROM transactions t WHERE t.customer_id = c.customer_id AND t.transaction_date >= date(${ASOF}, '-90 day')), 0) AS value FROM customers c`,
+    sql: `SELECT c.customer_id, COALESCE((SELECT ROUND(SUM(t.amount)) FROM {{TX}} t WHERE t.customer_id = c.customer_id AND t.transaction_date >= date(${ASOF}, '-90 day')), 0) AS value FROM customers c`,
     usableIn: ['rule', 'switch', 'copy', 'eligibility'],
     status: 'proposed',
     sensitivity: 'normal',
@@ -130,7 +186,7 @@ const DATA_SIGNALS: Signal[] = [
     type: 'number',
     kind: 'behaviour',
     definition: 'Number of card transactions in the last 30 days (0 if none).',
-    sql: `SELECT c.customer_id, (SELECT COUNT(*) FROM transactions t WHERE t.customer_id = c.customer_id AND t.transaction_date >= date(${ASOF}, '-30 day')) AS value FROM customers c`,
+    sql: `SELECT c.customer_id, (SELECT COUNT(*) FROM {{TX}} t WHERE t.customer_id = c.customer_id AND t.transaction_date >= date(${ASOF}, '-30 day')) AS value FROM customers c`,
     usableIn: ['rule', 'switch', 'copy', 'eligibility'],
     status: 'proposed',
     sensitivity: 'normal',
@@ -141,7 +197,7 @@ const DATA_SIGNALS: Signal[] = [
     type: 'category',
     kind: 'behaviour',
     definition: 'The category with the most card transactions in the last 90 days. Empty if no transactions.',
-    sql: `SELECT customer_id, category AS value FROM (SELECT customer_id, category, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY COUNT(*) DESC, category) AS rk FROM transactions WHERE transaction_date >= date(${ASOF}, '-90 day') GROUP BY customer_id, category) WHERE rk = 1`,
+    sql: `SELECT customer_id, category AS value FROM (SELECT customer_id, category, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY COUNT(*) DESC, category) AS rk FROM {{TX}} WHERE transaction_date >= date(${ASOF}, '-90 day') GROUP BY customer_id, category) WHERE rk = 1`,
     usableIn: ['rule', 'switch', 'copy', 'eligibility'],
     status: 'proposed',
     sensitivity: 'normal',
@@ -237,7 +293,7 @@ function categoryValues(bank: string, s: Signal): string[] | undefined {
   const k = `${bank}:${s.key}`;
   if (!valuesCache.has(k)) {
     try {
-      const r = runWarehouseQuery(bank, `SELECT DISTINCT value FROM (${s.sql}) WHERE value IS NOT NULL ORDER BY value`);
+      const r = runWarehouseQuery(bank, `SELECT DISTINCT value FROM (${resolveSignalSql(s.sql)}) WHERE value IS NOT NULL ORDER BY value`);
       valuesCache.set(k, r.rows.map((x) => String(x.value)));
     } catch {
       valuesCache.set(k, []);
@@ -321,7 +377,7 @@ export function signalConditionProblem(signals: Signal[], c: SignalCondition, us
 const q = (v: string) => `'${v.replace(/'/g, "''")}'`;
 
 /** SQL selecting the customer_ids that meet one condition on a signal (data signals only). */
-export function conditionSql(signals: Signal[], c: SignalCondition): string | null {
+export function conditionSql(signals: Signal[], c: SignalCondition, ctx: SignalContext = {}): string | null {
   const s = signals.find((x) => x.key === c.attribute);
   if (!s?.sql) return null;
   const v = String(c.value ?? '').trim();
@@ -353,7 +409,7 @@ export function conditionSql(signals: Signal[], c: SignalCondition): string | nu
     default:
       return null;
   }
-  return `SELECT customer_id FROM (${s.sql}) WHERE ${where}`;
+  return `SELECT DISTINCT customer_id FROM (${resolveSignalSql(s.sql, ctx)}) WHERE ${where}`;
 }
 
 /** Plain words for a condition on a signal, e.g. "Card spend, last 90 days greater than ₹20,000". */
@@ -389,11 +445,11 @@ export function fieldSamples(tenant: Pick<TenantConfig, 'warehouse'> | null | un
   const out = list.map((s) => {
     try {
       if (s.type === 'category') {
-        const top = runWarehouseQuery(bank, `SELECT value, COUNT(*) AS n FROM (${s.sql}) WHERE value IS NOT NULL GROUP BY value ORDER BY n DESC LIMIT 1`).rows[0]?.value;
+        const top = runWarehouseQuery(bank, `SELECT value, COUNT(*) AS n FROM (${resolveSignalSql(s.sql ?? "")}) WHERE value IS NOT NULL GROUP BY value ORDER BY n DESC LIMIT 1`).rows[0]?.value;
         const longest = (s.values ?? []).map((v) => format(s.key, s.type, v)).sort((a, b) => b.length - a.length)[0] ?? '';
         return { key: s.key, label: s.label, sample: format(s.key, s.type, top), longest };
       }
-      const r = runWarehouseQuery(bank, `SELECT AVG(value) AS avg, MAX(value) AS mx FROM (${s.sql}) WHERE value IS NOT NULL`).rows[0] ?? {};
+      const r = runWarehouseQuery(bank, `SELECT AVG(value) AS avg, MAX(value) AS mx FROM (${resolveSignalSql(s.sql ?? "")}) WHERE value IS NOT NULL`).rows[0] ?? {};
       return { key: s.key, label: s.label, sample: format(s.key, s.type, r.avg), longest: format(s.key, s.type, r.mx) };
     } catch {
       return { key: s.key, label: s.label, sample: '', longest: '' };

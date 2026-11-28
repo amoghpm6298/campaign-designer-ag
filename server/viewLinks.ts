@@ -41,8 +41,8 @@ export function parseViewCookie(secret: string, value: string | undefined, now =
 }
 
 /** Read-only requests a view may make, for its own campaign only. */
-const READS_FOR_CAMPAIGN = new Set(['/api/campaign', '/api/campaign/cost', '/api/campaign/chat', '/api/campaign/versions', '/api/campaign/version', '/api/campaign/problems']);
-const READS_ANY_GET = new Set(['/api/version', '/api/bank-settings', '/api/links', '/api/incentives', '/api/products', '/api/fields', '/api/health']);
+const READS_FOR_CAMPAIGN = new Set(['/api/campaign', '/api/campaign/cost', '/api/campaign/chat', '/api/campaign/versions', '/api/campaign/version', '/api/campaign/problems', '/api/campaign/trend', '/api/campaign/analytics']);
+const READS_ANY_GET = new Set(['/api/version', '/api/bank-settings', '/api/links', '/api/incentives', '/api/products', '/api/fields', '/api/health', '/api/logos']);
 /** Called with POST by the app, but they only read. */
 const READS_POST = new Set(['/api/tenants', '/api/knowledge/seed', '/api/health']);
 

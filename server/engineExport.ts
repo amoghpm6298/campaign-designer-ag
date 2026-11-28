@@ -101,6 +101,8 @@ export function toEngineCampaign(c: CampaignObject, tenant: Pick<TenantConfig, '
       entry: c.entry,
       // flow: always on, new customers join on the refresh, no end date (runs until stopped). campaign: one-time, fixed list, two dates.
       kind: kindOf(c),
+      // Which card logos it runs on: { logos: [ids] } or { all: true }.
+      scope: c.scope ?? { all: true },
       membership: c.membership,
       schedule: c.schedule ? { startDate: c.schedule.startDate, endDate: c.schedule.endDate ?? null } : null,
       ...(c.maxAttempts ? { maxAttempts: c.maxAttempts } : {}),

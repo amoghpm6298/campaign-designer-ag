@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { canonicalCondition, conditionSql, signalConditionProblem, signalConditionText, signalsFor, signalsForAgent } from '../../server/signals';
+import { canonicalCondition, conditionSql, signalConditionProblem, signalConditionText, signalsFor, signalsForAgent, resolveSignalSql } from '../../server/signals';
 import { incentivesFor, qualifyingShare, validFor } from '../../server/incentives';
 import { resolveTenant } from '../../server/tenants';
 import { runWarehouseQuery, warehousePath } from '../../server/warehouse';
@@ -33,14 +33,16 @@ describe('signals menu', () => {
 
   it.runIf(hasYes)('a bank with data has the data signals, values from its data, and SQL hidden from the agent', () => {
     const s = signalsFor(YES);
-    expect(s.map((x) => x.key)).toEqual(expect.arrayContaining(['spend_90d', 'top_category', 'days_since_last_txn', 'emi_eligible', 'card_type']));
+    expect(s.map((x) => x.key)).toEqual(expect.arrayContaining(['spend_90d', 'top_category', 'days_since_last_txn', 'emi_eligible', 'logo', 'card_activated']));
     expect(s.find((x) => x.key === 'top_category')!.values).toContain('grocery');
+    expect(s.find((x) => x.key === 'logo')!.values).toContain('YES BANK ACE');
+    expect(s.some((x) => x.key === 'card_type')).toBe(false); // one card per customer is gone: logos and cards replace it
     expect(JSON.stringify(signalsForAgent(s))).not.toMatch(/SELECT/);
   });
 
   it.runIf(hasYes)('every data signal runs on the warehouse and returns customer_id, value', () => {
     for (const s of signalsFor(YES).filter((x) => x.sql)) {
-      const r = runWarehouseQuery('yesbank', `SELECT * FROM (${s.sql}) LIMIT 3`);
+      const r = runWarehouseQuery('yesbank', `SELECT * FROM (${resolveSignalSql(s.sql!)}) LIMIT 3`);
       expect(r.columns, s.key).toEqual(['customer_id', 'value']);
       expect(r.rows.length, s.key).toBeGreaterThan(0);
     }

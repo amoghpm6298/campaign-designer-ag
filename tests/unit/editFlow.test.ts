@@ -25,7 +25,7 @@ const journey = [
 ];
 
 function built(): AgentState {
-  let s = runToolCall('create_campaign', { name: 'Activation', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'open', refresh: 'daily' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
+  let s = runToolCall('create_campaign', { scope: { all: true }, name: 'Activation', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'open', refresh: 'daily' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
   s = runToolCall('create_bucket', { id: 'fresh', name: 'Fresh', priority: 1, rule: [{ entity: 'Card', conditions: [] }], holdoutPct: 10, journey }, s, env()).state;
   s = runToolCall('create_bucket', { id: 'old', name: 'Old', priority: 2, rule: [{ entity: 'Card', conditions: [] }], journey: [send('Nudge')] }, s, env()).state;
   s = runToolCall('add_context', { entries: [{ kind: 'bucket', bucketId: 'fresh', topic: 'thesis', text: 'Busy, not unwilling', source: 'agent' }] }, s, env()).state;

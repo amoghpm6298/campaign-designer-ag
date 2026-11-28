@@ -50,6 +50,7 @@ const journey: BpStep[] = [send('First nudge'), { kind: 'wait', durationHours: 4
 
 function twoBuckets(): AgentState {
   let s = updateCampaign(initialState(), {
+    scope: { all: true },
     name: 'EMI conversion',
     entry: { entity: 'Customer' },
     membership: { type: 'open', refresh: 'weekly' },
@@ -232,6 +233,13 @@ describe('the toolkit', () => {
     expect(out.state.flags.campaignBuilt).toBe(false);
   });
 
+  it('build_campaign refuses until the scope (which cards) is decided', () => {
+    const s = twoBuckets();
+    const out = runToolCall('build_campaign', {}, { ...s, campaign: { ...s.campaign, scope: null } }, env());
+    expect(out.ok).toBe(false);
+    expect(out.forModel).toMatch(/scope isn't decided.*Which card/);
+  });
+
   it('build_campaign builds straight away, with no approval needed', () => {
     const out = runToolCall('build_campaign', {}, twoBuckets(), env());
     expect(out.ok).toBe(true);
@@ -271,8 +279,8 @@ describe('the prompt', () => {
       expect(p).toMatch(/## 3\. Changes, through chat/);
       expect(p).toMatch(/There are no approvals/);
       expect(p).not.toMatch(/request_signoff/);
-      expect(p.length).toBeLessThan(30000); // raised 2026-11-23 for the FUNNEL estimates (every message: opens and converts, for those who arrive)
-      expect(systemPrompt(w, true).length).toBeLessThan(33500); // with the offers section // raised for endings + after-journey guidance, then 2026-11-23 for FUNNEL
+      expect(p.length).toBeLessThan(32500); // raised 2026-11-28 for scope first (card logos), then ANALYTICS (the designer writes the KPI and charts); // raised 2026-11-23 for the FUNNEL estimates (every message: opens and converts, for those who arrive)
+      expect(systemPrompt(w, true).length).toBeLessThan(36000); // +scope, +analytics 2026-11-28; // with the offers section // raised for endings + after-journey guidance, then 2026-11-23 for FUNNEL
     }
     expect(systemPrompt(true)).toMatch(/data warehouse/);
     expect(systemPrompt(false)).toMatch(/your own knowledge and judgement/);
@@ -444,8 +452,8 @@ describe('create vs edit tools', () => {
   it('create_campaign once, then edit_campaign; create_bucket for new ids, edit_bucket for existing ones', () => {
     const goal = { eventCategory: 'Card Events', eventType: 'Card Activated' };
     expect(runToolCall('edit_campaign', { name: 'A' }, initialState(), env()).forModel).toMatch(/Create it with create_campaign/);
-    let s = runToolCall('create_campaign', { name: 'A', goal }, initialState(), env()).state;
-    expect(runToolCall('create_campaign', { name: 'B' }, s, env()).forModel).toMatch(/already exists.*edit_campaign/);
+    let s = runToolCall('create_campaign', { scope: { all: true }, name: 'A', goal }, initialState(), env()).state;
+    expect(runToolCall('create_campaign', { scope: { all: true }, name: 'B' }, s, env()).forModel).toMatch(/already exists.*edit_campaign/);
     expect(runToolCall('edit_campaign', { name: 'B' }, s, env()).state.campaign.name).toBe('B');
     expect(runToolCall('edit_bucket', { id: 'b1', name: 'X' }, s, env()).forModel).toMatch(/Create it with create_bucket/);
     s = runToolCall('create_bucket', { id: 'b1', name: 'X', priority: 1, rule: [{ entity: 'Card', conditions: [] }] }, s, env()).state;

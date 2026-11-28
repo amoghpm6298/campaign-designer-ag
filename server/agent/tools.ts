@@ -17,6 +17,8 @@ import { citationProblems, nextQid } from './citations';
 import { checkJourneys, endingGaps, linkProblemsIn, planToBlueprint } from './compile';
 import { forAgent, type BankLink } from '../links';
 import { signalsFor, signalsForAgent } from '../signals';
+import { logoForAgent, logosFor, parseScope, scopeText, shortLogoName, withinScope } from '../logos';
+import { parseAnalytics, runChart } from '../analytics';
 import { incentiveForAgent, incentivesFor, qualifyingShare, validFor } from '../incentives';
 import { todayIST } from './schedule';
 import { costLine, offerProblems } from './offerChecks';
@@ -37,7 +39,7 @@ import {
   updateCampaign,
   upsertBucket,
 } from './state';
-import { AGENT_FLAGS, type AgentQuestion, type AgentState } from './types';
+import { AGENT_FLAGS, type AgentQuestion, type AgentState, type CampaignObject } from './types';
 import type { BpStep } from '../blueprint';
 import { stripJourneyIds } from './stepIds';
 import { contextKey, currentEntries, entryHistory } from '../../src/designer/v2/contextView';
@@ -99,6 +101,8 @@ const BASE_TOOLS: ToolDef[] = [
       properties: {
         name: { type: 'string' },
         description: { type: 'string' },
+        goalLine: { type: 'string', description: 'The goal in one short line for the canvas, in the manager\'s words, at most 70 characters: e.g. "Get lapsed ACE cardholders spending again".' },
+        scope: { type: 'object', description: 'Which card logos it is for (or use set_scope): {logos: [ids or names]} or {all: true}.', properties: { all: { type: 'boolean' }, logos: { type: 'array', items: { type: 'string' } } } },
         goal: { type: 'object', properties: { eventCategory: { type: 'string' }, eventType: { type: 'string' }, conditions: { type: 'array', items: CONDITION } }, required: ['eventCategory', 'eventType'] },
         entry: { type: 'object', properties: { entity: { type: 'string' }, conditions: { type: 'array', items: CONDITION }, groups: { type: 'array', items: GROUP } }, required: ['entity'] },
         membership: { type: 'object', description: 'Set by the app from the kind (a flow is open, a campaign locked). In a flow you may change only its refresh: {type: "open", refresh}.', properties: { type: { type: 'string', enum: ['locked', 'open'] }, refresh: { type: 'string', enum: ['daily', 'weekly', 'monthly'] } }, required: ['type'] },
@@ -130,6 +134,8 @@ const BASE_TOOLS: ToolDef[] = [
       properties: {
         name: { type: 'string' },
         description: { type: 'string' },
+        goalLine: { type: 'string', description: 'The goal in one short line for the canvas, in the manager\'s words, at most 70 characters: e.g. "Get lapsed ACE cardholders spending again".' },
+        scope: { type: 'object', description: 'Which card logos it is for (or use set_scope): {logos: [ids or names]} or {all: true}.', properties: { all: { type: 'boolean' }, logos: { type: 'array', items: { type: 'string' } } } },
         goal: { type: 'object', properties: { eventCategory: { type: 'string' }, eventType: { type: 'string' }, conditions: { type: 'array', items: CONDITION } }, required: ['eventCategory', 'eventType'] },
         entry: { type: 'object', properties: { entity: { type: 'string' }, conditions: { type: 'array', items: CONDITION }, groups: { type: 'array', items: GROUP } }, required: ['entity'] },
         membership: { type: 'object', description: 'Set by the app from the kind (a flow is open, a campaign locked). In a flow you may change only its refresh: {type: "open", refresh}.', properties: { type: { type: 'string', enum: ['locked', 'open'] }, refresh: { type: 'string', enum: ['daily', 'weekly', 'monthly'] } }, required: ['type'] },
@@ -189,6 +195,40 @@ const BASE_TOOLS: ToolDef[] = [
       },
       required: ['id'],
       $defs: { step: STEP_DEF },
+    },
+  },
+  {
+    name: 'list_logos',
+    title: 'Checking the bank\'s cards',
+    description:
+      'The bank\'s credit card logos (card products: e.g. a premium card, a rewards card, a UPI card): each with its id, name, tier, fees, rewards and key benefits, and how many cards are held and activated. Every flow or campaign is for one or more of these logos, or for all cards (its scope). Fees and rewards are indicative (public sources): use the benefits to choose levers and words, never quote a fee or rate as exact terms.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'set_analytics',
+    title: 'Writing the analytics',
+    description:
+      'Write this flow\'s or campaign\'s analytics: what the bank will look at to know whether it works. kpi: {title, definition (plain words), unit ("%" | "count" | "₹"), target (optional), why, sql} whose SQL returns week, value for the last 13 weeks. charts: 2-6 of {id, title, question (what it tells the manager), type: line (week, value) | bar (label, value) | funnel (step, count) | number (value), sql, unit, bucketId (optional, when it tests one bucket\'s bet), why}. Use the placeholders {{ASOF}} (the data\'s last day), {{SCOPE}} (a subquery of the scoped cardholders\' customer_id), {{TX}} and {{CARDS}} (only the scoped cards\' transactions and cards): never write a logo filter yourself. Read-only SELECTs only. The app runs every query now; any chart that fails or returns the wrong columns is refused with the reason, so fix it and call again (send the whole set each time).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        kpi: { type: 'object', properties: { title: { type: 'string' }, definition: { type: 'string' }, unit: { type: 'string' }, target: { type: ['number', 'null'] }, why: { type: 'string' }, sql: { type: 'string' } }, required: ['title', 'sql'] },
+        charts: {
+          type: 'array',
+          items: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' }, question: { type: 'string' }, type: { type: 'string', enum: ['line', 'bar', 'funnel', 'number'] }, sql: { type: 'string' }, unit: { type: 'string' }, bucketId: { type: 'string' }, why: { type: 'string' } }, required: ['title', 'question', 'type', 'sql'] },
+        },
+      },
+      required: ['kpi', 'charts'],
+    },
+  },
+  {
+    name: 'set_scope',
+    title: 'Setting which cards it is for',
+    description:
+      'Set the SCOPE: which card logos this flow or campaign is for. {logos: ["<id or name>", …]} for one or more logos, or {all: true} for every card. Set it as soon as the brief or the manager\'s answer makes it clear, before designing. Every size and rule then counts only cardholders of those logos.',
+    input_schema: {
+      type: 'object',
+      properties: { all: { type: 'boolean' }, logos: { type: 'array', items: { type: 'string' } } },
     },
   },
   {
@@ -453,13 +493,15 @@ export function campaignView(state: AgentState, part: string): unknown | null {
 }
 
 /** Counts a sizing entry's SQL against the warehouse and records the size (or why it failed) in its data. */
-function sizeEntries(raw: unknown, env: ToolEnv): { entries: unknown[]; lines: string[] } {
+function sizeEntries(raw: unknown, env: ToolEnv, scope?: CampaignObject['scope']): { entries: unknown[]; lines: string[] } {
   const list = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? [raw] : [];
   const lines: string[] = [];
   const entries = list.map((item) => {
     const e = (item ?? {}) as { kind?: unknown; bucketId?: unknown; data?: Record<string, unknown> };
-    const sql = typeof e.data?.sql === 'string' ? e.data.sql : undefined;
-    if (e.kind !== 'sizing' || !sql) return item;
+    const raw = typeof e.data?.sql === 'string' ? e.data.sql : undefined;
+    if (e.kind !== 'sizing' || !raw) return item;
+    // Kept within the scope: only cardholders of the scoped logos are counted, whatever the query says.
+    const sql = withinScope(raw, scope);
     if (!env.warehouseBank) {
       lines.push(`${String(e.bucketId ?? '?')}: not sized (no data warehouse for this bank).`);
       return { ...e, data: { ...e.data, error: 'No data warehouse for this bank' } };
@@ -467,7 +509,7 @@ function sizeEntries(raw: unknown, env: ToolEnv): { entries: unknown[]; lines: s
     try {
       const n = countCustomers(env.warehouseBank, sql);
       lines.push(`${String(e.bucketId ?? '?')}: ${n.toLocaleString('en-IN')} customers.`);
-      return { ...e, data: { ...e.data, size: n } };
+      return { ...e, data: { ...e.data, sql, size: n } };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       lines.push(`${String(e.bucketId ?? '?')}: the SQL failed (${msg}); fix it and add the sizing again.`);
@@ -504,7 +546,14 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
           summary: 'Questions need options',
           forModel: `Nothing was asked. ${missing.map((t) => `"${t}"`).join(', ')} ${missing.length === 1 ? 'is not a yes/no question but has' : 'are not yes/no questions but have'} no options, so the manager would only see Yes / No. Give each one 2-4 options (answerType "single" or "multi"), or rephrase it as a yes/no question, and ask all the questions again in one call.`,
         };
-      const { state: next, added, dropped } = addQuestions(state, input.questions);
+      // The scope question always offers every card the bank issues, plus "All cards", whatever the designer listed (options are otherwise capped at 4).
+      const logos = logosFor(env.tenant);
+      const scoped = Array.isArray(input.questions) && logos.length
+        ? (input.questions as Record<string, unknown>[]).map((q) =>
+            /^scope$/i.test(String(q.aspect ?? '')) ? { ...q, answerType: 'multi', options: [...logos.map((l) => shortLogoName(l.name)), 'All cards'] } : q,
+          )
+        : input.questions;
+      const { state: next, added, dropped } = addQuestions(state, scoped);
       if (!added.length) return { state, ok: false, forModel: 'No usable questions: each needs aspect, text and answerType.', summary: 'No usable questions' };
       const aspects = [...new Set(added.map((q) => q.aspect))];
       return {
@@ -533,6 +582,12 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
       const exists = !!(c.name || c.goal || c.entry || c.buckets.length);
       if (name === 'create_campaign' && exists) return { state, ok: false, forModel: 'Not saved: the campaign already exists. Change it with edit_campaign.', summary: 'Campaign already exists' };
       if (name === 'edit_campaign' && !exists) return { state, ok: false, forModel: 'Not saved: there is no campaign yet. Create it with create_campaign.', summary: 'No campaign yet' };
+      // A scope sent along is checked against the bank's logos (ids or names) first.
+      if (input.scope !== undefined) {
+        const parsed = parseScope(input.scope, logosFor(env.tenant));
+        if ('error' in parsed) return { state, ok: false, forModel: `Not saved: ${parsed.error}`, summary: parsed.error };
+        input = { ...input, scope: parsed.value };
+      }
       const res = updateCampaign(state, input);
       if (res.error) return { state, ok: false, forModel: `Not saved: ${res.error}`, summary: res.error };
       const { buckets: _b, ...shell } = res.state.campaign;
@@ -565,6 +620,45 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
         result: { id: b.id, name: b.name, priority: b.priority, rule: b.rule, holdoutPct: b.holdoutPct, journeySteps: b.journey?.length ?? 0 },
         forModel: `Saved. ${res.said} Buckets now: ${res.state.campaign.buckets.map((x) => `${x.priority}. ${x.id}${x.journey?.length ? ' [journey]' : ''}`).join('; ')}.${isNew ? ' File its reasoning (behaviour, rationale, evidence, metric) with add_context.' : ''}`,
       };
+    }
+
+    case 'list_logos': {
+      const list = logosFor(env.tenant).map(logoForAgent);
+      return { state, ok: true, doneTitle: "Checked the bank's cards", summary: `${list.length} card logo${list.length === 1 ? '' : 's'}`, result: list, forModel: JSON.stringify(list) };
+    }
+
+    case 'set_analytics': {
+      const parsed = parseAnalytics(input);
+      if ('error' in parsed) return { state, ok: false, forModel: `Not saved: ${parsed.error}`, summary: parsed.error };
+      if (!env.warehouseBank) return { state, ok: false, forModel: 'Not saved: this bank has no data warehouse, so the analytics cannot be run.', summary: 'No data warehouse' };
+      // Run every query now: what works is kept; a refused chart comes back with its reason to fix.
+      const kpi = runChart(env.warehouseBank, parsed.value.kpi, state.campaign.scope);
+      if (kpi.error) return { state, ok: false, forModel: `Not saved: the KPI was refused: ${kpi.error} Fix it and send the whole set again.`, summary: 'KPI refused' };
+      const refused: string[] = [];
+      const charts = parsed.value.charts.filter((ch) => {
+        const r = runChart(env.warehouseBank!, ch, state.campaign.scope);
+        if (r.error) refused.push(r.error);
+        return !r.error;
+      });
+      const spec = { kpi: parsed.value.kpi, charts };
+      const next = { ...state, campaign: { ...state.campaign, analytics: spec } };
+      return {
+        state: next,
+        ok: true,
+        doneTitle: `Wrote the analytics: ${spec.kpi.title}`,
+        summary: `KPI + ${charts.length} chart${charts.length === 1 ? '' : 's'}${refused.length ? `, ${refused.length} refused` : ''}`,
+        result: { kpi: spec.kpi.title, charts: charts.map((c) => c.title), refused },
+        forModel: `Saved: the KPI and ${charts.length} chart(s).${refused.length ? ` Refused (fix and send the whole set again): ${refused.join(' ')}` : ''}`,
+      };
+    }
+
+    case 'set_scope': {
+      const parsed = parseScope(input, logosFor(env.tenant));
+      if ('error' in parsed) return { state, ok: false, forModel: `Not saved: ${parsed.error}`, summary: parsed.error };
+      const res = updateCampaign(state, { scope: parsed.value });
+      if (res.error) return { state, ok: false, forModel: `Not saved: ${res.error}`, summary: res.error };
+      const text = scopeText(parsed.value, logosFor(env.tenant));
+      return { state: res.state, ok: true, doneTitle: `Set the cards: ${text}`, summary: text, result: parsed.value, forModel: `Saved. Scope: ${text}. Every size and rule now counts only cardholders of ${'all' in parsed.value ? 'any of the bank\'s cards' : 'these logos'}.` };
     }
 
     case 'list_links': {
@@ -634,7 +728,7 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
     }
 
     case 'add_context': {
-      const sized = sizeEntries(input.entries, env);
+      const sized = sizeEntries(input.entries, env, state.campaign.scope);
       const res = addContext(state, sized.entries);
       if (!res.added.length) return { state, ok: false, forModel: 'Nothing added: each entry needs kind, topic and text.', summary: 'Nothing added' };
       // Say plainly when an entry took over a slot that already had a current value.
@@ -741,6 +835,14 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
     }
 
     case 'build_campaign':
+      // Scope first: nothing is built until it is clear which cards it is for.
+      if (!state.campaign.scope)
+        return {
+          state,
+          ok: false,
+          forModel: `Not built: the scope isn't decided. Which card(s) is this for? If the brief doesn't say, ask the manager (options: the bank's logos from list_logos, plus "All cards"), then set_scope. Logos: ${logosFor(env.tenant).map((l) => l.name).join(', ')}.`,
+          summary: 'Scope not decided',
+        };
       return buildCampaign(state, env);
 
     default: {

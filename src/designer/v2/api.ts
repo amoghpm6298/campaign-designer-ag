@@ -196,6 +196,8 @@ export interface CostReportView {
   budgetCap: number | null;
   notes: string[];
   routes: { bucketId: string; stepId: string; label: string; size: number | null; otherwise?: boolean }[];
+  /** Flows only: what it costs a month (from how many people join), and the first month (everyone already eligible joins then). */
+  monthly?: { expected: number; max: number; joinersPerMonth: number; firstMonth: { expected: number; max: number }; partial: string[] };
 }
 
 export async function fetchCost(sessionId: string, tenantId: string): Promise<CostReportView | null> {
@@ -277,4 +279,52 @@ export async function fetchProblems(sessionId: string, tenantId: string): Promis
   const res = await fetch(apiUrl(`/api/campaign/problems?sessionId=${encodeURIComponent(sessionId)}&tenantId=${encodeURIComponent(tenantId)}`));
   if (!res.ok) return [];
   return ((await res.json()) as { problems?: string[] }).problems ?? [];
+}
+
+/** A card logo (card product) of the bank, as the Card logos page and the scope chips show it. */
+export interface LogoView {
+  logo_id: string;
+  name: string;
+  tier: string;
+  network: string;
+  joining_fee: number;
+  annual_fee: number;
+  fee_waiver: string;
+  rewards_rule: string;
+  key_benefits: string[];
+  launch_date: string;
+  cards?: number;
+  activated?: number;
+}
+
+export async function fetchLogos(tenantId: string): Promise<LogoView[]> {
+  const res = await fetch(apiUrl(`/api/logos?tenantId=${encodeURIComponent(tenantId)}`));
+  if (!res.ok) return [];
+  return ((await res.json()) as { logos?: LogoView[] }).logos ?? [];
+}
+
+/** The target over the last 13 weeks: a campaign's cohort size, a flow's weekly inflow. */
+export interface TrendView {
+  measure: 'cohort' | 'inflow';
+  points: { week: string; count: number }[];
+  partial: string[];
+  dataAsOf: string;
+}
+
+export async function fetchTrend(sessionId: string, tenantId: string): Promise<TrendView | null> {
+  try {
+    const res = await fetch(apiUrl(`/api/campaign/trend?sessionId=${encodeURIComponent(sessionId)}&tenantId=${encodeURIComponent(tenantId)}`));
+    const body = (await res.json()) as TrendView | { error: string };
+    return 'points' in body ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+/** "ACE · ELITE+" or "All cards": short logo names, without the bank's prefix. */
+export const shortLogoName = (name: string) => name.replace(/^(YES BANK|YES|IndusInd Bank|IndusInd)\s+/i, '').replace(/\s+IndusInd Bank$/i, '').trim() || name;
+export function scopeNames(scope: { logos: string[] } | { all: true } | null | undefined, logos: LogoView[]): string[] | null {
+  if (!scope) return null;
+  if ('all' in scope) return ['All cards'];
+  return scope.logos.map((id) => shortLogoName(logos.find((l) => l.logo_id === id)?.name ?? id));
 }

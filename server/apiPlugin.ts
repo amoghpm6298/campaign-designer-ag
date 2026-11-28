@@ -315,6 +315,30 @@ export function agentApiPlugin(): Plugin {
             }
           }
           // Convert a campaign that has run into a new always-on flow (the campaign is unchanged).
+          // The 90-day trend of the target, for the entry card (cohort for a campaign, weekly inflow for a flow).
+          if (url === '/api/campaign/trend' && req.method === 'GET') {
+            const tr = await load('trend.ts');
+            const q = new URL(req.url ?? '', 'http://x').searchParams;
+            const r = (tr.cohortTrend as (s: string, t: string) => object)(q.get('sessionId') ?? '', q.get('tenantId') ?? '');
+            return send(res, 200, r);
+          }
+          // The Analytics tab: the designer's KPI and charts, run on the bank's data within the scope (cached; refresh=1 reruns).
+          if (url === '/api/campaign/analytics' && req.method === 'GET') {
+            const an = await load('analytics.ts');
+            const q = new URL(req.url ?? '', 'http://x').searchParams;
+            try {
+              return send(res, 200, (an.analyticsFor as (s: string, t: string, f: boolean) => object)(q.get('sessionId') ?? '', q.get('tenantId') ?? '', q.get('refresh') === '1'));
+            } catch (e) {
+              return send(res, 200, { spec: null, results: {}, error: (e as Error).message });
+            }
+          }
+          // The bank's card logos, with card counts (the Card logos page).
+          if (url === '/api/logos' && req.method === 'GET') {
+            const lg = await load('logos.ts');
+            const tn = await load('tenants.ts');
+            const tenantId = new URL(req.url ?? '', 'http://x').searchParams.get('tenantId') ?? '';
+            return send(res, 200, { logos: (lg.logosFor as (t: unknown) => unknown[])((tn.resolveTenant as (t: string) => unknown)(tenantId)) });
+          }
           if (url === '/api/campaign/convert' && req.method === 'POST') {
             const conv = await load('convertToFlow.ts');
             const body = (await readBody(req)) as { sessionId?: string; tenantId?: string; name?: string; note?: string };
@@ -378,7 +402,11 @@ export function agentApiPlugin(): Plugin {
             try {
               const st = (files.loadStores as (id: string) => { campaign: unknown; context: unknown })(q.get('sessionId') ?? '');
               if (!st.campaign) return send(res, 200, { mode: 'none', lines: [], buckets: [], total: { expected: 0, max: 0, maxWithCap: 0 }, budgetCap: null, notes: [], routes: [], messages: [] });
-              return send(res, 200, (C.campaignCost as (c: unknown, x: unknown, t: unknown) => unknown)(st.campaign, st.context, (T.resolveTenant as (id: string) => unknown)(q.get('tenantId') ?? '')));
+              const report = (C.campaignCost as (c: unknown, x: unknown, t: unknown) => Record<string, unknown>)(st.campaign, st.context, (T.resolveTenant as (id: string) => unknown)(q.get('tenantId') ?? ''));
+              // A flow runs every month: its cost is per month, from how many people join (server/flowCost.ts).
+              const F = await load('flowCost.ts');
+              const monthly = (F.flowMonthly as (s: string, t: string, r: unknown) => unknown)(q.get('sessionId') ?? '', q.get('tenantId') ?? '', report);
+              return send(res, 200, monthly ? { ...report, monthly } : report);
             } catch (e) {
               return send(res, 400, { error: (e as Error).message });
             }
@@ -521,13 +549,13 @@ export function agentApiPlugin(): Plugin {
               }
               // The inbox: every campaign of this bank that has messages, with its queue.
               // Submitted campaigns are locked (and those from before approvals were never queued): only campaigns that can still change.
-              const list = (files.listCampaigns as (t: string) => { sessionId: string; name: string; state: string; intent?: string; kind?: string; submitted?: unknown }[])(tenantId);
+              const list = (files.listCampaigns as (t: string) => { sessionId: string; name: string; state: string; intent?: string; kind?: string; scope?: unknown; submitted?: unknown }[])(tenantId);
               const campaigns = list
                 .filter((cs) => !cs.submitted)
                 .map((cs) => {
                   const c = (files.loadStores as (id: string) => { campaign: unknown })(cs.sessionId).campaign;
                   const records = c ? sync(cs.sessionId, c, tenant) : [];
-                  return { sessionId: cs.sessionId, name: cs.name, state: cs.state, intent: cs.intent, kind: cs.kind, records, summary: summarise(records) };
+                  return { sessionId: cs.sessionId, name: cs.name, state: cs.state, intent: cs.intent, kind: cs.kind, scope: cs.scope ?? null, records, summary: summarise(records) };
                 })
                 .filter((x) => x.records.length);
               return send(res, 200, { campaigns });

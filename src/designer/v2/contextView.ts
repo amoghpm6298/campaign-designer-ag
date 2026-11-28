@@ -53,6 +53,8 @@ export interface BucketView {
   sql?: string;
   size?: number;
   sizeError?: string;
+  /** The whole target only: who is eligible, in plain words (the entry rule within the scope). */
+  rule?: string[];
   /** The query ids block 1 (rationale) rests on: its inline [Q7] markers and data.queries. */
   rationaleQueries?: string[];
   /** "data" when it cites queries; "manager" or "hypothesis" without data. */
@@ -105,6 +107,7 @@ export function bucketContext(entries: ContextEntryLike[]): Record<string, Bucke
     } else if (e.kind === 'sizing') {
       const d = e.data ?? {};
       if (typeof d.sql === 'string') v.sql = d.sql;
+      if (Array.isArray(d.rule)) v.rule = d.rule.map(String);
       if (typeof d.size === 'number') {
         v.size = d.size;
         delete v.sizeError;

@@ -50,11 +50,11 @@ function ranCampaign(id: string, o: Partial<CampaignObject> = {}) {
   return c;
 }
 
-describe('only a campaign that has run can become a flow', () => {
-  it('a draft or a scheduled campaign has proven nothing; a live, ended or stopped one has', () => {
+describe('which campaigns can become a flow', () => {
+  it('any campaign can be converted, at any stage; hasRun still tells whether it ran', () => {
     saveCampaignObject('cv-draft', T, camp());
     expect(hasRun('cv-draft')).toBe(false);
-    expect(() => convertToFlow('cv-draft', T, { name: 'X', by: 'm' })).toThrow(/has run/);
+    expect(convertToFlow('cv-draft', T, { name: 'From a draft', by: 'm' }).sessionId).toMatch(/^cv-/);
     saveCampaignObject('cv-later', T, camp());
     submitCampaign('cv-later', T, 'm', { startDate: '2099-01-01', endDate: '2099-02-01' });
     expect(hasRun('cv-later')).toBe(false);

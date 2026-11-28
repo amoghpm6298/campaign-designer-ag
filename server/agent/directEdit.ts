@@ -146,7 +146,9 @@ function finish(sessionId: string, tenantId: string, before: AgentState, after: 
   // Rebuild with code (no model) to check it still builds.
   const built = buildCampaign({ ...after, flags: { ...after.flags, campaignBuilt: false } }, env);
   ensureBaseline(sessionId, before.campaign);
-  let next = addContext(after, [{ kind: 'note', topic: `${source === 'rollback' ? 'rollback' : 'manager edit'} ${new Date().toISOString()}`, text: said, source: 'manager' }], 'user').state;
+  // Keep the rebuild's fresh counts (bucket sizes, the target and who is eligible), so a change on the canvas is counted again.
+  const counted = built.ok ? { ...after, context: (built.state as AgentState).context } : after;
+  let next = addContext(counted, [{ kind: 'note', topic: `${source === 'rollback' ? 'rollback' : 'manager edit'} ${new Date().toISOString()}`, text: said, source: 'manager' }], 'user').state;
   saveCampaignObject(sessionId, tenantId, next.campaign);
   saveContext(sessionId, tenantId, next.context);
   const v = recordVersion({ sessionId, campaign: next.campaign, source, request: said, summary, cost: costSnapshot(next.campaign, next.context, resolveTenant(tenantId)), costOf: (c) => costSnapshot(c, next.context, resolveTenant(tenantId)) });

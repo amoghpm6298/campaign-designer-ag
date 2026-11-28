@@ -1,7 +1,7 @@
 // The standalone application shell: its own header, navigation and global
 // tenant selector. Nothing here comes from the ib-face-mock chrome.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Gift, Library, Link2, Megaphone, Package, PanelLeftClose, PanelLeftOpen, Route, ShieldCheck, X } from 'lucide-react';
+import { Check, CreditCard, Gift, Library, Link2, Megaphone, Package, PanelLeftClose, PanelLeftOpen, Route, ShieldCheck, X } from 'lucide-react';
 import logo from '../assets/hyperfaceMark.jpeg';
 import {
   applyOverrides,
@@ -15,6 +15,8 @@ import { CampaignView, CampaignsHome } from '../designer/v2/CampaignsHome';
 import { OffersView } from '../designer/OffersView';
 import { LinksView } from '../designer/LinksView';
 import { ProductsView } from '../designer/ProductsView';
+import { LogosView } from '../designer/LogosView';
+import { fetchLogos } from '../designer/v2/api';
 import { CommApprovalsView } from '../designer/CommApprovalsView';
 import { KnowledgeBaseView } from '../designer/KnowledgeBaseView';
 import { ReloadPrompt } from './ReloadPrompt';
@@ -27,7 +29,7 @@ import type { Capabilities, KnowledgeBase, Tenant } from '../designer/types';
 const tenantLabel = (t: Tenant) => `${t.displayName} (Data access: ${t.warehouseAccess ? 'Allowed' : 'Not allowed'})`;
 
 // 'flows' (always on) is the first page; 'designer' is Campaigns (one-time). Both list items and open one on the canvas.
-type Page = 'flows' | 'designer' | 'knowledge' | 'links' | 'offers' | 'products' | 'approvals';
+type Page = 'flows' | 'designer' | 'knowledge' | 'links' | 'offers' | 'products' | 'logos' | 'approvals';
 const isList = (p: Page) => p === 'flows' || p === 'designer';
 
 export function DesignerShell() {
@@ -119,6 +121,16 @@ export function DesignerShell() {
       window.removeEventListener('cv:approvals-changed', load);
     };
   }, [tenant, page, openId]);
+  // The bank's card logos, counted on the Card logos item.
+  const [logoCount, setLogoCount] = useState(0);
+  useEffect(() => {
+    if (!tenant) return;
+    let live = true;
+    fetchLogos(tenant.tenantId).then((l) => live && setLogoCount(l.length)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [tenant]);
   // Running now, counted on each item: live flows on Flows, active campaigns on Campaigns.
   const [activeCampaigns, setActiveCampaigns] = useState(0);
   const [liveFlows, setLiveFlows] = useState(0);
@@ -159,7 +171,7 @@ export function DesignerShell() {
       {/* A signed view link shows one campaign and nothing to navigate to. */}
       {!viewOnly && (
       <aside
-        className={`shrink-0 bg-white border-r border-border flex flex-col h-screen transition-[width] duration-200 ease-out ${
+        className={`shrink-0 bg-white border-r border-border flex flex-col h-screen max-h-[100dvh] sticky top-0 self-start transition-[width] duration-200 ease-out ${
           railOpen ? 'w-64' : 'w-[60px]'
         }`}
       >
@@ -208,6 +220,7 @@ export function DesignerShell() {
               ['links', 'Links', Link2],
               ['offers', 'Offers', Gift],
               ['products', 'Products', Package],
+              ['logos', 'Card logos', CreditCard],
               ['approvals', 'Comm approvals', ShieldCheck],
             ] as [Page, string, typeof Megaphone][]
           ).map(([k, label, Icon]) => {
@@ -253,6 +266,15 @@ export function DesignerShell() {
                     {railOpen ? activeCampaigns : ''}
                   </span>
                 )}
+                {k === 'logos' && logoCount > 0 && (
+                  <span
+                    className={railOpen ? 'ml-auto inline-flex items-center h-5 px-1.5 rounded-full bg-[#f2f4f7] text-[11px] font-medium tabular-nums text-[#475467]' : 'absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-primary'}
+                    aria-label={`${logoCount} card logos`}
+                    title={`${logoCount} card logo${logoCount === 1 ? '' : 's'}`}
+                  >
+                    {railOpen ? logoCount : ''}
+                  </span>
+                )}
                 {k === 'approvals' && pendingApprovals > 0 && (
                   <span
                     className={railOpen ? 'ml-auto inline-flex items-center h-5 px-1.5 rounded-full bg-[#f2f4f7] text-[11px] font-medium tabular-nums text-[#475467]' : 'absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-primary'}
@@ -270,7 +292,7 @@ export function DesignerShell() {
         {/* The tenant belongs down here, not in a top bar. It is set once and
             then read, so it is reference rather than navigation \u2014 the slot
             agent360 gives to identity. */}
-        <div className={`border-t border-border shrink-0 ${railOpen ? 'px-3 py-3' : 'py-3'}`}>
+        <div className={`sticky bottom-0 z-10 bg-white border-t border-border shrink-0 ${railOpen ? 'px-3 py-3' : 'py-3'}`}>
           {railOpen ? (
             <div className="px-1">
               <label
@@ -344,6 +366,7 @@ export function DesignerShell() {
         {!bootError && page === 'links' && <LinksView key={tenant?.tenantId} tenant={tenant} />}
         {!bootError && page === 'approvals' && <CommApprovalsView key={`${tenant?.tenantId}:${approvalsFocus}`} tenant={tenant} focusId={approvalsFocus} />}
         {!bootError && page === 'products' && <ProductsView key={tenant?.tenantId} tenant={tenant} />}
+        {!bootError && page === 'logos' && <LogosView key={tenant?.tenantId} tenant={tenant} />}
         {!bootError && page === 'offers' && <OffersView key={tenant?.tenantId} tenant={tenant} />}
         {!bootError && page === 'knowledge' && knowledge && (
           <KnowledgeBaseView

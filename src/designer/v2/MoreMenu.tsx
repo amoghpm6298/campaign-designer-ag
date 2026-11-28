@@ -12,6 +12,8 @@ export interface MoreItem {
   disabled?: boolean;
   title?: string;
   danger?: boolean;
+  /** A short line under the label: e.g. why an item is not available yet. */
+  hint?: string;
 }
 
 export function MoreMenu({ items, children }: { items: MoreItem[]; children?: ReactNode }) {
@@ -55,7 +57,10 @@ export function MoreMenu({ items, children }: { items: MoreItem[]; children?: Re
               }}
             >
               {it.icon}
-              {it.label}
+              <span className="cv-more-label">
+                {it.label}
+                {it.hint && <span className="cv-more-hint">{it.hint}</span>}
+              </span>
             </button>
           ))}
         </div>

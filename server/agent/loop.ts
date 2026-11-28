@@ -25,6 +25,7 @@ import { citationProblems } from './citations';
 import { funnelProblems } from './funnelChecks';
 import { intentBlock, isIntent } from './intent';
 import { isKind, kindOf } from '../../src/designer/v2/kind';
+import { logosFor, parseScope, scopeBlock } from '../logos';
 import { approvalsLine, summarise, syncApprovals } from '../approvals';
 
 /** The bank's approval of each message, for the designer: what is approved, waiting, rejected and why. */
@@ -172,6 +173,21 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
     state = { ...state, campaign: { ...state.campaign, kind, membership }, flags: { ...state.flags, membershipClear: true } };
     persistIfChanged(before, state, req.sessionId, req.tenantId ?? '');
   }
+  // A scope given when it was created (the MCP's create_campaign) is stored once, if it names real logos.
+  if (!state.campaign.scope && req.intent?.scope) {
+    const parsed = parseScope(req.intent.scope, logosFor(resolveTenant(req.tenantId)));
+    if ('value' in parsed) {
+      const before = state;
+      state = { ...state, campaign: { ...state.campaign, scope: parsed.value } };
+      persistIfChanged(before, state, req.sessionId, req.tenantId ?? '');
+    }
+  }
+  // Items from before scopes, already designed, are for all cards. A new one has none until the designer sets it (from the brief, or by asking).
+  if (!state.campaign.scope && state.campaign.buckets.length) {
+    const before = state;
+    state = { ...state, campaign: { ...state.campaign, scope: { all: true } } };
+    persistIfChanged(before, state, req.sessionId, req.tenantId ?? '');
+  }
   // What the campaign was when this turn started: a turn that changes it becomes a version.
   const startCampaign = state.campaign;
   const turnStart = new Date().toISOString();
@@ -247,7 +263,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
       role: 'user',
       content: [
         { type: 'text', text: String(last.content) },
-        { type: 'text', text: [statusBlock(state, bankLinks, delivery.smsFallback), intentBlock(state.campaign, tenant), approvalsBlock(req.sessionId, state, tenant), focusSection(state, req.focus)].filter(Boolean).join('\n\n') },
+        { type: 'text', text: [statusBlock(state, bankLinks, delivery.smsFallback), intentBlock(state.campaign, tenant), scopeBlock(state.campaign, tenant), approvalsBlock(req.sessionId, state, tenant), focusSection(state, req.focus)].filter(Boolean).join('\n\n') },
       ],
     };
   }

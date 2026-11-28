@@ -8,6 +8,7 @@ import { apiUrl } from './api';
 import { fmtDate } from './time';
 import { fetchLinks, type BankLink } from './LinksSection';
 import { ChannelPreview } from './v2/canvasNodes';
+import { fetchLogos, scopeNames, type LogoView } from './v2/api';
 import type { Tenant } from './types';
 import './links.css';
 import './offers.css';
@@ -30,6 +31,8 @@ interface CampaignQueue {
   state: string;
   /** Flow (always on) or campaign (one-time). */
   kind?: 'flow' | 'campaign';
+  /** Which cards it is for. */
+  scope?: { logos: string[] } | { all: true } | null;
   records: ApprovalRecordView[];
 }
 
@@ -58,6 +61,10 @@ export function CommApprovalsView({ tenant, focusId }: { tenant: Tenant | null; 
   const [openId, setOpenId] = useState<string | null>(focusId ?? null);
   const [error, setError] = useState('');
   const tenantId = tenant?.tenantId ?? '';
+  const [logos, setLogos] = useState<LogoView[]>([]);
+  useEffect(() => {
+    if (tenantId) fetchLogos(tenantId).then(setLogos).catch(() => setLogos([]));
+  }, [tenantId]);
 
   const reload = () =>
     fetch(apiUrl(`/api/approvals?tenantId=${encodeURIComponent(tenantId)}`))
@@ -104,7 +111,10 @@ export function CommApprovalsView({ tenant, focusId }: { tenant: Tenant | null; 
           <nav className="ca-list" aria-label="Flows and campaigns">
             {shown.map((q) => (
               <button key={q.sessionId} className={`ca-camp${q.sessionId === open.sessionId ? ' on' : ''}`} onClick={() => setOpenId(q.sessionId)}>
-                <span className="ca-kind">{q.kind === 'flow' ? 'Flow' : 'Campaign'}</span>
+                <span className="ca-kind">
+                  {q.kind === 'flow' ? 'Flow' : 'Campaign'}
+                  {scopeNames(q.scope, logos)?.length ? ` · ${scopeNames(q.scope, logos)!.join(' · ')}` : ''}
+                </span>
                 <b>{q.name || 'Untitled campaign'}</b>
                 <span className="ca-counts">
                   {count(q, 'pending') > 0 && <span className="ca-n pending">{count(q, 'pending')} pending</span>}

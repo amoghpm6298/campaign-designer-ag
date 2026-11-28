@@ -14,7 +14,7 @@ import { StrategyPanel, type StrategyNote } from './StrategyPanel';
 import { currentEntries as currentNotes } from './contextView';
 import { FileText, Route, ShieldCheck } from 'lucide-react';
 import type { ApprovalRecordView } from '../CommApprovalsView';
-import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, convertToFlowApi, type ConversionView, submitCampaignApi, runBucketSizing, fetchOffers, fetchCost, fetchFields, type CostReportView, type FieldSampleView, type Offer, type Stores, type Submission, type Withdrawal } from './api';
+import { directEdit, fetchProblems, fetchStores, getVersion, listVersions, restoreVersion, runAgentStream, withdrawCampaign, copyCampaign, convertToFlowApi, type ConversionView, submitCampaignApi, runBucketSizing, fetchOffers, fetchCost, fetchFields, fetchLogos, fetchTrend, scopeNames, type LogoView, type TrendView, type CostReportView, type FieldSampleView, type Offer, type Stores, type Submission, type Withdrawal } from './api';
 import { fetchLinks, type BankLink } from '../LinksSection';
 import { EditPopover, breadcrumb, type DirectOp } from './EditPopover';
 import { VersionMenu } from './VersionMenu';
@@ -28,6 +28,7 @@ import { mergeEvent, plainText } from './logic';
 import { SourcesContext, sourcesFromEntries } from './Citations';
 import { submittedStage } from './lifecycle';
 import { KIND_LABEL, isKind, kindOf, type CampaignKind } from './kind';
+import { AnalyticsPanel } from './AnalyticsView';
 import { NodeDrawer } from './NodeDrawer';
 import { QuestionOverlay } from './QuestionOverlay';
 import { FLAG_LABELS, FLAG_ORDER, type AgentState, type CampaignContext, type CampaignObject, type AnswerItem, type Focus, type V2Event, type V2Turn, type VersionEntry } from './types';
@@ -89,9 +90,6 @@ function cancelChatSave() {
 
 export const newCampaignId = () => `cv-${Date.now().toString(36)}`;
 
-/** "₹1.4L", "₹18k" (below a lakh: the nearest thousand), "₹2.3Cr": a rounded figure for the canvas button; the exact one is in its tooltip and the cost view. */
-const roundInr = (n: number) => (n >= 1e7 ? `₹${Math.round(n / 1e6) / 10}Cr` : n >= 1e5 ? `₹${Math.round(n / 1e4) / 10}L` : n >= 1e3 ? `₹${Math.round(n / 1000)}k` : `₹${Math.round(n)}`);
-
 export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { knowledge: KnowledgeBase; tenant: Tenant; sessionId: string; initial: Stored | null; onBack: () => void }) {
   const fresh = initial;
   const [turns, setTurns] = useState<V2Turn[]>(fresh?.turns ?? []);
@@ -99,7 +97,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // The campaign object and its context, as saved on the server for this chat.
   const [stores, setStores] = useState<Stores>({ campaign: null, context: null });
   const [submission, setSubmission] = useState<Submission | null>(null);
-  const [lastWithdrawal, setLastWithdrawal] = useState<Withdrawal | null>(null);
+  const [, setLastWithdrawal] = useState<Withdrawal | null>(null);
   // The flows this campaign became (Convert to flow), and the Convert box: its name and the note for the designer.
   const [conversions, setConversions] = useState<ConversionView[]>([]);
   const [converting, setConverting] = useState<'ask' | 'busy' | string | null>(null);
@@ -110,6 +108,15 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // Flow (always on) or campaign (one-time): stored on the item, or chosen just now for a new one.
   const kind: CampaignKind = isKind(stores.campaign?.kind) ? stores.campaign!.kind! : isKind(pendingIntent(sessionId)?.kind) ? pendingIntent(sessionId)!.kind! : kindOf(stores.campaign);
   const noun = kind === 'flow' ? 'flow' : 'campaign';
+  // Canvas or Analytics (kept in the address as ?panel=analytics; ?view= means a view-only link).
+  const [tab, setTabState] = useState<'canvas' | 'analytics'>(() => (new URLSearchParams(location.search).get('panel') === 'analytics' ? 'analytics' : 'canvas'));
+  const setTab = (v: 'canvas' | 'analytics') => {
+    setTabState(v);
+    const u = new URL(location.href);
+    if (v === 'analytics') u.searchParams.set('panel', 'analytics');
+    else u.searchParams.delete('panel');
+    history.replaceState(null, '', u);
+  };
   const pauseLabel = kind === 'flow' ? 'Stop flow' : 'Stop campaign';
   const [subStart, setSubStart] = useState('');
   const [subEnd, setSubEnd] = useState('');
@@ -151,6 +158,17 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
       live = false;
     };
   }, [stores.campaign, stores.context, sessionId, tenant.tenantId]);
+  // The bank's card logos (to name the scope) and the target's last 90 days (cohort, or a flow's weekly inflow).
+  const [logos, setLogos] = useState<LogoView[]>([]);
+  const [trend, setTrend] = useState<TrendView | null>(null);
+  useEffect(() => {
+    if (!stores.campaign?.buckets.length) return setTrend(null);
+    let live = true;
+    fetchTrend(sessionId, tenant.tenantId).then((r) => live && setTrend(r));
+    return () => {
+      live = false;
+    };
+  }, [stores.campaign, stores.context, sessionId, tenant.tenantId]);
   // Comm approvals: every message is approved by the bank before the campaign can be submitted.
   const [approvals, setApprovals] = useState<ApprovalRecordView[] | null>(null);
   useEffect(() => {
@@ -179,6 +197,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
       .then((d: { products?: { product_id: string; product_name: string; product_type: string }[] }) => setProducts(d.products ?? []))
       .catch(() => setProducts([]));
     fetchFields(tenant.tenantId).then(setFields).catch(() => setFields([]));
+    fetchLogos(tenant.tenantId).then(setLogos).catch(() => setLogos([]));
     fetch(apiUrl(`/api/bank-settings?tenantId=${encodeURIComponent(tenant.tenantId)}`))
       .then((r) => r.json())
       .then((d: { settings?: { smsFallback?: boolean } }) => setSmsFallback(d.settings?.smsFallback !== false))
@@ -220,8 +239,6 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   // Opened from a signed view link (?view=…): this one campaign, read-only.
   const viewOnly = useMemo(() => new URLSearchParams(location.search).has('view'), []);
   const locked = !!submission || viewOnly;
-  // Has this campaign run (live now, ended, or submitted once and stopped since)? Only then can it become a flow.
-  const campaignHasRun = (!!submission && submittedStage(submission) !== 'scheduled') || !!lastWithdrawal;
   /** Another flow or campaign of this bank, in the same tab. */
   const itemHref = (id: string) => `${import.meta.env.BASE_URL.replace(/\/$/, '')}/designer.html?c=${encodeURIComponent(id)}&bank=${encodeURIComponent(tenant.tenantId)}`;
   // The password page, then back to this same campaign, editable.
@@ -524,33 +541,41 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             <ArrowLeft size={16} />
           </button>
         )}
+        {/* The name, then one tight line under it: Canvas | Analytics, the cards it is for, and where it came from / what it became. */}
         <div className="cv-title">
+          <b title={KIND_LABEL[kind] + ((stores.campaign as { intent?: string } | null)?.intent ? ' · ' + intentLabel((stores.campaign as { intent?: string }).intent, kind) : '')}>{plan?.name || `New ${noun}`}</b>
           <span className="cv-title-tags">
-          {(() => {
-            const it = (stores.campaign as { intent?: string } | null)?.intent ?? pendingIntent(sessionId)?.intent;
-            return (
-              <span className="cv-intent" title={kind === 'flow' ? 'A flow: always on. Customers join as they become eligible; it runs until stopped.' : 'A one-time campaign: a fixed list, between two dates.'}>
-                {KIND_LABEL[kind]}
-                {it ? ` · ${intentLabel(it, kind)}` : ''}
+            {!!stores.campaign?.buckets.length && (
+              <span className="cv-tabs" role="tablist" aria-label="View">
+                <button role="tab" aria-selected={tab === 'canvas'} className={tab === 'canvas' ? 'on' : ''} onClick={() => setTab('canvas')}>
+                  Canvas
+                </button>
+                <button role="tab" aria-selected={tab === 'analytics'} className={tab === 'analytics' ? 'on' : ''} onClick={() => setTab('analytics')}>
+                  Analytics
+                </button>
               </span>
-            );
-          })()}
-          {/* Where a flow came from, and what a campaign became: the sandbox and what graduated from it. */}
-          {stores.campaign?.origin && (
-            <a className="cv-lineage" href={itemHref(stores.campaign.origin.fromId)} title={stores.campaign.origin.note ? `Note: ${stores.campaign.origin.note}` : 'The campaign this flow was converted from'}>
-              <Route size={12} aria-hidden="true" /> Converted from {stores.campaign.origin.fromName}
-            </a>
-          )}
-          {conversions.map((cv) => (
-            <a key={cv.toId} className="cv-lineage" href={itemHref(cv.toId)} title={cv.note ? `Note: ${cv.note}` : 'A flow made from this campaign'}>
-              <Route size={12} aria-hidden="true" /> Now a flow: {cv.toName}
-            </a>
-          ))}
+            )}
+            {(scopeNames(stores.campaign?.scope, logos) ?? []).map((n) => (
+              <span key={n} className="cv-scope-chip" title="The cards this is for">{n}</span>
+            ))}
+            {stores.campaign?.origin && (
+              <a className="cv-lineage" href={itemHref(stores.campaign.origin.fromId)} title={stores.campaign.origin.note ? `Note: ${stores.campaign.origin.note}` : 'The campaign this flow was converted from'}>
+                <Route size={12} aria-hidden="true" /> Converted from {stores.campaign.origin.fromName}
+              </a>
+            )}
+            {conversions.map((cv) => (
+              <a key={cv.toId} className="cv-lineage" href={itemHref(cv.toId)} title={cv.note ? `Note: ${cv.note}` : 'A flow made from this campaign'}>
+                <Route size={12} aria-hidden="true" /> Now a flow: {cv.toName}
+              </a>
+            ))}
           </span>
-          <b>{plan?.name || `New ${noun}`}</b>
         </div>
-        {/* The campaign's status (Draft, Scheduled, Active…) shows on the Campaigns page, not here. */}
         <span className="cv-top-gap" />
+        {strategy && (
+          <button className="cv-head-link" onClick={() => { setDrawerId(null); setCostOpen(null); setStrategyOpen(true); }} title="The designer's working plan: buckets, levers, money and budget">
+            <FileText size={14} /> Strategy
+          </button>
+        )}
         <MoreMenu
           items={[
             ...(versions.length > 0 && !viewOnly ? [{ key: 'versions', label: viewing ? `Versions (viewing v${viewing.v.n})` : 'Versions', icon: <History size={15} />, onSelect: () => setVersionsOpen(true) }] : []),
@@ -570,14 +595,15 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
                 ]
               : []),
             // Campaigns are the sandbox: one that has run can become an always-on flow. The campaign itself stays as it is.
-            ...(!viewOnly && kind === 'campaign' && stores.campaign && campaignHasRun
+            ...(!viewOnly && kind === 'campaign' && stores.campaign
               ? [
                   {
                     key: 'convert',
                     label: 'Convert to flow',
                     icon: <Route size={15} />,
-                    disabled: busy,
-                    title: 'Make what worked here always on: a new flow, built from this campaign by the designer. This campaign stays as it is.',
+                    // Any campaign, at any stage, that has been designed.
+                    disabled: busy || !stores.campaign.buckets.some((b) => (b.journey ?? []).length),
+                    title: 'Make this always on: a new flow, built from this campaign by the designer. This campaign stays as it is.',
                     onSelect: () => {
                       setConvName(`${plan?.name || stores.campaign?.name || 'Campaign'}, always on`);
                       setConvNote('');
@@ -593,9 +619,19 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           ]}
         >
           {converting && (
-            <div className="cv-del-pop cv-convert-pop" role="dialog" aria-label="Convert to flow">
-              <b>Convert to an always-on flow</b>
-              <p>The designer turns this campaign into a flow: people join as they become eligible, and it runs until you stop it. This campaign stays as it is.</p>
+            // A centred modal over the page: it starts something new, so it gets the whole stage.
+            <div className="im-back" onMouseDown={(e) => e.target === e.currentTarget && converting !== 'busy' && setConverting(null)}>
+            <div className="im cv-convert-modal" role="dialog" aria-modal="true" aria-labelledby="cv-convert-title">
+              <header className="im-head">
+                <div>
+                  <h2 id="cv-convert-title">Convert to an always-on flow</h2>
+                  <p className="cv-convert-lede">The designer turns this campaign into a flow: people join as they become eligible, and it runs until you stop it. This campaign stays as it is.</p>
+                </div>
+                <button className="fpm-x" onClick={() => setConverting(null)} aria-label="Close" disabled={converting === 'busy'}>
+                  <X size={18} />
+                </button>
+              </header>
+              <div className="im-body">
               <label className="cv-convert-field">
                 <span>Name of the flow</span>
                 <input value={convName} onChange={(e) => setConvName(e.target.value)} disabled={converting === 'busy'} autoFocus />
@@ -613,7 +649,8 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
                 />
               </label>
               {converting !== 'ask' && converting !== 'busy' && <p className="cv-del-err">{converting}</p>}
-              <div className="cv-del-btns">
+              </div>
+              <div className="cv-convert-foot">
                 <button className="cv-btn" onClick={() => setConverting(null)}>
                   Cancel
                 </button>
@@ -632,6 +669,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
                   {converting === 'busy' ? 'Converting…' : 'Convert to flow'}
                 </button>
               </div>
+            </div>
             </div>
           )}
           {versionsOpen && versions.length > 0 && <VersionMenu versions={versions} viewing={viewing?.v.n ?? null} onView={view} onClose={() => setVersionsOpen(false)} />}
@@ -761,31 +799,12 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
       <SourcesContext.Provider value={sources}>
       <div className="cv-main">
         <section className="cv-stage">
-          {(strategy || (cost && cost.mode !== 'none')) && (
-            <div className="cv-stage-ctas">
-              {cost && cost.mode !== 'none' && (
-                <button
-                  className="cv-strategy-cta cv-cost-cta"
-                  onClick={() => { setDrawerId(null); setStrategyOpen(false); setCostOpen({}); }}
-                  title={`Estimated ₹${Math.round(cost.total.expected).toLocaleString('en-IN')}, max ₹${Math.round(cost.total.max).toLocaleString('en-IN')}. What the offers may cost the bank, offer by offer.`}
-                >
-                  Total est. cost <b>~{roundInr(cost.total.expected)}</b>
-                  <span className="cv-cost-cta-max">(Max ~{roundInr(cost.total.max)})</span>
-                  {cost.mode === 'perThousand' && <span className="cv-muted"> per 1,000 customers</span>}
-                </button>
-              )}
-              {cost && cost.mode !== 'none' && (
-                <span className="cv-revenue-wip" title="What the campaign may earn the bank: being worked on, for every kind of campaign at once.">
-                  Est. revenue: coming soon
-                </span>
-              )}
-              {strategy && (
-                <button className="cv-strategy-cta" onClick={() => { setDrawerId(null); setCostOpen(null); setStrategyOpen(true); }} title="The designer's working plan: buckets, levers, money and budget">
-                  <FileText size={14} /> {kind === 'flow' ? 'Flow strategy' : 'Campaign strategy'}
-                </button>
-              )}
-            </div>
-          )}
+          {/* Analytics: the designer's KPI and charts, run on the bank's data (the canvas stays one click away). */}
+          {tab === 'analytics' ? (
+            <AnalyticsPanel sessionId={sessionId} tenantId={tenant.tenantId} kind={kind} busy={busy} onAsk={() => send(`Write the analytics for this ${noun}: the KPI and the charts that show whether it works.`)} />
+          ) : (
+          <>
+          {/* Nothing floats over the canvas: the offer spend is on the entry card (and opens the full working); Strategy is in the header. */}
           {hasCanvas ? (
             <CampaignCanvas
               campaign={plan}
@@ -798,6 +817,8 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               onPaneClick={() => setEditing(null)}
               bankName={(tenant.issuer || tenant.displayName).replace(/\s*\(.*?\)\s*/g, '').trim()}
               links={links}
+              logos={logos}
+              trend={trend}
               offers={offers}
               products={products}
               approvals={approvals ? {
@@ -861,6 +882,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           {drawerNode?.data.step && <NodeDrawer step={drawerNode.data.step as CStep} path={drawerNode.data.path} bucketName={drawerBucket} links={links} smsFallback={smsFallback} onClose={() => setDrawerId(null)} />}
 
           {activity && <ActivityDrawer state={state} onClose={() => setActivity(false)} />}
+          </>)}
         </section>
 
         <ChatPanel

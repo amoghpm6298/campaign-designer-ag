@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { Calendar, MessageSquare, Plus, Repeat, Route, X } from 'lucide-react';
 import { apiUrl } from '../api';
+import { fetchLogos, scopeNames, type LogoView } from './api';
 import type { KnowledgeBase, Tenant } from '../types';
 import { DesignerV2, loadChat, type Stored } from './DesignerV2';
 import { IntentModal, LOOK } from './IntentModal';
@@ -29,6 +30,8 @@ export interface CampaignSummary {
   state: CampaignState;
   /** Flow (always on) or campaign (one-time). */
   kind?: CampaignKind;
+  /** Which card logos it is for; null = not decided yet. */
+  scope?: { logos: string[] } | { all: true } | null;
   /** A flow converted from a campaign. */
   origin?: { fromId: string; fromName: string };
   /** A campaign that became flows. */
@@ -76,6 +79,13 @@ export function CampaignsHome({ tenant, kind, onOpen, onCreate }: { tenant: Tena
   const [filter, setFilter] = useState<CampaignState | 'all'>('all');
   // Tapping a card's intent tab shows only that intent; tapping it again shows all.
   const [intentFilter, setIntentFilter] = useState<CampaignIntent | null>(null);
+  // Tapping a card's scope chip shows only that card logo; tapping it again shows all.
+  const [logoFilter, setLogoFilter] = useState<string | null>(null);
+  const [logos, setLogos] = useState<LogoView[]>([]);
+  useEffect(() => {
+    fetchLogos(tenant.tenantId).then(setLogos).catch(() => setLogos([]));
+  }, [tenant.tenantId]);
+  const toggleLogo = (id: string) => setLogoFilter((cur) => (cur === id ? null : id));
   const toggleIntent = (k: CampaignIntent) => setIntentFilter((cur) => (cur === k ? null : k));
   useEffect(() => {
     let live = true;
@@ -89,7 +99,10 @@ export function CampaignsHome({ tenant, kind, onOpen, onCreate }: { tenant: Tena
     };
   }, [tenant.tenantId, kind]);
 
-  const inIntent = (list ?? []).filter((c) => !intentFilter || (c.intent ?? 'other') === intentFilter);
+  const inIntent = (list ?? [])
+    .filter((c) => !intentFilter || (c.intent ?? 'other') === intentFilter)
+    // A logo filter keeps items scoped to that logo, and those for all cards.
+    .filter((c) => !logoFilter || !c.scope || 'all' in c.scope || c.scope.logos.includes(logoFilter));
   return (
     <div className="cv-home">
       {choosing && (
@@ -112,11 +125,15 @@ export function CampaignsHome({ tenant, kind, onOpen, onCreate }: { tenant: Tena
             </svg>
             {KIND_PLURAL[kind]}
           </h1>
+          {/* What this page is for, in one line: flows are what's proven; campaigns are where ideas are tried. */}
+          <p className="cv-home-why">
+            {kind === 'flow'
+              ? 'Always-on engagement journeys: the ones you know work, running every day.'
+              : 'One-time pushes, to make the most of a season or event, or to test a new idea that can become a flow later.'}
+          </p>
           <p>
             {tenant.displayName}
             {list ? ` · ${list.length} ${noun}${list.length === 1 ? '' : 's'}` : ''}
-            {' · '}
-            {kind === 'flow' ? 'Always on: customers join as they become eligible' : 'One-time: a fixed list, between two dates'}
           </p>
         </div>
         <button className="cv-btn primary" onClick={() => setChoosing(true)}>
@@ -149,6 +166,11 @@ export function CampaignsHome({ tenant, kind, onOpen, onCreate }: { tenant: Tena
               {s.label} <span>{inIntent.filter((c) => c.state === s.key).length}</span>
             </button>
           ))}
+          {logoFilter && (
+            <button className="cv-intent-filter" onClick={() => setLogoFilter(null)} title="Show every card" aria-label={`Showing ${scopeNames({ logos: [logoFilter] }, logos)?.[0]} only. Clear.`}>
+              {scopeNames({ logos: [logoFilter] }, logos)?.[0]} <X size={13} aria-hidden="true" />
+            </button>
+          )}
           {intentFilter && (() => {
             const { Icon } = LOOK[intentFilter];
             return (
@@ -163,7 +185,7 @@ export function CampaignsHome({ tenant, kind, onOpen, onCreate }: { tenant: Tena
           {inIntent
             .filter((c) => filter === 'all' || c.state === filter)
             .map((c) => (
-              <CampaignCard key={c.sessionId} c={c} kind={kind} onOpen={onOpen} onIntent={toggleIntent} intentOn={!!intentFilter} />
+              <CampaignCard key={c.sessionId} c={c} kind={kind} onOpen={onOpen} onIntent={toggleIntent} intentOn={!!intentFilter} logos={logos} onLogo={toggleLogo} logoOn={logoFilter} />
             ))}
         </div>
         </>
@@ -187,7 +209,7 @@ export function CampaignView({ knowledge, tenant, sessionId, onBack }: { knowled
   return <DesignerV2 key={sessionId} knowledge={knowledge} tenant={tenant} sessionId={sessionId} initial={initial} onBack={onBack} />;
 }
 
-function CampaignCard({ c, kind, onOpen, onIntent, intentOn }: { c: CampaignSummary; kind: CampaignKind; onOpen: (id: string) => void; onIntent: (k: CampaignIntent) => void; intentOn: boolean }) {
+function CampaignCard({ c, kind, onOpen, onIntent, intentOn, logos, onLogo, logoOn }: { c: CampaignSummary; kind: CampaignKind; onOpen: (id: string) => void; onIntent: (k: CampaignIntent) => void; intentOn: boolean; logos: LogoView[]; onLogo: (id: string) => void; logoOn: string | null }) {
   return (
     <button className="cv-camp" onClick={() => onOpen(c.sessionId)}>
       {(() => {
@@ -219,6 +241,36 @@ function CampaignCard({ c, kind, onOpen, onIntent, intentOn }: { c: CampaignSumm
         <span className={`cv-camp-status st-${c.state}`}>{STATES_BY_KIND[kind].find((x) => x.key === c.state)?.label ?? c.state}</span>
       </span>
       <b className="cv-camp-name">{c.name}</b>
+      {/* Which cards it is for: tap one to see only that card's flows or campaigns. */}
+      {c.scope && (
+        <span className="cv-camp-scope">
+          {'all' in c.scope ? (
+            <span className="cv-scope-chip">All cards</span>
+          ) : (
+            c.scope.logos.map((id) => (
+              <span
+                key={id}
+                role="button"
+                tabIndex={0}
+                className={`cv-scope-chip tap${logoOn === id ? ' on' : ''}`}
+                title={logoOn === id ? 'Show every card' : 'Show only this card'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onLogo(id);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onLogo(id);
+                }}
+              >
+                {scopeNames({ logos: [id] }, logos)?.[0]}
+              </span>
+            ))
+          )}
+        </span>
+      )}
       {c.ask && <span className="cv-camp-ask">“{c.ask}”</span>}
       {c.origin && (
         <span className="cv-camp-lineage">

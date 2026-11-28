@@ -28,7 +28,7 @@ beforeEach(() => {
 
 /** A campaign built the way the agent builds one: execution through campaign tools, reasoning through add_context. */
 function built(): AgentState {
-  let s = runToolCall('create_campaign', { name: 'Activation', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, membership: { type: 'open', refresh: 'daily' } }, initialState(), env()).state;
+  let s = runToolCall('create_campaign', { scope: { all: true }, name: 'Activation', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, membership: { type: 'open', refresh: 'daily' } }, initialState(), env()).state;
   s = runToolCall('create_bucket', { id: 'fresh', name: 'Fresh', priority: 1, rule: [{ entity: 'Card', conditions: [] }], holdoutPct: 10, journey }, s, env()).state;
   s = runToolCall(
     'add_context',

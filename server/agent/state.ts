@@ -4,6 +4,7 @@
 
 import { parseSchedule } from './schedule';
 import { isKind, kindOf, type CampaignKind } from '../../src/designer/v2/kind';
+import { isScope } from '../logos';
 
 /** The kind stored on the item, if any. Items from before kinds have none and are not held to one. */
 const fixedKind = (c: { kind?: string | null }): CampaignKind | null => (isKind(c.kind) ? c.kind : null);
@@ -344,6 +345,19 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
       changed.push(k);
     }
   }
+  // Scope arrives already checked against the bank's logos (tools.ts parseScope); here only its shape.
+  if (input.scope !== undefined) {
+    if (!isScope(input.scope)) return { state, said: '', error: 'scope is {all: true} or {logos: [...]} with one or more of the bank\'s card logos (list_logos). Nothing was changed.' };
+    next.scope = input.scope as CampaignObject['scope'];
+    changed.push('scope');
+  }
+  // Plain text: the designer sometimes writes HTML entities (&amp;).
+  const goalLine = str(input.goalLine)?.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"');
+  if (goalLine !== undefined) {
+    if (goalLine.length > 70) return { state, said: '', error: `goalLine is the goal in one short line for the canvas, at most 70 characters (this is ${goalLine.length}). Nothing was changed.` };
+    next.goalLine = goalLine;
+    changed.push('goalLine');
+  }
   if (input.goal === null) {
     next.goal = null;
     changed.push('goal');
@@ -434,10 +448,10 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
     changed.push('afterJourney');
   }
   if (!changed.length)
-    return { state, said: '', error: 'Nothing to update. The campaign takes: name, description, goal, entry, membership, everyoneElse, schedule, afterJourney, maxAttempts, budgetCap. Reasoning (why, guardrails, measurement) goes in the context with add_context.' };
+    return { state, said: '', error: 'Nothing to update. The campaign takes: name, description, goalLine, scope, goal, entry, membership, everyoneElse, schedule, afterJourney, maxAttempts, budgetCap. Reasoning (why, guardrails, measurement) goes in the context with add_context.' };
   let out: AgentState = { ...state, campaign: next };
   out = log(out, 'agent', 'plan_section_updated', `Updated the campaign (${changed.join(', ')})`);
-  if (state.flags.campaignBuilt && changed.some((c) => ['goal', 'entry', 'membership', 'everyoneElse', 'schedule', 'afterJourney', 'maxAttempts', 'budgetCap', 'name'].includes(c))) out = markStale(out, 'The campaign');
+  if (state.flags.campaignBuilt && changed.some((c) => ['goal', 'entry', 'membership', 'everyoneElse', 'schedule', 'afterJourney', 'maxAttempts', 'budgetCap', 'name', 'scope'].includes(c))) out = markStale(out, 'The campaign');
   return { state: out, said: `Campaign updated: ${changed.join(', ')}.` };
 }
 

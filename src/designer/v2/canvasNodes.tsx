@@ -5,7 +5,8 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { Handle, NodeToolbar, Position } from '@xyflow/react';
 import { ChevronDown, ChevronRight, Pencil, Play, Sparkles } from 'lucide-react';
-import type { CostReportView, FieldSampleView, Offer, SizingRun } from './api';
+import type { CostReportView, FieldSampleView, LogoView, Offer, SizingRun, TrendView } from './api';
+import { scopeNames } from './api';
 import { withCites } from './Citations';
 import { kindOf } from './kind';
 import { atSentenceStart, capitaliseAt, fillFields, parseFields } from './personalFields';
@@ -14,7 +15,7 @@ import { withOfferLine } from './smsText';
 import type { BankLink } from '../LinksSection';
 import { assembleSms, smsLength } from './smsText';
 import { Icon } from '../../components/icons';
-import { CHANNEL_LABEL, OUTCOME_LABEL, afterText, fmtTime, fmtWait, sendTitle, sendWhen, stepRationale, waitHours, type CNodeData, type CStep } from './canvasModel';
+import { CHANNEL_LABEL, OUTCOME_LABEL, fmtTime, fmtWait, sendTitle, sendWhen, stepRationale, waitHours, type CNodeData, type CStep } from './canvasModel';
 
 const CHANNEL_ICON: Record<string, string> = { WHATSAPP: 'whatsapp', SMS: 'sms', EMAIL: 'mail', RCS: 'rcs', PUSH: 'message' };
 
@@ -533,53 +534,13 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
   let body: React.ReactNode;
   switch (data.kind) {
     case 'entry': {
+      // The entry card: what this is for, for which cards, how many it reaches (and the 90-day trend),
+      // what offers may cost, and when it runs. The rest (coming back, stopping rule, STOP) lives in the edit popover.
       const c = data.campaign;
       const m = c?.membership;
       body = (
-        <Card cat="entry" icon="users" data={data} type={<>Entry · who can join <span className="dc-node-start-tag">START</span></>}>
-          <div className="dc-node-label">{c?.description || c?.name || 'Eligible customers'}</div>
-          <div className="cv-entry-mode">
-            {/* Flow or campaign is fixed when the item is created, so this is never undecided. */}
-            <span className={`cv-mode-tag ${kindOf(c) === 'flow' ? 'rec' : 'once'}`}>
-              {kindOf(c) === 'flow' ? `Always-on flow · joins ${m?.type === 'open' ? m.refresh ?? 'weekly' : 'weekly'}` : 'One-time campaign'}
-            </span>
-            {c?.goal && <span className="dc-node-meta">Success: {c.goal.eventType}</span>}
-          </div>
-          <SpendLine />
-          <div className={`cv-entry-dates${c?.schedule ? '' : ' unset'}`}>
-            {kindOf(c) === 'flow'
-              ? c?.schedule
-                ? `Live from ${fmtDay(c.schedule.startDate)}, until stopped`
-                : 'Start date: not set'
-              : c?.schedule?.endDate
-                ? `Runs ${fmtDay(c.schedule.startDate)} → ${fmtDay(c.schedule.endDate)}`
-                : 'Campaign dates: not set'}
-          </div>
-          <div className="dc-node-meta">
-            {m?.type === 'open'
-              ? `New matching customers join every ${m.refresh === 'daily' ? 'day' : m.refresh === 'monthly' ? 'month' : 'week'}. Nobody re-enters while their journey is running.`
-              : m
-                ? 'The list is fixed at launch. Nobody new joins.'
-                : ''}
-          </div>
-          <div className="dc-node-meta">Each customer goes into the first bucket they match, left to right.</div>
-          {m?.type === 'open' && (
-            <div className="cv-after">
-              <span className="cv-after-h">After the journey</span>
-              {(['no_response', 'not_reachable', 'declined', 'converted'] as const).map((k) => (
-                <span key={k} className={`cv-after-row out-${k}`}>
-                  <i />
-                  {OUTCOME_LABEL[k]}: {afterText(c, k).replace('what happens next: ', '')}
-                </span>
-              ))}
-              <span className={`cv-after-stop${c?.maxAttempts ? '' : ' unset'}`}>
-                {c?.maxAttempts
-                  ? `Stops after ${c.maxAttempts} time${c.maxAttempts === 1 ? '' : 's'} through: then everyone leaves for good.`
-                  : 'Stopping rule not set: a customer could go through again and again.'}
-              </span>
-            </div>
-          )}
-          <div className="dc-node-meta cv-optout">STOP or unsubscribe: leaves every campaign, never messaged again.</div>
+        <Card cat="entry" icon="users" data={data} type={<>Entry <span className="dc-node-start-tag">START</span></>}>
+          <EntryBody c={c} refresh={m?.type === 'open' ? m.refresh ?? 'weekly' : null} />
         </Card>
       );
       break;
@@ -801,11 +762,12 @@ function OfferBadge({ label, terms, stepId }: { label: string; terms: string; st
 }
 
 /** A potential-spend line that opens the working when tapped. Shown only when the campaign has offers. */
-function SpendLine({ bucketId }: { bucketId?: string }) {
+function SpendLine({ bucketId, monthly }: { bucketId?: string; monthly?: boolean }) {
   const cost = useContext(CostContext);
   const r = cost?.report;
   if (!r || r.mode === 'none') return null;
-  const t = bucketId ? r.buckets.find((b) => b.bucketId === bucketId) : r.total;
+  // A flow's total is a month's spend (people keep joining); a bucket's stays its share today.
+  const t = bucketId ? r.buckets.find((b) => b.bucketId === bucketId) : monthly && r.monthly ? r.monthly : r.total;
   if (!t) return null;
   return (
     <button
@@ -817,9 +779,9 @@ function SpendLine({ bucketId }: { bucketId?: string }) {
         cost!.open(bucketId);
       }}
     >
-      <span className="cv-spendline-h">Potential spend on offers{r.mode === 'perThousand' ? ' · per 1,000 customers' : ''}</span>
+      <span className="cv-spendline-h">Potential spend on offers{r.mode === 'perThousand' ? ' · per 1,000 customers' : !bucketId && monthly && r.monthly ? ' · a month' : ''}</span>
       <SpendSummary expected={t.expected} max={t.max} compact />
-      {!bucketId && r.budgetCap != null && <span className="cv-spendline-cap">Budget cap ₹{r.budgetCap.toLocaleString('en-IN')}</span>}
+      {!bucketId && r.budgetCap != null && <span className="cv-spendline-cap">Budget cap ₹{r.budgetCap.toLocaleString('en-IN')}{monthly ? ' a month' : ''}</span>}
     </button>
   );
 }
@@ -913,3 +875,128 @@ export function CdNode({ id, data }: { id: string; data: CdNodeData }) {
 }
 
 export const cdNodeTypes = { cd: CdNode };
+
+/** What the entry card shows besides the campaign itself: the totals in target, the bank's logos (for the scope's names) and the 90-day trend. */
+export interface EntryInfo {
+  /** Everyone it reaches (buckets, plus everyone else when they get a journey); null while not sized. */
+  target: number | null;
+  /** The query that counted it, and who is eligible in plain words. */
+  targetSql: string | null;
+  rule: string[] | null;
+  /** Eligible, in scope, in no bucket. */
+  everyoneElse: number | null;
+  buckets: number;
+  logos: LogoView[];
+  trend: TrendView | null;
+}
+export const EntryContext = createContext<EntryInfo | null>(null);
+
+function EntryBody({ c, refresh }: { c: CNodeData['campaign']; refresh: string | null }) {
+  const info = useContext(EntryContext);
+  const flow = kindOf(c) === 'flow';
+  const goal = c?.goalLine || (c?.goal ? `Success: ${c.goal.eventType}` : c?.name || 'Eligible customers');
+  const reachesElse = c?.everyoneElse?.approach === 'journey';
+  const [sqlPanel, setSqlPanel] = useState<'sql' | 'test' | null>(null);
+  return (
+    <>
+      <div className="cv-entry-head">
+        <span className={`cv-mode-tag ${flow ? 'rec' : 'once'}`}>{flow ? `Always on · joins ${refresh ?? 'weekly'}` : 'One-time'}</span>
+      </div>
+      <div className="dc-node-label cv-entry-goal" title={c?.description || undefined}>
+        {goal}
+      </div>
+      {/* Which cards: a callout of its own, each logo with how many cards it has. */}
+      <div className={`cv-entry-box cv-entry-cards${c?.scope ? '' : ' unset'}`}>
+        <span className="cv-entry-box-h">Which cards</span>
+        {!c?.scope ? (
+          <span className="cv-entry-box-unset">Not decided yet: the designer asks first</span>
+        ) : (
+          <div className="cv-entry-scope">
+            {('all' in c.scope ? [{ name: 'All cards', cards: (info?.logos ?? []).reduce((n, l) => n + (l.cards ?? 0), 0) }] : c.scope.logos.map((id) => {
+              const l = info?.logos.find((x) => x.logo_id === id);
+              return { name: scopeNames({ logos: [id] }, info?.logos ?? [])?.[0] ?? id, cards: l?.cards ?? 0 };
+            })).map((x) => (
+              <span key={x.name} className="cv-scope-chip">
+                {x.name}
+                {x.cards ? <i>{x.cards.toLocaleString('en-IN')} cards</i> : null}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      {/* Who is eligible within those cards: the entry rule in plain words, and the query that counted the target. */}
+      {c?.scope && (
+        <div className="cv-entry-box">
+          <span className="cv-entry-box-h">
+            Who's eligible
+            {info?.targetSql && <BucketTools open={sqlPanel} onOpen={setSqlPanel} />}
+          </span>
+          <ul className="cv-entry-rule">
+            {(info?.rule ?? ['Worked out when the campaign is built']).map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+          {info?.targetSql && sqlPanel && <BucketSql bucketId="__target" sql={info.targetSql} mode={sqlPanel} />}
+        </div>
+      )}
+      <div className="cv-entry-target">
+        <div>
+          <b>{info?.target != null ? info.target.toLocaleString('en-IN') : '—'}</b> customers in target
+          <span className="cv-entry-sub">
+            {info?.target != null
+              ? `across ${info.buckets} bucket${info.buckets === 1 ? '' : 's'}${reachesElse ? ' + everyone else' : ''}${!reachesElse && info.everyoneElse ? `; ${info.everyoneElse.toLocaleString('en-IN')} more get no messages` : ''}`
+              : 'Counted once every bucket is sized'}
+          </span>
+        </div>
+        {info?.trend && <Sparkline trend={info.trend} />}
+      </div>
+      <SpendLine monthly={flow} />
+      <div className={`cv-entry-dates${c?.schedule ? '' : ' unset'}`}>
+        {flow
+          ? c?.schedule
+            ? `Live from ${fmtDay(c.schedule.startDate)}, until stopped`
+            : 'Start date: not set'
+          : c?.schedule?.endDate
+            ? `Runs ${fmtDay(c.schedule.startDate)} → ${fmtDay(c.schedule.endDate)}`
+            : 'Dates: not set'}
+      </div>
+    </>
+  );
+}
+
+/** The last 13 weeks as one small line: a campaign's cohort, a flow's weekly inflow. The latest value is labelled; each week on hover. */
+function Sparkline({ trend }: { trend: TrendView }) {
+  const pts = trend.points;
+  if (pts.length < 2) return null;
+  const W = 112;
+  const H = 30;
+  const max = Math.max(...pts.map((p) => p.count), 1);
+  const min = Math.min(...pts.map((p) => p.count));
+  const x = (i: number) => 4 + (i * (W - 8)) / (pts.length - 1);
+  const y = (v: number) => H - 4 - ((v - min) / Math.max(1, max - min)) * (H - 8);
+  const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.count).toFixed(1)}`).join(' ');
+  const last = pts[pts.length - 1];
+  const label = trend.measure === 'inflow' ? 'new a week' : 'in target';
+  const wk = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  return (
+    <div
+      className="cv-spark"
+      title={`Last 90 days, as of ${wk(trend.dataAsOf)}: ${trend.measure === 'inflow' ? 'people newly entering each week' : 'people in the target each week'}.${trend.partial.length ? ` Partial: ${trend.partial.join(', ')} can't be replayed for past weeks.` : ''}`}
+    >
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${label} over the last 90 days, latest ${last.count.toLocaleString('en-IN')}`}>
+        <path d={d} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        <circle cx={x(pts.length - 1)} cy={y(last.count)} r="3" fill="currentColor" stroke="var(--surface, #fff)" strokeWidth="2" />
+        {/* Hover targets wider than the line: one per week. */}
+        {pts.map((p, i) => (
+          <rect key={p.week} x={x(i) - (W - 8) / (pts.length - 1) / 2} y={0} width={(W - 8) / (pts.length - 1)} height={H} fill="transparent">
+            <title>{`Week to ${wk(p.week)}: ${p.count.toLocaleString('en-IN')} ${label}`}</title>
+          </rect>
+        ))}
+      </svg>
+      <span className="cv-spark-cap">
+        90 days{trend.measure === 'inflow' ? ' · new a week' : ''}
+        {trend.partial.length ? ' · partial' : ''}
+      </span>
+    </div>
+  );
+}

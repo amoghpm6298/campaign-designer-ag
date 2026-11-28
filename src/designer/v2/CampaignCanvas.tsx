@@ -6,8 +6,9 @@ import { Background, BaseEdge, Controls, EdgeLabelRenderer, getSmoothStepPath, M
 import '@xyflow/react/dist/style.css';
 import '../../canvas/dripCanvas.css';
 import { buildCanvasModel, FIXED_SHAPES, shapeHeight, type CNodeKind } from './canvasModel';
-import { ApprovalContext, cdNodeTypes, CostContext, EditContext, SizingContext, type ApprovalView, type CdNodeData, type EditApi } from './canvasNodes';
-import type { CostReportView, FieldSampleView, Offer, SizingRun } from './api';
+import { ApprovalContext, cdNodeTypes, CostContext, EditContext, EntryContext, SizingContext, type ApprovalView, type CdNodeData, type EditApi } from './canvasNodes';
+import { bucketContext } from './contextView';
+import type { CostReportView, FieldSampleView, LogoView, Offer, SizingRun, TrendView } from './api';
 import type { ChangeMap } from './canvasModel';
 import type { BankLink } from '../LinksSection';
 import type { CampaignContext, CampaignObject } from './types';
@@ -71,6 +72,10 @@ interface Props {
   approvals?: { byStep: Record<string, ApprovalView>; rewrite?: (stepId: string, reason: string) => void } | null;
   /** The bank's products, to name the product a message pitches. */
   products?: { product_id: string; product_name: string; product_type: string }[];
+  /** The bank's card logos, to name the scope on the entry card. */
+  logos?: LogoView[];
+  /** The target over the last 90 days, for the entry card. */
+  trend?: TrendView | null;
   /** Personal fields with sample values, for message previews. */
   fields?: FieldSampleView[];
   /** Potential spend on offers, and how to open its working. */
@@ -238,8 +243,15 @@ function Inner({ campaign, context, changed, focus, onOpenNode, edit, onPaneClic
 }
 
 export function CampaignCanvas(props: Props) {
+  // The entry card's totals come from the app's own counts (agent/autoSize.ts): the whole target and everyone else.
+  const entry = useMemo(() => {
+    const views = bucketContext(props.context?.entries ?? []);
+    const num = (id: string) => (typeof views[id]?.size === 'number' ? (views[id]!.size as number) : null);
+    return { target: num('__target'), targetSql: views.__target?.sql ?? null, rule: views.__target?.rule ?? null, everyoneElse: num('everyone_else'), buckets: props.campaign?.buckets.length ?? 0, logos: props.logos ?? [], trend: props.trend ?? null };
+  }, [props.context, props.campaign, props.logos, props.trend]);
   return (
     <div className={`cv-canvas dc-graph-wrap${props.edit?.editingId ? ' cv-focus-mode' : ''}`}>
+      <EntryContext.Provider value={entry}>
       <ApprovalContext.Provider value={props.approvals ?? null}>
       <CostContext.Provider value={props.onOpenCost ? { report: props.cost ?? null, open: props.onOpenCost } : null}>
       <SizingContext.Provider value={props.runSizing ?? null}>
@@ -251,6 +263,7 @@ export function CampaignCanvas(props: Props) {
       </SizingContext.Provider>
       </CostContext.Provider>
       </ApprovalContext.Provider>
+      </EntryContext.Provider>
     </div>
   );
 }

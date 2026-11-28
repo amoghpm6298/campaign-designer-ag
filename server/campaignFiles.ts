@@ -334,6 +334,8 @@ export interface CampaignSummary {
   schedule?: { startDate: string; endDate?: string } | null;
   /** Flow (always on) or campaign (one-time). */
   kind: CampaignKind;
+  /** Which card logos it is for; null = not decided yet. */
+  scope: { logos: string[] } | { all: true } | null;
   /** A flow converted from a campaign: which one. */
   origin?: { fromId: string; fromName: string };
   /** A campaign that became flows: which ones. */
@@ -394,6 +396,7 @@ export function listCampaigns(tenantId: string, dir = campaignDir()): CampaignSu
       ...(loadSubmission(name, dir) ? { submitted: loadSubmission(name, dir)! } : {}),
       ...(c?.schedule ? { schedule: c.schedule } : {}),
       kind: kindOf(c),
+      scope: c?.scope ?? null,
       // Campaigns are the sandbox: a flow converted from one says where it came from, and the campaign which flows it became.
       ...(c?.origin ? { origin: { fromId: c.origin.fromId, fromName: c.origin.fromName } } : {}),
       ...(() => {

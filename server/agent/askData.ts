@@ -10,7 +10,8 @@
 import { callClaude, extractJson } from '../anthropic';
 import { countCustomers, runWarehouseQuery, warehouseSchema } from '../warehouse';
 import { nextQid } from './citations';
-import { signalsFor } from '../signals';
+import { resolveSignalSql, signalsFor } from '../signals';
+import { holdersSql, logosFor, scopeContext, scopeText, withinScope } from '../logos';
 import { bucketContext } from '../../src/designer/v2/contextView';
 import { addContext, log } from './state';
 import type { AgentState } from './types';
@@ -63,11 +64,12 @@ function contextFor(state: AgentState, env: ToolEnv): string {
     .map((b) => `- ${b.id} "${b.name}" (priority ${b.priority}): ${views[b.id]?.behaviour ?? '(no description yet)'}\n  rule: ${JSON.stringify(b.rule)}${views[b.id]?.sql ? `\n  sizing SQL: ${views[b.id]!.sql}` : ''}`);
   const sigs = signalsFor(env.tenant)
     .filter((s) => s.sql)
-    .map((s) => `- ${s.key} (${s.label}): ${s.definition}\n  SQL: ${s.sql}`);
+    .map((s) => `- ${s.key} (${s.label}): ${s.definition}\n  SQL: ${resolveSignalSql(s.sql ?? '', scopeContext(c.scope))}`);
   const schema = warehouseSchema(env.warehouseBank!);
   const tables = schema.tables.map((t) => `- ${t.table} (${t.rows} rows): ${t.columns.map((col) => `${col.name}${col.examples ? ` [${col.examples.join('|')}]` : ''}`).join(', ')}`);
   return [
     `# The campaign`,
+    `Scope (which cards it is for): ${scopeText(c.scope, logosFor(env.tenant))}. Look only at these cards: customers who hold one (${holdersSql(c.scope)}), and their spends on them (transactions.card_id → cards.logo_id). Sizes are kept within the scope automatically.`,
     `Goal: ${c.goal ? `${c.goal.eventType} (${c.goal.eventCategory})` : 'not set'}. Dates: ${c.schedule ? `${c.schedule.startDate} to ${c.schedule.endDate}` : 'not set'}.`,
     buckets.length ? `Buckets (checked in this order, first match wins):\n${buckets.join('\n')}` : 'No buckets yet.',
     `# The data (as of ${schema.dataAsOf ?? 'unknown'})`,
@@ -169,8 +171,10 @@ export async function runAskData(input: Record<string, unknown>, state: AgentSta
     if (!a.sizingSql) sized = { bucket: bucket.id, error: 'The analyst did not give a sizing query.' };
     else
       try {
-        const n = countCustomers(env.warehouseBank, a.sizingSql);
-        entries.push({ kind: 'sizing', bucketId: bucket.id, topic: 'size', text: `Sized by the data analyst: ${bucket.name}.`, source: 'data', data: { sql: a.sizingSql, size: n } });
+        // Kept within the scope: only cardholders of the scoped logos are counted.
+        const sql = withinScope(a.sizingSql, state.campaign.scope);
+        const n = countCustomers(env.warehouseBank, sql);
+        entries.push({ kind: 'sizing', bucketId: bucket.id, topic: 'size', text: `Sized by the data analyst: ${bucket.name}.`, source: 'data', data: { sql, size: n } });
         sized = { bucket: bucket.id, customers: n };
       } catch (e) {
         sized = { bucket: bucket.id, error: `The sizing query failed: ${(e as Error).message}` };

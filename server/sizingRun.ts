@@ -4,6 +4,7 @@
 import { bucketContext } from '../src/designer/v2/contextView';
 import { loadChat, loadStores } from './campaignFiles';
 import { resolveTenant } from './tenants';
+import { withinScope } from './logos';
 import { countCustomers, runWarehouseQuery, warehouseAvailable, warehouseSchema } from './warehouse';
 
 const SAMPLE = 10;
@@ -31,8 +32,10 @@ export function runBucketSizing(sessionId: string, tenantId: string, bucketId: s
     const view = bucketContext(loadStores(sessionId).context?.entries ?? [])[bucketId];
     if (!view?.sql) return { ok: false, error: 'This bucket has no saved query.' };
     const t0 = Date.now();
-    const size = countCustomers(bank, view.sql);
-    const inner = view.sql.trim().replace(/;+\s*$/, '');
+    // Within the scope, as when it was sized.
+    const scoped = withinScope(view.sql, loadStores(sessionId).campaign?.scope);
+    const size = countCustomers(bank, scoped);
+    const inner = scoped.trim().replace(/;+\s*$/, '');
     // Show who it picks: their customer record if there is a customers table, else the query's own rows.
     const schema = warehouseSchema(bank);
     const customers = schema.tables.find((t) => t.table === 'customers');

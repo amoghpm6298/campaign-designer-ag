@@ -98,6 +98,12 @@ export interface CampaignObject {
   schedule?: { startDate: string; endDate?: string } | null;
   /** Flow (always on) or campaign (one-time), chosen when it was created and fixed (src/designer/v2/kind.ts). Older items: none, read from membership. */
   kind?: CampaignKind | null;
+  /** Which card logos it is for: some logos, or all cards (server/logos.ts). Must be set before anything is designed. Older items: none, read as all cards. */
+  scope?: { logos: string[] } | { all: true } | null;
+  /** The goal in one short line, for the canvas (e.g. "Get lapsed regulars transacting again"). */
+  goalLine?: string | null;
+  /** What the bank looks at to know whether it works: the designer's KPI and charts (server/analytics.ts). */
+  analytics?: import('../analytics').AnalyticsSpec | null;
   /** A flow converted from a one-time campaign that ran (server/convertToFlow.ts): where it came from and the manager's note. */
   origin?: { fromId: string; fromName: string; note?: string; by: string; at: string } | null;
   /** The most the campaign may spend on offers, in rupees. The engine stops issuing offers once it is spent. */
@@ -201,7 +207,7 @@ export interface AgentRequest {
   /** An app-started repair turn: the last user message was written by the app, not the manager. */
   repair?: boolean;
   /** A new campaign's intent (and product, for adoption), chosen in the app or via the MCP. Stored on the first turn only. */
-  intent?: { intent: CampaignIntent; productId?: string; kind?: CampaignKind } | null;
+  intent?: { intent: CampaignIntent; productId?: string; kind?: CampaignKind; scope?: unknown } | null;
 }
 
 export interface AgentResponse {

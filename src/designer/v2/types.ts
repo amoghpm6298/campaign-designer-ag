@@ -63,6 +63,12 @@ export interface CampaignObject {
   schedule?: { startDate: string; endDate?: string } | null;
   /** Flow (always on) or campaign (one-time); see kind.ts. */
   kind?: 'flow' | 'campaign' | null;
+  /** Which card logos it is for: some logos, or all cards. */
+  scope?: { logos: string[] } | { all: true } | null;
+  /** The goal in one short line, for the canvas. */
+  goalLine?: string | null;
+  /** The designer's KPI and charts (the Analytics tab). */
+  analytics?: unknown;
   /** A flow converted from a campaign that ran: where it came from and the manager's note. */
   origin?: { fromId: string; fromName: string; note?: string; by: string; at: string } | null;
   /** The most the campaign may spend on offers, in rupees. */

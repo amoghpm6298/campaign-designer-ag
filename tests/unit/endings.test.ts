@@ -91,7 +91,7 @@ describe('the "Anything else" route', () => {
   });
 
   it('can be addressed and edited precisely', () => {
-    let s = runToolCall('create_campaign', { name: 'A', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'locked' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
+    let s = runToolCall('create_campaign', { scope: { all: true }, name: 'A', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'locked' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
     s = runToolCall('create_bucket', { id: 'b1', name: 'Fresh', priority: 1, rule: [{ entity: 'Card', conditions: [] }], journey: designed([exit('not_reachable')]) }, s, env()).state;
     const out = runToolCall('edit_journey', { bucketId: 'b1', operations: [{ op: 'insert_before', path: '3.otherwise.0', step: send('Email try', 'EMAIL') }] }, s, env());
     expect(out.ok).toBe(true);
@@ -158,7 +158,7 @@ describe('endings', () => {
   });
 
   it('build_campaign reports open endings separately from things to fix', () => {
-    let s = runToolCall('create_campaign', { name: 'A', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'locked' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
+    let s = runToolCall('create_campaign', { scope: { all: true }, name: 'A', goal: { eventCategory: 'Card Events', eventType: 'Card Activated' }, entry: { entity: 'Card' }, membership: { type: 'locked' }, everyoneElse: { approach: 'none' } }, initialState(), env()).state;
     s = runToolCall('create_bucket', { id: 'b1', name: 'Fresh', priority: 1, rule: [{ entity: 'Card', conditions: [] }], journey: [send('Only')] }, s, env()).state;
     const out = runToolCall('build_campaign', {}, s, env());
     expect(out.forModel).toMatch(/ENDINGS NOT DECIDED YET/);
@@ -231,8 +231,8 @@ describe('the stopping rule', () => {
   });
 
   it('is set by the agent (1 to 10) and directly by the manager, versioned', () => {
-    expect(runToolCall('create_campaign', { maxAttempts: 0 }, initialState(), env()).ok).toBe(false);
-    expect(runToolCall('create_campaign', { maxAttempts: 2 }, initialState(), env()).state.campaign.maxAttempts).toBe(2);
+    expect(runToolCall('create_campaign', { scope: { all: true }, maxAttempts: 0 }, initialState(), env()).ok).toBe(false);
+    expect(runToolCall('create_campaign', { scope: { all: true }, maxAttempts: 2 }, initialState(), env()).state.campaign.maxAttempts).toBe(2);
     const c = campaign(designed([exit('not_reachable')]));
     saveCampaignObject('d2', 'TEN-YES', c);
     const r = directEdit('d2', 'TEN-YES', { op: 'maxAttempts', value: 3 });
@@ -299,7 +299,7 @@ describe('campaign dates', () => {
   });
 
   it('are set through create_campaign / edit_campaign and refused when wrong', () => {
-    const s = runToolCall('create_campaign', { name: 'A', schedule: { startDate: day(1), endDate: day(20) } }, initialState(), env());
+    const s = runToolCall('create_campaign', { scope: { all: true }, name: 'A', schedule: { startDate: day(1), endDate: day(20) } }, initialState(), env());
     expect(s.state.campaign.schedule).toEqual({ startDate: day(1), endDate: day(20) });
     expect(runToolCall('edit_campaign', { schedule: { startDate: day(-3), endDate: day(20) } }, s.state, env()).ok).toBe(false);
   });

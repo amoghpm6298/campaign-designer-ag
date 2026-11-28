@@ -1,4 +1,4 @@
-// "Convert to flow": a one-time campaign that has run becomes the starting
+// "Convert to flow": a one-time campaign, at any stage, becomes the starting
 // point of a new always-on flow. Campaigns are the sandbox; what worked
 // graduates. The whole campaign (buckets, journeys, messages, the designer's
 // reasoning, approved messages) is copied into a new flow, and the flow
@@ -80,7 +80,6 @@ export function convertToFlow(
   if (owner && owner !== tenantId) throw new Error('This campaign belongs to another bank.');
   if (kindOf(c) !== 'campaign') throw new Error('Only a one-time campaign can be converted into a flow.');
   if (!c.buckets.some((b) => b.journey?.length)) throw new Error('This campaign has nothing built to convert yet.');
-  if (!hasRun(fromId, dir)) throw new Error('Only a campaign that has run (active or ended) can become a flow: try the idea as a campaign first.');
   const name = opts.name.trim();
   if (!name) throw new Error('Give the flow a name.');
   const note = (opts.note ?? '').trim();

@@ -9,6 +9,7 @@ import { productsFor } from '../products';
 import { approvalProblem, summarise as summariseApprovals, syncApprovals } from '../approvals';
 import { isIntent } from '../agent/intent';
 import { isKind, kindOf } from '../../src/designer/v2/kind';
+import { logoForAgent, logosFor, parseScope, scopeText } from '../logos';
 import { toEngineCampaign } from '../engineExport';
 import { currentEntries } from '../../src/designer/v2/contextView';
 import type { AnswerItem } from '../../src/designer/v2/types';
@@ -79,6 +80,11 @@ export const MCP_TOOLS = [
           type: 'string',
           enum: ['flow', 'campaign'],
           description: '"flow": always on (customers join as they become eligible; a start date, no end date; runs until stopped). "campaign": one-time (fixed list at launch; a start and an end date). Fixed once created.',
+        },
+        scope: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Which of the bank\'s card logos it is for (list_logos): one or more logo names or ids, or ["all"] for every card. Optional: without it the designer takes the cards from the brief, or asks your human as its first question.',
         },
       },
       required: ['brief', 'kind'],
@@ -162,6 +168,11 @@ export const MCP_TOOLS = [
     inputSchema: { type: 'object', properties: { campaignId: { type: 'string' } }, required: ['campaignId'] },
   },
   {
+    name: 'list_logos',
+    description: "The bank's credit card logos (card products), each with its name, tier, fees, rewards and benefits. Every flow or campaign is for one or more of them, or all cards: pass names as scope to create_campaign.",
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'list_products',
     description: "The bank's products to sell (card upgrades, add-on cards, loans on the card, insurance…), each with its id, what it is and who it is for. Use an id as productId for an \"adoption\" campaign.",
     inputSchema: { type: 'object', properties: {} },
@@ -232,7 +243,8 @@ export function campaignStatus(caller: Caller, id: string): Result {
     if (gone) return gone;
     throw e;
   }
-  const base: Result = { campaignId: id, kind: kindOf(loadStores(id).campaign), ...linkInfo(caller, id) };
+  const st0 = loadStores(id).campaign;
+  const base: Result = { campaignId: id, kind: kindOf(st0), scope: scopeText(st0?.scope, logosFor(resolveTenant(caller.tenantId))), ...linkInfo(caller, id) };
   const sub = loadSubmission(id);
   if (sub) {
     const st = loadStores(id);
@@ -335,8 +347,15 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       if (name === 'start_campaign' && !isKind(args.kind)) args = { ...args, kind: 'campaign' };
       if (!isKind(args.kind)) throw new ToolError('kind is required: "flow" (always on: customers join as they become eligible, runs until stopped) or "campaign" (one-time: a fixed list, between two dates). Ask your human which.');
       const kind = args.kind;
+      // Which cards: names or ids, or ["all"]. Checked now, so a wrong name comes straight back.
+      let scopeArg: unknown = null;
+      if (Array.isArray(args.scope) && args.scope.length) {
+        const parsed = parseScope(args.scope.map(String).some((x) => /^all( cards)?$/i.test(x)) ? { all: true } : { logos: args.scope }, logosFor(resolveTenant(caller.tenantId)));
+        if ('error' in parsed) throw new ToolError(parsed.error);
+        scopeArg = parsed.value;
+      }
       const id = newId();
-      const r = startTurn(id, caller.tenantId, { content: idea }, { questionMode, intent: { intent, kind, ...(intent === 'adoption' ? { productId } : {}) } });
+      const r = startTurn(id, caller.tenantId, { content: idea }, { questionMode, intent: { intent, kind, ...(intent === 'adoption' ? { productId } : {}), ...(scopeArg ? { scope: scopeArg } : {}) } });
       if (!r.ok) throw new ToolError(r.error);
       return {
         campaignId: id,
@@ -482,6 +501,8 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       return { campaignId: id, ...linkInfo(caller, id) };
     }
 
+    case 'list_logos':
+      return { logos: logosFor(resolveTenant(caller.tenantId)).map((l) => ({ ...logoForAgent(l), note: undefined, feesNote: 'indicative, from public sources' })) };
     case 'list_products':
       return {
         products: productsFor(resolveTenant(caller.tenantId))
@@ -494,6 +515,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
           campaignId: c.sessionId,
           name: c.name,
           kind: c.kind,
+          scope: c.scope ?? 'not decided',
           ...(() => {
             const st = campaignStatus(caller, c.sessionId);
             return { state: st.state, allowedActions: st.allowedActions };
