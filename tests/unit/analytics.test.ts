@@ -45,6 +45,8 @@ describe('the analytics spec', () => {
     const p = systemPrompt(true, true, 'flow');
     expect(p).toMatch(/ANALYTICS\. After every build, write the analytics with set_analytics/);
     expect(p).toMatch(/In a flow, the analytics KPI is per weekly group of joiners/);
+    // A first live run headlined 0%: the newest weeks' 30 days had not passed yet.
+    expect(p).toMatch(/only include weekly groups whose N days have passed, so the latest point is the latest complete week/);
     expect(systemPrompt(true, true, 'campaign')).toMatch(/In a campaign, the analytics KPI is progress against the target/);
   });
 });
