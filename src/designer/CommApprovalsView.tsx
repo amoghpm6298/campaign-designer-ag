@@ -28,6 +28,8 @@ interface CampaignQueue {
   sessionId: string;
   name: string;
   state: string;
+  /** Flow (always on) or campaign (one-time). */
+  kind?: 'flow' | 'campaign';
   records: ApprovalRecordView[];
 }
 
@@ -99,9 +101,10 @@ export function CommApprovalsView({ tenant, focusId }: { tenant: Tenant | null; 
       )}
       {!!shown.length && open && (
         <div className="ca-inbox">
-          <nav className="ca-list" aria-label="Campaigns">
+          <nav className="ca-list" aria-label="Flows and campaigns">
             {shown.map((q) => (
               <button key={q.sessionId} className={`ca-camp${q.sessionId === open.sessionId ? ' on' : ''}`} onClick={() => setOpenId(q.sessionId)}>
+                <span className="ca-kind">{q.kind === 'flow' ? 'Flow' : 'Campaign'}</span>
                 <b>{q.name || 'Untitled campaign'}</b>
                 <span className="ca-counts">
                   {count(q, 'pending') > 0 && <span className="ca-n pending">{count(q, 'pending')} pending</span>}

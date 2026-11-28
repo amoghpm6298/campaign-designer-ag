@@ -287,6 +287,8 @@ export function agentApiPlugin(): Plugin {
               skipped: body.skipped,
               focus: body.focus ?? null,
               repair: body.repair === true,
+              // A new item's intent, product and kind (flow or campaign), chosen when it was created. The loop stores them on the first turn.
+              intent: body.intent && typeof body.intent === 'object' ? body.intent : null,
             });
             return void (await streamSse(res, gen));
           }
@@ -496,13 +498,13 @@ export function agentApiPlugin(): Plugin {
               }
               // The inbox: every campaign of this bank that has messages, with its queue.
               // Submitted campaigns are locked (and those from before approvals were never queued): only campaigns that can still change.
-              const list = (files.listCampaigns as (t: string) => { sessionId: string; name: string; state: string; intent?: string; submitted?: unknown }[])(tenantId);
+              const list = (files.listCampaigns as (t: string) => { sessionId: string; name: string; state: string; intent?: string; kind?: string; submitted?: unknown }[])(tenantId);
               const campaigns = list
                 .filter((cs) => !cs.submitted)
                 .map((cs) => {
                   const c = (files.loadStores as (id: string) => { campaign: unknown })(cs.sessionId).campaign;
                   const records = c ? sync(cs.sessionId, c, tenant) : [];
-                  return { sessionId: cs.sessionId, name: cs.name, state: cs.state, intent: cs.intent, records, summary: summarise(records) };
+                  return { sessionId: cs.sessionId, name: cs.name, state: cs.state, intent: cs.intent, kind: cs.kind, records, summary: summarise(records) };
                 })
                 .filter((x) => x.records.length);
               return send(res, 200, { campaigns });

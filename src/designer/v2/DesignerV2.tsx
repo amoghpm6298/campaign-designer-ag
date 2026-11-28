@@ -27,6 +27,7 @@ import { ChatPanel, type Cue } from './ChatPanel';
 import { mergeEvent, plainText } from './logic';
 import { SourcesContext, sourcesFromEntries } from './Citations';
 import { submittedStage } from './lifecycle';
+import { KIND_LABEL, isKind, kindOf, type CampaignKind } from './kind';
 import { NodeDrawer } from './NodeDrawer';
 import { QuestionOverlay } from './QuestionOverlay';
 import { FLAG_LABELS, FLAG_ORDER, type AgentState, type CampaignContext, type CampaignObject, type AnswerItem, type Focus, type V2Event, type V2Turn, type VersionEntry } from './types';
@@ -101,7 +102,10 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   const [, setLastWithdrawal] = useState<Withdrawal | null>(null);
   const [withdrawing, setWithdrawing] = useState<'ask' | 'busy' | string | null>(null);
   const [submitting, setSubmitting] = useState<'ask' | 'busy' | string | null>(null);
-  const pauseLabel = 'Stop campaign';
+  // Flow (always on) or campaign (one-time): stored on the item, or chosen just now for a new one.
+  const kind: CampaignKind = isKind(stores.campaign?.kind) ? stores.campaign!.kind! : isKind(pendingIntent(sessionId)?.kind) ? pendingIntent(sessionId)!.kind! : kindOf(stores.campaign);
+  const noun = kind === 'flow' ? 'flow' : 'campaign';
+  const pauseLabel = kind === 'flow' ? 'Stop flow' : 'Stop campaign';
   const [subStart, setSubStart] = useState('');
   const [subEnd, setSubEnd] = useState('');
   useEffect(() => {
@@ -451,7 +455,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
     cue = {
       icon: 'busy',
       title: `${now}…`,
-      text: buckets ? `${buckets} bucket${buckets === 1 ? '' : 's'} on the canvas so far. Watch them fill in.` : 'The canvas fills in as the campaign takes shape.',
+      text: buckets ? `${buckets} bucket${buckets === 1 ? '' : 's'} on the canvas so far. Watch them fill in.` : `The canvas fills in as the ${noun} takes shape.`,
     };
   } else if (formQuestions.length) {
     cue = {
@@ -473,9 +477,9 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
   } else if (lastBuilt && built) {
     cue = {
       icon: 'ready',
-      title: 'Your campaign is ready',
+      title: `Your ${noun} is ready`,
       text: `${buckets} bucket${buckets === 1 ? '' : 's'} · ${sends} message${sends === 1 ? '' : 's'}. Ask here to change anything.`,
-      action: { label: 'View campaign', run: viewAll },
+      action: { label: `View ${noun}`, run: viewAll },
     };
   }
 
@@ -498,7 +502,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         <div className="cv-viewbar" role="note">
           <Eye size={16} />
           <b>View only</b>
-          <span>You can look at this campaign but not change it.{viewExpiry ? ` This link works until ${viewExpiry}.` : ''}</span>
+          <span>You can look at this {noun} but not change it.{viewExpiry ? ` This link works until ${viewExpiry}.` : ''}</span>
           <a className="cv-viewbar-login" href={loginToEdit}>
             Log in to edit
           </a>
@@ -506,16 +510,21 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
       )}
       <header className="cv-top">
         {!viewOnly && (
-          <button className="cv-back" onClick={onBack} title="All campaigns">
+          <button className="cv-back" onClick={onBack} title={kind === 'flow' ? 'All flows' : 'All campaigns'}>
             <ArrowLeft size={16} />
           </button>
         )}
         <div className="cv-title">
           {(() => {
             const it = (stores.campaign as { intent?: string } | null)?.intent ?? pendingIntent(sessionId)?.intent;
-            return it ? <span className="cv-intent" title="What this campaign is for, chosen when it was created">{intentLabel(it)}</span> : null;
+            return (
+              <span className="cv-intent" title={kind === 'flow' ? 'A flow: always on. Customers join as they become eligible; it runs until stopped.' : 'A one-time campaign: a fixed list, between two dates.'}>
+                {KIND_LABEL[kind]}
+                {it ? ` · ${intentLabel(it, kind)}` : ''}
+              </span>
+            );
           })()}
-          <b>{plan?.name || 'New campaign'}</b>
+          <b>{plan?.name || `New ${noun}`}</b>
         </div>
         {/* The campaign's status (Draft, Scheduled, Active…) shows on the Campaigns page, not here. */}
         <span className="cv-top-gap" />
@@ -545,16 +554,16 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         >
           {versionsOpen && versions.length > 0 && <VersionMenu versions={versions} viewing={viewing?.v.n ?? null} onView={view} onClose={() => setVersionsOpen(false)} />}
           {confirmDelete && (
-            <div className="cv-del-pop" role="dialog" aria-label="Delete campaign">
-              <b>{plan?.name ? `Delete “${plan.name}”?` : 'Delete this campaign?'}</b>
-              <p>It is removed from your campaigns, with its chat and versions.</p>
+            <div className="cv-del-pop" role="dialog" aria-label={`Delete ${noun}`}>
+              <b>{plan?.name ? `Delete “${plan.name}”?` : `Delete this ${noun}?`}</b>
+              <p>It is removed from your {noun}s, with its chat and versions.</p>
               {confirmDelete !== 'ask' && confirmDelete !== 'deleting' && <p className="cv-del-err">{confirmDelete}</p>}
               <div className="cv-del-btns">
                 <button className="cv-btn" onClick={() => setConfirmDelete(null)}>
                   Cancel
                 </button>
                 <button className="cv-btn danger" disabled={confirmDelete === 'deleting'} onClick={deleteCampaign}>
-                  {confirmDelete === 'deleting' ? 'Deleting…' : 'Delete campaign'}
+                  {confirmDelete === 'deleting' ? 'Deleting…' : `Delete ${noun}`}
                 </button>
               </div>
             </div>
@@ -563,13 +572,17 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
         {/* The main action sits last, on the right: Submit for a ready campaign, Stop for a live one. */}
         {submission && !viewOnly && submittedStage(submission) !== 'ended' && (
           <span className="cv-del-wrap">
-            <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title="Stop it: back to Draft, editable; you can submit it again">
+            <button className="cv-btn" onClick={() => setWithdrawing((v) => (v ? null : 'ask'))} title={kind === 'flow' ? 'Stop the flow: nobody new joins; it can go live again' : 'Stop it: back to Draft, editable; you can submit it again'}>
               {pauseLabel}
             </button>
             {withdrawing && (
               <div className="cv-del-pop" role="dialog" aria-label={pauseLabel}>
                 <b>{pauseLabel}?</b>
-                <p>It goes back to Draft: editable, and you can submit it again with new dates. Customers' progress is not kept, so it starts fresh next time.</p>
+                <p>
+                  {kind === 'flow'
+                    ? 'No new customers join and nobody gets further messages. It shows as Stopped, stays editable, and can go live again. Customers\' progress is not kept.'
+                    : 'It goes back to Draft: editable, and you can submit it again with new dates. Customers\' progress is not kept, so it starts fresh next time.'}
+                </p>
                 {withdrawing !== 'ask' && withdrawing !== 'busy' && <p className="cv-del-err">{withdrawing}</p>}
                 <div className="cv-del-btns">
                   <button className="cv-btn" onClick={() => setWithdrawing(null)}>
@@ -600,7 +613,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               <button
                 className="cv-btn cv-appr-wait"
                 onClick={() => window.dispatchEvent(new CustomEvent('cv:open-approvals', { detail: { sessionId } }))}
-                title="Every message must be approved by the bank before the campaign can be submitted. Open Comm approvals."
+                title={kind === 'flow' ? 'Every message must be approved by the bank before the flow can go live. Open Comm approvals.' : 'Every message must be approved by the bank before the campaign can be submitted. Open Comm approvals.'}
               >
                 <ShieldCheck size={14} /> Waiting for approvals ({notApproved})
               </button>
@@ -614,22 +627,28 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
                 setSubmitting((v) => (v ? null : 'ask'));
               }}
             >
-              Submit for execution
+              {kind === 'flow' ? 'Go live' : 'Submit for execution'}
             </button>
             )}
             {submitting && (
-              <div className="cv-del-pop" role="dialog" aria-label="Submit for execution">
-                <b>Submit for execution</b>
-                <p>Confirm when it runs. Once submitted it is locked; stop it to change it.</p>
+              <div className="cv-del-pop" role="dialog" aria-label={kind === 'flow' ? 'Go live' : 'Submit for execution'}>
+                <b>{kind === 'flow' ? 'Go live' : 'Submit for execution'}</b>
+                <p>
+                  {kind === 'flow'
+                    ? 'Pick the day it goes live: today, or a later date to schedule it. It has no end date and runs until you stop it. Once live it is locked; stop it to change it.'
+                    : 'Confirm when it runs. Once submitted it is locked; stop it to change it.'}
+                </p>
                 <div className="cv-pop-dates" style={{ marginTop: 8 }}>
                   <label>
-                    <span>Starts</span>
+                    <span>{kind === 'flow' ? 'Goes live on' : 'Starts'}</span>
                     <input type="date" value={subStart} min={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })} onChange={(e) => setSubStart(e.target.value)} />
                   </label>
-                  <label>
-                    <span>Ends</span>
-                    <input type="date" value={subEnd} min={subStart || undefined} onChange={(e) => setSubEnd(e.target.value)} />
-                  </label>
+                  {kind === 'campaign' && (
+                    <label>
+                      <span>Ends</span>
+                      <input type="date" value={subEnd} min={subStart || undefined} onChange={(e) => setSubEnd(e.target.value)} />
+                    </label>
+                  )}
                 </div>
                 {submitting !== 'ask' && submitting !== 'busy' && <p className="cv-del-err" style={{ whiteSpace: 'pre-wrap' }}>{submitting}</p>}
                 <div className="cv-del-btns">
@@ -638,17 +657,17 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
                   </button>
                   <button
                     className="cv-btn primary"
-                    disabled={submitting === 'busy' || !subStart || !subEnd}
+                    disabled={submitting === 'busy' || !subStart || (kind === 'campaign' && !subEnd)}
                     onClick={async () => {
                       setSubmitting('busy');
-                      const r = await submitCampaignApi(sessionId, tenant.tenantId, subStart, subEnd);
+                      const r = await submitCampaignApi(sessionId, tenant.tenantId, subStart, kind === 'flow' ? '' : subEnd);
                       if (!r.ok || !r.submission) return setSubmitting(r.error ?? 'Could not submit.');
                       setSubmission(r.submission);
                       setSubmitting(null);
                       fetchStores(sessionId).then(({ campaign, context }) => setStores({ campaign, context }));
                     }}
                   >
-                    {submitting === 'busy' ? 'Submitting…' : 'Submit'}
+                    {submitting === 'busy' ? (kind === 'flow' ? 'Working…' : 'Submitting…') : kind === 'flow' ? 'Go live' : 'Submit'}
                   </button>
                 </div>
               </div>
@@ -680,7 +699,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
               )}
               {strategy && (
                 <button className="cv-strategy-cta" onClick={() => { setDrawerId(null); setCostOpen(null); setStrategyOpen(true); }} title="The designer's working plan: buckets, levers, money and budget">
-                  <FileText size={14} /> Campaign strategy
+                  <FileText size={14} /> {kind === 'flow' ? 'Flow strategy' : 'Campaign strategy'}
                 </button>
               )}
             </div>
@@ -715,7 +734,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           ) : (
             <div className="cv-canvas-empty dc-graph-wrap">
               <div>
-                <b>{busy ? 'Getting started…' : 'Your campaign will appear here'}</b>
+                <b>{busy ? 'Getting started…' : `Your ${noun} will appear here`}</b>
                 <p>The entry, one column per customer bucket, and each bucket's messages, laid out as a flow.</p>
               </div>
             </div>
@@ -723,6 +742,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
 
           {formQuestions.length > 0 && (
             <QuestionOverlay
+              noun={noun}
               key={formQuestions.map((q) => q.id).join(',')}
               intro={lastAssistant?.content ?? ''}
               questions={formQuestions}
@@ -754,7 +774,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
             </div>
           )}
 
-          {strategyOpen && strategy && <StrategyPanel note={strategy} onClose={() => setStrategyOpen(false)} />}
+          {strategyOpen && strategy && <StrategyPanel noun={noun} note={strategy} onClose={() => setStrategyOpen(false)} />}
           {costOpen && cost && cost.mode !== 'none' && <CostPanel report={cost} focusBucket={costOpen.bucketId} locked={locked || busy || !!viewing} onDirect={onDirect} onClose={() => setCostOpen(null)} />}
           {drawerNode?.data.step && <NodeDrawer step={drawerNode.data.step as CStep} path={drawerNode.data.path} bucketName={drawerBucket} links={links} smsFallback={smsFallback} onClose={() => setDrawerId(null)} />}
 
@@ -766,7 +786,7 @@ export function DesignerV2({ knowledge, tenant, sessionId, initial, onBack }: { 
           live={live}
           busy={busy}
           cue={locked ? null : cue}
-          placeholder={viewOnly ? 'View-only link. Open the app with the password to make changes.' : submission ? 'Submitted for execution. This campaign is locked.' : viewing ? 'Viewing an old version. Go back to current to make changes.' : formQuestions.length ? 'Or reply in your own words…' : built ? 'Ask for a change, or point at any box on the canvas…' : 'Message the agent…'}
+          placeholder={viewOnly ? 'View-only link. Open the app with the password to make changes.' : submission ? (kind === 'flow' ? 'This flow is live and locked. Stop it to change it.' : 'Submitted for execution. This campaign is locked.') : viewing ? 'Viewing an old version. Go back to current to make changes.' : formQuestions.length ? 'Or reply in your own words…' : built ? 'Ask for a change, or point at any box on the canvas…' : 'Message the agent…'}
           onSend={(t) => send(t)}
           locked={!!viewing || locked}
           onShowFocus={showFocus}

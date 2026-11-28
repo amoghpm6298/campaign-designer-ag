@@ -81,7 +81,8 @@ describe('the MCP endpoint', () => {
 
 describe('a campaign through the MCP', () => {
   it('start → questions → answers → built → approved → submit, saved exactly as the app saves it, on the token\'s bank', async () => {
-    const start = await tool('create_campaign', { brief: 'Diwali spend push' });
+    const start = await tool('create_campaign', { brief: 'Diwali spend push', kind: 'campaign' });
+    expect(start.data.kind ?? 'campaign').toBe('campaign');
     const id = String(start.data.campaignId);
     expect(start.data.link).toBe(`https://app.test/cd/designer.html?c=${id}&bank=TEN-YES`);
     expect(seen[0].tenantId).toBe('TEN-YES');
@@ -334,11 +335,22 @@ describe('an ended campaign', () => {
 describe('create_campaign', () => {
   it('takes a long brief as it is, and still accepts the first names (start_campaign, idea)', async () => {
     const long = `Goal: dormant cardholders spending again.\n${'Past result: last year 4.2% reactivated with two SMS. '.repeat(400)}`;
-    const id = String((await tool('create_campaign', { brief: long, questions: 'assume' })).data.campaignId);
+    const id = String((await tool('create_campaign', { brief: long, questions: 'assume', kind: 'campaign' })).data.campaignId);
     expect(seen.at(-1)!.messages[0].content).toBe(long.trim());
     await waitForTurn(id, 2000);
     expect((await tool('start_campaign', { idea: 'old name' })).data.state).toBe('draft');
     expect((await tool('create_campaign', {})).text).toMatch(/brief is required/);
+  });
+
+  it('needs the kind: a flow (always on) or a one-time campaign; it reaches the designer with the first turn', async () => {
+    expect((await tool('create_campaign', { brief: 'Welcome every new cardholder' })).text).toMatch(/kind is required: "flow".*"campaign"/);
+    const id = String((await tool('create_campaign', { brief: 'Welcome every new cardholder', kind: 'flow', questions: 'assume' })).data.campaignId);
+    // The designer's loop stores it on its first turn (here a stand-in runs instead, so only the hand-over is checked).
+    expect(seen.at(-1)!.intent).toMatchObject({ kind: 'flow' });
+    await waitForTurn(id, 2000);
+    // The old name predates kinds: a one-time campaign, as before.
+    await tool('start_campaign', { idea: 'old client' });
+    expect(seen.at(-1)!.intent).toMatchObject({ kind: 'campaign' });
   });
 });
 

@@ -257,6 +257,40 @@ cue card), `NodeDrawer` (message preview), `DesignerV2` (layout, Activity drawer
   included). At submit, `server/engineExport.ts` keeps only the engine's
   fields and writes a frozen `engine.json`. Problems block submit.
 
+## Flows and campaigns (2026-11-27)
+
+Every item is a **flow** (always on) or a **campaign** (one-time), chosen when
+it is created (the Flows or Campaigns page, or `kind` on the MCP's
+`create_campaign`) and fixed from then on (`src/designer/v2/kind.ts`).
+
+- **The kind decides membership.** Flow = open (new customers join on the
+  refresh, weekly by default); campaign = locked. The loop stores kind and
+  membership on the first turn (`membershipClear` set), so "one-time or
+  recurring?" is never a question. A stored kind is enforced in
+  `updateCampaign`: a flow can't be locked (only its refresh changes), a
+  campaign can't be opened, and `afterJourney` / `maxAttempts` are refused on
+  a campaign. Items from before kinds have none stored: `kindOf` reads them
+  from membership (open = flow) and they are not held to one.
+- **Dates.** A campaign has start and end. A flow has a start only (a later
+  start = Scheduled) and runs until stopped; `parseSchedule(…, kind)` refuses
+  an end date on a flow. Window checks (journey longer than the window) apply
+  to campaigns only. A stopped flow shows as **Stopped** (a stopped campaign
+  goes back to Draft). Flow states: Draft · Scheduled · Live · Stopped.
+- **Two prompts.** `systemPrompt(warehouse, incentives, kind)`: the shared core,
+  then exactly one of `FLOW` / `CAMPAIGN`. Flow: who joins as they become
+  eligible (the trigger), a goal per customer counted from joining, success as
+  a rate per weekly group of joiners, a monthly budget, journeys timed from the
+  join day, evergreen copy, plus after-the-journey, the stopping rule and the
+  returning-customer bucket (moved out of the core). Campaign: the window and
+  its hook, a total by the end date, launch / mid-window reminder / last call,
+  deadline copy, a total budget, everyone leaves at the end. The status says
+  which it is every turn. Tool names stay `*_campaign` (the instructions say
+  so); the MCP's `start_campaign` alias defaults to a campaign.
+- **App.** Sidebar: Flows (live count) first, then Campaigns (active count);
+  one `CampaignsHome` filtered by kind. New-item popup, suggested briefs, the
+  canvas header, Go live / Stop flow, the entry card and its edit popover all
+  follow the kind.
+
 ## Rules worth keeping
 
 - Never invent an incentive. Banks with a menu: offers only from

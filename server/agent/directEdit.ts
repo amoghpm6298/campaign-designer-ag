@@ -23,7 +23,7 @@ export type DirectOp =
   | { op: 'wait'; bucketId: string; stepId: string; days: number }
   | { op: 'afterJourney'; outcome: AfterOutcome; value: number | 'leave' }
   | { op: 'maxAttempts'; value: number }
-  | { op: 'schedule'; startDate: string; endDate: string }
+  | { op: 'schedule'; startDate: string; endDate?: string }
   | { op: 'budgetCap'; value: number | null }
   | { op: 'funnelRate'; bucketId: string; stepId: string; which: 'opens' | 'converts'; pct: number }
   | { op: 'copy'; bucketId: string; stepId: string; copy: string; cta?: string };
@@ -52,9 +52,9 @@ function apply(state: AgentState, op: DirectOp): { state: AgentState; said: stri
   }
   if (op.op === 'schedule') {
     const prev = c.schedule;
-    const res = updateCampaign(state, { schedule: { startDate: op.startDate, endDate: op.endDate } });
+    const res = updateCampaign(state, { schedule: { startDate: op.startDate, ...(op.endDate ? { endDate: op.endDate } : {}) } });
     if (res.error) return { error: res.error };
-    return { state: res.state, said: `Campaign dates: ${scheduleText(prev)} → ${scheduleText(res.state.campaign.schedule)}` };
+    return { state: res.state, said: `Dates: ${scheduleText(prev)} → ${scheduleText(res.state.campaign.schedule)}` };
   }
   if (op.op === 'maxAttempts') {
     const prev = c.maxAttempts;

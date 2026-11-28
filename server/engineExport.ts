@@ -7,6 +7,7 @@
 // until it is, and the one place to change when it is. Reasoning never goes
 // to the engine.
 import type { CampaignObject } from './agent/types';
+import { kindOf } from '../src/designer/v2/kind';
 import type { BpStep } from './blueprint';
 import type { TenantConfig } from './tenants';
 import { incentivesFor } from './incentives';
@@ -98,8 +99,10 @@ export function toEngineCampaign(c: CampaignObject, tenant: Pick<TenantConfig, '
       name: c.name ?? null,
       goal: c.goal,
       entry: c.entry,
+      // flow: always on, new customers join on the refresh, no end date (runs until stopped). campaign: one-time, fixed list, two dates.
+      kind: kindOf(c),
       membership: c.membership,
-      schedule: c.schedule ?? null,
+      schedule: c.schedule ? { startDate: c.schedule.startDate, endDate: c.schedule.endDate ?? null } : null,
       ...(c.maxAttempts ? { maxAttempts: c.maxAttempts } : {}),
       ...(c.afterJourney ? { afterJourney: c.afterJourney } : {}),
       ...(typeof c.budgetCap === 'number' ? { budgetCap: c.budgetCap } : {}),

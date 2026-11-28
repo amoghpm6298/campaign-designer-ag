@@ -1,7 +1,7 @@
 // The standalone application shell: its own header, navigation and global
 // tenant selector. Nothing here comes from the ib-face-mock chrome.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Gift, Library, Link2, Megaphone, Package, PanelLeftClose, PanelLeftOpen, ShieldCheck, X } from 'lucide-react';
+import { Check, Gift, Library, Link2, Megaphone, Package, PanelLeftClose, PanelLeftOpen, Route, ShieldCheck, X } from 'lucide-react';
 import logo from '../assets/hyperfaceMark.jpeg';
 import {
   applyOverrides,
@@ -26,10 +26,13 @@ import type { Capabilities, KnowledgeBase, Tenant } from '../designer/types';
 /** The bank, and whether the designer can read its data: "Yes Bank (Data access: Allowed)". */
 const tenantLabel = (t: Tenant) => `${t.displayName} (Data access: ${t.warehouseAccess ? 'Allowed' : 'Not allowed'})`;
 
-type Page = 'designer' | 'knowledge' | 'links' | 'offers' | 'products' | 'approvals';
+// 'flows' (always on) is the first page; 'designer' is Campaigns (one-time). Both list items and open one on the canvas.
+type Page = 'flows' | 'designer' | 'knowledge' | 'links' | 'offers' | 'products' | 'approvals';
+const isList = (p: Page) => p === 'flows' || p === 'designer';
 
 export function DesignerShell() {
-  const [page, setPage] = useState<Page>('designer');
+  // Kept in the address (?tab=campaigns) so a refresh stays on the same list.
+  const [page, setPage] = useState<Page>(() => (new URLSearchParams(location.search).get('tab') === 'campaigns' ? 'designer' : 'flows'));
   // "Waiting for approvals" on a campaign opens Comm approvals at that campaign.
   const [approvalsFocus, setApprovalsFocus] = useState<string | null>(null);
   useEffect(() => {
@@ -49,8 +52,10 @@ export function DesignerShell() {
     const url = new URL(location.href);
     if (openId) url.searchParams.set('c', openId);
     else url.searchParams.delete('c');
+    if (page === 'designer') url.searchParams.set('tab', 'campaigns');
+    else url.searchParams.delete('tab');
     history.replaceState(null, '', url);
-  }, [openId]);
+  }, [openId, page]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   // A link from the MCP names its bank (?bank=), so it opens on the right one whatever this browser last used.
   const [tenantId, setTenantId] = useState<string>(() => new URLSearchParams(location.search).get('bank') ?? loadTenantId() ?? '');
@@ -114,14 +119,23 @@ export function DesignerShell() {
       window.removeEventListener('cv:approvals-changed', load);
     };
   }, [tenant, page, openId]);
-  // Active campaigns (running now), counted on the Campaigns item.
+  // Running now, counted on each item: live flows on Flows, active campaigns on Campaigns.
   const [activeCampaigns, setActiveCampaigns] = useState(0);
+  const [liveFlows, setLiveFlows] = useState(0);
   useEffect(() => {
     if (!tenant) return;
     let live = true;
     fetch(apiUrl(`/api/campaigns?tenantId=${encodeURIComponent(tenant.tenantId)}`))
       .then((r) => r.json())
-      .then((d: { campaigns?: { state?: string }[] }) => live && setActiveCampaigns((d.campaigns ?? []).filter((c) => c.state === 'active').length))
+      .then((d: { campaigns?: { sessionId?: string; state?: string; kind?: string }[] }) => {
+        if (!live) return;
+        const all = d.campaigns ?? [];
+        setActiveCampaigns(all.filter((c) => c.kind !== 'flow' && c.state === 'active').length);
+        setLiveFlows(all.filter((c) => c.kind === 'flow' && c.state === 'active').length);
+        // An item opened from a link: highlight the list it belongs to.
+        const open = openId && all.find((c) => c.sessionId === openId);
+        if (open) setPage((p) => (isList(p) ? (open.kind === 'flow' ? 'flows' : 'designer') : p));
+      })
       .catch(() => undefined);
     return () => {
       live = false;
@@ -188,6 +202,7 @@ export function DesignerShell() {
         >
           {(
             [
+              ['flows', 'Flows', Route],
               ['designer', 'Campaigns', Megaphone],
               ['knowledge', 'Knowledge Base', Library],
               ['links', 'Links', Link2],
@@ -202,7 +217,7 @@ export function DesignerShell() {
                 key={k}
                 onClick={() => {
                   setPage(k);
-                  if (k === 'designer') setOpenId(null);
+                  if (isList(k)) setOpenId(null);
                 }}
                 title={label}
                 aria-label={label}
@@ -220,6 +235,15 @@ export function DesignerShell() {
                 {on && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-primary" />}
                 <Icon className="w-[18px] h-[18px] shrink-0" />
                 {railOpen && <span className="truncate">{label}</span>}
+                {k === 'flows' && liveFlows > 0 && (
+                  <span
+                    className={railOpen ? 'ml-auto inline-flex items-center h-5 px-1.5 rounded-full bg-[#f2f4f7] text-[11px] font-medium tabular-nums text-[#475467]' : 'absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-primary'}
+                    aria-label={`${liveFlows} live`}
+                    title={`${liveFlows} flow${liveFlows === 1 ? '' : 's'} live now`}
+                  >
+                    {railOpen ? liveFlows : ''}
+                  </span>
+                )}
                 {k === 'designer' && activeCampaigns > 0 && (
                   <span
                     className={railOpen ? 'ml-auto inline-flex items-center h-5 px-1.5 rounded-full bg-[#f2f4f7] text-[11px] font-medium tabular-nums text-[#475467]' : 'absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-primary'}
@@ -304,17 +328,17 @@ export function DesignerShell() {
             </p>
           </div>
         )}
-        {!bootError && page === 'designer' && knowledge && tenant && openId && (
+        {!bootError && isList(page) && knowledge && tenant && openId && (
           <CampaignView key={`${tenant.tenantId}:${openId}`} knowledge={knowledge} tenant={tenant} sessionId={openId} onBack={() => setOpenId(null)} />
         )}
-        {!bootError && page === 'designer' && knowledge && tenant && !openId && !viewOnly && (
-          <CampaignsHome key={tenant.tenantId} tenant={tenant} onOpen={setOpenId} onCreate={(choice) => {
+        {!bootError && isList(page) && knowledge && tenant && !openId && !viewOnly && (
+          <CampaignsHome key={`${tenant.tenantId}:${page}`} tenant={tenant} kind={page === 'flows' ? 'flow' : 'campaign'} onOpen={setOpenId} onCreate={(choice) => {
               const id = newCampaignId();
               setPendingIntent(id, choice);
               setOpenId(id);
             }} />
         )}
-        {!bootError && page === 'designer' && (!knowledge || !tenant) && (
+        {!bootError && isList(page) && (!knowledge || !tenant) && (
           <div style={{ padding: 30, fontSize: 13, color: 'var(--gray-600)' }}>Loading tenant and knowledge base…</div>
         )}
         {!bootError && page === 'links' && <LinksView key={tenant?.tenantId} tenant={tenant} />}

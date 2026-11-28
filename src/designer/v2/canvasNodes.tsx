@@ -7,6 +7,7 @@ import { Handle, NodeToolbar, Position } from '@xyflow/react';
 import { ChevronDown, ChevronRight, Pencil, Play, Sparkles } from 'lucide-react';
 import type { CostReportView, FieldSampleView, Offer, SizingRun } from './api';
 import { withCites } from './Citations';
+import { kindOf } from './kind';
 import { atSentenceStart, capitaliseAt, fillFields, parseFields } from './personalFields';
 import { SpendSummary } from './CostPanel';
 import { withOfferLine } from './smsText';
@@ -42,7 +43,6 @@ const EVIDENCE: Record<string, string> = { measured: 'From data', manager: 'You 
 const ORDINAL = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'];
 const ordinal = (i: number) => ORDINAL[i] ?? `${i + 1}th`;
 
-const titleCase = (s: string) => s[0].toUpperCase() + s.slice(1);
 
 function Changed({ on, knock }: { on?: boolean; knock?: boolean }) {
   return on ? <span className={`cv-changed-tag${knock ? ' knock' : ''}`}>{knock ? 'Changed as a result' : 'Changed'}</span> : null;
@@ -539,11 +539,22 @@ function CdNodeBody({ data }: { data: CdNodeData }) {
         <Card cat="entry" icon="users" data={data} type={<>Entry · who can join <span className="dc-node-start-tag">START</span></>}>
           <div className="dc-node-label">{c?.description || c?.name || 'Eligible customers'}</div>
           <div className="cv-entry-mode">
-            <span className={`cv-mode-tag ${m?.type === 'open' ? 'rec' : m ? 'once' : 'none'}`}>{m ? (m.type === 'open' ? `Recurring · ${titleCase(m.refresh ?? 'weekly')}` : 'One-time') : 'One-time or recurring: not decided'}</span>
+            {/* Flow or campaign is fixed when the item is created, so this is never undecided. */}
+            <span className={`cv-mode-tag ${kindOf(c) === 'flow' ? 'rec' : 'once'}`}>
+              {kindOf(c) === 'flow' ? `Always-on flow · joins ${m?.type === 'open' ? m.refresh ?? 'weekly' : 'weekly'}` : 'One-time campaign'}
+            </span>
             {c?.goal && <span className="dc-node-meta">Success: {c.goal.eventType}</span>}
           </div>
           <SpendLine />
-          <div className={`cv-entry-dates${c?.schedule ? '' : ' unset'}`}>{c?.schedule ? `Runs ${fmtDay(c.schedule.startDate)} → ${fmtDay(c.schedule.endDate)}` : 'Campaign dates: not set'}</div>
+          <div className={`cv-entry-dates${c?.schedule ? '' : ' unset'}`}>
+            {kindOf(c) === 'flow'
+              ? c?.schedule
+                ? `Live from ${fmtDay(c.schedule.startDate)}, until stopped`
+                : 'Start date: not set'
+              : c?.schedule?.endDate
+                ? `Runs ${fmtDay(c.schedule.startDate)} → ${fmtDay(c.schedule.endDate)}`
+                : 'Campaign dates: not set'}
+          </div>
           <div className="dc-node-meta">
             {m?.type === 'open'
               ? `New matching customers join every ${m.refresh === 'daily' ? 'day' : m.refresh === 'monthly' ? 'month' : 'week'}. Nobody re-enters while their journey is running.`

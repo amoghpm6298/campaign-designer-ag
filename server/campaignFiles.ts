@@ -10,6 +10,7 @@
 // They are linked by the folder (and context entries by bucket id), never
 // mixed. The conversation itself stays with the chat.
 import { submittedStage } from '../src/designer/v2/lifecycle';
+import { kindOf, type CampaignKind } from '../src/designer/v2/kind';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -205,9 +206,9 @@ export function loadSubmission(sessionId: string, dir = campaignDir()): Submissi
 }
 
 /** Marks a campaign "Submitted for execution". From then on nothing may change it. */
-export function submitCampaign(sessionId: string, tenantId: string, by: string, dates?: { startDate: string; endDate: string }, dir = campaignDir()): Submission {
+export function submitCampaign(sessionId: string, tenantId: string, by: string, dates?: { startDate: string; endDate?: string }, dir = campaignDir()): Submission {
   if (loadSubmission(sessionId, dir)) throw new Error('This campaign was already submitted for execution.');
-  const sub: Submission = { at: new Date().toISOString(), by, ...(dates ? { startDate: dates.startDate, endDate: dates.endDate } : {}) };
+  const sub: Submission = { at: new Date().toISOString(), by, ...(dates ? { startDate: dates.startDate, ...(dates.endDate ? { endDate: dates.endDate } : {}) } : {}) };
   writeStamped(join(sessionFolder(sessionId, dir), 'submission.json'), sessionId, tenantId, sub);
   return sub;
 }
@@ -330,9 +331,11 @@ export interface CampaignSummary {
   version: number;
   updatedAt: string;
   submitted?: Submission;
-  schedule?: { startDate: string; endDate: string } | null;
-  /** Where it is: draft · scheduled · active · ended (the same states the MCP reports). Not submitted = draft. */
-  state: 'draft' | 'scheduled' | 'active' | 'ended';
+  schedule?: { startDate: string; endDate?: string } | null;
+  /** Flow (always on) or campaign (one-time). */
+  kind: CampaignKind;
+  /** Where it is: draft · scheduled · active (a flow: live) · ended (campaigns) · stopped (flows). Not submitted = draft. */
+  state: 'draft' | 'scheduled' | 'active' | 'ended' | 'stopped';
   /** The designer has finished building it (no unbuilt changes). Part of whether a draft can be submitted. */
   designed: boolean;
 }
@@ -386,13 +389,15 @@ export function listCampaigns(tenantId: string, dir = campaignDir()): CampaignSu
       updatedAt: [camp?.updatedAt, chat?.updatedAt].filter(Boolean).sort().pop() ?? '',
       ...(loadSubmission(name, dir) ? { submitted: loadSubmission(name, dir)! } : {}),
       ...(c?.schedule ? { schedule: c.schedule } : {}),
+      kind: kindOf(c),
       state: (() => {
         const sub = loadSubmission(name, dir);
         if (sub) {
           const st = submittedStage(sub);
           return st === 'submitted' ? 'active' : st;
         }
-        return 'draft';
+        // A flow that was live and was stopped stays "Stopped" until it goes live again. A stopped campaign is a draft again.
+        return kindOf(c) === 'flow' && loadWithdrawals(name, dir).length ? 'stopped' : 'draft';
       })(),
       designed: !!(chat?.body?.lastBuilt || chat?.body?.state?.flags?.campaignBuilt),
     });

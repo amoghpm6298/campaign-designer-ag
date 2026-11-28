@@ -27,8 +27,8 @@ export interface CompileResult {
 export function planToBlueprint(campaign: CampaignObject): CompileResult {
   const problems: string[] = [];
   const shell = campaign;
-  if (!shell.goal && !shell.entry && !shell.membership && !shell.buckets.length)
-    return { blueprint: null, problems: ['There is no campaign yet. Write it with create_campaign (entry, goal, membership) and create_bucket.'], bucketsIncluded: [] };
+  if (!shell.goal && !shell.entry && !shell.buckets.length)
+    return { blueprint: null, problems: ['There is no campaign yet. Write it with create_campaign (entry, goal) and create_bucket.'], bucketsIncluded: [] };
 
   const ready = campaign.buckets
     .slice()
@@ -239,10 +239,10 @@ export function endingGaps(campaign: CampaignObject, since?: CampaignObject): st
   }
   const shapeChanged = !since || since.membership !== campaign.membership || !since.buckets.some((b) => b.journey?.length);
   if (shapeChanged && campaign.membership?.type === 'open' && campaign.buckets.some((b) => b.journey?.length) && !campaign.afterJourney)
-    out.push('This campaign is recurring, but what happens after the journey is not decided: for each outcome (no_response, not_reachable, declined, converted), how many days before the customer may come back and be bucketed again, or "leave". Set afterJourney with edit_campaign.');
+    out.push('This is a flow, but what happens after the journey is not decided: for each outcome (no_response, not_reachable, declined, converted), how many days before the customer may come back and be bucketed again, or "leave". Set afterJourney with edit_campaign.');
   // Every journey must fit between the campaign's dates.
   const sch = campaign.schedule;
-  if (sch) {
+  if (sch?.endDate) {
     const windowDays = daysBetween(sch.startDate, sch.endDate);
     const scheduleChanged = !since || since.schedule !== sch;
     const lanes = [...campaign.buckets.map((b) => ({ id: b.id, name: `Bucket "${b.name}"`, journey: b.journey })), ...(campaign.everyoneElse?.approach === 'journey' ? [{ id: 'everyone_else', name: 'Everyone else', journey: campaign.everyoneElse.journey }] : [])];
@@ -258,7 +258,7 @@ export function endingGaps(campaign: CampaignObject, since?: CampaignObject): st
   // The stopping rule.
   const recurring = campaign.membership?.type === 'open' && campaign.buckets.some((b) => b.journey?.length);
   if (shapeChanged && recurring && !campaign.maxAttempts)
-    out.push('This campaign is recurring, but it has no stopping rule: set maxAttempts with edit_campaign, the most times one customer goes through it (usually 2). After their last time everyone leaves for good, whatever their ending.');
+    out.push('This is a flow, but it has no stopping rule: set maxAttempts with edit_campaign, the most times one customer goes through it (usually 2). After their last time everyone leaves for good, whatever their ending.');
   const max = campaign.maxAttempts ?? 0;
   if (max) {
     for (const b of campaign.buckets) {

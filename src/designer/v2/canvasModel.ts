@@ -95,13 +95,13 @@ export function attemptOf(campaign: CampaignObject | null | undefined, laneId: s
 /** What happens to a customer who left with this outcome, in plain words. */
 export function afterText(campaign: CampaignObject | null | undefined, outcome: string | undefined, laneId?: string): string {
   if (!outcome || !campaign) return '';
-  if (outcome === 'held_back') return 'stays out while the campaign runs';
+  if (outcome === 'held_back') return campaign.membership?.type === 'open' ? 'stays out while the flow runs' : 'stays out while the campaign runs';
   if (campaign.membership?.type !== 'open') return 'leaves the campaign';
   const attempt = attemptOf(campaign, laneId);
   if (campaign.maxAttempts && attempt && attempt >= campaign.maxAttempts) return 'leaves for good (last time through)';
   const v = campaign.afterJourney?.[outcome as keyof NonNullable<CampaignObject['afterJourney']>];
   if (v === undefined) return 'what happens next: not decided';
-  return v === 'leave' ? 'leaves the campaign' : v === 0 ? 'can rejoin at the next refresh' : `can rejoin in ${v} day${v === 1 ? '' : 's'}`;
+  return v === 'leave' ? 'leaves the flow' : v === 0 ? 'can rejoin at the next refresh' : `can rejoin in ${v} day${v === 1 ? '' : 's'}`;
 }
 
 export interface CNodeData extends Record<string, unknown> {
@@ -305,7 +305,8 @@ export function buildCanvasModel(
   measured: Record<string, number> = {},
 ): { nodes: CNode[]; edges: CEdge[] } {
   const changedMap: ChangeMap = changed instanceof Map ? changed : new Map([...changed].map((k) => [k, 'target' as const]));
-  if (!campaign || (!campaign.buckets.length && !campaign.goal && !campaign.entry && !campaign.membership && !campaign.everyoneElse)) return { nodes: [], edges: [] };
+  // Kind and membership are set when the item is created, so on their own they draw nothing.
+  if (!campaign || (!campaign.buckets.length && !campaign.goal && !campaign.entry && !campaign.everyoneElse)) return { nodes: [], edges: [] };
   const info = bucketContext(context?.entries ?? []);
   const buckets = [...campaign.buckets].sort((a, b) => a.priority - b.priority);
   const lanes: LaneBuild[] = [];

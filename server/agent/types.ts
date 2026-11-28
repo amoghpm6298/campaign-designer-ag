@@ -1,3 +1,6 @@
+import type { CampaignKind } from '../../src/designer/v2/kind';
+export type { CampaignKind };
+
 // Campaign Designer: behavioural buckets, an isolated journey per bucket.
 // Questions, then a built campaign, then changes through chat. No approvals.
 //
@@ -91,8 +94,10 @@ export interface CampaignObject {
    * ending. Recurring campaigns only.
    */
   maxAttempts?: number | null;
-  /** When the campaign runs: start and end dates, YYYY-MM-DD (India time). Every campaign has both. */
-  schedule?: { startDate: string; endDate: string } | null;
+  /** When it runs, YYYY-MM-DD (India time). A campaign has both dates; a flow has only a start and runs until stopped. */
+  schedule?: { startDate: string; endDate?: string } | null;
+  /** Flow (always on) or campaign (one-time), chosen when it was created and fixed (src/designer/v2/kind.ts). Older items: none, read from membership. */
+  kind?: CampaignKind | null;
   /** The most the campaign may spend on offers, in rupees. The engine stops issuing offers once it is spent. */
   budgetCap?: number | null;
   /** What the campaign is for, chosen when it was created (Smart Engage 2.0). Older campaigns: none, read as "other". */
@@ -194,7 +199,7 @@ export interface AgentRequest {
   /** An app-started repair turn: the last user message was written by the app, not the manager. */
   repair?: boolean;
   /** A new campaign's intent (and product, for adoption), chosen in the app or via the MCP. Stored on the first turn only. */
-  intent?: { intent: CampaignIntent; productId?: string } | null;
+  intent?: { intent: CampaignIntent; productId?: string; kind?: CampaignKind } | null;
 }
 
 export interface AgentResponse {

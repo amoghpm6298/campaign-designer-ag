@@ -12,9 +12,9 @@ export interface StrategyNote {
 
 const when = (iso: string) => new Date(iso).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 
-export function StrategyPanel({ note, onClose }: { note: StrategyNote; onClose: () => void }) {
+export function StrategyPanel({ note, onClose, noun = 'campaign' }: { note: StrategyNote; onClose: () => void; noun?: string }) {
   return (
-    <FullPageModal title="Campaign strategy" kicker={`The designer's working plan · updated ${when(note.at)}`} onClose={onClose}>
+    <FullPageModal title={noun === 'flow' ? 'Flow strategy' : 'Campaign strategy'} kicker={`The designer's working plan · updated ${when(note.at)}`} onClose={onClose}>
       {note.legacy && <p className="cv-muted">This campaign was designed before the strategy was kept as one note; these are its earlier notes.</p>}
       <Markdown text={note.text} />
       <p className="cv-muted cv-drawer-hint">To change the strategy, ask in the chat. The designer keeps this note in step with the campaign.</p>

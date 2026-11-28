@@ -596,7 +596,7 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .cv-cite:hover, .cv-cite[aria-expanded="true"] { border-color: var(--accent); }
 .cv-cite:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .cv-cite.missing { color: var(--text-muted); text-decoration: line-through; cursor: default; }
-.cv-cite-pop { position: absolute; z-index: 40; left: 0; top: calc(100% + 4px); width: 340px; max-width: 80vw; display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-radius: var(--r-md, 8px); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-card); font-size: var(--t-xs); line-height: 1.4; color: var(--neutral-900); text-align: left; white-space: normal; font-weight: 400; }
+.cv-cite-pop { position: absolute; z-index: 40; left: 0; top: calc(100% + 4px); width: 340px; max-width: 80vw; display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-radius: var(--r-md, 8px); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-card); font-size: var(--t-xs); line-height: 1.4; color: var(--neutral-900); text-align: left; white-space: normal; font-weight: 400; overflow-y: auto; overscroll-behavior: contain; }
 .cv-cite-head { display: flex; align-items: flex-start; gap: 6px; }
 .cv-cite-head b { flex: 1; font-weight: 600; }
 .cv-cite-x { border: 0; background: none; padding: 1px; color: var(--text-muted); cursor: pointer; }
@@ -788,7 +788,11 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 .im-icon.sm { width: 28px; height: 28px; border-radius: 8px; }
 .cv-camp-when-row { display: flex; align-items: center; gap: 6px; color: var(--text, #101828); }
 .cv-camp-when-row.unset { color: var(--text-faint, #98a2b3); }
-.cv-camp-recur { display: inline-flex; color: var(--accent, #1d4ed8); }
+.cv-camp-recur { display: inline-flex; align-items: center; gap: 3px; color: var(--text-muted, #667085); font-size: 12px; }
+/* A stopped flow: quiet, like an ended campaign. */
+.cv-camp-status.st-stopped { background: #f5f6f8; color: #8a94a6; border-color: transparent; }
+/* Flow / Campaign, above the name in the approvals inbox. */
+.ca-kind { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted, #667085); }
 
 
 /* Comm approvals: a message's status, on its canvas card and in the inbox. */
@@ -890,3 +894,6 @@ dl.v2-read dd { margin: 0; overflow-wrap: anywhere; }
 /* Each offer in the cost view carries the offers gift icon. */
 .cf-offer-name { display: inline-flex; align-items: center; gap: 8px; }
 .cf-offer-name svg { color: var(--v2-primary, #0a66f0); flex: none; }
+
+/* A source popover scrolls inside itself; its parts keep their size. */
+.cv-cite-pop > * { flex-shrink: 0; }

@@ -6,6 +6,7 @@ import type { BpStep } from '../blueprint';
 import type { CampaignContext, CampaignObject } from '../agent/types';
 import { bucketContext, currentEntries, noteText } from '../../src/designer/v2/contextView';
 import { costLine, type CostReport } from '../costModel';
+import { kindOf } from '../../src/designer/v2/kind';
 
 const CHANNEL: Record<string, string> = { WHATSAPP: 'WhatsApp', SMS: 'SMS', EMAIL: 'email', RCS: 'RCS', PUSH: 'push' };
 const OUTCOME: Record<string, string> = { no_response: "didn't respond", not_reachable: "couldn't be reached", declined: 'said no' };
@@ -98,7 +99,7 @@ export function journeyInWords(steps: BpStep[] | null | undefined): { messages: 
 }
 
 const membershipText = (c: CampaignObject) =>
-  !c.membership ? 'not decided' : c.membership.type === 'open' ? `recurring: new customers who match join ${c.membership.refresh ?? 'weekly'}` : 'one-time: the list is fixed at launch';
+  kindOf(c) === 'flow' ? `always on: new customers who match join ${c.membership?.refresh ?? 'weekly'}` : 'one-time: the list is fixed at launch';
 
 export function campaignBrief(c: CampaignObject, context: CampaignContext | null, cost?: CostReport | null) {
   const entries = context?.entries ?? [];
@@ -109,6 +110,7 @@ export function campaignBrief(c: CampaignObject, context: CampaignContext | null
   const ee = c.everyoneElse;
   return {
     name: c.name ?? null,
+    kind: kindOf(c),
     // Written by the campaign's own agent after every build; the description if it has not written one yet.
     summary: noteText(entries, 'campaign brief') ?? c.description ?? null,
     goal: c.goal ? `${c.goal.eventType} (${c.goal.eventCategory})` : null,

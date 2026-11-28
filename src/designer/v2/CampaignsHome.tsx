@@ -1,13 +1,15 @@
-// The Campaigns page: every campaign for this bank as a card, and the way to
-// start a new one. Opening a card loads its campaign and its chat from the
+// The Flows page and the Campaigns page: every flow (always on) or one-time
+// campaign for this bank as a card, and the way to start a new one. One
+// component, filtered by kind. Opening a card loads its campaign and its chat from the
 // server, exactly as it was left.
 import { useEffect, useState } from 'react';
-import { Calendar, MessageSquare, Plus, RefreshCw, X } from 'lucide-react';
+import { Calendar, MessageSquare, Plus, Repeat, X } from 'lucide-react';
 import { apiUrl } from '../api';
 import type { KnowledgeBase, Tenant } from '../types';
 import { DesignerV2, loadChat, type Stored } from './DesignerV2';
 import { IntentModal, LOOK } from './IntentModal';
-import { INTENTS, intentLabel, type CampaignIntent, type IntentChoice } from './intent';
+import { intentLabel, type CampaignIntent, type IntentChoice } from './intent';
+import { KIND_LABEL, KIND_PLURAL, type CampaignKind } from './kind';
 import './v2.css';
 
 export interface CampaignSummary {
@@ -23,19 +25,32 @@ export interface CampaignSummary {
   version: number;
   updatedAt: string;
   submitted?: { at: string; by: string; startDate?: string; endDate?: string };
-  schedule?: { startDate: string; endDate: string } | null;
+  schedule?: { startDate: string; endDate?: string } | null;
   state: CampaignState;
+  /** Flow (always on) or campaign (one-time). */
+  kind?: CampaignKind;
   /** What it is for; campaigns from before intents read as "other". */
   intent?: CampaignIntent;
 }
 
-export type CampaignState = 'draft' | 'scheduled' | 'active' | 'ended';
-export const STATES: { key: CampaignState; label: string; hint: string }[] = [
-  { key: 'draft', label: 'Draft', hint: 'Not submitted yet' },
-  { key: 'scheduled', label: 'Scheduled', hint: 'Submitted, before its start date' },
-  { key: 'active', label: 'Active', hint: 'Submitted, between its dates' },
-  { key: 'ended', label: 'Ended', hint: 'Submitted, after its end date' },
-];
+export type CampaignState = 'draft' | 'scheduled' | 'active' | 'ended' | 'stopped';
+/** The states each kind can be in, in order. A flow never ends by itself; it is live until stopped. */
+export const STATES_BY_KIND: Record<CampaignKind, { key: CampaignState; label: string; hint: string }[]> = {
+  flow: [
+    { key: 'draft', label: 'Draft', hint: 'Not live yet' },
+    { key: 'scheduled', label: 'Scheduled', hint: 'Goes live on its start date' },
+    { key: 'active', label: 'Live', hint: 'Running: new customers join as they become eligible' },
+    { key: 'stopped', label: 'Stopped', hint: 'Was live and has been stopped' },
+  ],
+  campaign: [
+    { key: 'draft', label: 'Draft', hint: 'Not submitted yet' },
+    { key: 'scheduled', label: 'Scheduled', hint: 'Submitted, before its start date' },
+    { key: 'active', label: 'Active', hint: 'Submitted, between its dates' },
+    { key: 'ended', label: 'Ended', hint: 'Submitted, after its end date' },
+  ],
+};
+/** Every state, for pages that show both kinds. */
+export const STATES = [...STATES_BY_KIND.campaign, STATES_BY_KIND.flow[3]];
 const day = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 const ago = (iso: string) => {
@@ -48,8 +63,10 @@ const ago = (iso: string) => {
   return new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; onOpen: (id: string) => void; onCreate: (choice: IntentChoice) => void }) {
-  // "Create new campaign" first asks what the campaign is for.
+export function CampaignsHome({ tenant, kind, onOpen, onCreate }: { tenant: Tenant; kind: CampaignKind; onOpen: (id: string) => void; onCreate: (choice: IntentChoice) => void }) {
+  const noun = KIND_LABEL[kind].toLowerCase();
+  const states = STATES_BY_KIND[kind];
+  // "New flow" / "New campaign" first asks what it is for.
   const [choosing, setChoosing] = useState(false);
   const [list, setList] = useState<CampaignSummary[] | null>(null);
   const [filter, setFilter] = useState<CampaignState | 'all'>('all');
@@ -61,12 +78,12 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
     setList(null);
     fetch(apiUrl(`/api/campaigns?tenantId=${encodeURIComponent(tenant.tenantId)}`))
       .then((r) => r.json())
-      .then((d: { campaigns?: CampaignSummary[] }) => live && setList(d.campaigns ?? []))
+      .then((d: { campaigns?: CampaignSummary[] }) => live && setList((d.campaigns ?? []).filter((c) => (c.kind ?? 'campaign') === kind)))
       .catch(() => live && setList([]));
     return () => {
       live = false;
     };
-  }, [tenant.tenantId]);
+  }, [tenant.tenantId, kind]);
 
   const inIntent = (list ?? []).filter((c) => !intentFilter || (c.intent ?? 'other') === intentFilter);
   return (
@@ -74,40 +91,47 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
       {choosing && (
         <IntentModal
           tenantId={tenant.tenantId}
+          kind={kind}
           onClose={() => setChoosing(false)}
           onPick={(c) => {
             setChoosing(false);
-            onCreate(c);
+            onCreate({ ...c, kind });
           }}
         />
       )}
       <header className="cv-home-head">
         <div>
           <h1 className="cv-home-title">
-            {/* A sharp four-point star: draws the eye, and hints at the AI behind the page. */}
+            {/* A four-point star: draws the eye, and hints at the AI behind the page. */}
             <svg className="cv-spark" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 0 L15.2 8.8 L24 12 L15.2 15.2 L12 24 L8.8 15.2 L0 12 L8.8 8.8 Z" fill="currentColor" strokeLinejoin="round" stroke="currentColor" strokeWidth="0.6" />
             </svg>
-            Campaigns
+            {KIND_PLURAL[kind]}
           </h1>
           <p>
             {tenant.displayName}
-            {list ? ` · ${list.length} campaign${list.length === 1 ? '' : 's'}` : ''}
+            {list ? ` · ${list.length} ${noun}${list.length === 1 ? '' : 's'}` : ''}
+            {' · '}
+            {kind === 'flow' ? 'Always on: customers join as they become eligible' : 'One-time: a fixed list, between two dates'}
           </p>
         </div>
         <button className="cv-btn primary" onClick={() => setChoosing(true)}>
-          <Plus size={15} /> Create new campaign
+          <Plus size={15} /> New {noun}
         </button>
       </header>
 
       {list === null ? (
-        <div className="cv-home-empty">Loading campaigns…</div>
+        <div className="cv-home-empty">Loading {noun}s…</div>
       ) : list.length === 0 ? (
         <div className="cv-home-empty">
-          <b>No campaigns yet</b>
-          <p>Describe what you want customers to do, and the agent asks a few questions, then builds the campaign.</p>
+          <b>No {noun}s yet</b>
+          <p>
+            {kind === 'flow'
+              ? 'A flow runs all the time: say who should join and what they should do, and the designer builds it.'
+              : 'A campaign is a one-time push between two dates: say what you want customers to do, and the designer builds it.'}
+          </p>
           <button className="cv-btn primary" onClick={() => setChoosing(true)}>
-            <Plus size={15} /> Create your first campaign
+            <Plus size={15} /> Create your first {noun}
           </button>
         </div>
       ) : (
@@ -116,7 +140,7 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
           <button role="tab" aria-selected={filter === 'all'} className={filter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>
             All <span>{inIntent.length}</span>
           </button>
-          {STATES.map((s) => (
+          {states.map((s) => (
             <button key={s.key} role="tab" title={s.hint} aria-selected={filter === s.key} className={`st-${s.key}${filter === s.key ? ' on' : ''}`} onClick={() => setFilter(s.key)}>
               {s.label} <span>{inIntent.filter((c) => c.state === s.key).length}</span>
             </button>
@@ -124,8 +148,8 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
           {intentFilter && (() => {
             const { Icon } = LOOK[intentFilter];
             return (
-              <button className="cv-intent-filter" onClick={() => setIntentFilter(null)} title="Show every intent" aria-label={`Showing ${intentLabel(intentFilter)} only. Clear.`}>
-                <Icon size={13} aria-hidden="true" /> {intentLabel(intentFilter)} <X size={13} aria-hidden="true" />
+              <button className="cv-intent-filter" onClick={() => setIntentFilter(null)} title="Show every intent" aria-label={`Showing ${intentLabel(intentFilter, kind)} only. Clear.`}>
+                <Icon size={13} aria-hidden="true" /> {intentLabel(intentFilter, kind)} <X size={13} aria-hidden="true" />
               </button>
             );
           })()}
@@ -135,7 +159,7 @@ export function CampaignsHome({ tenant, onOpen, onCreate }: { tenant: Tenant; on
           {inIntent
             .filter((c) => filter === 'all' || c.state === filter)
             .map((c) => (
-              <CampaignCard key={c.sessionId} c={c} onOpen={onOpen} onIntent={toggleIntent} intentOn={!!intentFilter} />
+              <CampaignCard key={c.sessionId} c={c} kind={kind} onOpen={onOpen} onIntent={toggleIntent} intentOn={!!intentFilter} />
             ))}
         </div>
         </>
@@ -155,11 +179,11 @@ export function CampaignView({ knowledge, tenant, sessionId, onBack }: { knowled
       live = false;
     };
   }, [sessionId]);
-  if (initial === undefined) return <div className="cv-home-empty">Opening the campaign…</div>;
+  if (initial === undefined) return <div className="cv-home-empty">Opening…</div>;
   return <DesignerV2 key={sessionId} knowledge={knowledge} tenant={tenant} sessionId={sessionId} initial={initial} onBack={onBack} />;
 }
 
-function CampaignCard({ c, onOpen, onIntent, intentOn }: { c: CampaignSummary; onOpen: (id: string) => void; onIntent: (k: CampaignIntent) => void; intentOn: boolean }) {
+function CampaignCard({ c, kind, onOpen, onIntent, intentOn }: { c: CampaignSummary; kind: CampaignKind; onOpen: (id: string) => void; onIntent: (k: CampaignIntent) => void; intentOn: boolean }) {
   return (
     <button className="cv-camp" onClick={() => onOpen(c.sessionId)}>
       {(() => {
@@ -170,7 +194,7 @@ function CampaignCard({ c, onOpen, onIntent, intentOn }: { c: CampaignSummary; o
             className={`cv-camp-tab${intentOn ? ' on' : ''}`}
             role="button"
             tabIndex={0}
-            title={intentOn ? 'Show every intent' : `Show only ${INTENTS.find((x) => x.key === key)?.label ?? 'this intent'}`}
+            title={intentOn ? 'Show every intent' : `Show only ${intentLabel(key, kind)}`}
             onClick={(e) => {
               e.stopPropagation();
               onIntent(key);
@@ -183,21 +207,27 @@ function CampaignCard({ c, onOpen, onIntent, intentOn }: { c: CampaignSummary; o
             }}
           >
             <Icon size={12} aria-hidden="true" />
-            {INTENTS.find((x) => x.key === key)?.label ?? 'Custom campaign'}
+            {intentLabel(key, kind)}
           </span>
         );
       })()}
       <span className="cv-camp-top">
-        <span className={`cv-camp-status st-${c.state}`}>{STATES.find((x) => x.key === c.state)?.label ?? c.state}</span>
+        <span className={`cv-camp-status st-${c.state}`}>{STATES_BY_KIND[kind].find((x) => x.key === c.state)?.label ?? c.state}</span>
       </span>
       <b className="cv-camp-name">{c.name}</b>
       {c.ask && <span className="cv-camp-ask">“{c.ask}”</span>}
       <span className={`cv-camp-stats cv-camp-when-row${c.schedule ? '' : ' unset'}`}>
         <Calendar size={13} aria-hidden="true" />
-        {c.schedule ? `${day(c.schedule.startDate)} → ${day(c.schedule.endDate)}` : 'Dates not set'}
-        {c.membership === 'recurring' && (
-          <span className="cv-camp-recur" title={`Recurring · ${c.refresh ?? 'weekly'}`} aria-label={`Recurring, ${c.refresh ?? 'weekly'}`}>
-            <RefreshCw size={13} />
+        {kind === 'flow'
+          ? c.schedule
+            ? `${c.state === 'active' ? 'Live since' : c.state === 'scheduled' ? 'Starts' : 'From'} ${day(c.schedule.startDate)}`
+            : 'Start date not set'
+          : c.schedule?.endDate
+            ? `${day(c.schedule.startDate)} → ${day(c.schedule.endDate)}`
+            : 'Dates not set'}
+        {kind === 'flow' && (
+          <span className="cv-camp-recur" title={`New customers join ${c.refresh ?? 'weekly'}`} aria-label={`New customers join ${c.refresh ?? 'weekly'}`}>
+            <Repeat size={12} /> {c.refresh ?? 'weekly'}
           </span>
         )}
       </span>

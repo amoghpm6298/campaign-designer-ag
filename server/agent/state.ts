@@ -3,6 +3,14 @@
 // No I/O, no model calls, so every rule here is unit-testable.
 
 import { parseSchedule } from './schedule';
+import { isKind, kindOf, type CampaignKind } from '../../src/designer/v2/kind';
+
+/** The kind stored on the item, if any. Items from before kinds have none and are not held to one. */
+const fixedKind = (c: { kind?: string | null }): CampaignKind | null => (isKind(c.kind) ? c.kind : null);
+
+/** afterJourney and maxAttempts are about customers coming back, which only happens in a flow. */
+const ONE_TIME_ONLY = (field: string) =>
+  `${field} is for flows: in a one-time campaign the list is fixed and everyone simply leaves at the end, so nobody comes back. Nothing was changed.`;
 import { EXIT_OUTCOMES, type BpAudienceGroup, type BpStep } from '../blueprint';
 import { carryIds, idsIn } from './stepIds';
 import {
@@ -360,6 +368,13 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
   }
   if (input.membership && typeof input.membership === 'object') {
     const m = input.membership as Record<string, unknown>;
+    // The kind is fixed when the item is created: a flow's list is always open (only its refresh can change), a campaign's always fixed.
+    // Only an item with a stored kind is held to it; the designer's loop stores one before its first tool call.
+    const kind = fixedKind(prev);
+    if (kind === 'flow' && m.type === 'locked')
+      return { state, said: '', error: 'This is a flow: new customers keep joining as they become eligible, so its list cannot be fixed. Only its refresh (daily, weekly or monthly) can change. Nothing was changed.' };
+    if (kind === 'campaign' && m.type === 'open')
+      return { state, said: '', error: 'This is a one-time campaign: its list is fixed at launch and nobody new joins. A refresh belongs to a flow; if the manager wants that, they start a new flow. Nothing was changed.' };
     if (m.type === 'locked' || m.type === 'open') {
       const refresh = m.refresh === 'daily' || m.refresh === 'weekly' || m.refresh === 'monthly' ? m.refresh : 'weekly';
       next.membership = m.type === 'open' ? { type: 'open', refresh } : { type: 'locked' };
@@ -382,6 +397,7 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
     next.maxAttempts = null;
     changed.push('maxAttempts');
   } else if (input.maxAttempts !== undefined) {
+    if (fixedKind(prev) === 'campaign') return { state, said: '', error: ONE_TIME_ONLY('maxAttempts') };
     const n = Number(input.maxAttempts);
     if (!Number.isInteger(n) || n < 1 || n > 10) return { state, said: '', error: 'maxAttempts is the most times one customer goes through this campaign: a whole number from 1 to 10. Nothing was changed.' };
     next.maxAttempts = n;
@@ -400,7 +416,9 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
     next.schedule = null;
     changed.push('schedule');
   } else if (input.schedule !== undefined) {
-    const res = parseSchedule(input.schedule);
+    // An item from before kinds: a recurring one may now drop its end date (it reads as a flow); with an end date it is checked as before.
+    const sentEnd = !!(input.schedule as { endDate?: unknown } | null)?.endDate;
+    const res = parseSchedule(input.schedule, undefined, fixedKind(prev) ?? (kindOf(next) === 'flow' && !sentEnd ? 'flow' : 'campaign'));
     if ('error' in res) return { state, said: '', error: res.error };
     next.schedule = res.value;
     changed.push('schedule');
@@ -409,6 +427,7 @@ export function updateCampaign(state: AgentState, input: Record<string, unknown>
     next.afterJourney = null;
     changed.push('afterJourney');
   } else if (input.afterJourney && typeof input.afterJourney === 'object') {
+    if (fixedKind(prev) === 'campaign') return { state, said: '', error: ONE_TIME_ONLY('afterJourney') };
     const res = parseAfterJourney(input.afterJourney as Record<string, unknown>, prev.afterJourney);
     if (res.error) return { state, said: '', error: res.error };
     next.afterJourney = res.value;

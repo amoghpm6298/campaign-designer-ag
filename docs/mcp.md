@@ -34,7 +34,7 @@ claude mcp add --transport http campaign-designer https://ai.product.hyperface.c
 2. **Follow**: `get_campaign(campaignId, waitSeconds: 50)`, repeated until the status changes. A design takes a few minutes.
 3. **Answer**: on `needs_answers`, the agent's questions come with options and why it asks. `answer_questions` with an option or your own words; skip what you don't know and the agent assumes it and says so.
 4. **Review**: once built, `get_campaign` returns a **brief** (and `canSubmit`): the campaign in words, goal, success measure, who joins, the number of buckets and messages, and for each bucket who is in it, the AI rationale (why they're stuck, in the designer's judgement), its journey in words and its main path step by step. Open the link to see the full chat and the campaign canvas. Ask for anything different with `request_changes("make the dormant bucket SMS-first")`.
-5. **Submit**: `submit_campaign` when you're happy. It's marked **Submitted for execution** and locked; no more changes.
+5. **Submit**: `submit_campaign` when you're happy. It's marked **Submitted for execution** and locked; no more changes. (A flow has a start date only and runs until `stop_campaign`; a one-time campaign runs between its two dates. `create_campaign` takes `kind`: "flow" or "campaign".)
 
 `list_campaigns` shows every campaign for your bank, with status and link.
 

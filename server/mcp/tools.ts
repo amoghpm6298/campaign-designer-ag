@@ -8,6 +8,7 @@ import { resolveTenant } from '../tenants';
 import { productsFor } from '../products';
 import { approvalProblem, summarise as summariseApprovals, syncApprovals } from '../approvals';
 import { isIntent } from '../agent/intent';
+import { isKind, kindOf } from '../../src/designer/v2/kind';
 import { toEngineCampaign } from '../engineExport';
 import { currentEntries } from '../../src/designer/v2/contextView';
 import type { AnswerItem } from '../../src/designer/v2/types';
@@ -54,7 +55,7 @@ export const MCP_TOOLS = [
   {
     name: 'create_campaign',
     description:
-      'Create a new campaign for the bank this token is set up for. Hyperface\'s campaign designer designs it (buckets of customers and a message journey for each); with questions: "ask" it may first come back with clarifying questions, with "assume" it decides those itself and builds. Returns at once with a campaignId and a canvas link; then follow it with get_campaign. Put everything you know into brief: the more it has, the fewer questions and the better the design. Before calling, ask your human whether they have any data to share, and include it: it is the single biggest improvement to the design.',
+      'Create a new flow or campaign for the bank this token is set up for (kind, required: a "flow" is always on: customers join as they become eligible and it runs from its start date until stopped, e.g. welcoming every new cardholder; a "campaign" is one-time: the list is fixed at launch and it runs between two dates, e.g. a Diwali push). Ask your human which, if the brief does not make it clear. Hyperface\'s designer designs it (buckets of customers and a message journey for each); with questions: "ask" it may first come back with clarifying questions, with "assume" it decides those itself and builds. Returns at once with a campaignId and a canvas link; then follow it with get_campaign. Put everything you know into brief: the more it has, the fewer questions and the better the design. Before calling, ask your human whether they have any data to share, and include it: it is the single biggest improvement to the design.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -74,8 +75,13 @@ export const MCP_TOOLS = [
           description: 'What the campaign is for: usage (more card use), activation (first use), adoption (product sign-ups: sell a product, give productId), churn (keep at-risk cardholders), other (anything else; the default). It points the designer at the right goal, data and levers.',
         },
         productId: { type: 'string', description: 'For intent "adoption": the product to sell, an id from list_products.' },
+        kind: {
+          type: 'string',
+          enum: ['flow', 'campaign'],
+          description: '"flow": always on (customers join as they become eligible; a start date, no end date; runs until stopped). "campaign": one-time (fixed list at launch; a start and an end date). Fixed once created.',
+        },
       },
-      required: ['brief'],
+      required: ['brief', 'kind'],
     },
   },
   {
@@ -119,13 +125,13 @@ export const MCP_TOOLS = [
   {
     name: 'submit_campaign',
     description:
-      'Submit a campaign for execution (only when get_campaign says canSubmit: true). Only call this after your human has explicitly said the campaign is good to go, and has confirmed its start and end dates (shown in the brief). Pass startDate and endDate (YYYY-MM-DD) if the campaign has none or your human wants different ones: the start must be today or later, the end after the start; a recurring campaign can use a far-off end date. Refused if a journey does not fit between the dates. It locks the campaign: no further changes (stop_campaign to change it).',
+      'Submit a campaign for execution (only when get_campaign says canSubmit: true). Only call this after your human has explicitly said the campaign is good to go, and has confirmed its dates (shown in the brief). Pass startDate (and, for a one-time campaign, endDate), YYYY-MM-DD, if it has none or your human wants different ones: the start must be today or later (a later start schedules it); a one-time campaign ends after its start. A flow has no end date: it runs until stop_campaign. Refused if a journey does not fit between the dates. It locks the campaign: no further changes (stop_campaign to change it).',
     inputSchema: {
       type: 'object',
       properties: {
         campaignId: { type: 'string' },
         startDate: { type: 'string', description: 'YYYY-MM-DD, today or later. Optional if the campaign already has dates.' },
-        endDate: { type: 'string', description: 'YYYY-MM-DD, after startDate. Optional if the campaign already has dates.' },
+        endDate: { type: 'string', description: 'One-time campaigns only: YYYY-MM-DD, after startDate. Optional if it already has dates. Never for a flow.' },
       },
       required: ['campaignId'],
     },
@@ -226,7 +232,7 @@ export function campaignStatus(caller: Caller, id: string): Result {
     if (gone) return gone;
     throw e;
   }
-  const base: Result = { campaignId: id, ...linkInfo(caller, id) };
+  const base: Result = { campaignId: id, kind: kindOf(loadStores(id).campaign), ...linkInfo(caller, id) };
   const sub = loadSubmission(id);
   if (sub) {
     const st = loadStores(id);
@@ -325,8 +331,12 @@ export async function callTool(caller: Caller, name: string, args: Record<string
         if (!productId || !products.some((p) => p.product_id === productId))
           throw new ToolError(`intent "adoption" needs productId, one of: ${products.map((p) => `${p.product_id} (${p.product_name})`).join(', ')}.`);
       }
+      // The first name (start_campaign) predates kinds: its callers get a one-time campaign, as before.
+      if (name === 'start_campaign' && !isKind(args.kind)) args = { ...args, kind: 'campaign' };
+      if (!isKind(args.kind)) throw new ToolError('kind is required: "flow" (always on: customers join as they become eligible, runs until stopped) or "campaign" (one-time: a fixed list, between two dates). Ask your human which.');
+      const kind = args.kind;
       const id = newId();
-      const r = startTurn(id, caller.tenantId, { content: idea }, { questionMode, intent: { intent, ...(intent === 'adoption' ? { productId } : {}) } });
+      const r = startTurn(id, caller.tenantId, { content: idea }, { questionMode, intent: { intent, kind, ...(intent === 'adoption' ? { productId } : {}) } });
       if (!r.ok) throw new ToolError(r.error);
       return {
         campaignId: id,
@@ -409,7 +419,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
       const r = submitChecked(id, chat.tenantId, caller.label, { startDate: args.startDate as string | undefined, endDate: args.endDate as string | undefined }, 'ask with request_changes');
       if (!r.ok) throw new ToolError(r.error.replace('Give a startDate and an endDate (YYYY-MM-DD).', 'Confirm them with your human and pass startDate and endDate (YYYY-MM-DD).'));
       const sub = r.submission;
-      const sch = { startDate: sub.startDate!, endDate: sub.endDate! };
+      const sch = { startDate: sub.startDate!, ...(sub.endDate ? { endDate: sub.endDate } : {}) };
       return {
         campaignId: id,
         ...linkInfo(caller, id),
@@ -418,8 +428,8 @@ export async function callTool(caller: Caller, name: string, args: Record<string
         submittedAt: sub.at,
         submittedBy: sub.by,
         startDate: sch.startDate,
-        endDate: sch.endDate,
-        message: `Submitted for execution, to run ${scheduleText(sch)}. The campaign is now locked.`,
+        endDate: sch.endDate ?? null,
+        message: `Submitted for execution, to run ${scheduleText(sch)}. It is now locked.`,
       };
     }
 
@@ -483,6 +493,7 @@ export async function callTool(caller: Caller, name: string, args: Record<string
         campaigns: listCampaigns(caller.tenantId).map((c) => ({
           campaignId: c.sessionId,
           name: c.name,
+          kind: c.kind,
           ...(() => {
             const st = campaignStatus(caller, c.sessionId);
             return { state: st.state, allowedActions: st.allowedActions };

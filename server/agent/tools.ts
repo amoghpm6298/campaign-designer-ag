@@ -93,7 +93,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'create_campaign',
     title: 'Creating the campaign',
     description:
-      'Create the campaign, once, in the CAMPAIGN OBJECT (saved straight to file). Same fields as edit_campaign: name, description, goal, entry, membership, everyoneElse, schedule (start and end dates), and for recurring campaigns maxAttempts and afterJourney; budgetCap when the manager gave an offer budget.',
+      'Create the campaign, once, in the CAMPAIGN OBJECT (saved straight to file). Same fields as edit_campaign: name, description, goal, entry, everyoneElse, schedule, and in a flow its refresh (membership), maxAttempts and afterJourney; budgetCap when the manager gave an offer budget.',
     input_schema: {
       type: 'object',
       properties: {
@@ -101,19 +101,19 @@ const BASE_TOOLS: ToolDef[] = [
         description: { type: 'string' },
         goal: { type: 'object', properties: { eventCategory: { type: 'string' }, eventType: { type: 'string' }, conditions: { type: 'array', items: CONDITION } }, required: ['eventCategory', 'eventType'] },
         entry: { type: 'object', properties: { entity: { type: 'string' }, conditions: { type: 'array', items: CONDITION }, groups: { type: 'array', items: GROUP } }, required: ['entity'] },
-        membership: { type: 'object', properties: { type: { type: 'string', enum: ['locked', 'open'] }, refresh: { type: 'string', enum: ['daily', 'weekly', 'monthly'] } }, required: ['type'] },
+        membership: { type: 'object', description: 'Set by the app from the kind (a flow is open, a campaign locked). In a flow you may change only its refresh: {type: "open", refresh}.', properties: { type: { type: 'string', enum: ['locked', 'open'] }, refresh: { type: 'string', enum: ['daily', 'weekly', 'monthly'] } }, required: ['type'] },
         everyoneElse: { type: 'object', properties: { approach: { type: 'string', enum: ['journey', 'none'] }, journey: STEPS }, required: ['approach'] },
         schedule: {
           type: 'object',
-          description: 'When the campaign runs: startDate and endDate, YYYY-MM-DD. Start today or later; every campaign has an end date (a recurring one can use a far-off one). Set it from the window the manager gave, or your stated assumption.',
+          description: 'When it runs, YYYY-MM-DD, today or later. A one-time campaign: startDate and endDate, from the window the manager gave or your stated assumption. A flow: startDate only (it runs until stopped; never an endDate).',
           properties: { startDate: { type: 'string' }, endDate: { type: 'string' } },
-          required: ['startDate', 'endDate'],
+          required: ['startDate'],
         },
-        maxAttempts: { type: 'number', description: 'Recurring campaigns: the stopping rule. The most times one customer goes through this campaign (usually 2). After their last time they leave for good, whatever their ending.' },
+        maxAttempts: { type: 'number', description: 'Flows only: the stopping rule. The most times one customer goes through this flow (usually 2). After their last time they leave for good, whatever their ending.' },
         budgetCap: { type: ['number', 'null'], description: 'The most the campaign may spend on offers, in rupees (the engine stops issuing offers once it is spent). From the manager\'s budget; null for no cap.' },
         afterJourney: {
           type: 'object',
-          description: 'Recurring campaigns: per outcome, days before a customer may come back in (and be bucketed again), or "leave". Opted-out customers never come back and are not set here.',
+          description: 'Flows only: per outcome, days before a customer may come back in (and be bucketed again), or "leave". Opted-out customers never come back and are not set here.',
           properties: Object.fromEntries(['no_response', 'not_reachable', 'declined', 'converted'].map((k) => [k, { anyOf: [{ type: 'number' }, { type: 'string', enum: ['leave'] }] }])),
         },
       },
@@ -124,7 +124,7 @@ const BASE_TOOLS: ToolDef[] = [
     name: 'edit_campaign',
     title: 'Editing the campaign',
     description:
-      'Change campaign settings in the CAMPAIGN OBJECT, saved straight to file. Execution fields only; send only what you are changing. name, description; goal {eventCategory, eventType} = the event that proves success (your goal checks take out anyone who reaches it); entry = who is eligible at all (everyone who has not reached the goal yet), as {entity, conditions[], groups[]} using real attributes; membership {type: "locked" (fixed as of launch) | "open" (newly matching customers join), refresh: daily|weekly|monthly}; everyoneElse {approach: "journey" | "none", journey: steps[]} for customers who match no bucket. afterJourney {no_response, not_reachable, declined, converted: days | "leave"} and maxAttempts (the stopping rule) for recurring campaigns. budgetCap = the most the campaign may spend on offers, in rupees (null for none). Reasons and notes go in the context (add_context), not here.',
+      'Change campaign settings in the CAMPAIGN OBJECT, saved straight to file. Execution fields only; send only what you are changing. name, description; goal {eventCategory, eventType} = the event that proves success (your goal checks take out anyone who reaches it); entry = who is eligible at all (everyone who has not reached the goal yet), as {entity, conditions[], groups[]} using real attributes; membership: set by the app from the kind; in a flow you may change its refresh {type: "open", refresh: daily|weekly|monthly}; everyoneElse {approach: "journey" | "none", journey: steps[]} for customers who match no bucket. afterJourney {no_response, not_reachable, declined, converted: days | "leave"} and maxAttempts (the stopping rule): flows only. budgetCap = the most the campaign may spend on offers, in rupees (null for none). Reasons and notes go in the context (add_context), not here.',
     input_schema: {
       type: 'object',
       properties: {
@@ -132,19 +132,19 @@ const BASE_TOOLS: ToolDef[] = [
         description: { type: 'string' },
         goal: { type: 'object', properties: { eventCategory: { type: 'string' }, eventType: { type: 'string' }, conditions: { type: 'array', items: CONDITION } }, required: ['eventCategory', 'eventType'] },
         entry: { type: 'object', properties: { entity: { type: 'string' }, conditions: { type: 'array', items: CONDITION }, groups: { type: 'array', items: GROUP } }, required: ['entity'] },
-        membership: { type: 'object', properties: { type: { type: 'string', enum: ['locked', 'open'] }, refresh: { type: 'string', enum: ['daily', 'weekly', 'monthly'] } }, required: ['type'] },
+        membership: { type: 'object', description: 'Set by the app from the kind (a flow is open, a campaign locked). In a flow you may change only its refresh: {type: "open", refresh}.', properties: { type: { type: 'string', enum: ['locked', 'open'] }, refresh: { type: 'string', enum: ['daily', 'weekly', 'monthly'] } }, required: ['type'] },
         everyoneElse: { type: 'object', properties: { approach: { type: 'string', enum: ['journey', 'none'] }, journey: STEPS }, required: ['approach'] },
         schedule: {
           type: 'object',
-          description: 'When the campaign runs: startDate and endDate, YYYY-MM-DD. Start today or later; every campaign has an end date (a recurring one can use a far-off one). Set it from the window the manager gave, or your stated assumption.',
+          description: 'When it runs, YYYY-MM-DD, today or later. A one-time campaign: startDate and endDate, from the window the manager gave or your stated assumption. A flow: startDate only (it runs until stopped; never an endDate).',
           properties: { startDate: { type: 'string' }, endDate: { type: 'string' } },
-          required: ['startDate', 'endDate'],
+          required: ['startDate'],
         },
-        maxAttempts: { type: 'number', description: 'Recurring campaigns: the stopping rule. The most times one customer goes through this campaign (usually 2). After their last time they leave for good, whatever their ending.' },
+        maxAttempts: { type: 'number', description: 'Flows only: the stopping rule. The most times one customer goes through this flow (usually 2). After their last time they leave for good, whatever their ending.' },
         budgetCap: { type: ['number', 'null'], description: 'The most the campaign may spend on offers, in rupees (the engine stops issuing offers once it is spent). From the manager\'s budget; null for no cap.' },
         afterJourney: {
           type: 'object',
-          description: 'Recurring campaigns: per outcome, days before a customer may come back in (and be bucketed again), or "leave". Opted-out customers never come back and are not set here.',
+          description: 'Flows only: per outcome, days before a customer may come back in (and be bucketed again), or "leave". Opted-out customers never come back and are not set here.',
           properties: Object.fromEntries(['no_response', 'not_reachable', 'declined', 'converted'].map((k) => [k, { anyOf: [{ type: 'number' }, { type: 'string', enum: ['leave'] }] }])),
         },
       },
@@ -529,7 +529,8 @@ function runToolCallInner(name: string, input: Record<string, unknown>, state: A
     case 'create_campaign':
     case 'edit_campaign': {
       const c = state.campaign;
-      const exists = !!(c.name || c.goal || c.entry || c.membership || c.buckets.length);
+      // Kind and membership are set by the app when the item is created, so they don't make a campaign exist.
+      const exists = !!(c.name || c.goal || c.entry || c.buckets.length);
       if (name === 'create_campaign' && exists) return { state, ok: false, forModel: 'Not saved: the campaign already exists. Change it with edit_campaign.', summary: 'Campaign already exists' };
       if (name === 'edit_campaign' && !exists) return { state, ok: false, forModel: 'Not saved: there is no campaign yet. Create it with create_campaign.', summary: 'No campaign yet' };
       const res = updateCampaign(state, input);

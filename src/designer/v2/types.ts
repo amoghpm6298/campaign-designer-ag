@@ -59,7 +59,10 @@ export interface CampaignObject {
   afterJourney?: Partial<Record<AfterOutcome, number | 'leave'>> | null;
   /** The stopping rule: the most times one customer goes through this campaign. */
   maxAttempts?: number | null;
-  schedule?: { startDate: string; endDate: string } | null;
+  /** A flow has only a start date: it runs until stopped. */
+  schedule?: { startDate: string; endDate?: string } | null;
+  /** Flow (always on) or campaign (one-time); see kind.ts. */
+  kind?: 'flow' | 'campaign' | null;
   /** The most the campaign may spend on offers, in rupees. */
   budgetCap?: number | null;
 }

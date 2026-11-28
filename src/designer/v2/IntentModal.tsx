@@ -4,7 +4,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Banknote, Sparkles, Building2, CreditCard, Landmark, Package, PiggyBank, ShieldCheck, ShoppingBag, Smartphone, TrendingUp, UserCheck, Wallet, Wrench, X, Zap, type LucideIcon } from 'lucide-react';
 import { apiUrl } from '../api';
-import { BRIEF_SUGGESTIONS, INTENTS, type CampaignIntent, type IntentChoice } from './intent';
+import { BRIEF_SUGGESTIONS, INTENTS, intentLabel, type CampaignIntent, type IntentChoice } from './intent';
+import type { CampaignKind } from './kind';
 
 interface ProductLite {
   product_id: string;
@@ -46,7 +47,8 @@ const PRODUCT_LOOK: Record<string, { Icon: LucideIcon; tone: string }> = {
   other: { Icon: Package, tone: 'blue' },
 };
 
-export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; onPick: (c: IntentChoice) => void; onClose: () => void }) {
+export function IntentModal({ tenantId, kind = 'campaign', onPick, onClose }: { tenantId: string; kind?: CampaignKind; onPick: (c: IntentChoice) => void; onClose: () => void }) {
+  const noun = kind === 'flow' ? 'flow' : 'campaign';
   const [intent, setIntent] = useState<CampaignIntent | null>(null);
   const [products, setProducts] = useState<ProductLite[] | null>(null);
   const [productId, setProductId] = useState('');
@@ -56,7 +58,7 @@ export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; o
   const productName = products?.find((p) => p.product_id === productId)?.product_name ?? 'the product';
   const steps = intent === 'adoption' ? 3 : 2;
   const stepNo = step === 'intent' ? 1 : step === 'product' ? 2 : steps;
-  const intentText = INTENTS.find((x) => x.key === intent)?.label ?? '';
+  const intentText = intent ? intentLabel(intent, kind) : '';
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     box.current?.focus();
@@ -72,7 +74,7 @@ export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; o
       .then((d: { products?: ProductLite[] }) => setProducts((d.products ?? []).filter((p) => p.status === 'live')))
       .catch(() => setProducts([]));
   }, [intent, products, tenantId]);
-  const finish = () => intent && brief.trim() && onPick({ intent, ...(intent === 'adoption' ? { productId } : {}), brief: brief.trim() });
+  const finish = () => intent && brief.trim() && onPick({ intent, kind, ...(intent === 'adoption' ? { productId } : {}), brief: brief.trim() });
   const next = () => {
     if (step === 'intent') return setStep(intent === 'adoption' ? 'product' : 'brief');
     if (step === 'product') return setStep('brief');
@@ -92,7 +94,7 @@ export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; o
                 {step === 'brief' && intent === 'adoption' ? ` · ${productName}` : ''}
               </div>
             )}
-            <h2 id="im-title">{step === 'intent' ? 'What do you want this campaign to do?' : step === 'product' ? 'Which product do you want to sell?' : 'Describe your campaign'}</h2>
+            <h2 id="im-title">{step === 'intent' ? `What do you want this ${noun} to do?` : step === 'product' ? 'Which product do you want to sell?' : `Describe your ${noun}`}</h2>
           </div>
           <button className="fpm-x" onClick={onClose} aria-label="Close">
             <X size={18} />
@@ -116,8 +118,8 @@ export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; o
                       <span className={`im-icon ${tone}`} aria-hidden="true">
                         <Icon size={20} />
                       </span>
-                      <b>{i.label}</b>
-                      <span>{i.hint}</span>
+                      <b>{intentLabel(k, kind)}</b>
+                      <span>{kind === 'flow' && k === 'other' ? 'Any other always-on credit card flow. Describe it in your own words.' : i.hint}</span>
                     </button>
                   );
                 })}
@@ -142,7 +144,9 @@ export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; o
         ) : step === 'brief' ? (
           <div className="im-brief">
             <label className="im-brief-label" htmlFor="im-brief-text">
-              Who it is for, what counts as success, timing, channels and any offer or budget. A sentence is enough; more detail helps.
+              {kind === 'flow'
+                ? 'Who should join as they become eligible, what they should do within how many days of joining, channels and any offer or monthly budget. A sentence is enough; more detail helps.'
+                : 'Who it is for, the dates and any occasion, what counts as success by the end, channels and any offer or budget. A sentence is enough; more detail helps.'}
             </label>
             <textarea
               id="im-brief-text"
@@ -150,14 +154,18 @@ export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; o
               rows={5}
               autoFocus
               value={brief}
-              placeholder="For example: get cardholders who used the card once or twice in the last 90 days to use it more, over the next 6 weeks."
+              placeholder={
+                kind === 'flow'
+                  ? 'For example: every new cardholder joins on the day the card is issued; success is a first transaction within 30 days.'
+                  : 'For example: a 3-week festive push to get light users spending more; success is total extra spend by the end date.'
+              }
               onChange={(e) => setBrief(e.target.value)}
             />
             <div className="im-sugg-h">
               <Sparkles size={14} aria-hidden="true" /> Start from a suggestion
             </div>
             <div className="im-sugg">
-              {(intent ? BRIEF_SUGGESTIONS[intent] : []).map((x) => {
+              {(intent ? BRIEF_SUGGESTIONS[kind][intent] : []).map((x) => {
                 const text = x.brief.replace(/\{product\}/g, productName);
                 return (
                   <button key={x.title} className={`im-sugg-card${brief === text ? ' on' : ''}`} onClick={() => setBrief(text)}>
@@ -204,7 +212,7 @@ export function IntentModal({ tenantId, onPick, onClose }: { tenantId: string; o
             disabled={step === 'intent' ? !intent : step === 'product' ? !productId : !brief.trim()}
             onClick={next}
           >
-            {step === 'brief' ? 'Create campaign' : 'Continue'}
+            {step === 'brief' ? `Create ${noun}` : 'Continue'}
           </button>
         </div>
       </div>

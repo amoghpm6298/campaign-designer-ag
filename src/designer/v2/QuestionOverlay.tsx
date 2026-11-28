@@ -12,7 +12,10 @@ export function QuestionOverlay({
   questions: raw,
   pulse,
   onSubmit,
+  noun = 'campaign',
 }: {
+  /** "flow" or "campaign", for the heading. */
+  noun?: string;
   intro: string;
   questions: AgentQuestion[];
   pulse: number;
@@ -40,7 +43,7 @@ export function QuestionOverlay({
         }}
       >
         <div className="cv-qa-head">
-          <h2>A few questions to shape the campaign</h2>
+          <h2>A few questions to shape the {noun}</h2>
           {intro && <p>{intro}</p>}
         </div>
         <div className="cv-qa-body">

@@ -6,6 +6,7 @@ import { ArrowUp, Loader2, Sparkles, X } from 'lucide-react';
 import { OUTCOME_LABEL, fmtWait, sendTitle, waitHours, type CStep } from './canvasModel';
 import { RationaleBody, hasRationale, type CdNodeData } from './canvasNodes';
 import type { AfterOutcome, CampaignObject } from './types';
+import { kindOf } from './kind';
 
 export type DirectOp =
   | { op: 'membership'; type: 'locked' | 'open'; refresh?: 'daily' | 'weekly' | 'monthly' }
@@ -14,7 +15,7 @@ export type DirectOp =
   | { op: 'wait'; bucketId: string; stepId: string; days: number }
   | { op: 'afterJourney'; outcome: AfterOutcome; value: number | 'leave' }
   | { op: 'maxAttempts'; value: number }
-  | { op: 'schedule'; startDate: string; endDate: string }
+  | { op: 'schedule'; startDate: string; endDate?: string }
   | { op: 'budgetCap'; value: number | null }
   | { op: 'funnelRate'; bucketId: string; stepId: string; which: 'opens' | 'converts'; pct: number };
 
@@ -99,47 +100,51 @@ export function EditPopover({
 
   let control: React.ReactNode = null;
   if (data.kind === 'entry') {
-    const cur = !m ? '' : m.type === 'locked' ? 'once' : (m.refresh ?? 'weekly');
+    // A flow has a start date and a refresh; a one-time campaign has two dates and a fixed list. The kind itself never changes here.
+    const flow = kindOf(campaign) === 'flow';
+    const cur = m?.type === 'open' ? (m.refresh ?? 'weekly') : '';
     control = (
       <div className="cv-pop-control">
-        <span className="cv-pop-label">Campaign dates</span>
+        <span className="cv-pop-label">{flow ? 'Goes live on' : 'Campaign dates'}</span>
         <div className="cv-pop-dates">
           <label>
             <span>Starts</span>
             <input type="date" value={startDate} min={todayIST} disabled={saving} onChange={(e) => setStartDate(e.target.value)} />
           </label>
-          <label>
-            <span>Ends</span>
-            <input type="date" value={endDate} min={startDate || todayIST} disabled={saving} onChange={(e) => setEndDate(e.target.value)} />
-          </label>
+          {!flow && (
+            <label>
+              <span>Ends</span>
+              <input type="date" value={endDate} min={startDate || todayIST} disabled={saving} onChange={(e) => setEndDate(e.target.value)} />
+            </label>
+          )}
           <button
             className="cv-btn"
-            disabled={saving || !startDate || !endDate || (startDate === campaign?.schedule?.startDate && endDate === campaign?.schedule?.endDate)}
-            onClick={() => direct({ op: 'schedule', startDate, endDate })}
+            disabled={saving || !startDate || (!flow && !endDate) || (startDate === campaign?.schedule?.startDate && (flow || endDate === campaign?.schedule?.endDate))}
+            onClick={() => direct(flow ? { op: 'schedule', startDate } : { op: 'schedule', startDate, endDate })}
           >
             Save dates
           </button>
         </div>
-        <span className="cv-pop-label" style={{ marginTop: 10 }}>How new customers come in</span>
-        <div className="cv-seg">
-          {(
-            [
-              ['once', 'One-time'],
-              ['daily', 'Daily'],
-              ['weekly', 'Weekly'],
-              ['monthly', 'Monthly'],
-            ] as const
-          ).map(([k, label]) => (
-            <button
-              key={k}
-              className={cur === k ? 'on' : ''}
-              disabled={saving}
-              onClick={() => direct(k === 'once' ? { op: 'membership', type: 'locked' } : { op: 'membership', type: 'open', refresh: k })}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {flow ? (
+          <>
+            <span className="cv-pop-label" style={{ marginTop: 10 }}>New customers join</span>
+            <div className="cv-seg">
+              {(
+                [
+                  ['daily', 'Daily'],
+                  ['weekly', 'Weekly'],
+                  ['monthly', 'Monthly'],
+                ] as const
+              ).map(([k, label]) => (
+                <button key={k} className={cur === k ? 'on' : ''} disabled={saving} onClick={() => direct({ op: 'membership', type: 'open', refresh: k })}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <span className="cv-pop-label" style={{ marginTop: 10 }}>One-time: the list is fixed at launch.</span>
+        )}
         {m?.type === 'open' && (
           <>
             <span className="cv-pop-label" style={{ marginTop: 10 }}>Stopping rule</span>

@@ -24,6 +24,7 @@ import { gradeInsights, graderSendBack, insightProblems, insightReviewOn, logIns
 import { citationProblems } from './citations';
 import { funnelProblems } from './funnelChecks';
 import { intentBlock, isIntent } from './intent';
+import { isKind, kindOf } from '../../src/designer/v2/kind';
 import { approvalsLine, summarise, syncApprovals } from '../approvals';
 
 /** The bank's approval of each message, for the designer: what is approved, waiting, rejected and why. */
@@ -162,6 +163,15 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
     state = { ...state, campaign: { ...state.campaign, intent: req.intent.intent, ...(req.intent.intent === 'adoption' && req.intent.productId ? { productId: String(req.intent.productId) } : {}) } };
     persistIfChanged(before, state, req.sessionId, req.tenantId ?? '');
   }
+  // Flow or campaign: chosen when it was created, stored once and fixed. Older items take the kind their
+  // membership implies (open = flow, otherwise campaign). The kind decides membership, so that is never a question.
+  if (!isKind(state.campaign.kind)) {
+    const before = state;
+    const kind = isKind(req.intent?.kind) ? req.intent!.kind! : kindOf(state.campaign);
+    const membership = kind === 'flow' ? { type: 'open' as const, refresh: state.campaign.membership?.type === 'open' ? state.campaign.membership.refresh ?? 'weekly' : ('weekly' as const) } : { type: 'locked' as const };
+    state = { ...state, campaign: { ...state.campaign, kind, membership }, flags: { ...state.flags, membershipClear: true } };
+    persistIfChanged(before, state, req.sessionId, req.tenantId ?? '');
+  }
   // What the campaign was when this turn started: a turn that changes it becomes a version.
   const startCampaign = state.campaign;
   const turnStart = new Date().toISOString();
@@ -222,7 +232,7 @@ export async function* agentStream(req: AgentRequest): AsyncGenerator<RunEvent, 
   const availableChannels = channelsFor(tenant);
   const warehouseBank = tenant.warehouse && warehouseAvailable(tenant.warehouse.bank) ? tenant.warehouse.bank : undefined;
   const system = [
-    systemPrompt(!!warehouseBank, !!tenant.incentives),
+    systemPrompt(!!warehouseBank, !!tenant.incentives, kindOf(state.campaign)),
     `# Context\nIssuer: ${tenant.issuer} (synthetic tenant).\n${issuerContext(availableChannels, tenant.templateLibraryAccess === 'synthetic-demo' ? 'synthetic-demo' : 'unavailable')}`,
     `# Knowledge base\n${knowledgeForPrompt(knowledge, tenant.tenantId)}`,
   ].join('\n\n');
